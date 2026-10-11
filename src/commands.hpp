@@ -113,6 +113,8 @@ int mount(int argc, char** args);
 // `export-corpus` -- export-world over every map with --all-assets, then
 // (with --store) store-add of the tree (cmd_store.cpp).
 int exportCorpus(int argc, char** args);
+// `index-tree` -- (re)builds an export tree's index/ lookup tables (corpus_index.hpp).
+int indexTree(int argc, char** args);
 
 // Every struct/addXOptions pair below is the same single-source-of-truth
 // split `ExportOptions`/`addExportOptions` established: the flag surface is

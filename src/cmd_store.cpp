@@ -22,6 +22,7 @@
 
 #include "commands.hpp"
 #include "husk_config.hpp"
+#include "corpus_index.hpp"
 #include "corpus_store.hpp"
 
 namespace fs = std::filesystem;
@@ -462,6 +463,9 @@ int exportCorpus(int argc, char** args) {
         std::vector<char*> argv;
         for (std::string& a : worldArgs) argv.push_back(a.data());
         if (int code = exportWorld(static_cast<int>(argv.size()), argv.data()); code != 0) return code;
+        corpus::IndexResult index = corpus::buildIndex(opts.output);
+        std::cout << "index: " << index.manifests << " model manifests, " << index.creatureDisplays
+                  << " creature displays, " << index.chrModels << " ChrModel links\n";
         if (opts.store.empty()) return 0;
 
         corpus::Store store(fs::absolute(opts.store));
@@ -473,6 +477,23 @@ int exportCorpus(int argc, char** args) {
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: export-corpus: " << e.what() << "\n";
+        return 1;
+    }
+}
+
+int indexTree(int argc, char** args) {
+    CLI::App app{"husk index-tree -- (re)build an export tree's index/ lookup tables", "husk index-tree"};
+    std::string tree;
+    app.add_option("tree", tree, "an export tree (export-world or export-corpus output)")->required();
+    int exitCode = 0;
+    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    try {
+        corpus::IndexResult index = corpus::buildIndex(tree);
+        std::cout << index.manifests << " model manifests, " << index.creatureDisplays << " creature displays, "
+                  << index.chrModels << " ChrModel links\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "husk: index-tree: " << e.what() << "\n";
         return 1;
     }
 }

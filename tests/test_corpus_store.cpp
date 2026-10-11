@@ -8,6 +8,7 @@
 
 #include <thread>
 
+#include "corpus_index.hpp"
 #include "corpus_store.hpp"
 #include "input_log.hpp"
 
@@ -206,4 +207,30 @@ TEST_CASE("corpus store: inputs.log becomes inputs.tsv, last row winning, gone o
     CHECK(r.files == 3);
     CHECK(readText(store.buildDir(r.id) / "inputs.tsv") ==
           "output\tinput\tmd5\n*\tdbfilesclient/x.db2\t" + a + "\nmodels/1.canon.bundle\tm/1.m2\t" + b + "\n");
+}
+
+TEST_CASE("corpus index: displays find their model and preset, ChrModels their model") {
+    fs::path tree = freshDir("index-tree");
+    auto displayRef = [](int row) {
+        return R"({"ref": {"id": {"kind": "db2_row", "table": "CreatureDisplayInfo", "row": )" + std::to_string(row) +
+               "}}}";
+    };
+    writeText(tree / "models" / "5.canon.bundle" / "manifest.json",
+              R"({"format": "husk-bundle", "resources": {"rig": [1, 2, 3]},
+                 "definition": {"customization": {"options": [
+                   {"chr_model": {"id": {"kind": "db2_row", "table": "ChrModel", "row": 45}}},
+                   {"chr_model": {"id": {"kind": "db2_row", "table": "ChrModel", "row": 1}}}]}},
+                 "selection": {"presets": [{"sources": [)" + displayRef(20) + "," + displayRef(7) +
+                  R"(]}, {"sources": [)" + displayRef(9) + "]}]}}");
+    writeText(tree / "models" / "6.canon.bundle" / "manifest.json", R"({"format": "husk-bundle", "selection": {}})");
+
+    corpus::IndexResult r = corpus::buildIndex(tree);
+    CHECK(r.manifests == 2);
+    CHECK(readText(tree / "index" / "creature_displays.tsv") ==
+          "display\tmodel\tpreset\n"
+          "7\tmodels/5.canon.bundle/manifest.json\t0\n"
+          "9\tmodels/5.canon.bundle/manifest.json\t1\n"
+          "20\tmodels/5.canon.bundle/manifest.json\t0\n");
+    CHECK(readText(tree / "index" / "chr_models.tsv") ==
+          "chr_model\tmodel\n1\tmodels/5.canon.bundle/manifest.json\n45\tmodels/5.canon.bundle/manifest.json\n");
 }

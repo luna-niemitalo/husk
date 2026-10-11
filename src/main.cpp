@@ -607,6 +607,7 @@ int main(int argc, char** argv) {
         "  mount <store> <mountpoint>   browse the canonical store as a read-only filesystem\n"
         "  export-corpus <out> [--store DIR [--tag NAME]...]\n"
         "                               every map and every M2/WMO, then optionally store-add\n"
+        "  index-tree <tree>            (re)build an export tree's index/ lookup tables\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -664,6 +665,9 @@ int main(int argc, char** argv) {
     }
     if (command == "store-add") {
         return husk::commands::storeAdd(restArgc, rest);
+    }
+    if (command == "index-tree") {
+        return husk::commands::indexTree(restArgc, rest);
     }
     if (command == "export-corpus") {
         return husk::commands::exportCorpus(restArgc, rest);
