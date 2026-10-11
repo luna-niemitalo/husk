@@ -1011,13 +1011,14 @@ Every tile of every map under `<maps-root>` (one subdirectory per map, as
 `world/maps/` extracts), or only the `--map`s given, in four parallel passes:
 collect what the tiles reference, export each referenced M2 and WMO once
 (`export --bundle-only` in-process; WMOs as `export-wmo` would), export each
-tile, then each map's fog and particulate volumes (`<map>_fogs.wdt`,
-`<map>_mpv.wdt`; `husk export-map-scene <map-dir> <out-dir>` does one map).
+tile, then each map's world document: its tile grid and its fog and
+particulate volumes (`<map>_fogs.wdt`, `<map>_mpv.wdt`; `husk export-map
+<map-dir> <out-dir>` writes one map's, tiles referenced but not exported).
 Output:
 
 ```
 <out-dir>/maps/<map>/<map>_<x>_<y>.bundle/   tile bundles
-<out-dir>/maps/<map>/<map>.scene.bundle/     map-wide fog and particulate volumes, only for maps that have any
+<out-dir>/maps/<map>/<map>.world.bundle/     the map's world document: tile grid, map-wide volumes
 <out-dir>/models/<fdid>.canon.bundle/        one bundle per placed or ground-cover M2
 <out-dir>/textures/<fdid>.dds|.png           ground textures, shared by every tile
 <out-dir>/errors.log                         phase<TAB>item<TAB>message, one line per failure

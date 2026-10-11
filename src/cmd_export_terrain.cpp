@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <limits>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -94,12 +95,13 @@ void addExportTerrainOptions(CLI::App& app, ExportTerrainOptions& opts) {
         ->group("Output");
 }
 
-void addExportMapSceneOptions(CLI::App& app, ExportMapSceneOptions& opts) {
+void addExportMapOptions(CLI::App& app, ExportMapOptions& opts) {
     addConfigOption(app);
-    app.add_option("input", opts.input, "map directory holding <map>_fogs.wdt and/or <map>_mpv.wdt")->required();
+    app.add_option("input", opts.input, "map directory: its root <map>_<x>_<y>.adt tiles, <map>_fogs.wdt, <map>_mpv.wdt")
+        ->required();
     app.add_option("output", opts.output, "bundle directory to write")->required();
     app.add_option("--listfile", opts.listfile,
-                   "community listfile CSV, or 'none': resolves particle textures, names fog models")
+                   "community listfile CSV, or 'none': tile and map FileDataIDs, particle textures, fog models")
         ->group("Resolution");
     app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
@@ -567,6 +569,88 @@ std::vector<WorldTile> findTiles(const std::filesystem::path& mapsRoot, const st
     return tiles;
 }
 
+// The world-frame box a tile's terrain surface and liquids occupy: chunk
+// footprints from their origins, heights from the vertices and liquids.
+std::pair<canon::Vec3, canon::Vec3> terrainBounds(const canon::Terrain& terrain) {
+    canon::Vec2 corner = canon::terrainTileCorner(terrain.tileX, terrain.tileY);
+    constexpr float kFar = std::numeric_limits<float>::max();
+    canon::Vec3 lo{kFar, kFar, kFar};
+    canon::Vec3 hi{-kFar, -kFar, -kFar};
+    auto includeZ = [&](float z) {
+        lo.z = std::min(lo.z, z);
+        hi.z = std::max(hi.z, z);
+    };
+    for (const canon::TerrainChunk& c : terrain.chunks) {
+        // Rows step -X, columns -Y: a chunk spans one chunk_size below its origin.
+        lo.x = std::min(lo.x, corner.x + c.origin.x - canon::kTerrainChunkSize);
+        hi.x = std::max(hi.x, corner.x + c.origin.x);
+        lo.y = std::min(lo.y, corner.y + c.origin.y - canon::kTerrainChunkSize);
+        hi.y = std::max(hi.y, corner.y + c.origin.y);
+        for (float h : c.heights) includeZ(h);
+    }
+    for (const canon::LiquidSurface& l : terrain.liquids) {
+        for (float h : l.heights) includeZ(h);
+    }
+    return {lo, hi};
+}
+
+// IN, critical: a map's world document from its root ADTs and its
+// _fogs.wdt/_mpv.wdt. Each root is read once more, alone (no sidecars), on
+// `jobs` threads, for its bounds; a root that doesn't parse fails the
+// world, a missing volume file leaves the scene empty.
+canon::World loadWorld(const std::filesystem::path& mapDir, const std::vector<WorldTile>& tiles,
+                       const ListfileIndex* listfile, const std::string& listfileRoot, unsigned jobs) {
+    std::string map = mapDir.filename().string();
+    std::filesystem::path wdtPath = mapDir / (map + ".wdt");
+    std::vector<std::filesystem::path> named{wdtPath};
+    for (const WorldTile& t : tiles) named.push_back(t.root);
+    std::unordered_map<std::string, uint32_t> ids;
+    if (listfile && !listfileRoot.empty()) ids = tileFileDataIds(*listfile, listfileRoot, named);
+
+    canon::World world;
+    world.subject = writers::subjectRef(wdtPath, tileFileDataId(ids, listfileRoot, wdtPath));
+    const std::optional<adt::ObjFile> noObj;
+    const std::optional<adt::TexFile> noTex;
+    const adtinput::TextureResolutions noTextures;
+    const adtinput::GroundEffectDefinitions noEffects;
+    const adtinput::GamePathResolutions noPaths;
+    world.cells.resize(tiles.size());
+    std::exception_ptr failure;
+    std::mutex failureMutex;
+    parallelFor(tiles.size(), jobs, [&](size_t i) {
+        const WorldTile& t = tiles[i];
+        try {
+            TileName name = parseTileName(t.root);
+            adt::RootFile root = adt::parseRoot(adt::readFile(t.root));
+            adtinput::TileSources sources{root, noObj, noTex, std::nullopt, name.map, name.x, name.y};
+            canon::Terrain terrain = adtinput::buildCanonTerrain(sources, {noTextures, noEffects, noPaths});
+            auto [lo, hi] = terrainBounds(terrain);
+            world.cells[i] = {name.x, name.y, writers::subjectRef(t.root, tileFileDataId(ids, listfileRoot, t.root)),
+                              lo, hi};
+        } catch (const std::exception& e) {
+            std::lock_guard<std::mutex> lock(failureMutex);
+            if (!failure) failure = std::make_exception_ptr(std::runtime_error(t.root.string() + ": " + e.what()));
+        }
+    });
+    if (failure) std::rethrow_exception(failure);
+    std::optional<canon::MapScene> scene = loadMapScene(mapDir, listfile, listfileRoot);
+    world.scene = scene ? std::move(*scene) : canon::MapScene{canon::Ref{canon::None{}, map, canon::NameSource::Listfile}, {}, {}};
+    return world;
+}
+
+writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
+                                    const std::string& listfilePath) {
+    std::string map = mapDir.filename().string();
+    writers::Provenance out{std::string("husk ") + husk::version(), "wdt", {}};
+    out.sources.push_back({"root adt", "the tile grid and each tile's bounds", true, ""});
+    out.sources.push_back({"_fogs.wdt", "map-wide fog volumes", std::filesystem::exists(mapDir / (map + "_fogs.wdt")), ""});
+    out.sources.push_back({"_mpv.wdt", "map-wide particulate volumes", std::filesystem::exists(mapDir / (map + "_mpv.wdt")),
+                           ""});
+    out.sources.push_back({"listfile", "tile and map FileDataIDs, particle textures, fog shape models",
+                           listfile != nullptr, listfile ? listfilePath : "not given"});
+    return out;
+}
+
 std::string exceptionMessage(std::exception_ptr e) {
     try {
         std::rethrow_exception(e);
@@ -814,11 +898,10 @@ int validateBundle(int argc, char** args) {
     return problems.empty() ? 0 : 1;
 }
 
-int exportMapScene(int argc, char** args) {
-    CLI::App app{"husk export-map-scene -- a map's fog and particulate volumes to a map-scene bundle",
-                 "husk export-map-scene"};
-    ExportMapSceneOptions opts;
-    addExportMapSceneOptions(app, opts);
+int exportMap(int argc, char** args) {
+    CLI::App app{"husk export-map -- one map's world document: tile grid and map-wide volumes", "husk export-map"};
+    ExportMapOptions opts;
+    addExportMapOptions(app, opts);
     int exitCode = 0;
     if (!parseArgs(app, argc, args, exitCode)) return exitCode;
 
@@ -829,21 +912,23 @@ int exportMapScene(int argc, char** args) {
             listfile = loadListfileCached(listfilePath);
             std::cerr << "husk: note: listfile: " << listfile->size() << " rows from " << listfilePath << "\n";
         } else {
-            std::cerr << "husk: note: listfile: none (particle textures stay unresolved, fog models unnamed)\n";
+            std::cerr << "husk: note: listfile: none (tiles and map unidentified, particle textures unresolved)\n";
         }
         std::filesystem::path mapDir = std::filesystem::path(opts.input).lexically_normal();
         if (mapDir.filename().empty()) mapDir = mapDir.parent_path();
-        std::optional<canon::MapScene> scene = loadMapScene(mapDir, listfile.get(), unlessNone(opts.listfileRoot));
-        if (!scene) {
-            std::string map = mapDir.filename().string();
-            throw std::runtime_error("expected " + map + "_fogs.wdt or " + map + "_mpv.wdt in " + mapDir.string() +
-                                     ", found neither");
+        std::string map = mapDir.filename().string();
+        std::vector<WorldTile> tiles = findTiles(mapDir.parent_path(), {map});
+        if (tiles.empty()) {
+            throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() + ", found none");
         }
-        writers::writeMapSceneBundle(*scene, opts.output, "husk dev");
-        std::cout << "wrote " << opts.output << ": " << scene->fogs.size() << " fog volumes, "
-                  << scene->particulateVolumes.size() << " particulate volumes\n";
+        canon::World world = loadWorld(mapDir, tiles, listfile.get(), unlessNone(opts.listfileRoot),
+                                       std::max(1u, std::thread::hardware_concurrency()));
+        writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath),
+                                  std::vector<std::string>(world.cells.size()));
+        std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles, " << world.scene.fogs.size()
+                  << " fog volumes, " << world.scene.particulateVolumes.size() << " particulate volumes\n";
     } catch (const std::exception& e) {
-        std::cerr << "husk: export-map-scene: " << e.what() << "\n";
+        std::cerr << "husk: export-map: " << e.what() << "\n";
         return 1;
     }
     return 0;
@@ -858,8 +943,9 @@ int exportMapScene(int argc, char** args) {
 //      exportOneModel --bundle-only (one shared listfile, no DB2 enrichment),
 //   3. export each tile to maps/<map>/<tile>.bundle, terrain textures shared
 //      under textures/, uris only to outputs that exist.
-//   4. export each map's fog and particulate volumes to
-//      maps/<map>/<map>.scene.bundle, for maps whose sidecars have any.
+//   4. write each map's world document to maps/<map>/<map>.world.bundle:
+//      its tile grid, linking the tile bundles that exist, and its fog and
+//      particulate volumes.
 // Failures are logged to errors.log and never stop the run.
 int exportWorld(int argc, char** args) {
     CLI::App app{"husk export-world -- every ADT tile of every map to a canonical scene", "husk export-world"};
@@ -1118,37 +1204,50 @@ int exportWorld(int argc, char** args) {
             progress.tick();
         });
 
-        // Pass 4: map scenes.
-        std::vector<std::filesystem::path> mapDirs;
-        for (const WorldTile& t : tiles) {
-            if (mapDirs.empty() || mapDirs.back() != t.root.parent_path()) mapDirs.push_back(t.root.parent_path());
-        }
-        std::sort(mapDirs.begin(), mapDirs.end());
-        mapDirs.erase(std::unique(mapDirs.begin(), mapDirs.end()), mapDirs.end());
-        std::atomic<size_t> scenes{0};
+        // Pass 4: worlds.
+        std::map<std::string, std::vector<WorldTile>> tilesByMap;
+        for (const WorldTile& t : tiles) tilesByMap[t.map].push_back(t);
+        std::vector<std::string> maps;
+        for (const auto& [map, _] : tilesByMap) maps.push_back(map);
+        size_t worlds = 0;
         {
-            Progress sceneProgress("map scenes", mapDirs.size());
-            parallelFor(mapDirs.size(), jobs, [&](size_t i) {
-                std::string map = mapDirs[i].filename().string();
-                std::filesystem::path bundle = out / "maps" / map / (map + ".scene.bundle");
+            // One map at a time; loadWorld spreads a map's tiles over the threads.
+            Progress worldProgress("worlds", maps.size());
+            for (size_t i = 0; i < maps.size(); ++i) {
+                std::filesystem::path mapDir = tilesByMap.at(maps[i]).front().root.parent_path();
+                std::filesystem::path bundle = out / "maps" / maps[i] / (maps[i] + ".world.bundle");
                 try {
-                    if (std::filesystem::exists(bundle / "manifest.json")) {
-                        ++scenes;
-                    } else if (std::optional<canon::MapScene> scene =
-                                   loadMapScene(mapDirs[i], listfile.get(), opts.listfileRoot)) {
-                        if (!scene->fogs.empty() || !scene->particulateVolumes.empty()) {
-                            writers::writeMapSceneBundle(*scene, bundle, "husk dev");
-                            ++scenes;
+                    if (!std::filesystem::exists(bundle / "manifest.json")) {
+                        // The grid holds the tiles that exported; a failed one
+                        // is a hole, already in errors.log from pass 3.
+                        std::vector<WorldTile> mapTiles;
+                        std::vector<std::string> tileUris;
+                        for (const WorldTile& t : tilesByMap.at(maps[i])) {
+                            std::string tileBundle = t.root.stem().string() + ".bundle";
+                            if (!std::filesystem::exists(out / "maps" / maps[i] / tileBundle / "manifest.json")) continue;
+                            mapTiles.push_back(t);
+                            tileUris.push_back("../" + tileBundle + "/manifest.json");
                         }
+                        canon::World world = loadWorld(mapDir, mapTiles, listfile.get(), opts.listfileRoot, jobs);
+                        writers::AssetUris shapeUris;
+                        for (const canon::FogVolume& f : world.scene.fogs) {
+                            auto fdid = std::get_if<canon::FileDataId>(&f.model.id);
+                            if (fdid && exportedModels.count(fdid->value)) {
+                                shapeUris.emplace(fdid->value, "../../../models/" + modelBundleName(fdid->value) + "/manifest.json");
+                            }
+                        }
+                        writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile),
+                                                  tileUris, shapeUris);
                     }
+                    ++worlds;
                 } catch (...) {
-                    errors.add("map-scene", mapDirs[i].string(), exceptionMessage(std::current_exception()));
+                    errors.add("world", mapDir.string(), exceptionMessage(std::current_exception()));
                 }
-                sceneProgress.tick();
-            });
+                worldProgress.tick();
+            }
         }
 
-        std::cout << "done: " << tiles.size() << " tiles, " << scenes << " map scenes, " << exportedModels.size()
+        std::cout << "done: " << tiles.size() << " tiles, " << worlds << " worlds, " << exportedModels.size()
                   << " model bundles, "
                   << errors.count() << " errors this run (" << (out / "errors.log").string() << ")" << std::endl;
     } catch (const std::exception& e) {

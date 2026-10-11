@@ -106,12 +106,12 @@
               },
               "bounds_min": {
                 "$ref": "common.schema.json#/definitions/vec3",
-                "description": "Tile bounds minimum, world frame.",
+                "description": "Minimum corner of the box the tile's terrain surface and liquids occupy, world frame.",
                 "x-unit": "yard"
               },
               "bounds_max": {
                 "$ref": "common.schema.json#/definitions/vec3",
-                "description": "Tile bounds maximum, world frame.",
+                "description": "Maximum corner of that box.",
                 "x-unit": "yard"
               }
             },

@@ -86,10 +86,10 @@ int exportTerrain(int argc, char** args);
 // REFACTOR/PLACEMENT_SETS.md).
 int exportWmo(int argc, char** args);
 
-// `export-map-scene` -- a map's _fogs.wdt and _mpv.wdt volumes to one
-// map-scene bundle (cmd_export_terrain.cpp; schema in
-// writers/bundle_writer.hpp's writeMapSceneBundle).
-int exportMapScene(int argc, char** args);
+// `export-map` -- one map's `world` document: its tile grid (tiles
+// referenced, not exported) and its _fogs.wdt/_mpv.wdt volumes
+// (cmd_export_terrain.cpp; writers/bundle_writer.hpp's writeWorldBundle).
+int exportMap(int argc, char** args);
 
 // `validate-bundle` -- checks documents against the embedded schema/
 // (bundle_schema.hpp), and with --lint-schema the schema itself.
@@ -235,13 +235,13 @@ struct ExportWmoOptions {
 };
 void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts);
 
-struct ExportMapSceneOptions {
+struct ExportMapOptions {
     std::string input;
     std::string output;
     std::string listfile;
     std::string listfileRoot;
 };
-void addExportMapSceneOptions(CLI::App& app, ExportMapSceneOptions& opts);
+void addExportMapOptions(CLI::App& app, ExportMapOptions& opts);
 
 struct ValidateBundleOptions {
     std::vector<std::string> paths;

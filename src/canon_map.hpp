@@ -84,4 +84,21 @@ struct MapScene {
     std::vector<MapParticulateVolume> particulateVolumes;
 };
 
+// One present cell of a world's tile grid: the tile, and the world-frame
+// box its terrain surface and liquids occupy (placed objects not included).
+struct WorldCell {
+    uint32_t tileX = 0;  // canon::terrainTileCorner places the tile
+    uint32_t tileY = 0;
+    Ref tile;
+    Vec3 boundsMin;
+    Vec3 boundsMax;
+};
+
+// A map as the root of a place: its tiles and what it places as a whole.
+struct World {
+    Ref subject;  // the map
+    std::vector<WorldCell> cells;
+    MapScene scene;
+};
+
 }  // namespace husk::canon

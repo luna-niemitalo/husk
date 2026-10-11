@@ -95,7 +95,7 @@ bool noneOptOutSupported(const std::string& subName, const std::string& longName
                longName == "--listfile-root";
     }
     if (subName == "export-wmo") return longName == "--listfile" || longName == "--listfile-root";
-    if (subName == "export-map-scene") return longName == "--listfile" || longName == "--listfile-root";
+    if (subName == "export-map") return longName == "--listfile" || longName == "--listfile-root";
     // export-world's --listfile/--listfile-root are required: no off-state.
     if (subName == "export-world") return longName == "--db2-dir" || longName == "--dbd-dir";
     return false;
@@ -350,7 +350,7 @@ struct AllSubcommandOpts {
     husk::commands::ExportTerrainOptions exportTerrainOpts;
     husk::commands::ExportWorldOptions exportWorldOpts;
     husk::commands::ExportWmoOptions exportWmoOpts;
-    husk::commands::ExportMapSceneOptions exportMapSceneOpts;
+    husk::commands::ExportMapOptions exportMapOpts;
     husk::commands::ValidateBundleOptions validateBundleOpts;
 };
 
@@ -400,9 +400,8 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportWmoSub = root.add_subcommand("export-wmo", "export one WMO building to a canonical object bundle");
     husk::commands::addExportWmoOptions(*exportWmoSub, opts.exportWmoOpts);
 
-    CLI::App* exportMapSceneSub =
-        root.add_subcommand("export-map-scene", "export a map's fog and particulate volumes to a map-scene bundle");
-    husk::commands::addExportMapSceneOptions(*exportMapSceneSub, opts.exportMapSceneOpts);
+    CLI::App* exportMapSub = root.add_subcommand("export-map", "export one map's world document: tile grid and map-wide volumes");
+    husk::commands::addExportMapOptions(*exportMapSub, opts.exportMapOpts);
 
     CLI::App* validateBundleSub =
         root.add_subcommand("validate-bundle", "check bundle documents against the format's schema");
@@ -584,8 +583,8 @@ int main(int argc, char** argv) {
         "                               export one ADT tile to a canonical terrain bundle\n"
         "  export-wmo <root.wmo> <out-dir>\n"
         "                               export one WMO building to a canonical object bundle\n"
-        "  export-map-scene <map-dir> <out-dir>\n"
-        "                               export a map's _fogs.wdt/_mpv.wdt volumes to a map-scene bundle\n"
+        "  export-map <map-dir> <out-dir>\n"
+        "                               export one map's world document: tile grid and map-wide volumes\n"
         "  validate-bundle <path>... [--lint-schema]\n"
         "                               check documents against the bundle format's schema\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
@@ -639,8 +638,8 @@ int main(int argc, char** argv) {
     if (command == "export-wmo") {
         return husk::commands::exportWmo(restArgc, rest);
     }
-    if (command == "export-map-scene") {
-        return husk::commands::exportMapScene(restArgc, rest);
+    if (command == "export-map") {
+        return husk::commands::exportMap(restArgc, rest);
     }
     if (command == "validate-bundle") {
         return husk::commands::validateBundle(restArgc, rest);

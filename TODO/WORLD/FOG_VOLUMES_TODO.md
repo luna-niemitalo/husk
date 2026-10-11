@@ -224,8 +224,8 @@ but still metadata, not geometry.
 ## 3. Map-level fog volumes (`.wdt`'s `_fogs` sidecar: `VFOG`/`VFEX`)
 
 **Current state (2026-10-11)**: parsed (`src/wdt_volumes.cpp`) and exported
-as map-scene bundles' `fog_volumes` (`canon::FogVolume`; `husk
-export-map-scene`, `export-world` pass 4). `VFEX`/`VFE2` attach by
+as world documents' `scene.fog_volumes` (`canon::FogVolume`; `husk
+export-map`, `export-world` pass 4). `VFEX`/`VFE2` attach by
 `VFOG.id`; `VFE2`'s colours and mode are typed, both records kept raw.
 Every map in the corpus exports (1,542 fogs, all with `VFEX` and `VFE2`).
 Open: `VFEX` and `VFE2` scalar semantics; fog model shapes are identity
@@ -384,8 +384,8 @@ unclaimed` until then.
 ## 4. Map-level particulate volumes (`.wdt`'s `_mpv` sidecar: `PVPD`/`PVMI`/`PVBD`)
 
 **Current state (2026-10-11)**: parsed (`src/wdt_volumes.cpp`, sharing the
-`MPVD` record parser) and exported as map-scene bundles'
-`particulate_volumes` (`canon::MapParticulateVolume`). All 619 groups in
+`MPVD` record parser) and exported as world documents'
+`scene.ambient_particle_volumes` (`canon::MapParticulateVolume`). All 619 groups in
 48 maps export. Real data overturned the wiki's `PVBD` hedge: its index
 words name child boxes in the same group's `PVBD`, not `PVPD` points (see
 `../../WIKI_FINDINGS/WORLD.md`). Open: what `PVPD` encodes (unit 2D

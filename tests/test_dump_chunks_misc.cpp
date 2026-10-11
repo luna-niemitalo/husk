@@ -510,7 +510,7 @@ TEST_CASE("husk dump-chunks: DETL decodes real corpus half-float constants and i
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("\"DETL\"") != std::string::npos);
     CHECK(result.output.find("\"flags\": 8") != std::string::npos);
-    CHECK(result.output.find("\"scale\": 0.0138855") != std::string::npos);
+    CHECK(result.output.find("\"scale\": 0.013885498") != std::string::npos);
     CHECK(result.output.find("\"diffuse_color_multiplier\": 1") != std::string::npos);
     CHECK(countOccurrences(result.output, "\"flags\"") == 1);  // padding not misread as a 2nd record
 
@@ -686,9 +686,9 @@ TEST_CASE(
     CHECK(countOccurrences(result.output, "\"x\":") >= 40 + 74);  // vertex_positions + face_normals
     // First vertex and last face normal, hand-checked against a fresh
     // dump-chunks run at test-writing time.
-    CHECK(result.output.find("\"x\": 1.46941") != std::string::npos);
-    CHECK(result.output.find("\"y\": 3.99775") != std::string::npos);
-    CHECK(result.output.find("\"z\": 32.2569") != std::string::npos);
+    CHECK(result.output.find("\"x\": 1.4694067") != std::string::npos);
+    CHECK(result.output.find("\"y\": 3.9977477") != std::string::npos);
+    CHECK(result.output.find("\"z\": 32.256924") != std::string::npos);
 }
 
 // The same real fixture PCOL's own regression test uses also happens to
@@ -706,8 +706,8 @@ TEST_CASE(
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("\"DPIV\"") != std::string::npos);
     CHECK(countOccurrences(result.output, "\"field_0\"") == 1);
-    CHECK(result.output.find("2.79845") != std::string::npos);
-    CHECK(result.output.find("22.0376") != std::string::npos);
+    CHECK(result.output.find("2.7984493") != std::string::npos);
+    CHECK(result.output.find("22.037594") != std::string::npos);
 }
 
 // real-data regression coverage for EXP2/PFDC, pulled directly from a live

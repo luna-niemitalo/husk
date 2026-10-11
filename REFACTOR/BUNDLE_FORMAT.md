@@ -574,17 +574,28 @@ expected to be in the source tiles themselves; confirming it byte-for-byte is
 `TODO/WORLD/ADT_TERRAIN_TODO.md`'s open item. Until then a consumer should
 weld tile edges to one side's heights rather than rely on them matching.
 
-## Map scene bundles
+## World documents
 
-**Current**: written by `husk export-map-scene` (one map) and `husk
-export-world` (`maps/<map>/<map>.scene.bundle`, only for maps whose sidecars
-have content). `kind` is `"map_scene"`; the schema is the doc comment on
-`writeMapSceneBundle` in `src/writers/bundle_writer.hpp`. It holds what a map
-places as a whole rather than per tile: `_fogs.wdt` fog volumes and
-`_mpv.wdt` particulate volumes, in the same world frame as terrain tiles
-(verified: every real particulate volume and 1,503/1,542 fogs land on an
-existing tile of their map). A particulate volume carries the same keys as
-a model bundle's `resources.scene.ambient_particle_volumes` entry, plus its world
-bounds, id and `PVPD`/`PVBD` data. Raw records for fields still
-uncharacterized are slices of `map_scene.bin`.
+**Current**: written by `husk export-map` (one map, tiles referenced by
+identity only) and `husk export-world` (`maps/<map>/<map>.world.bundle`,
+every map, linking the tile bundles that exported). `kind` is `"world"`,
+`schema/world.schema.json` defines it; the subject is the map's WDT.
+
+- `grid`: cell (i, j) holds tile (x = i, y = j), its tile model placed by
+  translation at `origin + (i · axis_i + j · axis_j) · cell_size`, which is
+  where the tile's own frame puts its corner vertex. A missing cell is a
+  hole (no tile, or one that failed to export). Neighbours of a cell are
+  the cells next to it; a tile names none. `bounds_min`/`bounds_max` are
+  the world-frame box of the tile's terrain surface and liquids, so a
+  consumer can find the tile under a position without opening tiles.
+  Verified on `azeroth` (1,335 tiles): every footprint matches its cell to
+  0.002 yd.
+- `placements`: placement sets the world places off the grid. Empty today
+  (WDT-level `MODF`, the WMO-only maps, is not read).
+- `scene`: what the map places as a whole, world frame. `fog_volumes`
+  (`_fogs.wdt`) and `ambient_particle_volumes` (`_mpv.wdt`; each carries a
+  model's `resources.scene.ambient_particle_volumes` entry as `volume`,
+  plus world bounds, id and the box tree). Every azeroth fog and particle
+  volume lands on one of its cells. Fields still uncharacterized are under
+  `unresolved`, raw records as slices of `world.bin`.
 

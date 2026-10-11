@@ -1,5 +1,6 @@
 #pragma once
 
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -41,11 +42,20 @@ public:
         prefix();
         // JSON has no NaN/Infinity literal -- emit null and let the
         // reader notice, rather than writing text that isn't valid JSON.
-        if (std::isfinite(v)) {
-            out_ << v;
-        } else {
+        if (!std::isfinite(v)) {
             out_ << "null";
+            pending_ = false;
+            return;
         }
+        // The shortest text that reads back exactly (`<<` kept 6 digits,
+        // 0.03 yd off at world coordinates). A double holding a float value
+        // is written as that float -- 17066.666, not 17066.666015625.
+        char text[32];
+        float asFloat = static_cast<float>(v);
+        std::to_chars_result written = static_cast<double>(asFloat) == v
+                                           ? std::to_chars(text, text + sizeof(text), asFloat)
+                                           : std::to_chars(text, text + sizeof(text), v);
+        out_.write(text, written.ptr - text);
         pending_ = false;
     }
     void value(int64_t v) {

@@ -12,6 +12,7 @@
 #include <unordered_set>
 #include <variant>
 
+#include "canon_terrain.hpp"  // terrainTileCorner, the world grid
 #include "json_writer.hpp"
 #include "writers/bundle_common.hpp"
 #include "writers/writer_common.hpp"
@@ -1192,40 +1193,79 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     manifestFile << manifestStream.str();
 }
 
-void writeMapSceneBundle(const canon::MapScene& scene, const std::filesystem::path& bundleDir,
-                         const std::string& producer) {
-    constexpr const char* kBin = "map_scene.bin";
+void writeWorldBundle(const canon::World& world, const std::filesystem::path& bundleDir, const Provenance& provenance,
+                      const std::vector<std::string>& tileUris, const AssetUris& assetUris) {
+    constexpr const char* kBin = "world.bin";
+    if (tileUris.size() != world.cells.size()) {
+        throw std::runtime_error("world writer: expected one tile uri per cell (" + std::to_string(world.cells.size()) +
+                                 "), got " + std::to_string(tileUris.size()));
+    }
     std::filesystem::create_directories(bundleDir);
     std::vector<uint8_t> bin;
     std::unordered_set<std::string> writtenTextures;
     std::ostringstream text;
     json::Writer w(text);
     w.beginObject();
-    w.key("schema_version");
-    w.value("0.1.0");
-    w.key("exported_at");
-    w.value(isoTimestampUtc());
-    w.key("producer");
-    w.value(producer);
-    w.key("kind");
-    w.value("map_scene");
-    w.key("endianness");
-    w.value("little");
-    w.key("map_scene");
+    writeContractHeader(w, "world", world.subject, provenance);
+    w.key("definition");
     w.beginObject();
-    w.key("map");
-    writeRef(w, scene.map);
+    w.endObject();
+    w.key("selection");
+    w.beginObject();
+    w.endObject();
 
+    // Cell i's tile is reference i.
+    w.key("references");
+    w.beginArray();
+    for (size_t i = 0; i < world.cells.size(); ++i) {
+        w.beginObject();
+        w.key("kind");
+        w.value("model");
+        w.key("asset");
+        writeRef(w, world.cells[i].tile, tileUris[i]);
+        w.endObject();
+    }
+    w.endArray();
+
+    // canon_terrain.hpp's terrainTileCorner, as a grid: tileX steps -Y,
+    // tileY steps -X, cell (0, 0) at the map's north-west corner.
+    canon::Vec2 origin = canon::terrainTileCorner(0, 0);
+    w.key("grid");
+    w.beginObject();
+    writeVec3Field(w, "origin", {origin.x, origin.y, 0});
+    writeFloatField(w, "cell_size", canon::kTerrainTileSize);
+    writeVec3Field(w, "axis_i", {0, -1, 0});
+    writeVec3Field(w, "axis_j", {-1, 0, 0});
+    w.key("cells");
+    w.beginArray();
+    for (size_t i = 0; i < world.cells.size(); ++i) {
+        const canon::WorldCell& cell = world.cells[i];
+        w.beginObject();
+        writeIntField(w, "i", cell.tileX);
+        writeIntField(w, "j", cell.tileY);
+        writeIntField(w, "tile", static_cast<int64_t>(i));
+        writeVec3Field(w, "bounds_min", cell.boundsMin);
+        writeVec3Field(w, "bounds_max", cell.boundsMax);
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+
+    w.key("placements");
+    w.beginArray();
+    w.endArray();
+
+    w.key("scene");
+    w.beginObject();
     w.key("fog_volumes");
     w.beginArray();
-    for (const canon::FogVolume& f : scene.fogs) {
+    for (const canon::FogVolume& f : world.scene.fogs) {
         w.beginObject();
         w.key("ref");
         writeRef(w, f.ref);
         writeIntField(w, "id", f.id);
         writeVec3Field(w, "color", f.color);
         writeFloatArrayField(w, "intensity", f.intensity.data(), f.intensity.size());
-        writeFloatField(w, "unknown18", f.unknown18);
         writeVec3Field(w, "position", f.position);
         w.key("rotation");
         writeQuatValue(w, f.rotation);
@@ -1234,10 +1274,22 @@ void writeMapSceneBundle(const canon::MapScene& scene, const std::filesystem::pa
         w.beginArray();
         for (int32_t period : f.animationPeriods) w.value(static_cast<int64_t>(period));
         w.endArray();
-        writeIntField(w, "flags", f.flags);
-        w.key("model");
-        writeRef(w, f.model);
         writeIntField(w, "fog_level", f.fogLevel);
+        w.key("shape");
+        writeAssetRef(w, f.model, assetUris);
+        writeSourceBlock(w, f.flags, f.origin);
+        w.key("unresolved");
+        w.beginObject();
+        writeFloatField(w, "scalar_18", f.unknown18);
+        if (f.extra) {
+            w.key("extension");
+            w.beginObject();
+            w.key("enabled");
+            w.value(f.extra->enabled);
+            writeVec3Field(w, "extent", f.extra->extent);
+            writeFloatArrayField(w, "parameters", f.extra->parameters.data(), f.extra->parameters.size());
+            w.endObject();
+        }
         if (f.palette) {
             w.key("palette");
             w.beginObject();
@@ -1248,46 +1300,30 @@ void writeMapSceneBundle(const canon::MapScene& scene, const std::filesystem::pa
             writeFloatField(w, "mode", f.palette->mode);
             w.endObject();
         }
-        if (f.extra) {
-            w.key("extra");
-            w.beginObject();
-            w.key("enabled");
-            w.value(f.extra->enabled);
-            writeVec3Field(w, "extent", f.extra->extent);
-            writeFloatArrayField(w, "parameters", f.extra->parameters.data(), f.extra->parameters.size());
-            w.endObject();
-        }
         if (!f.sourceExtra.empty()) {
-            w.key("source_extra");
+            w.key("extension_record");
             writeBufferSlice(w, appendArray(bin, kBin, f.sourceExtra, 1, "u8"));
         }
         if (!f.sourceExtra2.empty()) {
-            w.key("source_extra2");
+            w.key("palette_record");
             writeBufferSlice(w, appendArray(bin, kBin, f.sourceExtra2, 1, "u8"));
         }
+        w.endObject();
         w.endObject();
     }
     w.endArray();
 
-    w.key("particulate_volumes");
+    w.key("ambient_particle_volumes");
     w.beginArray();
-    for (const canon::MapParticulateVolume& v : scene.particulateVolumes) {
+    for (const canon::MapParticulateVolume& v : world.scene.particulateVolumes) {
+        w.beginObject();
+        w.key("volume");
         w.beginObject();
         writeParticulateVolumeFields(w, v.volume, bundleDir, writtenTextures, bin, kBin);
+        w.endObject();
         writeIntField(w, "id", v.id);
         writeVec3Field(w, "bounds_min", v.boundsMin);
         writeVec3Field(w, "bounds_max", v.boundsMax);
-        w.key("points");
-        w.beginArray();
-        for (const canon::MapParticulateVolume::Point& p : v.points) {
-            w.beginObject();
-            const float direction[2] = {p.direction.x, p.direction.y};
-            writeFloatArrayField(w, "direction", direction, 2);
-            writeFloatField(w, "unknown08", p.unknown08);
-            writeFloatField(w, "unknown0c", p.unknown0C);
-            w.endObject();
-        }
-        w.endArray();
         w.key("boxes");
         w.beginArray();
         for (const canon::MapParticulateVolume::Box& b : v.boxes) {
@@ -1298,15 +1334,32 @@ void writeMapSceneBundle(const canon::MapScene& scene, const std::filesystem::pa
             w.beginArray();
             for (uint32_t index : b.children) w.value(static_cast<int64_t>(index));
             w.endArray();
+            w.key("source");
+            w.beginObject();
             writeIntField(w, "complete", b.complete);
+            w.endObject();
+            w.endObject();
+        }
+        w.endArray();
+        w.key("unresolved");
+        w.beginObject();
+        w.key("points");
+        w.beginArray();
+        for (const canon::MapParticulateVolume::Point& pt : v.points) {
+            w.beginObject();
+            w.key("direction");
+            writeVec2Value(w, pt.direction);
+            writeFloatField(w, "value_08", pt.unknown08);
+            writeFloatField(w, "value_0c", pt.unknown0C);
             w.endObject();
         }
         w.endArray();
         w.endObject();
+        w.endObject();
     }
     w.endArray();
-    w.endObject();  // map_scene
-    w.endObject();  // root
+    w.endObject();  // scene
+    w.endObject();
 
     if (!bin.empty()) writeFile(bundleDir / kBin, bin);
     std::string bytes = text.str();

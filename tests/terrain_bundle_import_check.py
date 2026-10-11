@@ -6,7 +6,10 @@
 # bundle_import_check.py). Not the real addon.
 #
 #   blender --background --factory-startup --python terrain_bundle_import_check.py -- \
-#       <tile_bundle_dir>... [--render out.png] [--save out.blend] [--ground-effect-scale 0.5]
+#       <world_bundle_dir> <tile_name>... [--render out.png] [--save out.blend] [--ground-effect-scale 0.5]
+#
+# Tiles are named as the world's references name them (e.g. azeroth_32_49)
+# and placed where its grid puts them; the scene is in the world frame.
 #
 # --render writes out.png (overview) and out_close.png (ground level), EEVEE.
 import json
@@ -59,12 +62,17 @@ def fan(r, c):
 
 
 class Tile:
-    def __init__(self, bundle_dir):
+    def __init__(self, bundle_dir, offset):
+        """`offset` is the world (x, y) of the tile frame's origin: everything
+        read here is shifted into the world frame once."""
         self.dir = bundle_dir
-        self.t = json.load(open(os.path.join(bundle_dir, "manifest.json")))["terrain"]
+        self.m = json.load(open(os.path.join(bundle_dir, "manifest.json")))
+        self.name = self.m["subject"]["name"]
+        self.offset = offset
+        self.t = self.m["resources"]["terrain"]
         ch = self.t["chunks"]
         self.quad = self.t["quad_size"]
-        self.origins = read_slice(bundle_dir, ch["origin"])
+        self.origins = [(x + offset[0], y + offset[1]) for x, y in read_slice(bundle_dir, ch["origin"])]
         self.heights = read_slice(bundle_dir, ch["heights"])
         self.normals = read_slice(bundle_dir, ch["normals"])
         self.holes = read_slice(bundle_dir, ch["hole_rows"])
@@ -120,7 +128,7 @@ def build_terrain(tile):
     for loop in mesh.loops:
         x, y, _ = verts[loop.vertex_index]
         uv_layer.data[loop.index].uv = tile.tile_uv(x, y)
-    obj = bpy.data.objects.new("terrain_%d_%d" % (t["tile_x"], t["tile_y"]), mesh)
+    obj = bpy.data.objects.new("terrain_" + tile.name, mesh)
     bpy.context.collection.objects.link(obj)
     probe("terrain_vertices", len(verts))
     probe("terrain_triangles", len(faces))
@@ -208,14 +216,14 @@ def build_terrain_material(tile, weight_images):
     loaded = []
     for i, tex in enumerate(tile.t["textures"]):
         d = tex["diffuse"]
-        if d.get("texture_state") != "resolved" or "uri" not in d["texture"]:
+        if d["state"] != "resolved" or "payload" not in d:
             continue
         mapping = nt.nodes.new("ShaderNodeMapping")
         repeats = 16 * tex["repeats_per_chunk"]
         mapping.inputs["Scale"].default_value = (repeats, repeats, 1)
         nt.links.new(uv.outputs["UV"], mapping.inputs["Vector"])
         color = nt.nodes.new("ShaderNodeTexImage")
-        color.image = bpy.data.images.load(os.path.join(tile.dir, d["texture"]["uri"]))
+        color.image = bpy.data.images.load(os.path.join(tile.dir, d["payload"]["uri"]))
         # _s terrain textures carry specular in alpha, not coverage.
         color.image.alpha_mode = "CHANNEL_PACKED"
         loaded.append(color.image.size[0] > 0)
@@ -247,23 +255,23 @@ def build_liquids(tile):
     lverts, lfaces = [], []
     below, above = 0, 0
     for l in t["liquids"]:
-        ci = l["chunk_grid_y"] * 16 + l["chunk_grid_x"]
+        ci = l["chunk_row"] * 16 + l["chunk_column"]
         rect = l["quad_rect"]
-        w, h = rect["width"], rect["height"]
+        w, h = rect["columns"], rect["rows"]
         lh = read_slice(tile.dir, l["heights"])
         exists = read_slice(tile.dir, l["quad_exists"])
         base = len(lverts)
         for i in range(h + 1):
             for j in range(w + 1):
-                lverts.append((tile.origins[ci][0] - (rect["y"] + i) * quad,
-                               tile.origins[ci][1] - (rect["x"] + j) * quad, lh[i * (w + 1) + j]))
+                lverts.append((tile.origins[ci][0] - (rect["row"] + i) * quad,
+                               tile.origins[ci][1] - (rect["column"] + j) * quad, lh[i * (w + 1) + j]))
         for i in range(h):
             for j in range(w):
                 if not exists[i * w + j]:
                     continue
                 a = base + i * (w + 1) + j
                 lfaces.append((a, a + w + 1, a + w + 2, a + 1))
-                tz = tile.heights[ci][centre(rect["y"] + i, rect["x"] + j)]
+                tz = tile.heights[ci][centre(rect["row"] + i, rect["column"] + j)]
                 water = sum(lh[k] for k in (a - base, a - base + 1, a - base + w + 1, a - base + w + 2)) / 4
                 if tz <= water:
                     below += 1
@@ -349,17 +357,20 @@ def build_placements(tile, seen):
     near, measured, linked, duplicates, total = 0, 0, 0, 0, 0
     coll = bpy.data.collections.new("placements")
     bpy.context.scene.collection.children.link(coll)
-    for entry in tile.t["placement_sets"]:
-        set_name = entry["ref"]["name"]
-        set_path = os.path.join(tile.dir, entry["ref"]["uri"])
+    for entry in tile.m["definition"]["placement_sets"]:
+        asset = tile.m["references"][entry["reference"]]["asset"]
+        set_name = asset["name"]
+        set_path = os.path.join(tile.dir, asset["uri"])
         set_dir = os.path.dirname(set_path)
-        for p in json.load(open(set_path))["instances"]:
+        set_doc = json.load(open(set_path))
+        for p in set_doc["instances"]:
             total += 1
             if (set_name, p["id"]) in seen:
                 duplicates += 1
                 continue
             seen.add((set_name, p["id"]))
             x, y, z = p["translation"]
+            x, y = x + tile.offset[0], y + tile.offset[1]
             if set_name == "doodads":
                 gy = int((tile.nw[0] - x) // tile.t["chunk_size"])
                 gx = int((tile.nw[1] - y) // tile.t["chunk_size"])
@@ -370,7 +381,7 @@ def build_placements(tile, seen):
                     r, c = min(int(fr), 7), min(int(fc), 7)
                     measured += 1
                     near += abs(tile.height_at(ci, r, c, fr - r, fc - c) - z) < 1.0
-            uri = p["asset"].get("uri")
+            uri = set_doc["references"][p["reference"]]["asset"].get("uri")
             if not uri:
                 continue
             linked += 1
@@ -469,19 +480,36 @@ def render_from(location, target, lens, path):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:]
-    bundle_dirs = []
+    positional = []
     for a in argv:
         if a.startswith("--"):
             break
-        bundle_dirs.append(a)
+        positional.append(a)
+    world_dir, wanted = positional[0], positional[1:]
+    world = json.load(open(os.path.join(world_dir, "manifest.json")))
+    grid = world["grid"]
+    bundle_dirs = []
+    for cell in grid["cells"]:
+        asset = world["references"][cell["tile"]]["asset"]
+        if asset["name"] not in wanted:
+            continue
+        if "uri" not in asset:
+            raise SystemExit("tile %s was not exported (no uri in the world document)" % asset["name"])
+        # origin + (i * axis_i + j * axis_j) * cell_size, per the world schema.
+        offset = tuple(grid["origin"][k] + (cell["i"] * grid["axis_i"][k] + cell["j"] * grid["axis_j"][k])
+                       * grid["cell_size"] for k in range(2))
+        bundle_dirs.append((os.path.dirname(os.path.join(world_dir, asset["uri"])), offset))
+    missing = set(wanted) - {world["references"][c["tile"]]["asset"]["name"] for c in grid["cells"]}
+    if missing:
+        raise SystemExit("not in the world's grid: " + ", ".join(sorted(missing)))
     # Absolute: Blender resolves a bare relative output path against its own idea of the base dir.
     render_path = os.path.abspath(argv[argv.index("--render") + 1]) if "--render" in argv else None
     save_path = os.path.abspath(argv[argv.index("--save") + 1]) if "--save" in argv else None
     ge_scale = float(argv[argv.index("--ground-effect-scale") + 1]) if "--ground-effect-scale" in argv else 0.5
 
     tiles, terrains, seen_placements = [], [], set()
-    for bundle_dir in bundle_dirs:
-        tile = Tile(bundle_dir)
+    for bundle_dir, offset in bundle_dirs:
+        tile = Tile(bundle_dir, offset)
         terrain = build_terrain(tile)
         if tile.layers is not None and tile.t.get("textures"):
             terrain.data.materials.append(build_terrain_material(tile, build_weight_maps(tile)))
