@@ -72,6 +72,8 @@ TEST_CASE("buildMapEffects: fogs are volumetric fog instances by id, their model
     const canon::StyleBlock& style = named.effect->style.at(0).blocks.at(0);
     CHECK(style.volumetricFog->color.x == 0.9f);
     CHECK(style.volumetricFog->minQuality == 1);
+    CHECK(named.effect->priority == canon::Priority::Ambient);
+    CHECK(named.effect->derived.at(0).rule == "fog_level_to_priority");
     CHECK(std::get<std::vector<double>>(field(named, "VFOG radius")->value)[2] == 2.5);
     CHECK(field(named, "VFEX+0x00")->candidateRole == "gate.enabled");
     CHECK(std::get<std::vector<double>>(field(named, "VFEX+0x04")->value)[2] == 200.0);

@@ -346,6 +346,17 @@ canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index) {
             unresolvedFloat("smaller_radius", f.smallerRadius, effect.unresolved);
             unresolvedFloat("larger_radius", f.largerRadius, effect.unresolved);
         }
+        // linear_fog_to_extinction: the classic band [start, end] read as a
+        // medium that is 95% opaque across it (e^-3 ~ 0.05).
+        if (style.distanceFog && style.distanceFog->linear) {
+            const canon::LinearFog& fog = *style.distanceFog->linear;
+            if (fog.end > fog.start) {
+                effect.inputs.push_back({"extinction", {3.0 / (double{fog.end} - fog.start)}});
+                effect.derived.push_back({"inputs.extinction", "linear_fog_to_extinction"});
+            }
+            effect.inputs.push_back({"albedo", {fog.color}});
+            effect.derived.push_back({"inputs.albedo", "fog_color_to_albedo"});
+        }
         effect.style = {{"fog", {style}}};
     }
     if (uint32_t unknown = f.flags & ~kFogExitBlend; unknown != 0) {
@@ -683,6 +694,13 @@ canon::PlacedInstance particulateInstance(const wmo::ParticulateVolume& v, const
     // The particle cap: the shader bounds its simulation threads by it.
     volumeStyle.maxParticles = v.particleCount;
     effect.style = {{"volume", {volumeStyle}, false}, std::move(emitterStyle)};
+    // count_to_spawn_density: the cap spread over the box, for each emitter
+    // (whether the client splits it between emitters is unknown).
+    double volume = double{v.extent[0]} * v.extent[1] * v.extent[2];
+    if (volume > 0) {
+        effect.inputs.push_back({"density", {v.particleCount / volume}});
+        effect.derived.push_back({"inputs.density", "count_to_spawn_density"});
+    }
 
     // Neither the rotation's axis order nor its sign convention is settled
     // (2 of 193 records turn about two axes): carried, not applied.

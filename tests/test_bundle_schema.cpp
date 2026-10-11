@@ -186,6 +186,13 @@ TEST_CASE("bundle_schema: an inline effect's instance is checked against the inp
 
     set = effectSetDocument(glowEffect(), replaced(kGlowInstance, R"("style": {"glow")", R"("style": {"halo")"));
     CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-style", set)), "got 'halo'"));
+
+    set = effectSetDocument(glowEffect(), replaced(kGlowInstance, R"("source":)",
+                                                    R"("provenance": {"inputs.radius": {"kind": "derived", "rule": "r"},
+                                                                      "inputs.size": {"kind": "derived", "rule": "r"}}, "source":)"));
+    std::vector<bundle_schema::Problem> provenance = bundle_schema::validateDocument(writeSet("husk-schema-effect-provenance", set));
+    CHECK(mentions(provenance, "got 'inputs.size'"));
+    CHECK_FALSE(mentions(provenance, "got 'inputs.radius'"));
 }
 
 TEST_CASE("bundle_schema: an effect's bindings name declared inputs, and every input is bound") {

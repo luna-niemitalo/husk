@@ -26,8 +26,15 @@ anchored to their bones (`point` region; `quad`, `mesh_instance` and
 `ribbon` looks; the simulation as `particle_system`/`ribbon_system`
 style) in an inline `effects` set the model owns. Phase 2 is done.
 
-The gate, priority, provenance and the remaining content kinds are not
-in the schema yet; each joins with its first source (Phase 3 on).
+Phase 3 so far: `medium` content and particle `spawn` density, instance
+`priority` and `provenance`, and four rules: `linear_fog_to_extinction`
+and `fog_color_to_albedo` (WMO fog spheres), `fog_level_to_priority`
+(map fogs), `count_to_spawn_density` (particle volumes). Each derived
+value is an optional input or the priority, named in the instance's
+provenance; `validate-bundle` checks every provenance path names a value
+the instance holds. Not yet: `fog_density_to_extinction` (needs
+`LightData`), `additive_to_emission`/`alpha_to_albedo` (M2 particle
+blend ids), the gate.
 
 Source facts are in `../WIKI_FINDINGS/WORLD.md`, open items in
 `../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in

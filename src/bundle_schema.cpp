@@ -655,6 +655,14 @@ struct Validation {
                                          std::to_string(elements) + "), got " + describeValue(style));
                 }
             }
+            for (const auto& [path, _] : instance.value("provenance", json::object()).items()) {
+                const json* at = &instance;
+                std::stringstream steps(path);
+                for (std::string step; at && std::getline(steps, step, '.');) {
+                    at = at->is_object() && at->contains(step) ? &(*at)[step] : nullptr;
+                }
+                if (!at) checker.fail(pointer + "/provenance", "expected provenance for a value the instance holds, got '" + path + "'");
+            }
             if ((*effect)["definition"].value("status", "") == "placeholder" && warnings) {
                 std::string name = (*effect)["subject"]["name"];
                 warnings->push_back({checker.file.string() + "#" + checker.prefix + pointer,

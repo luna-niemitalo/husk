@@ -94,9 +94,22 @@ struct UnresolvedField {
 
 // What makes a placement-set instance an effect instance. The instance's
 // `asset` names the effect (its document's stem).
+// What a renderer thins first within its budget.
+enum class Priority { Essential, Ambient, Decorative };
+
+// A value husk computed rather than read: where it is in the instance
+// ("inputs.extinction", "priority") and the rule that made it
+// (REFACTOR/EFFECTS.md "Derivation rules").
+struct Derived {
+    std::string path;
+    std::string rule;
+};
+
 struct EffectPlacement {
     std::vector<NamedInput> inputs;
     std::vector<SourceStyle> style;
+    std::optional<Priority> priority;
+    std::vector<Derived> derived;
     std::vector<UnresolvedField> unresolved;
     SourceRecord origin;
 };

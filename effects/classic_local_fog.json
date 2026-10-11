@@ -13,6 +13,17 @@
         "unit": "yard",
         "optional": true,
         "description": "Radius where the fog has faded out; absent when the source's radius is not a number."
+      },
+      "extinction": {
+        "kind": "number",
+        "unit": "1/yard",
+        "optional": true,
+        "description": "Derived (linear_fog_to_extinction): 3 / (end - start) of the classic linear fog, so the band reaches 95% opacity."
+      },
+      "albedo": {
+        "kind": "color",
+        "optional": true,
+        "description": "Derived (fog_color_to_albedo): the classic fog colour."
       }
     }
   },
@@ -23,9 +34,27 @@
       "id": "fog",
       "region": {
         "kind": "sphere",
-        "center": [0, 0, 0],
-        "inner_radius": {"input": "inner_radius"},
-        "outer_radius": {"input": "outer_radius"}
+        "center": [
+          0,
+          0,
+          0
+        ],
+        "inner_radius": {
+          "input": "inner_radius"
+        },
+        "outer_radius": {
+          "input": "outer_radius"
+        }
+      },
+      "content": {
+        "kind": "medium",
+        "extinction": {
+          "input": "extinction"
+        },
+        "albedo": {
+          "input": "albedo"
+        },
+        "hold": "pinned"
       }
     }
   ]

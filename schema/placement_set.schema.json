@@ -144,6 +144,14 @@
             "$ref": "common.schema.json#/definitions/style",
             "description": "A placed effect's classic look."
           },
+          "priority": {
+            "$ref": "common.schema.json#/definitions/priority",
+            "description": "A placed effect's priority; absent: not stated."
+          },
+          "provenance": {
+            "$ref": "common.schema.json#/definitions/provenance_fields",
+            "description": "A placed effect's derived or authored values."
+          },
           "unresolved": {
             "$ref": "common.schema.json#/definitions/unresolved",
             "description": "A placed effect's source values whose meaning is not known yet."

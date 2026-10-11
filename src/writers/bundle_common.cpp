@@ -504,6 +504,28 @@ void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& ef
         }
         w.endObject();
     }
+    if (effect.priority) {
+        w.key("priority");
+        switch (*effect.priority) {
+            case canon::Priority::Essential: w.value("essential"); break;
+            case canon::Priority::Ambient: w.value("ambient"); break;
+            case canon::Priority::Decorative: w.value("decorative"); break;
+        }
+    }
+    if (!effect.derived.empty()) {
+        w.key("provenance");
+        w.beginObject();
+        for (const canon::Derived& d : effect.derived) {
+            w.key(d.path);
+            w.beginObject();
+            w.key("kind");
+            w.value("derived");
+            w.key("rule");
+            w.value(d.rule);
+            w.endObject();
+        }
+        w.endObject();
+    }
     if (!effect.unresolved.empty()) {
         w.key("unresolved");
         writeUnresolved(w, effect.unresolved);

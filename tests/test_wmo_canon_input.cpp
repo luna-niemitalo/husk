@@ -427,6 +427,10 @@ TEST_CASE("buildCanonWmo: MPVD records become particulate effect instances with 
     const canon::EffectPlacement& effect = *out.effect;
     CHECK(effect.origin.table == "MPVD");
     CHECK(std::get<canon::Vec3>(effect.inputs.at(0).value.value).z == 9.0f);
+    // Derived: the 500-particle cap over the 7 x 8 x 9 box.
+    CHECK(effect.inputs.at(2).name == "density");
+    CHECK(std::get<double>(effect.inputs.at(2).value.value) == doctest::Approx(500.0 / 504.0));
+    CHECK(effect.derived.at(0).rule == "count_to_spawn_density");
     const auto& emitters = std::get<std::vector<canon::InputValue>>(effect.inputs.at(1).value.value);
     REQUIRE(emitters.size() == 2);
     const auto& dustInput = std::get<std::vector<canon::NamedInput>>(emitters[0].value);
@@ -732,9 +736,16 @@ TEST_CASE("buildCanonWmo: MFOG fogs become effect instances in the set they appl
     const canon::PlacedInstance* local = instanceById(model, model.mesh.parts[0].fogs[0]);
     REQUIRE(local);
     CHECK(local->asset.name == "classic_local_fog");
-    REQUIRE(local->effect->inputs.size() == 2);
+    REQUIRE(local->effect->inputs.size() == 4);
     CHECK(local->effect->inputs[0].name == "inner_radius");
     CHECK(std::get<double>(local->effect->inputs[1].value.value) == 8.0);
+    // Derived: 3 / (end 40 - start 20), and the fog colour as albedo.
+    CHECK(local->effect->inputs[2].name == "extinction");
+    CHECK(std::get<double>(local->effect->inputs[2].value.value) == doctest::Approx(0.15));
+    CHECK(std::get<canon::Vec3>(local->effect->inputs[3].value.value).x == doctest::Approx(0x33 / 255.0));
+    REQUIRE(local->effect->derived.size() == 2);
+    CHECK(local->effect->derived[0].path == "inputs.extinction");
+    CHECK(local->effect->derived[0].rule == "linear_fog_to_extinction");
     const canon::StyleBlock& style = local->effect->style.at(0).blocks.at(0);
     // start = end * startScalar; BGRA bytes 99 66 33 7F -> RGB 0x33 0x66 0x99.
     CHECK(style.distanceFog->linear->start == 20.0f);

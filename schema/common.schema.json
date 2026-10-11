@@ -1134,6 +1134,39 @@
       "oneOf": [
         {
           "type": "object",
+          "description": "A participating medium: what light passing through it loses and scatters.",
+          "properties": {
+            "kind": {
+              "const": "medium",
+              "description": "Content kind."
+            },
+            "extinction": {
+              "$ref": "#/definitions/bound_number",
+              "description": "Fraction of light lost per unit length.",
+              "x-unit": "1/yard"
+            },
+            "albedo": {
+              "$ref": "#/definitions/bound_vec3",
+              "description": "Share of the lost light scattered rather than absorbed, linear RGB.",
+              "x-unit": "1"
+            },
+            "hold": {
+              "enum": [
+                "pinned",
+                "base",
+                "seed"
+              ],
+              "description": "How a simulation treats the stated values: pinned exactly, relaxed back toward as a base, or only started from as a seed."
+            }
+          },
+          "required": [
+            "kind",
+            "hold"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
           "description": "Particles.",
           "properties": {
             "kind": {
@@ -1143,6 +1176,21 @@
             "look": {
               "$ref": "#/definitions/particle_look",
               "description": "How one particle looks."
+            },
+            "spawn": {
+              "type": "object",
+              "description": "How many particles the source holds; absent: not stated.",
+              "properties": {
+                "density": {
+                  "$ref": "#/definitions/bound_number",
+                  "description": "Particles per unit volume of the region.",
+                  "x-unit": "1/yard^3"
+                }
+              },
+              "required": [
+                "density"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [
@@ -1922,6 +1970,38 @@
         "tumble_min",
         "tumble_max"
       ]
+    },
+    "priority": {
+      "enum": [
+        "essential",
+        "ambient",
+        "decorative"
+      ],
+      "description": "What a renderer thins first within its budget: decorative, then ambient; essential stays."
+    },
+    "provenance_fields": {
+      "type": "object",
+      "description": "How an instance's values were obtained, by path within the instance (\"inputs.extinction\", \"priority\"). A path not listed was read from the source.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "enum": [
+              "derived",
+              "authored"
+            ],
+            "description": "Computed by husk by a named rule, or written by a person."
+          },
+          "rule": {
+            "type": "string",
+            "description": "The derivation rule's name (REFACTOR/EFFECTS.md); a consumer can ignore everything one rule produced."
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      }
     }
   }
 }

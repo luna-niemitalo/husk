@@ -320,8 +320,10 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   every M2 particle/ribbon emitter (bone-anchored, in an inline effects
   set), is on it as a placeholder effect (literal tier, Phase 2 done);
   `validate-bundle` warns on placeholders and `--release` fails.
-  **Next**: Phase 3 (derived world content: extinction, priority,
-  emission), `LightData` zone fog, then classification before 1.0. Effect documents are written per
+  Phase 3 started (four derivation rules, provenance on instances).
+  **Next**: `LightData` zone fog (Phase 4, and with it
+  `fog_density_to_extinction`), M2 particle light roles, then
+  classification before 1.0. Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
   yet. The format is at schema_version 0.1.0.
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,

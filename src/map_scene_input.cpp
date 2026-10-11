@@ -52,6 +52,13 @@ canon::PlacedInstance fogInstance(const MapSceneInputs& in, const wdt::Fog& f, u
     canon::StyleBlock style;
     style.volumetricFog = canon::StyleBlock::VolumetricFog{toCanon(f.color), f.fogLevel};
     effect.style = {{"fog", {style}}};
+    // fog_level_to_priority: the lowest fog quality the classic client drew
+    // it at, as what a renderer may thin first.
+    if (f.fogLevel <= 2) {
+        effect.priority = std::array{canon::Priority::Essential, canon::Priority::Ambient,
+                                     canon::Priority::Decorative}[f.fogLevel];
+        effect.derived.push_back({"priority", "fog_level_to_priority"});
+    }
 
     Unresolved& u = effect.unresolved;
     if (f.modelFileDataId == 0) {

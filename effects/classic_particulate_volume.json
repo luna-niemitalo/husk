@@ -32,6 +32,12 @@
             }
           }
         }
+      },
+      "density": {
+        "kind": "number",
+        "unit": "1/yard^3",
+        "optional": true,
+        "description": "Derived (count_to_spawn_density): the classic particle cap over the volume's box, per emitter."
       }
     }
   },
@@ -42,8 +48,14 @@
       "id": "volume",
       "region": {
         "kind": "box",
-        "center": [0, 0, 0],
-        "size": {"input": "size"}
+        "center": [
+          0,
+          0,
+          0
+        ],
+        "size": {
+          "input": "size"
+        }
       }
     },
     {
@@ -54,10 +66,23 @@
         "kind": "particles",
         "look": {
           "kind": "quad",
-          "image": {"each": "texture"},
-          "tiles_x": {"each": "tiles_x"},
-          "tiles_y": {"each": "tiles_y"},
-          "frames": {"each": "frames"}
+          "image": {
+            "each": "texture"
+          },
+          "tiles_x": {
+            "each": "tiles_x"
+          },
+          "tiles_y": {
+            "each": "tiles_y"
+          },
+          "frames": {
+            "each": "frames"
+          }
+        },
+        "spawn": {
+          "density": {
+            "input": "density"
+          }
         }
       }
     }
