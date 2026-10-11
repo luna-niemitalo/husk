@@ -5,73 +5,25 @@ remains the authority on why today's code is shaped the way it is; this is
 where the shape it's moving toward lives, kept separate on purpose
 (`READABILITY.md` §3.10 — current and target never blurred).
 
-**Status (2026-09-15): Stages 1-2 are landed, Stage 3 is deep in progress but
-not feature-complete, Stage 4 has two working writers with nothing wired to
-call them yet, Stages 5-6 are not started.** `src/sources/` is real —
-`Catalog`/`Resolved<T>`/`TextureCatalog`/`ListfileCatalog` (`catalog.{hpp,cpp}`
-+ siblings, ~2200 lines) collapse the texture-resolution tiers `AUDIT.md §1.1`
-catalogued, and `husk resolve` (`src/cmd_resolve.cpp`) exposes it as a
-machine-readable ledger that corpus-scan tasks now consume instead of
-re-implementing resolution. `TEXTURE_POOL_RECALL_TODO.md` (steps 1/2/3/5) and
-a listfile-perf detour (`listfile_mmap_index`/`listfile_cache`) landed in the
-same window. `src/m2_model.hpp`'s `m2::Model` is the landed Stage 2
-aggregate. Stage 3's `canon::` types (`Skeleton`, `Mesh`/`Geoset`, `Material`,
-`Curve`, `Physics`, `Definition`, `Selection`, `Item`, and the `Model`
-composition root) are all implemented as pure value types with real assembly
-functions, each convergence-tested against the legacy pipeline on real
-fixtures — `canon::` itself is now format-agnostic top to bottom (I1: no
-`m2::`/`skin::` type anywhere in `namespace husk::canon`, including its own
-`Vec2`/`Vec3`/`Quat` — the M2-consuming assembly logic lives in the sibling
-`husk::m2input` module instead), and **every named gap in `AUDIT.md` §7 is
-now closed**: material identity + dedup (`canon::Model::materials` matches
-legacy's own deduped count exactly, 8/8 on the real `bloodelffemale.m2`
-fixture), global-sequence/alias animation resolution, external-`.anim`
-resolution (both inline-bones and `.skel`-sourced), and — the last and
-biggest blocker — real `.skel`-sourced coverage (`m2input::
-ExternalSkeletonSource`, closing what had been zero real `--export-canon`
-coverage for the majority-case player-character models). Texture resolution
-is verified end to end against real, resolved-to-real-bytes CASC data (not
-just structurally): `compareMaterialBlendModes` now checks resolved texture
-identity against legacy's own `baseColorTextureFileDataId` too, not just
-blend mode, and comes back clean. `canon::Model` is not yet formally declared
-a like-for-like replacement — no full structural pre/post diff has been run
-across the whole real fixture set the way `AUDIT.md §7`'s own preamble
-frames as Stage 3's actual gate — but every concretely-named coverage gap
-found while building `--export-canon` is closed and verified clean
-(`bloodelffemale.m2` inline-bones and `bloodelffemale_hd.m2` `.skel`-sourced,
-both 0 deviations across mesh/skeleton/animations/materials). The broader
-whole-corpus structural gate hasn't formally run yet, but the real visual
-(rendered) check now has automated tooling behind it (2026-09-15,
-`tools/render_lean_glb.py` + `tools/compare_canon_render.py`: renders a
-`--export-canon` pair's legacy `.glb` and `.canon.glb` through the same
-extras-blind headless-Blender importer at a forced literal rest pose
-— `pose_position = 'REST'`, robust against NLA-track pose leakage, not just
-clearing `.action` — and pixel-diffs the two stills) — see `AUDIT.md §7.4`
-for what it found on first real use. Stage 4 has two real, independently
-tested writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`),
-but nothing in `cmd_export.cpp` calls either of them — `husk export
---export-canon` (opt-in, off by default) runs them as a diagnostic sidecar
-alongside the still-shipping legacy pipeline, not a replacement for it.
-Texture payload embedding — found missing by the render-diff tool's first
-real run, then closed the same day (`AUDIT.md §7.4`): `canon::TextureRef`
-gained an optional `payload` field (bytes + encoding, populated only when
-a producer chooses to fetch and embed rather than merely identify a
-resolved texture — `BUNDLE_FORMAT.md`'s "Embed or reference" decision,
-made at resolution time, same place as every other pre-resolved-input
-pattern here) and both writers now use it: `gltf_lean` embeds a real
-`images`/`textures` entry and sets `baseColorTexture`; `bundle_writer`
-writes a real `textures/<name>.png` file with a real manifest `uri`,
-matching `BUNDLE_FORMAT.md`'s own shape sketch for the first time. Only
-`Png` is reachable through the catalog today (intake still decodes BLP
-before canon:: sees the bytes) — but the real block-preserving decoder
-`BUNDLE_FORMAT.md`'s settled DDS target needs turned out to already exist
-(`src/blp.hpp`/`.cpp`, independent of the separate Python `blp/` tool):
-`blp::extractRawPayload`/`blp::encodeDds` (`AUDIT.md §7.4`, closed the
-same day) return real mip0 bytes verbatim and wrap them in a real,
-standard DDS container, verified against a real 512×512 fixture and a
-real independent public reader (Pillow). Not yet wired into
-`sources::Catalog`/the export pipeline itself — that's the remaining,
-separate step.
+**Status (2026-10-12).** The canonical bundle is the export target
+(MantleCore consumes it); glTF is being deprecated (Luna, 2026-10-12:
+decided, not built).
+
+| Stage | State | Open |
+|---|---|---|
+| 1–2. parsing, resolution | Built: `m2::Model`, `sources::Catalog`, `husk resolve` | The attributed before/after diff on the four fixtures is not recorded |
+| 3. `canon::` | Built and format-free in its assembly (`m2input::`, `m2_*_input.*` hold the M2 side) | `canon_diff.*` and `canon_policy.*` still sit in `husk::canon` taking `m2::`/`skin::` types; the whole-corpus structural gate against the legacy pipeline never ran |
+| 4. writers | The bundle writer is the output of `export --bundle-only`, `export-terrain`, `export-wmo`, `export-map`, `export-world` and `export-corpus`; five document kinds defined by `schema/` and checked by `validate-bundle`; textures DDS in a shared store | `husk export` still writes the legacy `.glb` by default: making the bundle the default and retiring the glTF pipeline is the next structural step |
+| 5. Blender addon | `tests/bundle_import_check.py` reads mesh, skeleton and base-colour materials | The packaged addon; options, presets, material documents, animation, geosets |
+| 6. CLI, structured output, corpus tasks | Grouped options and generated completions/flag tables for the newer commands; one argument parser and one `--config` for all | Most `tools/corpus_scan_tasks/` still parse text; the input/output module registry stays deferred until a second format exists |
+
+Format work since the September plan, each with its own document: placement
+sets (`PLACEMENT_SETS.md`), effects (`EFFECTS.md`, Phases 2–4; classification
+open), creature options and presets and character customization
+(`BUNDLE_FORMAT.md` "Options and presets"), material documents
+(`MATERIALS.md`), and the corpus store with its mount (`CORPUS_EXPORT.md`).
+The format is at schema_version 0.1.0 until effects are classified.
+
 `src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
 (as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never
 materialized — a cosmetic deviation from this document's original sketch, not
@@ -290,9 +242,11 @@ drifting implementations into one exposes *why* things look wrong today.
 | `RESOURCE_CATALOG.md` | Stage 2 — the one resolution boundary object, and the excavation escape hatch | Independent; carries a reopened design question (persisted cross-patch reference-integrity index) — needs a decision, see Blockers below |
 | `CANONICAL_MODEL.md` | Stage 3 — the semantic model, built pure | Independent to design; the migration itself is the expensive stage |
 | `BUNDLE_FORMAT.md` | The native husk bundle + manifest schema; glTF's demoted role | Independent; carries a reopened design question (physical storage shape at corpus scale) — needs a decision, see Blockers below |
-| `PLACEMENT_SETS.md` | Generic placement sets (WMO furniture, terrain placements, housing layouts) and the WMO bundle as their first user; invariants that keep runtime-movable objects possible | Agreed 2026-10-09, not implemented |
-| `EFFECTS.md` | Fog, volumes and particles in the canonical format: effects as behaviours with inputs, instances that place them, world content vs classic style, a literal tier now and per-item classification later, an evidence ladder for unknown fields, and the implementation plan | Proposed 2026-10-11, not built |
-| `CORPUS_EXPORT.md` | A full canonical export of a game build: the tree, a content-addressed store versioned like casc-tool's (`/media/luna/work/canonical_storage`), mounted by `husk mount` at `/media/luna/canonical_export` | Proposed 2026-10-11, not built |
+| `PLACEMENT_SETS.md` | Generic placement sets (WMO furniture, terrain placements, housing layouts) and the WMO bundle as their first user; invariants that keep runtime-movable objects possible | Built |
+| `EFFECTS.md` | Fog, volumes and particles in the canonical format: effects as behaviours with inputs, instances that place them, world content vs classic style, a literal tier now and per-item classification later, an evidence ladder for unknown fields, and the implementation plan | Phases 2–4 built; Phase 5 classification open |
+| `CORPUS_EXPORT.md` | A full canonical export of a game build: the tree, a content-addressed store versioned like casc-tool's (`/media/luna/work/canonical_storage`), mounted by `husk mount` at `/media/luna/canonical_export` | Built; first full run in progress |
+| `MATERIALS.md` | Material documents: surface layers and composite textures with named blend functions; character skin composites first | Slice 1 built |
+| `MANTLECORE_MIGRATION.md` | What MantleCore must change to read the current format | Scratch; delete once MantleCore has migrated |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
 

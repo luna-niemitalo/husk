@@ -30,7 +30,10 @@ display".
 7. **Geoset rule** is wow.export's, not checked against the client.
 8. **Character animation size**: `humanmale_hd`'s `resources.rig` is
    94 MB of its 123 MB manifest (character models never reached the
-   bundle before the SKID skeleton fix).
+   bundle before the SKID skeleton fix). Direction (Luna, 2026-10-12): a
+   skeleton and its animation become a shared resource, their own bundle
+   or a binary like meshes and textures, referenced by every model using
+   it.
 9. **Display fields not carried**: `ObjectEffectPackageID`,
    `StateSpellVisualKitID`, `AnimReplacementSetID`, `SizeClass`,
    `DissolveEffectID`, `MountPoofSpellVisualKitID`.

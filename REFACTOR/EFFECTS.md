@@ -602,6 +602,8 @@ emitter float semantics, `VFOG` density.
   report (Luna, 2026-10-11). Nothing ships on a placeholder at 1.0.
 - No screenshot verification (Luna, 2026-10-11: too much manual work). A
   wrong classification shows up in MantleCore's render.
+- Classify what the evidence settles; a group that stays genuinely
+  ambiguous is listed for Luna to decide, not guessed (Luna, 2026-10-12).
 
 **Phase 6: research, as candidates.**
 - `VFE2` against `LightData` distributions.
