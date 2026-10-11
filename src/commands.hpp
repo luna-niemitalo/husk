@@ -233,6 +233,8 @@ struct ExportWmoOptions {
     std::string output;
     std::string listfile;
     std::string listfileRoot;
+    std::string db2Dir;
+    std::string dbdDir;
     std::string modelsDir;
 };
 void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts);

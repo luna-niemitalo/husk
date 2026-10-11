@@ -8,6 +8,7 @@
 #include "adt.hpp"
 #include "canon_terrain.hpp"
 #include "groundeffect_db2.hpp"
+#include "liquid_db2.hpp"
 
 // husk::adtinput: ADT -> canon::Terrain, the ADT counterpart of
 // m2_canon_input.hpp. Every on-disk convention is resolved here and nowhere
@@ -43,6 +44,7 @@ struct Resolutions {
     const TextureResolutions& textures;
     const GroundEffectDefinitions& groundEffects;
     const GamePathResolutions& gamePaths;
+    const liquiddb::Data* liquids = nullptr;  // nullptr: liquid types and objects are identities only
 };
 
 canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& resolutions);
@@ -56,6 +58,11 @@ canon::PlacementSet buildGlobalMapObjects(const adt::WdtFile& wdt, const GamePat
 // each MTEX path `gamePaths` resolves -- deduplicated, in first-seen order:
 // what a caller resolves into `Resolutions::textures` before building.
 std::vector<uint32_t> textureFileDataIds(const adt::TexFile& tex, const GamePathResolutions& gamePaths);
+
+// Every LiquidType row the tile's MH2O instances name, in first-seen order:
+// with liquidinput::textureFileDataIds, the liquid textures a caller
+// resolves into `Resolutions::textures`.
+std::vector<uint32_t> liquidTypeRows(const adt::RootFile& root);
 
 // GroundEffectTexture rows joined to their GroundEffectDoodad models, as the
 // rules `Resolutions::groundEffects` carries. A slot whose doodad row is

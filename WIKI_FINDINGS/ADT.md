@@ -47,6 +47,25 @@ real tiles from the local corpus. The code that relies on each one is
   all real data.
 - `MH2O` instance rects are always the full 8×8 (38,236/38,236), including
   instances with `liquid_object_or_lvf` < 42.
+- Liquid DB2s against `MH2O` (12.1.0, seeded 4,000 root tiles, 362,578
+  instances, 2026-10-11):
+  - `LiquidObject` 42 is not a row (the table's IDs start at 57), yet 343,065
+    instances use it; another 14,343 use object IDs ≥ 42 the table lacks.
+    That matches the wiki's `RegisterLiquidObject` note (42 and absent ids
+    are objects the client builds). Where the row exists, its
+    `LiquidTypeID` always equals the instance's `liquid_type`.
+  - Byte-gap layout inference agrees with `LiquidType` → `LiquidMaterial.LVF`
+    on every instance but one kind: `LiquidType` 2 (Ocean), whose material
+    says LVF 0 while all 91,688 store depth-only (LVF 2) data. The data, not
+    the material, gives the layout.
+  - `LiquidMaterial` has 5 rows (1, 2, 8, 10, 13); `LiquidType` names 11
+    materials (3, 4, 5, 12, 14, 18 missing; 1,087 sampled instances use one).
+  - `LiquidTypeXTexture` lists a type's texture slots back to back: slot k
+    takes max(`FrameCountTexture[k]`, 1) rows (`OrderIndex` contiguous), and
+    the slots end where the rows do: exact for all 197 types. `Type` is -1
+    for a file, 0 to 2 for a texture the client generates (`FileDataID` 0).
+  - `LiquidObject.FlowDirection` ranges 0–359 (degrees); `FlowSpeed` −1 to 7.
+  - 210 of the 576 liquid texture files are BLP BC5 (`preferredFormat` 11).
 - `GroundEffectTexture.DoodadWeight<8>[4]` are small integers. Of the
   2,665 rows with a doodad (12.1.0), 1,696 sum to 100, 626 to 4 and 228 to
   16, so a row's weights are relative and not normalized to one total.

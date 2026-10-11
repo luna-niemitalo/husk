@@ -96,6 +96,7 @@ struct Model {
     };
     std::vector<OwnedSet> placementSets;
     std::vector<LiquidGrid> liquids;
+    std::vector<LiquidType> liquidTypes;  // each type `liquids` name, once, first-seen order
     CollisionMesh collision;  // empty = the model has none (M2 only)
 };
 

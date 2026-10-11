@@ -69,12 +69,17 @@ Open:
 Read by `src/adt.cpp` (`parseMh2o`, all four vertex layouts, inferred from
 block gaps without DB2s) and exported as `liquids` by `husk export-terrain`;
 verified facts in `../../WIKI_FINDINGS/ADT.md`. 67.1% of root tiles carry
-it (2,683/4,000 sampled). Open:
+it (2,683/4,000 sampled). With `--db2-dir`/`--dbd-dir`, terrain and WMO
+documents list each named liquid type (`resources.liquid_types`: name,
+material, texture slots with resolved frames) and terrain its liquid
+objects (flow, fishable). The layout inference was checked against the DB2s
+(WIKI_FINDINGS/ADT.md). Open:
 
-- `LiquidType`/`LiquidObject` rows are bare `Db2Row` identities; resolving
-  them (material, flow, whether `liquid_object_or_lvf` < 42 instances need a
-  `LiquidMaterial` lookup to confirm their layout) needs the liquid DB2s.
 - `MH2O.offset_attributes` (per-chunk fishable/deep masks) is not read.
+- Which texture slot a liquid shader samples for what (diffuse, normal,
+  foam, ...) depends on the material and is not resolved; slots are
+  carried in `LiquidType` order.
+- The 6 `LiquidMaterial` rows the table lacks (3, 4, 5, 12, 14, 18).
 
 ## 3. ADT legacy liquid (`MCLQ`, pre-Cata)
 

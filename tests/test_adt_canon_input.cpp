@@ -199,6 +199,16 @@ TEST_CASE("adtinput: liquid surfaces keep their rect and record where their heig
     REQUIRE(textured.uv.has_value());
     CHECK((*textured.uv)[0].x == 2.0f);
     CHECK((*textured.uv)[0].y == 1.0f);
+
+    // Without the liquid DB2s, each named type and object once, identity only.
+    REQUIRE(t.liquidTypes.size() == 3);
+    CHECK(std::get<canon::Db2Row>(t.liquidTypes[0].ref.id).row == 5);
+    CHECK(std::get<canon::Db2Row>(t.liquidTypes[1].ref.id).row == 2);
+    CHECK(std::get<canon::Db2Row>(t.liquidTypes[2].ref.id).row == 1);
+    CHECK_FALSE(t.liquidTypes[0].flags.has_value());
+    REQUIRE(t.liquidObjects.size() == 1);
+    CHECK(std::get<canon::Db2Row>(t.liquidObjects[0].ref.id).row == 100);
+    CHECK_FALSE(t.liquidObjects[0].row.has_value());
 }
 
 TEST_CASE("adtinput: MDDF position maps (map-corner-relative, height, ...) onto X north, Y west, Z up, "

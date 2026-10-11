@@ -136,7 +136,12 @@ Renamed to row/column. The values are the same numbers: "row" steps −X,
 | `quad_rect.width` / `.height` | `quad_rect.columns` / `.rows` |
 | `heights`, `quad_exists` | unchanged; heights count `(columns + 1) · (rows + 1)` |
 | `height_source: "heightmap"` | `"stored"` (`min_height_level` and `zero` unchanged) |
-| — | new: `liquid_type`, `liquid_object` (DB2 refs), optional `depth` |
+| — | new: `liquid_type`, `liquid_object` (DB2 refs, named when the liquid DB2s were read), optional `depth` |
+
+New beside it: `resources.liquid_types` lists each named type once (name,
+material, texture slots whose frames are ordinary texture entries, e.g.
+Water's 30 animated `lake_a` frames), and `resources.terrain.liquid_objects`
+each object's flow. Match a liquid to its type by `identity`.
 
 ### `Placements()`: replaced
 

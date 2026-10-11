@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "canon_model.hpp"
+#include "liquid_db2.hpp"
 #include "wmo.hpp"
 
 // husk::wmoinput: WMO root + group files -> canon::Model. A WMO is an
@@ -31,7 +32,13 @@ struct WmoInputs {
     // FileDataID, resolved by the caller (no filesystem access here).
     TextureResolutions textures;
     std::unordered_map<uint32_t, std::string> assetNames;  // listfile names for doodad and light-cookie FileDataIDs
+    const liquiddb::Data* liquids = nullptr;  // nullptr: liquid types are identities only
 };
+
+// Every LiquidType row the groups' MLIQ liquids resolve to, in first-seen
+// order: with liquidinput::textureFileDataIds, the liquid textures a caller
+// resolves into `textures`.
+std::vector<uint32_t> liquidTypeRows(const WmoInputs& in);
 
 // One particulate-volume record as canon, in the record's own frame (WMO
 // space for MPVD, world for a map's PVMI); emitter textures come from

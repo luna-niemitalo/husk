@@ -2,14 +2,50 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
+#include "canon_material.hpp"  // TextureRef
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
-// A liquid surface a model owns (WMO MLIQ), in the model's own space.
+// A liquid surface a model owns (WMO MLIQ), in the model's own space, and
+// the liquid types and objects a document's liquids name.
 namespace husk::canon {
+
+// One LiquidType texture slot: its frames in animation order. A frame of
+// FileDataID 0 is a texture the client generates (sourceKind 0..2).
+struct LiquidTextureSlot {
+    int32_t sourceKind = -1;  // LiquidTypeXTexture.Type, raw: -1 a file
+    std::vector<TextureRef> frames;
+};
+
+// A LiquidType a document's liquids name. Without the liquid DB2s only
+// `ref` is known; `flags` is set exactly when the row was read.
+struct LiquidType {
+    Ref ref;  // Db2Row LiquidType, named from LiquidType.Name
+    std::optional<uint32_t> flags;
+    Ref material;  // Db2Row LiquidMaterial, None when the row wasn't read
+    // LiquidMaterial.LVF and Flags; nullopt when that row is absent (12.1.0
+    // has 5 material rows, while its types name 11 materials).
+    std::optional<uint32_t> materialVertexFormat;
+    std::optional<uint32_t> materialFlags;
+    std::vector<LiquidTextureSlot> textures;
+};
+
+// An MH2O instance's LiquidObject row. Without the DB2s, or for an id the
+// client builds itself (42 and others absent from the table), only `ref`.
+struct LiquidObject {
+    Ref ref;  // Db2Row LiquidObject
+    struct Row {
+        float flowDirection = 0;  // radians; stored as degrees (0..359 in 12.1.0)
+        float flowSpeed = 0;      // as stored, unit unverified (-1..7)
+        uint32_t fishable = 0;
+        uint32_t reflection = 0;
+    };
+    std::optional<Row> row;
+};
 
 // A height grid of vertsX * vertsY vertices; vertex (x, y) sits at
 // (corner.x + x * tileSize, corner.y + y * tileSize, heights[y * vertsX + x]).

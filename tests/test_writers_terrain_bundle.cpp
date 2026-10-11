@@ -140,8 +140,16 @@ canon::Terrain sampleTerrain() {
     groundEffects.emplace(77, effect);
 
     adtinput::GamePathResolutions gamePaths;
+    // Type 5 read (grass doubles as its one file frame), type 2 not.
+    static const husk::liquiddb::Data liquids = [] {
+        husk::liquiddb::Data d;
+        d.materials[1] = {0, 1};
+        d.types[5] = {"Slow Water", 0xf, 1, {{{1001}, -1}, {{0}, 1}}};
+        d.objects[100] = {5, 180.0f, 1.0f, 1, 0};
+        return d;
+    }();
     adtinput::TileSources sources{root, obj, tex, 0x4, "azeroth", 32, 48};
-    return adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths});
+    return adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths, &liquids});
 }
 
 fs::path freshDir(const std::string& name) {
@@ -237,12 +245,15 @@ TEST_CASE("writeTerrainBundle: textures embed their payload, or state why they a
 TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the caller's shared uri") {
     canon::Terrain terrain = sampleTerrain();
     terrain.textures[0].diffuse.rawPayload.reset();
+    terrain.liquidTypes[0].textures[0].frames[0].rawPayload.reset();
     fs::path dir = freshDir("husk-test-terrain-bundle-shared-texture");
     writeTile(terrain, dir, {}, {{1001, "../../textures/1001.dds"}});
-    nlohmann::json grass = readJsonFile(dir / "manifest.json")["resources"]["terrain"]["textures"][0]["diffuse"];
+    nlohmann::json m = readJsonFile(dir / "manifest.json");
+    nlohmann::json grass = m["resources"]["terrain"]["textures"][0]["diffuse"];
     CHECK(grass["state"] == "resolved");
     CHECK(grass["payload"]["uri"] == "../../textures/1001.dds");
     CHECK(grass["payload"]["media_type"] == "image/vnd-ms.dds");
+    CHECK(m["resources"]["liquid_types"][0]["textures"][0]["frames"][0]["payload"]["uri"] == "../../textures/1001.dds");
     CHECK_FALSE(fs::exists(dir / "textures"));
 }
 
@@ -268,6 +279,21 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK(river["liquid_object"]["id"]["row"] == 100);
     CHECK(readSlice<float>(dir, river["heights"]) == std::vector<float>(4, 3.0f));
     CHECK(readSlice<float>(dir, river["depth"]) == std::vector<float>(4, 1.0f));
+    CHECK(river["liquid_type"]["name"] == "Slow Water");
+    REQUIRE(t["liquid_objects"].size() == 1);
+    CHECK(t["liquid_objects"][0]["identity"]["id"]["row"] == 100);
+    CHECK(t["liquid_objects"][0]["flow_direction"].get<double>() == doctest::Approx(3.14159265));
+    const nlohmann::json& types = m["resources"]["liquid_types"];
+    REQUIRE(types.size() == 2);
+    CHECK(types[0]["identity"]["name"] == "Slow Water");
+    CHECK(types[0]["material"]["vertex_format"] == 0);
+    CHECK(types[0]["source"]["flags"] == "0xf");
+    REQUIRE(types[0]["textures"].size() == 2);
+    CHECK(types[0]["textures"][0]["frames"][0]["state"] == "resolved");
+    CHECK(types[0]["textures"][1]["source"]["kind"] == 1);
+    CHECK(types[0]["textures"][1]["frames"][0]["state"] == "known_unresolved");
+    CHECK(types[1]["identity"]["id"]["row"] == 2);
+    CHECK_FALSE(types[1].contains("material"));
     const nlohmann::json& ocean = t["liquids"][1];
     CHECK(ocean["height_source"] == "min_height_level");
     CHECK_FALSE(ocean.contains("liquid_object"));

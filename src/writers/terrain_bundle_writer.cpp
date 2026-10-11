@@ -194,6 +194,27 @@ void writeChunksSection(json::Writer& w, const std::vector<canon::TerrainChunk>&
     w.endObject();
 }
 
+void writeLiquidObjects(json::Writer& w, const std::vector<canon::LiquidObject>& objects) {
+    w.beginArray();
+    for (const canon::LiquidObject& o : objects) {
+        w.beginObject();
+        w.key("identity");
+        writeRef(w, o.ref);
+        if (o.row) {
+            w.key("flow_direction");
+            w.value(static_cast<double>(o.row->flowDirection));
+            w.key("flow_speed");
+            w.value(static_cast<double>(o.row->flowSpeed));
+            w.key("fishable");
+            w.value(static_cast<int64_t>(o.row->fishable));
+            w.key("reflection");
+            w.value(static_cast<int64_t>(o.row->reflection));
+        }
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uint8_t>& bin) {
     w.beginObject();
     w.key("chunk_row");
@@ -297,11 +318,20 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     writeGroundEffectsSection(w, terrain.groundEffects, modelUris);
     w.key("chunks");
     writeChunksSection(w, terrain.chunks, terrainBin);
+    w.key("liquid_objects");
+    writeLiquidObjects(w, terrain.liquidObjects);
     w.key("liquids");
     w.beginArray();
     for (const canon::LiquidSurface& l : terrain.liquids) writeLiquid(w, l, liquidBin);
     w.endArray();
     w.endObject();  // terrain
+    if (!terrain.liquidTypes.empty()) {
+        std::unordered_set<std::string> written;
+        w.key("liquid_types");
+        writeLiquidTypes(w, terrain.liquidTypes, [&](const canon::TextureRef& frame) {
+            writeTerrainTexture(w, frame, bundleDir, written, textureUris);
+        });
+    }
     w.endObject();  // resources
     w.endObject();
 

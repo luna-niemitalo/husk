@@ -2366,6 +2366,14 @@
             "particle_emitters"
           ]
         },
+        "liquid_types": {
+          "type": "array",
+          "description": "Each liquid type this document's liquids (terrain or geometry) name, once.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/liquid_type",
+            "description": "One liquid type."
+          }
+        },
         "terrain": {
           "type": "object",
           "description": "A heightfield surface: a grid of chunks, each a grid of quads, with texture layers, ground-cover rules and liquids.",
@@ -2645,6 +2653,42 @@
                 "areas",
                 "layers"
               ]
+            },
+            "liquid_objects": {
+              "type": "array",
+              "description": "Each LiquidObject the liquids name, once. An id the client builds itself (42, the ocean, and others absent from the table) has only its identity.",
+              "items": {
+                "type": "object",
+                "description": "One liquid object.",
+                "properties": {
+                  "identity": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The LiquidObject row; a liquid's liquid_object equals one entry's identity."
+                  },
+                  "flow_direction": {
+                    "type": "number",
+                    "x-unit": "radian",
+                    "description": "Flow direction, stored as degrees."
+                  },
+                  "flow_speed": {
+                    "type": "number",
+                    "x-unit": "1",
+                    "description": "Flow speed as stored; unit unverified."
+                  },
+                  "fishable": {
+                    "type": "integer",
+                    "description": "LiquidObject.Fishable as stored."
+                  },
+                  "reflection": {
+                    "type": "integer",
+                    "description": "LiquidObject.Reflection as stored."
+                  }
+                },
+                "required": [
+                  "identity"
+                ],
+                "additionalProperties": false
+              }
             },
             "liquids": {
               "type": "array",

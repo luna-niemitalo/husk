@@ -157,6 +157,8 @@ add_library(husk-lib STATIC
   src/itemappearance_db2.cpp
   src/creature_geoset_db2.cpp
   src/groundeffect_db2.cpp
+  src/liquid_db2.cpp
+  src/liquid_canon_input.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
   src/cmd_db2.cpp
@@ -258,6 +260,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_listfile_cache.cpp
     tests/test_listfile_mmap_real.cpp
     tests/test_db2table.cpp
+    tests/test_liquid_db2.cpp
     tests/test_sources_catalog.cpp
     tests/test_sources_resolved.cpp
     tests/test_sources_texture_catalog.cpp

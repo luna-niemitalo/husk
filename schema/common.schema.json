@@ -540,6 +540,105 @@
         "state"
       ],
       "additionalProperties": false
+    },
+    "liquid_type": {
+      "type": "object",
+      "description": "A liquid type a document's liquids name. Without the liquid DB2s only its identity is known.",
+      "properties": {
+        "identity": {
+          "$ref": "#/definitions/ref",
+          "description": "The LiquidType row, named from its Name; each liquid's liquid_type equals one entry's identity."
+        },
+        "material": {
+          "type": "object",
+          "description": "The type's LiquidMaterial.",
+          "properties": {
+            "identity": {
+              "$ref": "#/definitions/ref",
+              "description": "The LiquidMaterial row."
+            },
+            "vertex_format": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3,
+              "description": "The vertex layout the material states (0 height+depth, 1 height+uv, 2 depth, 3 height+uv+depth). Ocean (LiquidType 2) instances store depth only whatever this says; a liquid's own arrays are what it holds."
+            },
+            "source": {
+              "type": "object",
+              "description": "Source-specific raw values.",
+              "properties": {
+                "flags": {
+                  "$ref": "#/definitions/flags",
+                  "description": "LiquidMaterial.Flags as stored."
+                }
+              },
+              "required": [
+                "flags"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "identity"
+          ],
+          "additionalProperties": false
+        },
+        "textures": {
+          "type": "array",
+          "description": "The type's texture slots, in LiquidType order. Which slot a shader samples for what depends on the material and is not resolved.",
+          "items": {
+            "type": "object",
+            "description": "One slot.",
+            "properties": {
+              "frames": {
+                "type": "array",
+                "description": "The slot's frames in animation order; one frame for a still texture.",
+                "items": {
+                  "$ref": "#/definitions/texture_entry",
+                  "description": "One frame."
+                }
+              },
+              "source": {
+                "type": "object",
+                "description": "Source-specific raw values.",
+                "properties": {
+                  "kind": {
+                    "type": "integer",
+                    "description": "LiquidTypeXTexture.Type as stored: -1 a file, 0 to 2 a texture the client generates (no file)."
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "frames",
+              "source"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "source": {
+          "type": "object",
+          "description": "Source-specific raw values.",
+          "properties": {
+            "flags": {
+              "$ref": "#/definitions/flags",
+              "description": "LiquidType.Flags as stored."
+            }
+          },
+          "required": [
+            "flags"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "identity"
+      ],
+      "additionalProperties": false
     }
   }
 }

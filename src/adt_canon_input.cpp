@@ -1,10 +1,13 @@
 #include "adt_canon_input.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
+
+#include "liquid_canon_input.hpp"
 
 namespace husk::adtinput {
 
@@ -381,6 +384,20 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
             for (const adt::LiquidInstance& inst : (*root.liquid)[ci].instances) out.liquids.push_back(buildLiquid(inst, ci));
         }
     }
+    for (uint32_t row : liquidTypeRows(root)) {
+        out.liquidTypes.push_back(liquidinput::buildLiquidType(row, resolutions.liquids, resolutions.textures));
+    }
+    std::set<uint32_t> seenObjects;
+    for (canon::LiquidSurface& l : out.liquids) {
+        auto type = std::find_if(out.liquidTypes.begin(), out.liquidTypes.end(), [&](const canon::LiquidType& t) {
+            return std::get<canon::Db2Row>(t.ref.id).row == std::get<canon::Db2Row>(l.liquidType.id).row;
+        });
+        l.liquidType = type->ref;
+        auto object = std::get_if<canon::Db2Row>(&l.liquidObject.id);
+        if (object && seenObjects.insert(object->row).second) {
+            out.liquidObjects.push_back(liquidinput::buildLiquidObject(object->row, resolutions.liquids));
+        }
+    }
     out.doodads.ref = canon::Ref{canon::None{}, "doodads", canon::NameSource::Synthesized};
     out.mapObjects.ref = canon::Ref{canon::None{}, "map_objects", canon::NameSource::Synthesized};
     if (sources.obj) {
@@ -397,6 +414,18 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
         for (canon::PlacedInstance& instance : set->instances) {
             instance.translation.x -= corner.x;
             instance.translation.y -= corner.y;
+        }
+    }
+    return out;
+}
+
+std::vector<uint32_t> liquidTypeRows(const adt::RootFile& root) {
+    std::vector<uint32_t> out;
+    if (!root.liquid) return out;
+    std::unordered_set<uint32_t> seen;
+    for (const adt::LiquidChunk& chunk : *root.liquid) {
+        for (const adt::LiquidInstance& inst : chunk.instances) {
+            if (seen.insert(inst.liquidType).second) out.push_back(inst.liquidType);
         }
     }
     return out;

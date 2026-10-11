@@ -533,6 +533,16 @@ the instance's minimum, the open-ocean case) or `zero` (a depth-only
 layout). These are `resources.terrain.liquids`, not the WMO-shaped
 `resources.geometry.liquids`.
 
+Every liquid names a `LiquidType`, and a terrain liquid also its
+`LiquidObject` (absent when the instance stored a vertex format instead).
+With the liquid DB2s, `resources.liquid_types` (terrain and WMO documents
+alike) lists each named type once: its name, material and texture slots,
+each slot's frames in animation order as ordinary texture entries. A
+terrain's `resources.terrain.liquid_objects` gives each object's flow and
+flags. Without the DB2s both tables hold identities only. A liquid's own
+arrays (`depth`, `uv`) say what it stores: Ocean's material claims height
+and depth, but its liquids store depth only.
+
 ### Placements
 
 Two placement sets (`PLACEMENT_SETS.md`, set files are

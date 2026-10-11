@@ -25,6 +25,8 @@
 #include "commands.hpp"
 #include "husk_config.hpp"
 #include "groundeffect_db2.hpp"
+#include "liquid_canon_input.hpp"
+#include "liquid_db2.hpp"
 #include "listfile_cache.hpp"
 #include "listfile_index.hpp"
 #include "map_scene_input.hpp"
@@ -143,6 +145,9 @@ void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts) {
         ->group("Resolution");
     app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the liquid tables (liquid type names, textures), or 'none'")
+        ->group("Resolution");
+    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
     app.add_option("--models-dir", opts.modelsDir,
                    "set doodad uris to <dir>/<fdid>.canon.bundle where that bundle exists")
         ->group("Output");
@@ -245,8 +250,15 @@ canon::TextureRef resolveTexture(uint32_t fdid, const ListfileIndex& listfile, c
     }
     try {
         ref.rawPayload = sources::ddsPayloadFromBlp(bytes);
+        return ref;
     } catch (const blp::ParseError&) {
+    }
+    // One texture husk can't read leaves that texture unresolved, never the tile.
+    try {
         ref.payload = sources::pngPayloadFromBlp(bytes);
+    } catch (const blp::ParseError& e) {
+        ref.state = canon::TextureRef::State::KnownUnresolved;
+        ref.unresolvedReason = path->string() + ": " + e.what();
     }
     return ref;
 }
@@ -269,6 +281,22 @@ adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, c
     adtinput::GroundEffectDefinitions out = adtinput::groundEffectDefinitions(*data);
     note = "ground effects: " + std::to_string(out.size()) + " rules from " + db2Dir;
     return out;
+}
+
+std::optional<liquiddb::Data> loadLiquids(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "liquid types: identities only (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<liquiddb::Data> data = liquiddb::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "liquid types: identities only (liquid DB2s unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "liquid types: " + std::to_string(data->types.size()) + " types, " + std::to_string(data->objects.size()) +
+           " objects from " + db2Dir;
+    return data;
 }
 
 // M2s only: what `husk export --bundle-only` can export.
@@ -337,10 +365,11 @@ std::optional<std::filesystem::path> findWmoGroupFile(const std::filesystem::pat
 // that exists but doesn't parse fails the export.
 canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<uint32_t> fileDataId,
                           const ListfileIndex* listfile, const std::string& listfileRoot,
-                          const std::function<void(const std::string&)>& warn) {
+                          const liquiddb::Data* liquids, const std::function<void(const std::string&)>& warn) {
     wmo::RootFile root = wmo::parseRoot(adt::readFile(rootPath));
     wmoinput::WmoInputs inputs;
     inputs.root = &root;
+    inputs.liquids = liquids;
     for (uint32_t g = 0; g < root.groups.size(); ++g) {
         std::optional<std::filesystem::path> path = findWmoGroupFile(rootPath, root, g, listfile, listfileRoot);
         if (!path) {
@@ -370,6 +399,11 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
                 }
             }
         }
+        if (liquids) {
+            for (uint32_t fdid : liquidinput::textureFileDataIds(wmoinput::liquidTypeRows(inputs), *liquids)) {
+                if (!inputs.textures.count(fdid)) inputs.textures.emplace(fdid, resolveTexture(fdid, *listfile, listfileRoot));
+            }
+        }
         std::vector<uint32_t> named = root.doodadFileDataIds;
         for (const wmo::NewLight& light : root.newLights) named.push_back(light.cookieFileDataId);
         for (uint32_t fdid : named) {
@@ -382,17 +416,18 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
     return model;
 }
 
-writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath) {
+writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids) {
     writers::Provenance out{std::string("husk ") + husk::version(), "wmo", {}};
     out.sources.push_back({"listfile", "group files, textures and doodad names by FileDataID", listfile != nullptr,
                            listfile ? listfilePath : "not given"});
+    out.sources.push_back({"liquid db2", "liquid type names, materials and textures", haveLiquids, ""});
     return out;
 }
 
 // What a tile was built from. A sidecar marked unavailable was missing, or
 // (tex0 without a readable WDT) unusable.
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,
-                                      const std::string& listfilePath, bool haveGroundEffects) {
+                                      const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids) {
     writers::Provenance out{std::string("husk ") + husk::version(), "adt", {}};
     out.sources.push_back({"obj0", "doodad and map-object placements", haveObj, ""});
     out.sources.push_back({"tex0", "texture layers and alpha maps", haveTex, ""});
@@ -400,6 +435,7 @@ writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, 
     out.sources.push_back({"listfile", "textures and name-table paths by FileDataID", listfile != nullptr,
                            listfile ? listfilePath : "not given"});
     out.sources.push_back({"groundeffect db2", "ground-cover rules", haveGroundEffects, ""});
+    out.sources.push_back({"liquid db2", "liquid type names, materials, textures and objects", haveLiquids, ""});
     return out;
 }
 
@@ -796,9 +832,21 @@ int exportTerrain(int argc, char** args) {
             groundEffects = loadGroundEffects(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
             announce(note);
         }
+        std::optional<liquiddb::Data> liquids;
+        if (root.liquid) {
+            std::string note;
+            liquids = loadLiquids(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
+            announce(note);
+            if (liquids && listfile) {
+                for (uint32_t fdid : liquidinput::textureFileDataIds(adtinput::liquidTypeRows(root), *liquids)) {
+                    textures.emplace(fdid, resolveTexture(fdid, *listfile, listfileRoot));
+                }
+            }
+        }
 
         adtinput::TileSources sources{root, obj, tex, wdtFlags, tile.map, tile.x, tile.y};
-        canon::Terrain terrain = adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths});
+        canon::Terrain terrain = adtinput::buildCanonTerrain(
+            sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr});
         if (listfile) nameModelRefs(terrain, *listfile);
 
         if (opts.listModels) {
@@ -824,7 +872,8 @@ int exportTerrain(int argc, char** args) {
         terrain.subject = writers::subjectRef(rootPath, tileFileDataId(rootIds, listfileRoot, rootPath));
         writers::writeTerrainBundle(terrain, opts.output,
                                     terrainProvenance(obj.has_value(), tex.has_value(), wdtFlags.has_value(),
-                                                      listfile.get(), listfilePath, !groundEffects.empty()),
+                                                      listfile.get(), listfilePath, !groundEffects.empty(),
+                                                      liquids.has_value()),
                                     modelUris);
         std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, " << terrain.textures.size()
                   << " textures, " << terrain.groundEffects.size() << " ground effects, " << terrain.liquids.size()
@@ -861,7 +910,11 @@ int exportWmo(int argc, char** args) {
         std::optional<uint32_t> fileDataId =
             listfile ? sources::fileDataIdForLocalFile(*listfile, opts.input, listfileRoot)
                      : sources::fileDataIdForStorePath(opts.input);
-        canon::Model model = loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot, warn);
+        std::string liquidNote;
+        std::optional<liquiddb::Data> liquids = loadLiquids(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), liquidNote);
+        announce(liquidNote);
+        canon::Model model =
+            loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot, liquids ? &*liquids : nullptr, warn);
 
         writers::AssetUris modelUris;
         if (!opts.modelsDir.empty()) {
@@ -874,7 +927,7 @@ int exportWmo(int argc, char** args) {
                 }
             }
         }
-        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath), modelUris);
+        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath, liquids.has_value()), modelUris);
         size_t instances = 0;
         for (const auto& owned : model.placementSets) instances += owned.set.instances.size();
         std::cout << "wrote " << opts.output << ": " << model.mesh.parts.size() << " parts, "
@@ -1025,6 +1078,10 @@ int exportWorld(int argc, char** args) {
         const adtinput::GroundEffectDefinitions groundEffects =
             loadGroundEffects(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), groundEffectNote);
         std::cout << groundEffectNote << std::endl;
+        std::string liquidNote;
+        const std::optional<liquiddb::Data> liquids =
+            loadLiquids(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), liquidNote);
+        std::cout << liquidNote << std::endl;
 
         // Pass 1: references.
         std::set<uint32_t> modelIds;
@@ -1182,14 +1239,16 @@ int exportWorld(int argc, char** args) {
                     std::optional<std::filesystem::path> src = wmoSource(fdid);
                     if (src && !std::filesystem::exists(bundle / "manifest.json")) {
                         auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
-                        canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot, warn);
+                        canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot,
+                                                          liquids ? &*liquids : nullptr, warn);
                         writers::AssetUris doodadUris;
                         for (uint32_t doodad : placedAssets(model)) {
                             if (exportedModels.count(doodad)) {
                                 doodadUris.emplace(doodad, "../" + modelBundleName(doodad) + "/manifest.json");
                             }
                         }
-                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile), doodadUris);
+                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value()),
+                                             doodadUris);
                     }
                 } catch (...) {
                     errors.add("wmo", std::to_string(fdid), exceptionMessage(std::current_exception()));
@@ -1232,15 +1291,21 @@ int exportWorld(int argc, char** args) {
                     std::filesystem::path relToOut = std::filesystem::relative(out, bundle);
                     adtinput::TextureResolutions textures;
                     writers::AssetUris textureUris;
-                    if (tex) {
-                        for (uint32_t fdid : adtinput::textureFileDataIds(*tex, gamePaths)) {
-                            auto [ref, filename] = sharedTextures.get(fdid);
-                            textures.emplace(fdid, ref);
-                            if (!filename.empty()) textureUris.emplace(fdid, (relToOut / "textures" / filename).generic_string());
+                    std::vector<uint32_t> textureIds;
+                    if (tex) textureIds = adtinput::textureFileDataIds(*tex, gamePaths);
+                    if (liquids) {
+                        for (uint32_t fdid : liquidinput::textureFileDataIds(adtinput::liquidTypeRows(root), *liquids)) {
+                            textureIds.push_back(fdid);
                         }
                     }
+                    for (uint32_t fdid : textureIds) {
+                        auto [ref, filename] = sharedTextures.get(fdid);
+                        textures.emplace(fdid, ref);
+                        if (!filename.empty()) textureUris.emplace(fdid, (relToOut / "textures" / filename).generic_string());
+                    }
                     adtinput::TileSources sources{root, obj, tex, flags, name.map, name.x, name.y};
-                    canon::Terrain terrain = adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths});
+                    canon::Terrain terrain = adtinput::buildCanonTerrain(
+                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr});
                     nameModelRefs(terrain, *listfile);
 
                     writers::AssetUris modelUris;
@@ -1252,7 +1317,8 @@ int exportWorld(int argc, char** args) {
                     terrain.subject = writers::subjectRef(t.root, tileFileDataId(rootIds, opts.listfileRoot, t.root));
                     writers::writeTerrainBundle(terrain, bundle,
                                                 terrainProvenance(obj.has_value(), tex.has_value(), flags.has_value(),
-                                                                  listfile.get(), opts.listfile, !groundEffects.empty()),
+                                                                  listfile.get(), opts.listfile, !groundEffects.empty(),
+                                                                  liquids.has_value()),
                                                 modelUris, textureUris);
                 }
             } catch (...) {

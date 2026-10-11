@@ -317,6 +317,26 @@ TEST_CASE("buildCanonWmo: a group's MLIQ becomes a liquid grid on that part") {
     CHECK(l.tileExists == std::vector<uint8_t>{1, 0});
 }
 
+TEST_CASE("buildCanonWmo: each liquid type the groups name is listed once, named from the liquid DB2s") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    g.liquid = liquid2x2(1);
+    husk::liquiddb::Data liquids;
+    liquids.types[13] = {"WMO Water", 0x1, 1, {}};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {g, g};
+    in.liquids = &liquids;
+    REQUIRE(wmoinput::liquidTypeRows(in) == std::vector<uint32_t>{13});
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+    REQUIRE(model.liquidTypes.size() == 1);
+    CHECK(model.liquidTypes[0].ref.name == "WMO Water");
+    CHECK(model.liquidTypes[0].flags == 0x1u);
+    REQUIRE(model.liquids.size() == 2);
+    CHECK(model.liquids[1].liquidType.name == "WMO Water");
+}
+
 TEST_CASE("buildCanonWmo: liquid type follows WMO.md's rules, with and without the DBC-id root flag") {
     // With MOHD flag 0x4: basic types go through to_wmo_liquid(groupLiquid - 1).
     CHECK(resolvedType(0x4, 1) == 13);            // water

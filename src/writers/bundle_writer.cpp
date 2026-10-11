@@ -1175,6 +1175,12 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeParticles(w, model.scene.particles, bundleDir, writtenTextures);
     w.endObject();
 
+    if (!model.liquidTypes.empty()) {
+        w.key("liquid_types");
+        writeLiquidTypes(w, model.liquidTypes, [&](const canon::TextureRef& frame) {
+            writeTextureEntry(w, frame, bundleDir, writtenTextures);
+        });
+    }
     w.endObject();  // resources
     w.endObject();  // root
 

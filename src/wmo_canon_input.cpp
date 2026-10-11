@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "liquid_canon_input.hpp"
+
 namespace husk::wmoinput {
 
 namespace {
@@ -526,11 +528,34 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         if (in.groups[part] && in.groups[part]->liquid) liquids.push_back(buildLiquid(in, part, *in.groups[part]));
     }
 
+    std::vector<canon::LiquidType> liquidTypes;
+    for (uint32_t row : liquidTypeRows(in)) liquidTypes.push_back(liquidinput::buildLiquidType(row, in.liquids, in.textures));
+    for (canon::LiquidGrid& l : liquids) {
+        auto id = std::get_if<canon::Db2Row>(&l.liquidType.id);
+        if (!id) continue;
+        l.liquidType = std::find_if(liquidTypes.begin(), liquidTypes.end(), [&](const canon::LiquidType& t) {
+                           return std::get<canon::Db2Row>(t.ref.id).row == id->row;
+                       })->ref;
+    }
+
     std::vector<canon::Material> materials;
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
 
-    return canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials),
-                                {}, buildScene(in), buildPlacementSets(in), std::move(liquids));
+    canon::Model model =
+        canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials), {},
+                             buildScene(in), buildPlacementSets(in), std::move(liquids));
+    model.liquidTypes = std::move(liquidTypes);
+    return model;
+}
+
+std::vector<uint32_t> liquidTypeRows(const WmoInputs& in) {
+    std::vector<uint32_t> out;
+    for (const std::optional<wmo::GroupFile>& g : in.groups) {
+        if (!g || !g->liquid) continue;
+        std::optional<uint32_t> id = liquidTypeId(in.root->header.flags, *g);
+        if (id && std::find(out.begin(), out.end(), *id) == out.end()) out.push_back(*id);
+    }
+    return out;
 }
 
 }  // namespace husk::wmoinput

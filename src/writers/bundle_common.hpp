@@ -2,12 +2,14 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "canon_liquid.hpp"
 #include "canon_material.hpp"
 #include "canon_placement.hpp"
 #include "canon_ref.hpp"
@@ -151,6 +153,12 @@ std::string textureMediaType(const std::string& extension);
 // DDS-over-PNG payload choice.
 void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
                        std::unordered_set<std::string>& writtenTextures);
+
+// resources.liquid_types (schema/common.schema.json "liquid_type"), the
+// array only; `writeTexture` writes one frame's texture entry, so terrain
+// and model writers keep their own payload placement.
+void writeLiquidTypes(json::Writer& w, const std::vector<canon::LiquidType>& types,
+                      const std::function<void(const canon::TextureRef&)>& writeTexture);
 
 std::string isoTimestampUtc();
 

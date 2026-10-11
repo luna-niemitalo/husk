@@ -5,6 +5,7 @@
 #include <optional>
 #include <vector>
 
+#include "canon_liquid.hpp"    // LiquidType, LiquidObject
 #include "canon_material.hpp"  // TextureRef
 #include "canon_placement.hpp"
 #include "canon_primitives.hpp"
@@ -141,6 +142,10 @@ struct Terrain {
     std::vector<GroundEffect> groundEffects;
     std::vector<TerrainChunk> chunks;  // index gridY * 16 + gridX
     std::vector<LiquidSurface> liquids;
+    // Each LiquidType and LiquidObject the liquids name, once, in first-seen
+    // order; a liquid's refs match one entry each.
+    std::vector<LiquidType> liquidTypes;
+    std::vector<LiquidObject> liquidObjects;
 
     // What the tile places (REFACTOR/PLACEMENT_SETS.md), in the tile frame:
     // MDDF models and MODF map objects (WMOs). Two sets because their unique

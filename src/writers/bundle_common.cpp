@@ -305,6 +305,59 @@ std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEn
     return out;
 }
 
+void writeLiquidTypes(json::Writer& w, const std::vector<canon::LiquidType>& types,
+                      const std::function<void(const canon::TextureRef&)>& writeTexture) {
+    w.beginArray();
+    for (const canon::LiquidType& t : types) {
+        w.beginObject();
+        w.key("identity");
+        writeRef(w, t.ref);
+        if (!std::holds_alternative<canon::None>(t.material.id)) {
+            w.key("material");
+            w.beginObject();
+            w.key("identity");
+            writeRef(w, t.material);
+            if (t.materialVertexFormat) {
+                w.key("vertex_format");
+                w.value(static_cast<int64_t>(*t.materialVertexFormat));
+                w.key("source");
+                w.beginObject();
+                w.key("flags");
+                w.value(hexFlags(*t.materialFlags));
+                w.endObject();
+            }
+            w.endObject();
+        }
+        if (!t.textures.empty()) {
+            w.key("textures");
+            w.beginArray();
+            for (const canon::LiquidTextureSlot& slot : t.textures) {
+                w.beginObject();
+                w.key("frames");
+                w.beginArray();
+                for (const canon::TextureRef& frame : slot.frames) writeTexture(frame);
+                w.endArray();
+                w.key("source");
+                w.beginObject();
+                w.key("kind");
+                w.value(static_cast<int64_t>(slot.sourceKind));
+                w.endObject();
+                w.endObject();
+            }
+            w.endArray();
+        }
+        if (t.flags) {
+            w.key("source");
+            w.beginObject();
+            w.key("flags");
+            w.value(hexFlags(*t.flags));
+            w.endObject();
+        }
+        w.endObject();
+    }
+    w.endArray();
+}
+
 std::string isoTimestampUtc() {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);
