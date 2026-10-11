@@ -1,0 +1,30 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "start": {
+        "kind": "number",
+        "unit": "yard",
+        "description": "Distance from the point where the override starts to fade."
+      },
+      "end": {
+        "kind": "number",
+        "unit": "yard",
+        "description": "Distance from the point where the override has faded out."
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "ambient",
+      "region": {
+        "kind": "sphere",
+        "center": [0, 0, 0],
+        "inner_radius": {"input": "start"},
+        "outer_radius": {"input": "end"}
+      }
+    }
+  ]
+}

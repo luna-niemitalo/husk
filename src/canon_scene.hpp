@@ -254,40 +254,12 @@ struct ParticulateVolume {
     SourceRecord origin;
 };
 
-// A region that overrides the model's ambient colour (WMO MAVG global,
-// MAVD point, MBVD box; 8.3+). How the client picks among them and which
-// colours flag 0x1 selects are unverified on the wiki (and contradictory
-// for the flag), so all three colours and the flags stay raw.
-struct AmbientVolume {
-    enum class Shape { Global, Point, Box };
-    Ref ref;  // id = RecordIndex in the scene's list; name synthesized; `origin` names the source record
-    Shape shape = Shape::Global;
-    Vec3 position;   // Point
-    float start = 0;  // Point: distances from position, start <= end
-    float end = 0;    // Point; Box: fade distance in from the faces (inferred)
-
-    // Box: six outward planes in opposite pairs; inside where
-    // dot(normal, p) <= distance for all six.
-    struct Plane {
-        Vec3 normal;
-        float distance = 0;
-    };
-    std::vector<Plane> planes;
-
-    std::array<std::array<float, 4>, 3> colors{};  // RGBA 0..1 as stored, color1..color3
-    uint32_t sourceFlags = 0;
-    SourceRecord origin;
-    // The owned placement set this volume applies with (its doodadSetId).
-    std::optional<Ref> placementSet;
-};
-
 struct Scene {
     std::vector<Attachment> attachments;
     std::vector<Event> events;
     std::vector<Light> lights;
     std::vector<LocalLight> localLights;
     std::vector<ParticulateVolume> particulateVolumes;
-    std::vector<AmbientVolume> ambientVolumes;
     std::vector<RibbonEmitter> ribbons;
     std::vector<ParticleEmitter> particles;
 };

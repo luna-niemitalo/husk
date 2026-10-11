@@ -63,13 +63,14 @@ characterized fields typed, emitter textures resolved like material
 textures, and each raw 4,272-byte record in `particulate.bin` for the
 fields still uncharacterized. 25 sampled `MPVD` WMOs export cleanly (69
 volumes, 51/70 emitter textures resolved, the rest unlisted).
-`MAVG`/`MAVD`/`MBVD` are parsed and exported as
-`resources.scene.ambient_color_volumes` (`canon::AmbientVolume`: global/point/box,
-three raw colours, raw flags, the doodad set each applies with); 139
-sampled roots clean, covering every `MAVD`/`MBVD` in the sample. The
-group refs `MPVR`/`MAVR`/`MBVR`/`MFVR` are each part's
-`ambient_particle_volumes`/`ambient_color_volumes`/`fog_volumes`. Open:
-the client's ambient selection rule and
+`MAVG`/`MAVD`/`MBVD` (2026-10-11) are placeholder effect instances
+(`classic_ambient_global`/`_point`/`_box`, `REFACTOR/EFFECTS.md`) in the
+doodad set each applies with: the three colours as `ambient_color` style,
+the flags as unresolved bits, a box's `end` unresolved with the candidate
+role `region.edge`. 393 sampled roots validate (172 global, 14 point, 1
+box). The group refs `MAVR`/`MBVR` are each part's
+`ambient_color_volumes` as `{set, id}`; `MPVR` is still an index into
+`ambient_particle_volumes`. Open: the client's ambient selection rule and
 flag 0x1's colour choice (wiki unverified and self-contradictory, so not
 encoded); the `MPVD` semantics listed below.
 

@@ -431,8 +431,10 @@ TEST_CASE("buildCanonWmo: a group's MAVR/MBVR/MPVR name the scene volumes its pa
     in.groups = {std::nullopt, g};
 
     canon::Model model = wmoinput::buildCanonWmo(in);
-    // Scene order: MAVG 0, MAVD 1-2, MBVD 3.
-    CHECK(model.mesh.parts[1].ambientVolumes == std::vector<uint32_t>{2, 3});
+    // Instances in set 0, ids after the 3 doodads: MAVG 3, MAVD 4-5, MBVD 6.
+    REQUIRE(model.mesh.parts[1].ambientVolumes.size() == 2);
+    CHECK(model.mesh.parts[1].ambientVolumes[0].id == 5);
+    CHECK(model.mesh.parts[1].ambientVolumes[1].id == 6);
     CHECK(model.mesh.parts[1].particulateVolumes == std::vector<uint32_t>{0});
     // MFVR replaces the four fogIds slots; 0 is the default fog, here the
     // empty entry, so no list entry.
@@ -445,7 +447,7 @@ TEST_CASE("buildCanonWmo: a group's MAVR/MBVR/MPVR name the scene volumes its pa
                          std::runtime_error);
 }
 
-TEST_CASE("buildCanonWmo: MAVG, MAVD and MBVD become global, point and box ambient volumes") {
+TEST_CASE("buildCanonWmo: MAVG, MAVD and MBVD become global, point and box ambient instances in their sets") {
     wmo::RootFile root = syntheticRoot();
     wmo::AmbientVolume global;
     global.colors = {0xFF336699u, 0, 0};
@@ -467,33 +469,42 @@ TEST_CASE("buildCanonWmo: MAVG, MAVD and MBVD become global, point and box ambie
 
     canon::Model model = wmoinput::buildCanonWmo(in);
 
-    REQUIRE(model.scene.ambientVolumes.size() == 3);
-    const canon::AmbientVolume& g = model.scene.ambientVolumes[0];
-    CHECK(g.ref.name == "ambient_0");
-    CHECK(g.origin.table == "MAVG");
-    CHECK(g.shape == canon::AmbientVolume::Shape::Global);
+    // Set 0 holds doodad 0, then the global and the box; Set_B the point.
+    const auto& set0 = model.placementSets[0].set.instances;
+    REQUIRE(set0.size() == 3);
+    const canon::PlacedInstance& g = set0[1];
+    CHECK(g.asset.name == "classic_ambient_global");
+    CHECK(g.effect->origin.table == "MAVG");
+    const auto& colors = *g.effect->style.at(0).second.ambientColors;
     // BGRA bytes 99 66 33 FF -> RGBA 0x33 0x66 0x99 0xFF.
-    CHECK(g.colors[0][0] == doctest::Approx(0x33 / 255.0));
-    CHECK(g.colors[0][2] == doctest::Approx(0x99 / 255.0));
-    CHECK(g.colors[0][3] == 1.0f);
-    CHECK(g.placementSet->name == "Set_$DefaultGlobal");
-    const canon::AmbientVolume& p = model.scene.ambientVolumes[1];
-    CHECK(p.ref.name == "ambient_1");
-    CHECK(p.origin.table == "MAVD");
-    CHECK(p.origin.index == 0);
-    CHECK(p.shape == canon::AmbientVolume::Shape::Point);
-    CHECK(p.position.z == 3.0f);
-    CHECK(p.end == 8.0f);
-    CHECK(p.sourceFlags == 1);
-    CHECK(p.placementSet->name == "Set_B");
-    const canon::AmbientVolume& b = model.scene.ambientVolumes[2];
-    CHECK(b.ref.name == "ambient_2");
-    CHECK(b.origin.table == "MBVD");
-    CHECK(b.shape == canon::AmbientVolume::Shape::Box);
-    REQUIRE(b.planes.size() == 6);
-    CHECK(b.planes[1].normal.x == 1.0f);
-    CHECK(b.planes[1].distance == 3.0f);
-    CHECK(b.end == 1.5f);
+    CHECK(colors[0][0] == doctest::Approx(0x33 / 255.0));
+    CHECK(colors[0][2] == doctest::Approx(0x99 / 255.0));
+    CHECK(colors[0][3] == 1.0f);
+    CHECK(g.effect->unresolved.empty());
+
+    const canon::PlacedInstance& b = set0[2];
+    CHECK(b.asset.name == "classic_ambient_box");
+    CHECK(b.effect->origin.table == "MBVD");
+    const auto& planes = std::get<std::vector<canon::InputValue>>(b.effect->inputs.at(0).value.value);
+    REQUIRE(planes.size() == 6);
+    const auto& face = std::get<std::vector<canon::NamedInput>>(planes[1].value);
+    CHECK(std::get<canon::Vec3>(face[0].value.value).x == 1.0f);
+    CHECK(std::get<double>(face[1].value.value) == 3.0);
+    // The fade distance is a candidate, not a typed edge.
+    REQUIRE(b.effect->unresolved.size() == 1);
+    CHECK(b.effect->unresolved[0].field == "end");
+    CHECK(b.effect->unresolved[0].candidateRole == "region.edge");
+
+    const auto& setB = model.placementSets[1].set.instances;
+    REQUIRE(setB.size() == 3);
+    const canon::PlacedInstance& p = setB[2];
+    CHECK(p.asset.name == "classic_ambient_point");
+    CHECK(p.effect->origin.index == 0);
+    CHECK(p.translation.z == 3.0f);
+    CHECK(p.effect->inputs.at(1).name == "end");
+    CHECK(std::get<double>(p.effect->inputs.at(1).value.value) == 8.0);
+    CHECK(p.flags == 1);
+    CHECK(std::get<uint32_t>(p.effect->unresolved.at(0).value) == 1);
 }
 
 TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
@@ -675,8 +686,8 @@ TEST_CASE("buildCanonWmo: MFOG fogs become effect instances in the set they appl
     REQUIRE(local);
     CHECK(local->asset.name == "classic_local_fog");
     REQUIRE(local->effect->inputs.size() == 2);
-    CHECK(local->effect->inputs[0].first == "inner_radius");
-    CHECK(std::get<double>(local->effect->inputs[1].second) == 8.0);
+    CHECK(local->effect->inputs[0].name == "inner_radius");
+    CHECK(std::get<double>(local->effect->inputs[1].value.value) == 8.0);
     const canon::StyleBlock& style = local->effect->style.at(0).second;
     // start = end * startScalar; BGRA bytes 99 66 33 7F -> RGB 0x33 0x66 0x99.
     CHECK(style.distanceFog->linear->start == 20.0f);

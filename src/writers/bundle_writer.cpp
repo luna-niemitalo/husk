@@ -307,18 +307,17 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         writeVec3Value(w, part.boundsMin);
         w.key("bounds_max");
         writeVec3Value(w, part.boundsMax);
-        if (!part.fogs.empty()) {
-            w.key("fog_volumes");
-            w.beginArray();
-            for (const canon::InstanceRef& fog : part.fogs) writeInstanceRef(w, fog);
-            w.endArray();
-        }
-        for (auto [key, indices] : {std::pair{"ambient_particle_volumes", &part.particulateVolumes},
-                                    std::pair{"ambient_color_volumes", &part.ambientVolumes}}) {
-            if (indices->empty()) continue;
+        for (auto [key, refs] : {std::pair{"fog_volumes", &part.fogs}, std::pair{"ambient_color_volumes", &part.ambientVolumes}}) {
+            if (refs->empty()) continue;
             w.key(key);
             w.beginArray();
-            for (uint32_t i : *indices) w.value(static_cast<int64_t>(i));
+            for (const canon::InstanceRef& ref : *refs) writeInstanceRef(w, ref);
+            w.endArray();
+        }
+        if (!part.particulateVolumes.empty()) {
+            w.key("ambient_particle_volumes");
+            w.beginArray();
+            for (uint32_t i : part.particulateVolumes) w.value(static_cast<int64_t>(i));
             w.endArray();
         }
         if (!part.portals.empty()) {
@@ -860,49 +859,6 @@ void writeParticulateVolumes(json::Writer& w, const std::vector<canon::Particula
     w.endArray();
 }
 
-void writeAmbientVolumes(json::Writer& w, const std::vector<canon::AmbientVolume>& volumes) {
-    w.beginArray();
-    for (const canon::AmbientVolume& v : volumes) {
-        w.beginObject();
-        w.key("ref");
-        writeRef(w, v.ref);
-        w.key("shape");
-        switch (v.shape) {
-            case canon::AmbientVolume::Shape::Global: w.value("global"); break;
-            case canon::AmbientVolume::Shape::Point: w.value("point"); break;
-            case canon::AmbientVolume::Shape::Box: w.value("box"); break;
-        }
-        if (v.shape == canon::AmbientVolume::Shape::Point) {
-            writeVec3Field(w, "position", v.position);
-            writeFloatField(w, "start", v.start);
-        }
-        if (v.shape != canon::AmbientVolume::Shape::Global) writeFloatField(w, "end", v.end);
-        if (v.shape == canon::AmbientVolume::Shape::Box) {
-            w.key("planes");
-            w.beginArray();
-            for (const canon::AmbientVolume::Plane& plane : v.planes) {
-                w.beginObject();
-                writeVec3Field(w, "normal", plane.normal);
-                writeFloatField(w, "distance", plane.distance);
-                w.endObject();
-            }
-            w.endArray();
-        }
-        w.key("colors");
-        w.beginArray();
-        for (const auto& color : v.colors) {
-            w.beginArray();
-            for (float c : color) w.value(static_cast<double>(c));
-            w.endArray();
-        }
-        w.endArray();
-        if (v.placementSet) writeIntField(w, "placement_set", placementSetIndex(*v.placementSet));
-        writeSourceBlock(w, v.sourceFlags, v.origin);
-        w.endObject();
-    }
-    w.endArray();
-}
-
 void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribbons,
                   const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
     w.beginArray();
@@ -1155,8 +1111,6 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         w.key("default_fog");
         writeInstanceRef(w, *model.defaultFog);
     }
-    w.key("ambient_color_volumes");
-    writeAmbientVolumes(w, model.scene.ambientVolumes);
     w.key("ambient_particle_volumes");
     writeParticulateVolumes(w, model.scene.particulateVolumes, bundleDir, writtenTextures, particulateBin);
     w.key("ribbon_emitters");

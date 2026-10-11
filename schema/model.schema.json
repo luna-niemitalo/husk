@@ -407,12 +407,10 @@
                       },
                       "ambient_color_volumes": {
                         "type": "array",
-                        "description": "Ambient colour volumes the part uses (point volumes, then box volumes).",
+                        "description": "Ambient colour instances the part uses (point volumes, then box volumes).",
                         "items": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "description": "An ambient colour volume.",
-                          "x-index-into": "/resources/scene/ambient_color_volumes"
+                          "$ref": "common.schema.json#/definitions/instance_ref",
+                          "description": "An ambient colour instance."
                         }
                       },
                       "portals": {
@@ -1422,110 +1420,6 @@
               "$ref": "common.schema.json#/definitions/instance_ref",
               "description": "The fog instance a part's unlisted fog falls back to: the model's own default fog. Absent: the enclosing fog."
             },
-            "ambient_color_volumes": {
-              "type": "array",
-              "description": "Ambient colour overrides.",
-              "items": {
-                "type": "object",
-                "description": "A region overriding the ambient colour.",
-                "properties": {
-                  "ref": {
-                    "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The volume."
-                  },
-                  "shape": {
-                    "enum": [
-                      "global",
-                      "point",
-                      "box"
-                    ],
-                    "description": "Region shape: everywhere, a sphere, or a box."
-                  },
-                  "position": {
-                    "$ref": "common.schema.json#/definitions/vec3",
-                    "description": "Sphere centre.",
-                    "x-unit": "yard"
-                  },
-                  "start": {
-                    "type": "number",
-                    "description": "Sphere: distance where the fade begins.",
-                    "x-unit": "yard"
-                  },
-                  "end": {
-                    "type": "number",
-                    "description": "Sphere: distance where it ends; box: fade distance in from the faces.",
-                    "x-unit": "yard"
-                  },
-                  "planes": {
-                    "type": "array",
-                    "description": "Box: six planes; inside where dot(normal, p) <= distance for all.",
-                    "items": {
-                      "type": "object",
-                      "description": "One plane.",
-                      "properties": {
-                        "normal": {
-                          "$ref": "common.schema.json#/definitions/vec3",
-                          "description": "Plane normal.",
-                          "x-unit": "1"
-                        },
-                        "distance": {
-                          "type": "number",
-                          "description": "Plane distance.",
-                          "x-unit": "yard"
-                        }
-                      },
-                      "additionalProperties": false,
-                      "required": [
-                        "normal",
-                        "distance"
-                      ]
-                    }
-                  },
-                  "colors": {
-                    "type": "array",
-                    "description": "Three colours as stored; which one applies is not established.",
-                    "items": {
-                      "$ref": "common.schema.json#/definitions/rgba",
-                      "description": "A colour.",
-                      "x-unit": "1"
-                    },
-                    "x-unit": "1"
-                  },
-                  "placement_set": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Owned set the volume applies with.",
-                    "x-index-into": "/definition/placement_sets"
-                  },
-                  "source": {
-                    "type": "object",
-                    "description": "Source-specific raw values.",
-                    "properties": {
-                      "flags": {
-                        "$ref": "common.schema.json#/definitions/flags",
-                        "description": "The source's flag word."
-                      },
-                      "record": {
-                        "$ref": "common.schema.json#/definitions/source_record",
-                        "description": "The source record this entry was decoded from."
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "flags",
-                      "record"
-                    ]
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "ref",
-                  "shape",
-                  "colors",
-                  "source"
-                ]
-              }
-            },
             "ambient_particle_volumes": {
               "type": "array",
               "description": "Drifting particle boxes.",
@@ -2258,7 +2152,6 @@
             "events",
             "animated_lights",
             "static_lights",
-            "ambient_color_volumes",
             "ambient_particle_volumes",
             "ribbon_emitters",
             "particle_emitters"

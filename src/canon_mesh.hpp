@@ -64,7 +64,7 @@ struct MeshPart {
     std::vector<InstanceRef> fogs;
     std::vector<PortalLink> portals;
     std::vector<uint32_t> particulateVolumes;  // indices into Scene::particulateVolumes (WMO MPVR)
-    std::vector<uint32_t> ambientVolumes;      // indices into Scene::ambientVolumes (WMO MAVR, MBVR)
+    std::vector<InstanceRef> ambientVolumes;   // ambient effect instances (WMO MAVR, then MBVR)
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space

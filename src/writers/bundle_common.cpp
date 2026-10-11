@@ -214,11 +214,22 @@ void writeInputValue(json::Writer& w, const canon::InputValue& value) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, canon::Vec3>) {
                 writeVec3(w, v);
+            } else if constexpr (std::is_same_v<T, std::vector<canon::InputValue>>) {
+                w.beginArray();
+                for (const canon::InputValue& element : v) writeInputValue(w, element);
+                w.endArray();
+            } else if constexpr (std::is_same_v<T, std::vector<canon::NamedInput>>) {
+                w.beginObject();
+                for (const canon::NamedInput& field : v) {
+                    w.key(field.name);
+                    writeInputValue(w, field.value);
+                }
+                w.endObject();
             } else {
                 w.value(v);
             }
         },
-        value);
+        value.value);
 }
 
 void writeDistanceFog(json::Writer& w, const canon::DistanceFog& fog) {
@@ -252,6 +263,15 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
         w.beginObject();
         w.key("underwater");
         writeDistanceFog(w, *style.underwater);
+        w.endObject();
+    }
+    if (style.ambientColors) {
+        w.key("ambient_color");
+        w.beginObject();
+        w.key("colors");
+        w.beginArray();
+        for (const auto& color : *style.ambientColors) writeFloats(w, {color[0], color[1], color[2], color[3]});
+        w.endArray();
         w.endObject();
     }
     w.endObject();

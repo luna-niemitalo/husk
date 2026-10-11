@@ -1,0 +1,37 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "planes": {
+        "kind": "list",
+        "description": "The box's six faces as outward planes, in opposite pairs.",
+        "item": {
+          "kind": "record",
+          "description": "One face.",
+          "fields": {
+            "normal": {
+              "kind": "direction",
+              "description": "Outward unit normal."
+            },
+            "distance": {
+              "kind": "number",
+              "unit": "yard",
+              "description": "Signed distance of the face from the origin along its normal."
+            }
+          }
+        }
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "ambient",
+      "region": {
+        "kind": "planes",
+        "planes": {"input": "planes"}
+      }
+    }
+  ]
+}

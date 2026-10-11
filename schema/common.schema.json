@@ -847,6 +847,11 @@
               "$ref": "#/definitions/bound_number",
               "description": "Radius where it has faded out.",
               "x-unit": "yard"
+            },
+            "edge": {
+              "$ref": "#/definitions/bound_number",
+              "description": "Width of a soft fade beyond the radii; absent: none stated.",
+              "x-unit": "yard"
             }
           },
           "required": [
@@ -856,8 +861,66 @@
             "outer_radius"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A convex volume: inside where dot(normal, p) <= distance holds for every plane.",
+          "properties": {
+            "kind": {
+              "const": "planes",
+              "description": "Region kind."
+            },
+            "planes": {
+              "description": "The bounding planes, or a binding to them.",
+              "oneOf": [
+                {
+                  "type": "array",
+                  "description": "The planes.",
+                  "items": {
+                    "$ref": "#/definitions/plane",
+                    "description": "One plane."
+                  }
+                },
+                {
+                  "$ref": "#/definitions/binding",
+                  "description": "Where the planes come from."
+                }
+              ]
+            },
+            "edge": {
+              "$ref": "#/definitions/bound_number",
+              "description": "Width of the fade in from the faces; absent: none stated.",
+              "x-unit": "yard"
+            }
+          },
+          "required": [
+            "kind",
+            "planes"
+          ],
+          "additionalProperties": false
         }
       ]
+    },
+    "plane": {
+      "type": "object",
+      "description": "A plane with an outward unit normal.",
+      "properties": {
+        "normal": {
+          "$ref": "#/definitions/vec3",
+          "description": "Outward unit normal.",
+          "x-unit": "1"
+        },
+        "distance": {
+          "type": "number",
+          "description": "Signed distance of the plane from the origin along its normal.",
+          "x-unit": "yard"
+        }
+      },
+      "required": [
+        "normal",
+        "distance"
+      ],
+      "additionalProperties": false
     },
     "effect_source": {
       "type": "object",
@@ -944,6 +1007,27 @@
               "description": "The fog while the viewer is under water."
             }
           },
+          "additionalProperties": false
+        },
+        "ambient_color": {
+          "type": "object",
+          "description": "The ambient colour the source overrides inside its region.",
+          "properties": {
+            "colors": {
+              "type": "array",
+              "description": "The source's three colours in order; which one the client uses is unverified.",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "$ref": "#/definitions/rgba",
+                "description": "One colour, as stored."
+              },
+              "x-unit": "1"
+            }
+          },
+          "required": [
+            "colors"
+          ],
           "additionalProperties": false
         }
       },

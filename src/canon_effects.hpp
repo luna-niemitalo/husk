@@ -19,9 +19,19 @@
 // assembled values.
 namespace husk::canon {
 
+struct NamedInput;
+
 // An input value. Which kind it is comes from the effect's declaration;
-// these are the value shapes husk writes so far.
-using InputValue = std::variant<double, int64_t, bool, Vec3>;
+// these are the value shapes husk writes so far. A list holds a list
+// input's elements, a record a record input's fields.
+struct InputValue {
+    std::variant<double, int64_t, bool, Vec3, std::vector<InputValue>, std::vector<NamedInput>> value;
+};
+
+struct NamedInput {
+    std::string name;
+    InputValue value;
+};
 
 struct LinearFog {
     float start = 0;  // view distance where fog begins
@@ -40,6 +50,10 @@ struct StyleBlock {
     std::optional<DistanceFog> distanceFog;
     bool exitBlend = false;  // draws nothing; scales the enclosing fog down near the exits
     std::optional<DistanceFog> underwater;  // the look while the viewer is under water
+    // The ambient colour the source overrides inside its region: the three
+    // colours in source order, RGBA 0..1 as stored. Which one the client
+    // uses is unverified (the wiki ties it to flag 0x1, contradictorily).
+    std::optional<std::array<std::array<float, 4>, 3>> ambientColors;
 };
 
 struct UnresolvedField {
@@ -53,7 +67,7 @@ struct UnresolvedField {
 // What makes a placement-set instance an effect instance. The instance's
 // `asset` names the effect (its document's stem).
 struct EffectPlacement {
-    std::vector<std::pair<std::string, InputValue>> inputs;
+    std::vector<NamedInput> inputs;
     std::vector<std::pair<std::string, StyleBlock>> style;  // by the effect's source id
     std::vector<UnresolvedField> unresolved;
     SourceRecord origin;

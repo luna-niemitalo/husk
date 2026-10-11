@@ -224,31 +224,57 @@ std::array<float, 4> rgbaOf(uint32_t bgra) {
     return {rgba[0] / 255.0f, rgba[1] / 255.0f, rgba[2] / 255.0f, rgba[3] / 255.0f};
 }
 
-canon::AmbientVolume buildAmbientVolume(const WmoInputs& in, const wmo::AmbientVolume& v, const char* table,
-                                        uint32_t index, canon::AmbientVolume::Shape shape) {
-    canon::AmbientVolume out;
-    out.origin = {table, index};
-    out.shape = shape;
-    out.position = toCanon(v.position);
-    out.start = v.start;
-    out.end = v.end;
-    for (size_t k = 0; k < 3; ++k) out.colors[k] = rgbaOf(v.colors[k]);
-    out.sourceFlags = v.flags;
-    out.placementSet = ownedSetRef(in, v.doodadSet);
-    return out;
+// What every ambient record shares as an effect instance: its three colours
+// as style, its flags (all of them undocumented) as unresolved bits.
+canon::PlacedInstance ambientInstance(const char* effect, const char* table, uint32_t index,
+                                      const std::array<uint32_t, 3>& colors, uint32_t flags) {
+    canon::PlacedInstance instance;
+    instance.asset = canon::Ref{canon::None{}, effect, canon::NameSource::Synthesized};
+    instance.flags = flags;
+    canon::EffectPlacement placement;
+    placement.origin = {table, index};
+    canon::StyleBlock style;
+    style.ambientColors.emplace();
+    for (size_t k = 0; k < 3; ++k) (*style.ambientColors)[k] = rgbaOf(colors[k]);
+    placement.style = {{"ambient", style}};
+    if (flags != 0) placement.unresolved.push_back({"flags", canon::UnresolvedField::Kind::Bits, flags, std::nullopt});
+    instance.effect = std::move(placement);
+    return instance;
 }
 
-canon::AmbientVolume buildAmbientBox(const WmoInputs& in, uint32_t index) {
-    const wmo::AmbientBox& b = in.root->ambientBoxes[index];
-    canon::AmbientVolume out;
-    out.origin = {"MBVD", index};
-    out.shape = canon::AmbientVolume::Shape::Box;
-    out.end = b.end;
-    for (const auto& [x, y, z, d] : b.planes) out.planes.push_back({canon::Vec3{x, y, z}, d});
-    for (size_t k = 0; k < 3; ++k) out.colors[k] = rgbaOf(b.colors[k]);
-    out.sourceFlags = b.flags;
-    out.placementSet = ownedSetRef(in, b.doodadSet);
-    return out;
+// MAVG: the model-wide override. Its position and distances have no region
+// to describe, so any set ones are carried unresolved.
+canon::PlacedInstance globalAmbientInstance(const wmo::AmbientVolume& v, uint32_t index) {
+    canon::PlacedInstance instance = ambientInstance("classic_ambient_global", "MAVG", index, v.colors, v.flags);
+    std::vector<canon::UnresolvedField>& unresolved = instance.effect->unresolved;
+    if (v.position != wmo::Vec3{}) {
+        unresolved.push_back({"position", canon::UnresolvedField::Kind::Scalars,
+                              std::vector<double>(v.position.begin(), v.position.end()), std::nullopt});
+    }
+    if (v.start != 0) unresolved.push_back({"start", canon::UnresolvedField::Kind::Scalar, double{v.start}, std::nullopt});
+    if (v.end != 0) unresolved.push_back({"end", canon::UnresolvedField::Kind::Scalar, double{v.end}, std::nullopt});
+    return instance;
+}
+
+// MAVD: an override that fades out between two distances from a point.
+canon::PlacedInstance pointAmbientInstance(const wmo::AmbientVolume& v, uint32_t index) {
+    canon::PlacedInstance instance = ambientInstance("classic_ambient_point", "MAVD", index, v.colors, v.flags);
+    instance.translation = toCanon(v.position);
+    instance.effect->inputs = {{"start", {double{v.start}}}, {"end", {double{v.end}}}};
+    return instance;
+}
+
+// MBVD: an override inside six planes. Its `end` reads as a fade distance in
+// from the faces (<= the smallest half-size in 52 of 54 boxes), not confirmed.
+canon::PlacedInstance boxAmbientInstance(const wmo::AmbientBox& b, uint32_t index) {
+    canon::PlacedInstance instance = ambientInstance("classic_ambient_box", "MBVD", index, b.colors, b.flags);
+    std::vector<canon::InputValue> planes;
+    for (const auto& [x, y, z, d] : b.planes) {
+        planes.push_back({std::vector<canon::NamedInput>{{"normal", {canon::Vec3{x, y, z}}}, {"distance", {double{d}}}}});
+    }
+    instance.effect->inputs = {{"planes", {std::move(planes)}}};
+    instance.effect->unresolved.push_back({"end", canon::UnresolvedField::Kind::Scalar, double{b.end}, "region.edge"});
+    return instance;
 }
 
 // The wiki's F_IEBLEND: radius ignored; not drawn, but scales the area fog
@@ -292,10 +318,9 @@ void requireOpaque(const wmo::Fog::Layer& layer, const char* field, std::vector<
 }
 
 // One MFOG record as an effect instance (REFACTOR/EFFECTS.md, literal tier).
-canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index, uint32_t id) {
+canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index) {
     const wmo::Fog& f = in.root->fogs[index];
     canon::PlacedInstance instance;
-    instance.id = id;
     instance.translation = toCanon(f.position);
     instance.flags = f.flags;
     canon::EffectPlacement effect;
@@ -337,29 +362,74 @@ canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index, uint
     return instance;
 }
 
-// Places every MFOG record but the empty entry in the set it applies with
-// (MFED), else in set 0, which is always on; a model without doodad sets
-// gets an always-on "effects" set. Ids follow the doodads' MODD indices,
-// so they stay unique across the model's sets. Returns each record's
-// instance, nullopt for the empty entry.
-std::vector<std::optional<canon::InstanceRef>> placeFogs(const WmoInputs& in, std::vector<canon::Model::OwnedSet>& sets) {
-    const wmo::RootFile& root = *in.root;
-    std::vector<std::optional<canon::InstanceRef>> out(root.fogs.size());
-    uint32_t nextId = static_cast<uint32_t>(root.doodads.size());
-    for (uint32_t i = 0; i < root.fogs.size(); ++i) {
-        if (isEmptyFog(root.fogs[i])) continue;
+// Puts effect instances into a WMO's owned sets. Ids follow the doodads'
+// MODD indices, so they stay unique across the model's sets. A model
+// without doodad sets gets an always-on "effects" set as set 0, which is
+// where an instance with no set of its own goes otherwise.
+struct EffectPlacer {
+    std::vector<canon::Model::OwnedSet>& sets;
+    uint32_t nextId;
+
+    canon::InstanceRef place(uint32_t set, canon::PlacedInstance instance) {
         if (sets.empty()) {
             canon::Model::OwnedSet effects;
             effects.set.ref = canon::Ref{canon::RecordIndex{0}, "effects", canon::NameSource::Synthesized};
             effects.alwaysOn = true;
             sets.push_back(std::move(effects));
         }
-        uint32_t set = root.fogs[i].doodadSet.value_or(0);
-        sets[set].set.instances.push_back(buildFogInstance(in, i, nextId));
-        out[i] = canon::InstanceRef{set, nextId};
-        ++nextId;
+        instance.id = nextId;
+        sets[set].set.instances.push_back(std::move(instance));
+        return {set, nextId++};
+    }
+};
+
+// Every MFOG record but the empty entry, in the set it applies with (MFED),
+// else set 0. Returns each record's instance, nullopt for the empty entry.
+std::vector<std::optional<canon::InstanceRef>> placeFogs(const WmoInputs& in, EffectPlacer& placer) {
+    const wmo::RootFile& root = *in.root;
+    std::vector<std::optional<canon::InstanceRef>> out(root.fogs.size());
+    for (uint32_t i = 0; i < root.fogs.size(); ++i) {
+        if (isEmptyFog(root.fogs[i])) continue;
+        out[i] = placer.place(root.fogs[i].doodadSet.value_or(0), buildFogInstance(in, i));
     }
     return out;
+}
+
+// MAVG/MAVD/MBVD, each in the set it applies with. Returns the MAVD and
+// MBVD instances, which group refs name; nothing names an MAVG.
+struct AmbientRefs {
+    std::vector<canon::InstanceRef> points;
+    std::vector<canon::InstanceRef> boxes;
+};
+
+AmbientRefs placeAmbient(const WmoInputs& in, EffectPlacer& placer) {
+    const wmo::RootFile& root = *in.root;
+    for (uint32_t i = 0; i < root.globalAmbientVolumes.size(); ++i) {
+        const wmo::AmbientVolume& v = root.globalAmbientVolumes[i];
+        placer.place(v.doodadSet, globalAmbientInstance(v, i));
+    }
+    AmbientRefs out;
+    for (uint32_t i = 0; i < root.ambientVolumes.size(); ++i) {
+        const wmo::AmbientVolume& v = root.ambientVolumes[i];
+        out.points.push_back(placer.place(v.doodadSet, pointAmbientInstance(v, i)));
+    }
+    for (uint32_t i = 0; i < root.ambientBoxes.size(); ++i) {
+        const wmo::AmbientBox& b = root.ambientBoxes[i];
+        out.boxes.push_back(placer.place(b.doodadSet, boxAmbientInstance(b, i)));
+    }
+    return out;
+}
+
+// A group's refs into a list of instances: MAVR, MBVR.
+void appendRefs(uint32_t part, const char* tag, const std::vector<uint16_t>& refs,
+                const std::vector<canon::InstanceRef>& instances, std::vector<canon::InstanceRef>& out) {
+    for (uint16_t r : refs) {
+        if (r >= instances.size()) {
+            throw std::runtime_error("WMO group " + std::to_string(part) + "'s " + tag + ": expected refs < " +
+                                     std::to_string(instances.size()) + " root records, got " + std::to_string(r));
+        }
+        out.push_back(instances[r]);
+    }
 }
 
 // A group's fog list: MFVR, else MOGP fogIds. A 0 names the model's default
@@ -392,15 +462,6 @@ void nameByPosition(std::vector<T>& entries, const std::string& prefix) {
 canon::Scene buildScene(const WmoInputs& in) {
     canon::Scene scene;
     const wmo::RootFile& root = *in.root;
-    for (uint32_t i = 0; i < root.globalAmbientVolumes.size(); ++i) {
-        scene.ambientVolumes.push_back(buildAmbientVolume(in, root.globalAmbientVolumes[i], "MAVG", i,
-                                                          canon::AmbientVolume::Shape::Global));
-    }
-    for (uint32_t i = 0; i < root.ambientVolumes.size(); ++i) {
-        scene.ambientVolumes.push_back(
-            buildAmbientVolume(in, root.ambientVolumes[i], "MAVD", i, canon::AmbientVolume::Shape::Point));
-    }
-    for (uint32_t i = 0; i < root.ambientBoxes.size(); ++i) scene.ambientVolumes.push_back(buildAmbientBox(in, i));
     for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
         canon::ParticulateVolume v = buildParticulateVolume(root.particulateVolumes[i], in.textures);
         v.origin = {"MPVD", i};
@@ -408,7 +469,6 @@ canon::Scene buildScene(const WmoInputs& in) {
     }
     for (uint32_t i = 0; i < in.root->newLights.size(); ++i) scene.localLights.push_back(buildNewLight(in, i));
     for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) scene.localLights.push_back(buildLegacyLight(in, i));
-    nameByPosition(scene.ambientVolumes, "ambient");
     nameByPosition(scene.particulateVolumes, "particles");
     nameByPosition(scene.localLights, "light");
     return scene;
@@ -607,7 +667,9 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     }
 
     std::vector<canon::Model::OwnedSet> sets = buildPlacementSets(in);
-    std::vector<std::optional<canon::InstanceRef>> fogs = placeFogs(in, sets);
+    EffectPlacer placer{sets, static_cast<uint32_t>(root.doodads.size())};
+    std::vector<std::optional<canon::InstanceRef>> fogs = placeFogs(in, placer);
+    AmbientRefs ambient = placeAmbient(in, placer);
 
     canon::Mesh mesh;
     if (uvSetCount > 1) mesh.uv1.emplace();
@@ -626,15 +688,10 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         if (in.groups[part]) {
             const wmo::GroupFile& g = *in.groups[part];
             meshPart.fogs = partFogs(part, g, fogs);
-            // Scene::ambientVolumes holds MAVG, then MAVD, then MBVD records.
-            uint32_t pointsStart = static_cast<uint32_t>(root.globalAmbientVolumes.size());
-            uint32_t boxesStart = pointsStart + static_cast<uint32_t>(root.ambientVolumes.size());
             meshPart.particulateVolumes =
                 volumeRefs(part, "MPVR", g.particulateVolumeRefs, root.particulateVolumes.size(), 0);
-            meshPart.ambientVolumes = volumeRefs(part, "MAVR", g.ambientVolumeRefs, root.ambientVolumes.size(), pointsStart);
-            for (uint32_t box : volumeRefs(part, "MBVR", g.ambientBoxRefs, root.ambientBoxes.size(), boxesStart)) {
-                meshPart.ambientVolumes.push_back(box);
-            }
+            appendRefs(part, "MAVR", g.ambientVolumeRefs, ambient.points, meshPart.ambientVolumes);
+            appendRefs(part, "MBVR", g.ambientBoxRefs, ambient.boxes, meshPart.ambientVolumes);
             // A group without portals may store start 0xFFFF with count 0.
             if (g.portalCount != 0 && g.portalStart + g.portalCount > root.portalRefs.size()) {
                 throw std::runtime_error("WMO group " + std::to_string(part) + ": expected MOPR refs [" +

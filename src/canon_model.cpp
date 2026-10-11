@@ -83,9 +83,6 @@ void requireSceneSets(const Scene& scene, size_t setCount) {
     for (size_t i = 0; i < scene.localLights.size(); ++i) {
         requireOwnedSet(scene.localLights[i].placementSet, setCount, "local light " + std::to_string(i));
     }
-    for (size_t i = 0; i < scene.ambientVolumes.size(); ++i) {
-        requireOwnedSet(scene.ambientVolumes[i].placementSet, setCount, "ambient volume " + std::to_string(i));
-    }
 }
 
 void requireEffectInstance(const InstanceRef& ref, const std::vector<Model::OwnedSet>& sets, const std::string& what) {
@@ -138,9 +135,12 @@ void requireAttributes(const Mesh& mesh) {
     }
 }
 
-void requirePartFogs(const std::vector<MeshPart>& parts, const std::vector<Model::OwnedSet>& sets) {
+void requirePartEffects(const std::vector<MeshPart>& parts, const std::vector<Model::OwnedSet>& sets) {
     for (size_t p = 0; p < parts.size(); ++p) {
         for (const InstanceRef& fog : parts[p].fogs) requireEffectInstance(fog, sets, "part " + std::to_string(p) + "'s fog");
+        for (const InstanceRef& volume : parts[p].ambientVolumes) {
+            requireEffectInstance(volume, sets, "part " + std::to_string(p) + "'s ambient volume");
+        }
     }
 }
 
@@ -197,7 +197,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     requireParts(mesh);
     requireUniqueInstanceIds(placementSets);
     requireSceneSets(scene, placementSets.size());
-    requirePartFogs(mesh.parts, placementSets);
+    requirePartEffects(mesh.parts, placementSets);
     if (defaultFog) requireEffectInstance(*defaultFog, placementSets, "default fog");
     requireLiquids(liquids, mesh.parts.size(), materials.size());
     requireCollision(collision);

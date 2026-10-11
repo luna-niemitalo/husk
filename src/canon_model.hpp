@@ -114,9 +114,9 @@ struct Model {
 // loading exists). Every bone reference in `scene` must be a `RecordIndex`
 // in range for `skeleton.joints`, every primitive's `part` must be in range
 // for `mesh.parts`, instance ids must be unique within each placement set, and a
-// local light's or ambient volume's placement set must be a RecordIndex in range
-// for `placementSets`. Every part fog and `defaultFog` must name an effect
-// instance of `placementSets`.
+// local light's placement set must be a RecordIndex in range for
+// `placementSets`. Every part fog and ambient volume, and `defaultFog`, must
+// name an effect instance of `placementSets`.
 // Each liquid's part and RecordIndex material must be in range, and its
 // arrays sized to its grid. Collision indices must be in range for its
 // positions, three per triangle, with none or one normal per triangle.
