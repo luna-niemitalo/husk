@@ -291,7 +291,7 @@ drifting implementations into one exposes *why* things look wrong today.
 | `CANONICAL_MODEL.md` | Stage 3 — the semantic model, built pure | Independent to design; the migration itself is the expensive stage |
 | `BUNDLE_FORMAT.md` | The native husk bundle + manifest schema; glTF's demoted role | Independent; carries a reopened design question (physical storage shape at corpus scale) — needs a decision, see Blockers below |
 | `PLACEMENT_SETS.md` | Generic placement sets (WMO furniture, terrain placements, housing layouts) and the WMO bundle as their first user; invariants that keep runtime-movable objects possible | Agreed 2026-10-09, not implemented |
-| `FOG_MODEL.md` | One canonical fog/atmosphere model (region × activation × effect, named after the client's fog record) that every fog and volume source fills, and an evidence ladder for fields whose meaning is still open | Proposed 2026-10-11, not built |
+| `EFFECTS.md` | Fog, volumes and particles in the canonical format: world content vs classic style, shared effect sources (region, gate, content), derivation provenance, an evidence ladder for unknown fields, and the implementation plan (merges MantleCore's effects handoff) | Proposed 2026-10-11, not built |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
 

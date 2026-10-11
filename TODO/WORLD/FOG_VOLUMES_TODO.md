@@ -18,9 +18,10 @@ bundle (each section's "Current state"); what stays open is field
 semantics. Evidence citations below name the corpus path they were
 checked against.
 
-**Target representation**: `../../REFACTOR/FOG_MODEL.md` (proposed, not
-built) — one canonical fog/atmosphere model the sources here fill in,
-with an evidence ladder for fields whose meaning is still open.
+**Target representation**: `../../REFACTOR/EFFECTS.md` (proposed, not
+built) — world content vs classic style, shared effect sources the
+sources here fill in, and an evidence ladder for fields whose meaning is
+still open.
 
 ---
 
