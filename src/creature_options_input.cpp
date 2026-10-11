@@ -14,17 +14,35 @@ namespace {
 // wowdev.wiki M2#Textures); the fourth entry has no known type.
 constexpr uint32_t kFirstVariationType = 11;
 constexpr size_t kTypedVariations = 3;
+constexpr const char* kFourthEntrySlot = "variation_4";
+constexpr const char* kFourthEntryInference =
+    "CreatureDisplayInfo.TextureVariationFileDataID[3] of this model's displays; no texture type in the model "
+    "takes it, so which part it textures is unknown";
 
 std::array<float, 4> argbToRgba(uint32_t argb) {
     auto channel = [&](int shift) { return static_cast<float>((argb >> shift) & 0xFF) / 255.0f; };
     return {channel(16), channel(8), channel(0), channel(24)};
 }
 
-std::optional<uint32_t> slotForType(const std::vector<canon::TextureSlot>& slots, uint32_t type) {
-    for (size_t i = 0; i < slots.size(); ++i) {
-        if (slots[i].sourceType == type) return static_cast<uint32_t>(i);
+// The slot texture entry `entry` fills, added when the model has none: the
+// texture still belongs to this model, a layer just doesn't read it.
+uint32_t slotForEntry(std::vector<canon::TextureSlot>& slots, size_t entry) {
+    auto has = [&](const canon::TextureSlot& slot) {
+        return entry < kTypedVariations ? slot.sourceType == kFirstVariationType + uint32_t(entry)
+                                        : slot.name == kFourthEntrySlot && !slot.sourceType;
+    };
+    auto it = std::find_if(slots.begin(), slots.end(), has);
+    if (it != slots.end()) return static_cast<uint32_t>(it - slots.begin());
+    canon::TextureSlot added;
+    if (entry < kTypedVariations) {
+        added.sourceType = kFirstVariationType + uint32_t(entry);
+        added.name = "monster_" + std::to_string(entry + 1);
+    } else {
+        added.name = kFourthEntrySlot;
+        added.inferredFrom = kFourthEntryInference;
     }
-    return std::nullopt;
+    slots.push_back(std::move(added));
+    return static_cast<uint32_t>(slots.size() - 1);
 }
 
 std::vector<uint32_t> meshGeosetIds(const canon::Mesh& mesh) {
@@ -100,14 +118,8 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
                 uint32_t fdid = display.textures[i];
                 if (fdid == 0) continue;
                 key += "t" + std::to_string(i) + ":" + std::to_string(fdid) + ";";
-                std::optional<uint32_t> slot =
-                    i < kTypedVariations ? slotForType(model.textureSlots, kFirstVariationType + uint32_t(i)) : std::nullopt;
-                if (slot) {
-                    preset.textures.push_back({*slot, textureOption(*slot, fdid)});
-                } else {
-                    preset.unresolved.push_back({"TextureVariationFileDataID[" + std::to_string(i) + "]",
-                                                 canon::UnresolvedField::Kind::Id, double(fdid), std::nullopt});
-                }
+                uint32_t slot = slotForEntry(model.textureSlots, i);
+                preset.textures.push_back({slot, textureOption(slot, fdid)});
             }
             if (modelData.displaysPickGeosets) {
                 auto picked = data.geosetsByDisplay.find(display.id);

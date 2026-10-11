@@ -423,11 +423,17 @@ void writeOptions(json::Writer& w, const canon::Model& model, const std::filesys
             w.beginObject();
             w.key("name");
             w.value(slot.name);
-            w.key("source");
-            w.beginObject();
-            w.key("texture_type");
-            w.value(static_cast<int64_t>(slot.sourceType));
-            w.endObject();
+            if (slot.sourceType) {
+                w.key("source");
+                w.beginObject();
+                w.key("texture_type");
+                w.value(static_cast<int64_t>(*slot.sourceType));
+                w.endObject();
+            }
+            if (slot.inferredFrom) {
+                w.key("inferred_from");
+                w.value(*slot.inferredFrom);
+            }
             w.key("options");
             w.beginArray();
             for (const canon::TextureRef& option : slot.options) writeTextureEntry(w, option, bundleDir, writtenTextures);

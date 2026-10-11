@@ -9,9 +9,11 @@
 
 // husk::creatureinput: a creature model's options and presets from the
 // CreatureModelData -> CreatureDisplayInfo chain. Every texture a display
-// puts in a slot becomes one of that slot's options, every particle colour
-// row one particle colour option; each distinct combination a display uses
-// is a preset listing every such display with its scale.
+// puts in a slot becomes one of that slot's options (a slot the model has
+// no layer for is added, as is an inferred one for the fourth entry, which
+// has no texture type), every particle colour row one particle colour
+// option; each distinct combination a display uses is a preset listing
+// every such display with its scale.
 namespace husk::creatureinput {
 
 struct OptionsReport {

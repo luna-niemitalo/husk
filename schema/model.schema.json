@@ -73,7 +73,7 @@
         },
         "texture_slots": {
           "type": "array",
-          "description": "Textures material layers take from outside the model. The layer's own texture is a default; any option may replace it, whether or not the source ever used it on this model.",
+          "description": "Textures the model takes from outside. A layer reading a slot has its own texture as a default; any option may replace it, whether or not the source ever used it on this model. A slot no layer reads still lists its options.",
           "items": {
             "type": "object",
             "description": "One slot.",
@@ -84,7 +84,7 @@
               },
               "source": {
                 "type": "object",
-                "description": "The slot in the source's terms.",
+                "description": "The slot in the source's terms, when it has a texture type.",
                 "properties": {
                   "texture_type": {
                     "type": "integer",
@@ -96,6 +96,10 @@
                 "required": [
                   "texture_type"
                 ]
+              },
+              "inferred_from": {
+                "type": "string",
+                "description": "How husk tied the slot to the model when the source doesn't state it; absent: stated by the source."
               },
               "options": {
                 "type": "array",
@@ -109,7 +113,6 @@
             "additionalProperties": false,
             "required": [
               "name",
-              "source",
               "options"
             ]
           }

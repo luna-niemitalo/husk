@@ -1096,7 +1096,7 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     skin.state = canon::TextureRef::State::KnownUnresolved;
     skin.resolved.id = canon::FileDataId{123};
     skin.unresolvedReason = "not extracted";
-    model.textureSlots = {{"monster_1", 11, {skin}}};
+    model.textureSlots = {{"monster_1", 11, {skin}, std::nullopt}, {"variation_4", std::nullopt, {skin}, "test inference"}};
     model.materials[0].layers[0].slot = 0;
     model.particleColorOptions.push_back(
         {canon::Ref{canon::Db2Row{"ParticleColor", 5}, "", canon::NameSource::None},
@@ -1118,6 +1118,9 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(definition["texture_slots"][0]["name"] == "monster_1");
     CHECK(definition["texture_slots"][0]["source"]["texture_type"] == 11);
     CHECK(definition["texture_slots"][0]["options"][0]["state"] == "known_unresolved");
+    CHECK_FALSE(definition["texture_slots"][0].contains("inferred_from"));
+    CHECK_FALSE(definition["texture_slots"][1].contains("source"));
+    CHECK(definition["texture_slots"][1]["inferred_from"] == "test inference");
     CHECK(definition["particle_colors"][0]["ramps"][0]["mid"] == nlohmann::json::array({0.0, 1.0, 0.0, 1.0}));
     CHECK(manifest["resources"]["materials"][0]["layers"][0]["slot"] == 0);
     const auto& p = manifest["selection"]["presets"][0];

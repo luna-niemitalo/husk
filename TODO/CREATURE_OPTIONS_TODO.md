@@ -19,7 +19,7 @@ display".
    on the viewer, not on other options; if an option-on-option
    constraint ever turns up, it needs a constraint form in the format.
 4. **The fourth texture variation**: no texture type in the models that
-   use it; carried as a preset's `unresolved`, not an option.
+   use it; now a `variation_4` slot whose options carry `inferred_from` (the model is known from the display; which part it textures is not).
 5. **Emitter textures in replaceable slots**: a particle/ribbon texture
    input doesn't name its slot, so a slot option can't retexture it.
 6. **Default texture**: a slot layer's own texture is the fuzzy-pool

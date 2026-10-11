@@ -18,13 +18,17 @@
 // source is known to use, and where.
 namespace husk::canon {
 
-// A texture a material layer takes from outside the model: the layer's own
-// texture is a default, `options` the textures the slot may hold.
-// `sourceType` is the source's replaceable-texture type (M2 texture type).
+// A texture the model takes from outside: a layer reading the slot has its
+// own texture as a default, `options` the textures the slot may hold. A
+// slot no layer reads still lists its options. `sourceType`: the source's
+// replaceable-texture type (M2 texture type), when it has one.
+// `inferredFrom`: how husk tied the slot to the model, when the source
+// doesn't say so directly; nullopt = stated by the source.
 struct TextureSlot {
     std::string name;
-    uint32_t sourceType = 0;
+    std::optional<uint32_t> sourceType;
     std::vector<TextureRef> options;
+    std::optional<std::string> inferredFrom;
 };
 
 // One recolouring ramp for particles, RGBA 0..1.

@@ -69,7 +69,7 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     REQUIRE(model.textureSlots[1].options.size() == 2);
     CHECK(std::get<canon::FileDataId>(model.textureSlots[1].options[1].resolved.id).value == 101);
     REQUIRE(model.textureSlots[0].options.size() == 1);
-    CHECK(asked == std::vector<uint32_t>{100, 200, 101});
+    CHECK(asked == std::vector<uint32_t>{100, 200, 101, 400});
 
     REQUIRE(model.presets.size() == 2);
     const canon::Preset& first = model.presets[0];
@@ -85,10 +85,31 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     CHECK(second.textures[0].option == 1);
     CHECK(second.textures[1].option == 0);
     CHECK(std::get<canon::Db2Row>(second.sources[0].ref.id).row == 12);
-    // The fourth entry has no texture type: kept, not made an option.
-    REQUIRE(second.unresolved.size() == 1);
-    CHECK(second.unresolved[0].field == "TextureVariationFileDataID[3]");
+    // The fourth entry has no texture type: an inferred slot of its own.
+    REQUIRE(model.textureSlots.size() == 3);
+    const canon::TextureSlot& fourth = model.textureSlots[2];
+    CHECK(fourth.name == "variation_4");
+    CHECK_FALSE(fourth.sourceType.has_value());
+    REQUIRE(fourth.inferredFrom.has_value());
+    REQUIRE(fourth.options.size() == 1);
+    REQUIRE(second.textures.size() == 3);
+    CHECK(second.textures[2].slot == 2);
+    CHECK(second.unresolved.empty());
     CHECK(second.opacity == doctest::Approx(0.2f));
+}
+
+TEST_CASE("addCreatureOptions: a texture for a type no layer reads gets that type's slot, not an inference") {
+    creaturedisplay::Data data;
+    data.modelDataByFile[kModelFile] = {{1, 1.0f, false}};
+    data.displaysByModelData[1] = {display(10, {0, 0, 300, 0})};
+    canon::Model model = modelWithGeosets({0});
+    creatureinput::OptionsReport report;
+    creatureinput::addCreatureOptions(data, kModelFile, model, textureNamed, report);
+    REQUIRE(model.textureSlots.size() == 3);
+    CHECK(model.textureSlots[2].name == "monster_3");
+    CHECK(model.textureSlots[2].sourceType == 13u);
+    CHECK_FALSE(model.textureSlots[2].inferredFrom.has_value());
+    CHECK(model.presets[0].textures[0].slot == 2);
 }
 
 TEST_CASE("addCreatureOptions: a model whose displays pick geosets shows 0, 900+ and the picked ones") {
