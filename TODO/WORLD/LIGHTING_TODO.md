@@ -306,7 +306,17 @@ consumer choose" precedent `.bone` correction sets already established.
 
 ## 3. WMO dynamic lights (`MNLD` + group `MNLR` refs)
 
-**Current state**: `none`/`none`.
+**Current state (2026-10-11)**: exported as the WMO bundle's
+`resources.scene.static_lights` (`canon::LocalLight`), each switching
+with its doodad set.
+
+Open:
+- **Non-finite records make the bundle invalid.**
+  `11du_brewerydungeon_main01.wmo` light 61 has a NaN position,
+  attenuation and one rotation angle. The writer turns them into `null`,
+  which fails validation. A light with no finite position can't be
+  placed; decide whether such a record is dropped with a note or carried
+  unresolved once lights move onto `REFACTOR/EFFECTS.md`.
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WMO.md`, `## MNLD`
 (854–905, root-scoped) and `## MNLR` (2368–2377, group-scoped).
