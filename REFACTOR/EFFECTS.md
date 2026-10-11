@@ -1,143 +1,203 @@
 # EFFECTS.md — fog, volumes and particles in the canonical format
 
 **Status: proposed (2026-10-11), not built.** Nothing here exists in
-`src/` or `schema/` yet. It merges two inputs:
+`src/` or `schema/` yet. Decisions marked **(Luna)** are settled; the rest
+is proposal.
 
-- husk's fog-model proposal (this file's first version), which designs from
-  the client's fog record;
-- MantleCore's consumer requirements (`reports/husk_effects_handoff.md`,
-  local and gitignored; MantleCore's side is its `design/effects.md`).
-  Decisions marked **(Luna)** come from there.
+Today the bundle carries each source in its own shape:
+- `canon::LocalFog` mirrors `MFOG`;
+- `canon::FogVolume` mirrors `VFOG`+`VFEX`+`VFE2`, `unknown18` and all;
+- `canon::ParticleEmitter`/`RibbonEmitter` mirror M2's emitters.
 
-Today the bundle carries each source in its own shape: `canon::LocalFog`
-mirrors `MFOG`, and `canon::FogVolume` mirrors `VFOG`+`VFEX`+`VFE2`,
-`unknown18` and all. M2 emitters are `canon::ParticleEmitter`/
-`RibbonEmitter`. Source facts are in `../WIKI_FINDINGS/WORLD.md`, open
-items in `../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in
+Source facts are in `../WIKI_FINDINGS/WORLD.md`, open items in
+`../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in
 `../SHADER_FINDINGS/notes/fog.md`.
 
 ## Principles
 
-1. **An effect never renders itself (MantleCore).** The format declares
-   what is in the world: a medium, particles, a light. The engine's fog
-   and lighting draw it.
+1. **An effect never renders itself.** The format declares what is in the
+   world: a medium (fog, smoke), particles, a light. The consumer's own fog
+   and lighting draw it. The consumer simulates in a shared world field
+   (density, heat, velocity), so everything is stated as world facts, never
+   as how a client drew it.
 2. **Two layers, both canonical:**
-   - **World content**: physical quantities, read by every MantleCore
-     renderer.
-   - **Style**: how the classic client drew it (the fog record, ambient
-     colour regions, exit blends, the underwater look, blend modes). Only
-     the classic-style mode reads it.
+   - **World content**: physical quantities. Any renderer reads it.
+   - **Style**: the classic client's look (fog record, ambient colour
+     regions, exit blends, the underwater look, blend modes). Only a
+     classic-style renderer reads it.
 
-   WoW data is mostly style. World content is mostly derived from it, or
-   left out.
-3. **Vocabulary from the target, never from the source.**
-   - Style keys are named after the client's fog record roles (shader
-     code, `fog.md`).
-   - World-content keys are named after physics.
-   - No key names a chunk or a source offset.
-4. **Every value says where it came from.**
+   WoW data is mostly style. Its world content is derived, or absent until
+   understood.
+3. **An effect is a behaviour, an instance supplies its inputs (Luna).**
+   "Leaves falling" is one effect. Each tree is an instance of it that
+   gives an emitter location and its own leaf texture, while the falling
+   is governed by the effect. The same goes for ground fog: green, grey,
+   orange and purple ground fog are one effect with a colour input.
+4. **Vocabulary from the target, never from the source.** Style keys are
+   named after the client's fog record roles (shader code). World-content
+   keys are named after physics. No key names a chunk or a source offset.
+5. **Every value says where it came from.**
    - `source`: read, meaning known.
-   - `derived`: computed by a named rule MantleCore can switch off.
-   - `authored`: written by a person. husk never writes this; MantleCore's
-     tools may.
+   - `derived`: computed by a named, switchable rule.
+   - `authored`: written by a person.
 
-   Fields not yet understood climb the evidence ladder (below) instead of
+   Fields not yet understood climb the evidence ladder instead of
    becoming keys.
-5. **Absent means "not stated".** husk invents no defaults. A missing
-   style field inherits from the enclosing fog; a missing world-content
-   field is MantleCore's to default.
+6. **Absent means "not stated".** husk invents no defaults. A missing
+   style field inherits from the enclosing fog. A missing world-content
+   field is the consumer's to default.
+
+## Two tiers of representation
+
+Every WoW effect source is represented in one of two tiers:
+
+| Tier | What | Cost |
+|---|---|---|
+| **literal** | One effect per source mechanism: `classic_m2_particle_emitter`, `classic_m2_ribbon`, `classic_particulate_volume`, `classic_volumetric_fog`, `classic_local_fog`, `classic_zone_fog`, `classic_ambient_region`. Its inputs are the mechanism's whole parameter set, and each source record is an instance. | computable now for every source |
+| **classified** | One effect per behaviour (`ground_fog`, `falling_leaves`, `tornado`, `embers`, `dust`, ...), with the few inputs that vary between its instances. Each source record is judged and mapped to one. | item by item, a stretch goal |
+
+The literal tier is the cheap, computable cop-out. It represents
+everything faithfully but not *well*: a ground fog is "an M2 particle
+emitter with these 60 parameters" rather than "fog over the ground, this
+colour, this thick". It stays in place until classification replaces it.
+
+A classified instance keeps its literal instance's classic look as `style`,
+so the classic-style render stays exact.
+
+**Classification is data, not code.** It is a reviewable table in husk:
+a source signature (M2 path family, emitter texture, parameter cluster)
+maps to an effect and an input binding. It grows one behaviour at a time,
+and every classified instance names its table entry in `provenance`.
+Region kinds that only a judgement can produce, like `above_ground` for
+ground fog or `spline_tube` for a tornado's axis, come from here.
 
 ## Shape
 
-### An effect source
+### Effect documents
 
-The unit is one **source**, a shared definition in
-`common.schema.json`:
+A fourth document kind, `effect`, with the standard contract header:
 
 ```
-source
-  id            string, unique in its list
-  parent        id of another source in the same list (embers under a fire); optional
-  anchor        world | instance | joint (Ref into the anchoring model's rig)
-  region        where (below)
-  gate          when: world facts only, a 0..1 weight
-  priority      essential | ambient | decorative
-  content       what is in the world: medium | particles | light_proxy (below)
-  style         the classic client's look for this source; optional
-  provenance    which fields are derived, and by which rule
-  unresolved    fields not yet understood (evidence ladder)
-  source        raw flags and record id, for provenance only
+kind        "effect"
+subject     Ref: the effect (a synthesized name: "ground_fog", "classic_m2_particle_emitter")
+definition  inputs: {name: {type, x-unit, description, default?}}
+data        sources: [source, ...]   values may bind an input: "$color"
+references  textures, atlases, meshes it always uses
 ```
 
-`content` and `style` are both optional, but a source has at least one. An
-`MFOG` sphere with only a linear fog has a style and a derived medium. A
-`MAVD` ambient region has a style only. `MPVD` dust has content only.
+Exported as `effects/<name>.effect.bundle`. An effect's sources may have
+parents within the effect (embers spawned where the fire's heat is).
+
+### Effect instances
+
+An instance is a selection: it places an effect and gives it inputs. It
+lives in the document that carries it:
+- a model's `resources.effects`: an M2's emitters, a WMO's fogs and
+  volumes;
+- a world's `scene.effects`: map fogs and volumes, zone fog.
+
+```
+instance
+  effect      index into the document's references (kind "effect")
+  anchor      world | instance | joint (Ref into the carrying model's rig)
+  transform   translation, rotation, scale relative to the anchor
+  inputs      {name: value}; only names the effect declares
+  gate        when: world facts only, a 0..1 weight
+  priority    essential | ambient | decorative
+  style       the classic client's look; optional
+  provenance  derived fields and their rules; the classification entry
+  unresolved  fields not yet understood (evidence ladder)
+  source      raw flags and record id, for provenance only
+```
+
+A tree M2's leaf emitter is an instance of `falling_leaves`, with a joint
+anchor and a texture input. The tree's placement in a tile places the
+tree, and so its effect instances; the instance needs no transform of its
+own beyond the anchor.
 
 ### Regions
 
-Every region has `edge`, the soft fade width in yards (0 = hard).
+Every region has `edge`, a soft fade width (0 = hard).
 
 | Kind | Fields | Filled by |
 |---|---|---|
 | `everywhere` | — | map default zone light, `MAVG` |
 | `sphere` | `center`, `inner_radius`, `outer_radius` | `Light` zones, `MFOG`, `MAVD` |
-| `box` | `center`, `size`, `rotation` | `MPVD`, `PVMI` |
+| `box` | `center`, `size`, `rotation` | `MPVD`, `PVMI`, M2 plane emitters |
 | `planes` | outward planes; inside where all hold | `MBVD` |
 | `shape` | `model` Ref, transform, `radius[3]` | `VFOG` |
 | `box_tree` | `PVBD`'s hierarchy, as a stored index | `PVBD` |
-| `above_ground`, `capsule`, `spline_tube`, `from_parent` | MantleCore's sketch | no WoW source |
+| `spline_tube` | spline points, radius profile | M2 spline emitters (type 3, literal); ribbons, tornadoes (classified) |
+| `above_ground` | height band over the terrain's height field, not an absolute height | ground fog, swamp mist (classified) |
+| `capsule` | two points, radius | first producer adds it |
+| `from_parent` | where a parent source's field exceeds a threshold | first producer adds it |
 
-The last row is added to the schema when the first producer (MantleCore
-authoring) needs it, per "abstractions are earned". It's recorded here so
-the shape leaves room. `from_parent` (spawn where the parent's heat
-exceeds a threshold) is the same.
+Two kinds are added to the schema with their first producer, per
+"abstractions are earned": `capsule` and `from_parent`. The others all
+have WoW producers.
 
 Two facts the box fields wait on: whether `MPVD`'s extent is full or half
-size, and the Euler axis order. Until one is verified, the box carries
-`unresolved` fields, not a `size` and `rotation` husk might have guessed
-wrong.
+size, and the Euler axis order. Until each is verified, it is an
+`unresolved` field, not a typed key husk might have guessed wrong.
 
-### Gate and priority (MantleCore)
+### Gate and priority
 
-The gate takes **world facts only**, as a weight that fades.
+The gate takes **world facts only**, as a weight, so switching is always a
+fade:
 
 | Gate input | WoW source |
 |---|---|
 | `placement_set` | `MFED`; `MAVD`/`MBVD` `doodadSetId` |
 | `enabled` | `VFEX` enable (3 of 1,542 are 0; written `false`, kept) |
-| `sequence` | M2 emitter `enabledIn`: the anchoring instance's animation state (new; MantleCore to confirm) |
+| `animation` | the carrying instance's active animation (M2 emitter tracks are per animation) |
+| time of day, weather, season | zone fog by `LightData.Time`; the rest first producer |
 
 Two inputs are kept out of the gate:
-- **Viewer conditions** ("camera underwater"): the underwater layer of
-  `MFOG` becomes a style **look**, not a gate.
-- **Quality levels**: `VFOG.fogLevel` becomes `priority` by the rule
-  `fog_level_to_priority` (0 → essential, 1 → ambient, 2 → decorative).
+- **Viewer conditions** ("camera underwater"): the world can't depend on
+  the camera. `MFOG`'s underwater layer becomes a style look.
+- **Quality levels**: content isn't switched by quality. `VFOG.fogLevel`
+  becomes `priority` by the rule `fog_level_to_priority` (0 → essential,
+  1 → ambient, 2 → decorative), and the renderer thins by priority.
 
 ### Content
 
-| Kind | Fields | Notes |
-|---|---|---|
-| `medium` | `extinction` (1/yard), `albedo` (linear RGB), `anisotropy` g, `feature_size` (yard), `hold` (`pinned`/`base`/`seed`) | `hold` only here; the loader rejects it elsewhere |
-| `particles` | `spawn` (density per yard³/yard²/yard of spline, plus rate), `response_time` (s), `motion` (velocity, spread, gravity, buoyancy, drag, spin), `life` (curves over normalized age, each naming its clock), `look`, `light`, `deposit` | |
-| `light_proxy` | colour or temperature, intensity, `follows` | |
+| Kind | Fields |
+|---|---|
+| `medium` | `extinction` (1/length), `albedo` (linear RGB), `anisotropy` g, `feature_size` (length; the smallest detail worth keeping, never a grid resolution), `hold` |
+| `particles` | see below |
+| `light_proxy` | colour or temperature (K), intensity, `follows` (a joint, or a parent's heat centroid) |
+| `heat`, `force` (wind, vortex, attractor, curl noise), `emitter` (injection of density, heat, momentum) | added with their first producer |
 
-`look` is one of:
-- `point`;
-- `quad`: a texture Ref, an atlas `{tiles_x, tiles_y, frames}`;
-- `streak`;
-- `ribbon`;
-- `mesh_instance`: a model Ref, plus orientation from velocity or spin.
+`hold` applies only to `medium` fields:
+- `pinned`: exactly as stated, not simulated.
+- `base`: the simulation relaxes back toward it.
+- `seed`: the simulation starts from it, then evolves freely.
 
-`light` is either `emission` (radiance, or `self_temperature` with
-cooling, times a tint) or `albedo`.
-
-`heat`, `force` (wind, vortex, attractor, curl noise) and `emitter`
-(injection rates) are in MantleCore's sketch. No WoW source fills them, so
-they join the schema with their first producer, like the reserved regions.
+**Particles:**
+- **Carried by the velocity field (Luna).** A particle's velocity relaxes
+  toward the field's with a `response_time` (short for a leaf, long for
+  a heavy spark). There is no "ignores wind" option.
+- `motion`: initial velocity and spread, gravity, buoyancy, drag, spin,
+  orbit or jitter.
+- `spawn`: a density (per volume, area or spline length) and a rate, never
+  a fixed count; the consumer scales counts by level of detail.
+- `life`: curves over normalized age (size, colour, opacity, emission).
+- `look`: one of
+  - `point`;
+  - `quad` (a texture Ref, an atlas `{tiles_x, tiles_y, frames}`);
+  - `streak`;
+  - `ribbon`;
+  - `mesh_instance` (a model Ref; orientation from velocity or spin; no
+    collision).
+- `light`: one of
+  - `emission`: radiance, or `self_temperature` with cooling, times a
+    tint;
+  - `albedo`.
+- `deposit`: `none`, or what the particle writes back (heat, density).
+  It must be explicit, since it decides where the consumer runs the
+  system.
 
 ### Style
-
-The classic client's vocabulary, from `fog.md`:
 
 - **`distance_fog`**: the shader fog record in blocks. Each block and field
   is optional, and absent means inherit.
@@ -149,20 +209,19 @@ The classic client's vocabulary, from `fog.md`:
   - `sun`: `color`, `angle`, `strength`.
   - `curves`: `near`, `far`, `normal`/`height` (cubics),
     `curve_vs_exponential`.
-- **`volumetric_fog`**: the froxel pass's colour and intensity. It drives a
-  different pass than `distance_fog`, so it is not folded into it.
-- **`ambient_color`**: today's three raw colours and their unknown-flag
-  selector.
+- **`volumetric_fog`**: the froxel pass's colour and intensity. It is a
+  separate pass, so it is not folded into `distance_fog`.
+- **`ambient_color`**: the three colours and the unknown-flag selector.
 - **`exit_blend`**: `MFOG` flag 0x1. It scales the enclosing fog down near
-  the model's exits, and has no medium.
+  the model's exits.
 - **`looks`**: alternative styles under a viewer condition. The only one
-  known is `underwater` (`MFOG`'s second layer, a `distance_fog.linear`).
-- **`draw`**: per-emitter classic draw state (blend mode, render flags,
-  priority plane) for the classic-style mode.
+  known is `underwater` (`MFOG`'s second layer).
+- **`draw`**: an emitter's classic draw state (blend mode, render flags,
+  priority plane).
 
 `LightData`'s columns line up with the fog record's roles almost one for
-one. Its three 4-float coefficient arrays match the shader's three cubics
-(`[9]`, `[10]`, `[11]`). This is a name match, unverified:
+one. The three 4-float coefficient arrays match the shader's three cubics.
+This is a name match, unverified:
 
 | Fog record role | `LightData` column |
 |---|---|
@@ -175,33 +234,34 @@ one. Its three 4-float coefficient arrays match the shader's three cubics
 | `[3]`→`[4]`, `[6]`→`[13]` colours | `EndFogColor`, `FogHeightColor`, `EndFogHeightColor` |
 | `[5]`, `[7].x` sun | `SunFogColor`, `SunFogAngle`, `SunFogStrength` |
 
-### Clocks
+### Time
 
 Every animated value names its clock:
-
 - `age`: normalized particle age.
-- `seconds`: `MPVD`'s envelope.
+- `seconds`.
 - `day_time`: `LightData.Time`.
-- `sequence`: per-sequence curves of an M2 emitter. This one is new to
-  MantleCore. An M2 emitter's rate, speed and gravity are keyed per
-  animation sequence of the model that carries it, so they can't be
-  flattened to `seconds`.
+
+M2 tracks are keyed in milliseconds, so they are `seconds` curves. They
+come one per animation, and which applies is the `animation` gate input,
+not a separate clock.
 
 ### Provenance
 
-There is one `provenance` per source, not one per value. Per value
-would double every number in the file. It maps field paths to how each
-was obtained, and paths not listed are `source`:
+There is one `provenance` per instance or source: a map from field path to
+how the value was obtained. Paths not listed are `source`:
 
 ```json
 "provenance": {
-  "content.extinction": {"kind": "derived", "rule": "linear_fog_to_extinction"},
-  "priority": {"kind": "derived", "rule": "fog_level_to_priority"}
+  "classification": "ground_fog/particleemitters_groundfog",
+  "fields": {
+    "content.extinction": {"kind": "derived", "rule": "linear_fog_to_extinction"},
+    "priority": {"kind": "derived", "rule": "fog_level_to_priority"}
+  }
 }
 ```
 
-MantleCore switches a rule off by ignoring the fields it produced. The
-style value is always there to compare against.
+A consumer switches a rule off by ignoring the fields it produced; the
+style value is there to compare against.
 
 ### Unknown data: the evidence ladder
 
@@ -212,14 +272,14 @@ style value is always there to compare against.
 | structural | value class known (colour, unit vector, FileDataID, count, angle) | `unresolved` entry with `kind` |
 | raw | only an offset | `unresolved` entry, plus the raw record slice |
 
-There is one `unresolved` shape for every source:
+There is one `unresolved` shape everywhere:
 `{fields: [{field, kind, value, candidate_role?}], records: [{field, slice}]}`.
 `field` is a value, so source names are allowed in it; the lint forbids
 chunk tags in keys only.
 
-A `candidate_role` is a hypothesis carried as data. MantleCore's debug view
-can apply candidates and compare against an in-game screenshot. A
-confirmed candidate is promoted to its typed key (a schema minor bump).
+A `candidate_role` is a hypothesis carried as data. A debug view can
+apply candidates and compare against an in-game screenshot. A confirmed
+candidate is promoted to its typed key (a schema minor bump).
 
 Boundary rules:
 - **Always-zero fields are asserted, not carried.** This covers
@@ -229,7 +289,7 @@ Boundary rules:
   repeated z values, and cross-reference ids once used for pairing.
 - **Flags split into named bits.** Only the unknown bits go to
   `unresolved`; the raw word goes to `source.flags`.
-- **Placeholders are not sources.** A WMO's "empty" `MFOG` record means
+- **Placeholders are not instances.** A WMO's "empty" `MFOG` record means
   "use the enclosing fog". It is recognized by content, not by index:
   record 0 is the placeholder in 3,631 of 4,000 seeded roots, a later
   record never is, and in the other 369 roots record 0 is a real fog.
@@ -238,129 +298,119 @@ Boundary rules:
 
 ### Units
 
-Keep yards, declared in the contract header's `space` like every other
-document, with `x-unit` on each physical field (`1/yard`, `K`, `second`).
-MantleCore converts once at load. This departs from MantleCore's sketch
-(metres). The reason: one export tree with two length units invites
-exactly the mixed-unit bug the header exists to prevent.
+Declared in the contract header's `space`, with `x-unit` on every
+physical field (`1/length`, `K`, `second`). husk's documents are in yards
+today; the consumer converts once at load.
+
+### Validation
+
+`validate-bundle` rejects, naming the document, the instance or source id,
+the field, and the expected and actual values:
+- an unknown `kind`;
+- a physical value without its unit;
+- non-finite numbers;
+- negative extinction, response time, density or lifetime;
+- a `hold` outside `medium`;
+- an instance input the effect doesn't declare, or a declared input
+  without a default that the instance doesn't give;
+- a viewer condition or a quality level in a gate;
+- an effect reference that doesn't resolve.
 
 ## Derivation rules
 
-Each rule is named in `provenance` and switchable. husk derives only
-where a source quantity maps by a stated formula. Where WoW holds no
-evidence at all, the field stays absent.
+Each rule is named in `provenance` and switchable. husk derives only where
+a source quantity maps by a stated formula. Where WoW holds no evidence,
+the field stays absent.
 
 | Rule | Computes | From |
 |---|---|---|
-| `fog_density_to_extinction` | medium `extinction` = the exponential density (the shader's `exp(−d·density)`, d in yards) | zone fog, `exponential.density` |
+| `fog_density_to_extinction` | medium `extinction` = the exponential density (the shader's `exp(−d·density)`) | zone fog `exponential.density` |
 | `linear_fog_to_extinction` | `extinction` = 3 / (end − start): 95 % opacity across the band | `MFOG` linear fog |
 | `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog, `MFOG` |
 | `fog_level_to_priority` | `priority` | `VFOG.fogLevel` |
 | `additive_to_emission` | particle `light.emission` = colour × opacity as radiance | M2 additive blend modes |
 | `alpha_to_albedo` | particle `light.albedo` = colour | M2 alpha blend modes |
-| `count_to_spawn_density` | `spawn` per yard³ = count / box volume | `MPVD`/`PVMI` (once box size is verified) |
+| `count_to_spawn_density` | `spawn` density = count / box volume | `MPVD`/`PVMI` (once box size is verified) |
 
-**Wind response time** (MantleCore asked): husk derives none and leaves
-it to MantleCore's default. No WoW field informs it, so a per-class rule
-husk wrote would be an authored guess dressed up as a derivation.
+**Wind response time**: husk derives none in the literal tier, since no
+WoW field informs it. A classified effect may state one as an `authored`
+value of that effect (a leaf responds fast, a spark slowly). The judgement
+then lives in one reviewable place, not on every instance.
 
-## Where today's sources land
+## Where today's sources land (literal tier)
 
-| Source | Anchor, region | Content | Style |
-|---|---|---|---|
-| Zone fog (`Light`/`LightData`) | world, `everywhere` or `sphere` | medium (`base`, derived) | `distance_fog` by `day_time` |
-| WMO `MFOG` | instance, `sphere` | medium (derived) | `distance_fog.linear`, `looks.underwater` |
-| `MFOG` flag 0x1 | instance | — | `exit_blend` |
-| `VFOG`+`VFEX`+`VFE2` | world, `shape` | medium (`pinned`), values absent until known | `volumetric_fog` |
-| `MAVG`/`MAVD`/`MBVD` | instance, `everywhere`/`sphere`/`planes` | — | `ambient_color` |
-| WMO `MPVD` | instance, `box` | particles, `quad` look per emitter slot | `draw` |
-| Map `PVMI`/`PVPD`/`PVBD` | world, `box_tree` | particles | `draw` |
-| M2 particle emitter | joint | particles; curves on `sequence`/`age` | `draw` |
-| M2 ribbon | joint | particles, `ribbon` look | `draw` |
-| M2 model particles | joint | particles, `mesh_instance` look | `draw` |
-| M2 child emitters | joint | `parent` link | — |
+| Source | Effect | Anchor, region | Content | Style |
+|---|---|---|---|---|
+| Zone fog (`Light`/`LightData`) | `classic_zone_fog` | world, `everywhere`/`sphere` | medium (`base`, derived) | `distance_fog` by `day_time` |
+| WMO `MFOG` | `classic_local_fog` | instance, `sphere` | medium (derived) | `distance_fog.linear`, `looks.underwater` |
+| `MFOG` flag 0x1 | `classic_local_fog` | instance | — | `exit_blend` |
+| `VFOG`+`VFEX`+`VFE2` | `classic_volumetric_fog` | world, `shape` | medium (`pinned`), values absent until known | `volumetric_fog` |
+| `MAVG`/`MAVD`/`MBVD` | `classic_ambient_region` | instance, `everywhere`/`sphere`/`planes` | — | `ambient_color` |
+| WMO `MPVD`, map `PVMI`/`PVPD`/`PVBD` | `classic_particulate_volume` | instance or world, `box`/`box_tree` | particles, `quad` per emitter slot | `draw` |
+| M2 particle emitter | `classic_m2_particle_emitter` | joint; plane → `box`, sphere → `sphere`, spline → `spline_tube` | particles | `draw` |
+| M2 ribbon | `classic_m2_ribbon` | joint | particles, `ribbon` look | `draw` |
+| M2 model particles | `classic_m2_particle_emitter` | joint | particles, `mesh_instance` look | `draw` |
 
 Part membership is not a region. "The parts that list this fog"
-(`MFVR`/`fogIds`) stays as each part's index list.
+(`MFVR`/`fogIds`) stays as each part's index list, into the model's
+`resources.effects`.
 
-## Where effects live
+## First classification targets
 
-Luna's decision is **one file per effect**. Applied to WoW data:
+Families the listfile already shows as one behaviour with varying inputs.
+These are leads, not verified classifications:
 
-- **World- and WMO-placed volumes** are defined by their map or WMO and
-  never shared, so they stay sources inside their document:
-  - `world.scene.effects` for the map's;
-  - `model.resources.effects` for a WMO's.
-- **M2 emitters**: the M2 *is* the effect's file. Its emitters anchor to
-  its joints and key on its sequences, which only exist in that model. So
-  they stay inside the model bundle as `resources.effects` sources. A
-  separate file per emitter would have to point back into the model's rig
-  and sequence table, and the corpus has tens of thousands of them.
-- **The `effect` document kind** (fourth kind, contract header unchanged,
-  data = `parameters` + `sources`) is for reusable definitions:
-  - MantleCore-authored effects;
-  - any WoW definition proven shared. `MPVD`'s preset id at +0x30 is
-    shared across unrelated files and is the candidate. Check whether
-    same-preset records are identical apart from placement.
-
-  Exported as `effects/<id>.effect.bundle`. A `placement_set` instance
-  places one through `reference` with an `anchor` and `overrides` (exposed
-  parameters only).
-
-This reads Luna's "one file per effect" as "an effect is defined in exactly
-one file", rather than "every emitter gets its own file". It is listed as
-an open decision below.
+| Effect | Region | Evidence |
+|---|---|---|
+| `ground_fog` | `above_ground` | `world/generic/passivedoodads/particleemitters/{green,grey,orange,purple,dustwallow}groundfog.m2`, `gilneas_groundfog_0{1,2}.m2`: colour variants of one emitter, placed as doodads; 240 `fog` and 88 `mist` M2s in all |
+| `falling_leaves` | carried by the anchor | 295 `leaf` and 127 `leaves` M2 paths; tree emitters with their own textures |
+| `tornado` | `spline_tube` | 22 `tornado` and 23 `cyclone` M2s (`skywall_*_tornado.m2`) |
+| `dust` | `box` | `MPVD`/`PVMI` presets (+0x30 shared across unrelated files) |
 
 ## Implementation plan
 
-Each phase ends with the full suite green, real-corpus checks on the seeded
-sample, `validate-bundle` clean, and `MANTLECORE_MIGRATION.md` updated
-with what changed.
+Each phase ends with the full suite green, the seeded-sample corpus check,
+and `validate-bundle` clean on real exports.
 
-**Phase 1: shared definitions.**
-- Add `effect_source`, `region`, `gate`, `priority`, `provenance` and
-  `unresolved` to `common.schema.json`, only the kinds WoW fills.
-- Add matching `canon::` types in a new `canon_effects.hpp`.
-- Extend the schema lint: `hold` only under `medium`; every source has
-  content or style; `candidate_role` names an existing typed path.
-- No writer changes yet. Done when schema tests cover each definition.
+**Phase 1: definitions and the effect kind.**
+- Add `effect.schema.json` and, in `common.schema.json`, `region`, `gate`,
+  `priority`, `provenance`, `unresolved` and the instance shape. Include
+  only the region and content kinds with a producer.
+- `canon::Effect`/`EffectInstance` in `canon_effects.hpp`.
+- `validate-bundle` follows effect references and checks inputs.
+- Lint additions: `hold` only under `medium`; input bindings name declared
+  inputs.
 
-**Phase 2: style migration of existing data.** A reshape with no new
-semantics:
-- `LocalFog`, `FogVolume`, `AmbientVolume` → sources with `style` only.
-- `MFOG` placeholders dropped, part fog lists remapped.
-- Flags split; one `unresolved` shape; always-zero asserts at the
-  parsers.
-- The `MFOG` underwater layer moves to `looks`, flag 0x1 to `exit_blend`.
+**Phase 2: the literal tier for everything exported today.**
+- The seven `classic_*` effect documents.
+- Every `MFOG`, `VFOG`, ambient, particulate and M2 emitter record becomes
+  an instance with its full input set, replacing `resources.scene`'s
+  per-source lists and `world.scene`'s.
+- `MFOG` placeholders dropped and part fog lists remapped; flags split;
+  one unresolved shape; always-zero asserts at the parsers.
+- Verified on the 4,000-root WMO sample, every `_fogs.wdt`/`_mpv.wdt`,
+  and a seeded M2 sample.
 
-Removes `canon::LocalFog`/`FogVolume` and today's per-source `unresolved`
-objects. Verified on the 4,000-root WMO sample and every `_fogs.wdt`.
-
-**Phase 3: world content from what is known.**
-- `MPVD`/`PVMI` → particles (`quad` look from texture and atlas; envelope
-  on `seconds`).
-- M2 emitters, ribbons and model particles → particles on joints, with
-  the `sequence` clock. Their full M2 parameter set moves to `style.draw`
-  or `unresolved`, by what is understood.
-- `VFOG` → `pinned` medium with values absent.
-- The derivation rules above, each with a unit test on a real record.
+**Phase 3: derived world content on the literal tier.**
+- The derivation rules above, each tested on a real record.
+- M2 spline emitters get `spline_tube` regions.
 
 Blocked items stay unresolved and are named in the TODO: box size,
 emitter float semantics, `VFOG` density.
 
 **Phase 4: `LightData` zone fog.**
-- New `light_db2` reader (same pattern as `liquid_db2`).
-- A world-anchored source per `Light` zone: style `distance_fog` keyed by
+- A `light_db2` reader (same pattern as `liquid_db2`).
+- A world instance of `classic_zone_fog` per `Light` zone, styled by
   `day_time`, plus a derived `base` medium.
-- The rest of the row (sky, ambient, direct light) stays out until
-  lighting's own design (`LIGHTING_TODO.md`).
+- The rest of the row (sky, ambient, direct light) waits for lighting's
+  own design (`LIGHTING_TODO.md`).
 
-**Phase 5: `effect` documents.**
-- Add the kind, its schema, the `effects/` tree, `placement_set` instances
-  with `anchor`/`overrides`, and `validate-bundle` following effect
-  references.
-- Then the preset-dedup check. Only if it proves sharing do `MPVD` presets
-  move out to effect files.
+**Phase 5 (stretch): classification, one behaviour at a time.**
+- The classification table and its first entries (`ground_fog` with
+  `above_ground`, then `falling_leaves`, `tornado`, `dust`).
+- Each entry is verified by rendering its instances against in-game
+  screenshots, then switches its instances from the literal effect to the
+  classified one, keeping the literal look as `style`.
 
 **Phase 6: research, as candidates.**
 - `VFE2` against `LightData` distributions.
@@ -371,24 +421,14 @@ emitter float semantics, `VFOG` density.
 
 Each result enters as a `candidate_role` first, then gets promoted.
 
-Phases 1–3 change the bundle shape MantleCore reads. Phase 2 alone is a
-breaking reshape of fields MantleCore may already consume.
-
 ## Open decisions (Luna)
 
-- **What "one file per effect" means.** Recommended: an effect is
-  defined in exactly one document, so WoW emitters and volumes stay in
-  their model or world, and `effect` documents hold reusable or authored
-  definitions. The alternative is a file per emitter or volume, placed by
-  its model.
-- **Units.** Recommended: yards plus the header, so MantleCore converts.
-  The alternative is metres for effect content only.
-- **Lists.** One `effects` list per document with a `content` kind is
-  proposed: MantleCore reads either way, and the part index refs (fog,
-  ambient, particulate) become refs into it. Per-content lists would keep
-  today's three ref targets.
+- **Lists.** One `effects` instance list per document is proposed, and the
+  part index refs (fog, ambient, particulate) point into it. The
+  alternative is per-content lists, which keep today's three ref targets.
 - **`MFOG` placeholders.** Recommended: drop them and remap. The
-  alternative keeps them as `inherit` entries so indices stay
+  alternative keeps them as `inherit` instances so indices stay
   source-stable.
-- **The `sequence` gate and clock.** MantleCore needs to accept these,
-  since an instance's animation state is world state, not viewer state.
+- **Literal effects as documents.** The seven `classic_*` effects are
+  documents like any other, so the export tree has one shape. They could
+  instead be implied by the schema, with no file.
