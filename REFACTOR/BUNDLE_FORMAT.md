@@ -592,7 +592,7 @@ its `MAID` (the listfile only without one).
   the cells next to it; a tile names none. `bounds_min`/`bounds_max` are
   the world-frame box of the tile's terrain surface and liquids, so a
   consumer can find the tile under a position without opening tiles.
-  Verified on `azeroth` (1,335 tiles): every footprint matches its cell to
+  Verified on `azeroth` (1,176 tiles): every footprint matches its cell to
   0.002 yd.
 - `placements`: placement sets the world places off the grid, world
   frame, documents under `sets/`. A map without terrain (WDT `MPHD` flag
