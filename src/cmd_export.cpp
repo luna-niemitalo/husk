@@ -595,18 +595,7 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
 // export's flag surface is declared, shared by exportGlb's own real parse
 // and main.cpp's `--print-completion` introspection.
 void addExportOptions(CLI::App& app, ExportOptions& opts) {
-    // TOML config file for defaults -- CLI11's own set_config() maps config keys onto
-    // these exact add_option() registrations (below), so every flag's own ->check()
-    // validator and CLI-flag > config > default precedence come for free, with no
-    // second parser and no hand-written key->flag table to keep in sync (every
-    // other command has since migrated to CLI11 the same way). Path resolution: --config, else
-    // $HUSK_CONFIG, else husk::defaultConfigPath() (XDG default), else no config --
-    // a missing file at any of those isn't an error (config_required=false).
-    app.set_config("--config", husk::defaultConfigPath(),
-                    "TOML file of default flag values (see README.md's config-file "
-                    "section) -- explicit CLI flags always override a config value")
-        ->envname("HUSK_CONFIG")
-        ->group("Diagnostics");
+    addConfigOption(app);
 
     // Not ->required() here even though single-file mode needs it -- --from-list
     // mode (below) takes its model paths from a file instead, so requiredness is

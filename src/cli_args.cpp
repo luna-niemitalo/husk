@@ -24,6 +24,10 @@ std::optional<int> parseCommandArgs(CLI::App& app, int argc, char** args) {
     return std::nullopt;
 }
 
+// CLI11 maps config keys onto the app's own add_option registrations, so
+// each flag's validator and the flag > config > default precedence hold
+// with no second parser. The file: --config, else $HUSK_CONFIG, else the
+// XDG default; a missing file is no config, not an error.
 void addConfigOption(CLI::App& app) {
     app.set_config("--config", husk::defaultConfigPath(),
                    "TOML file of default flag values (see README.md's config-file section) -- explicit CLI "

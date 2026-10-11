@@ -511,10 +511,7 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
 }
 
 void addDb2ExportOptions(CLI::App& app, Db2ExportOptions& opts) {
-    app.set_config("--config", husk::defaultConfigPath(),
-                    "TOML file of default flag values -- explicit CLI flags always override a "
-                    "config value")
-        ->envname("HUSK_CONFIG");
+    addConfigOption(app);
     app.add_option("--dir", opts.dirArg, "directory of .db2 files to convert -- batch mode");
     app.add_option("--dbd-dir", opts.dbdDir,
                     "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs -- manifest.json + "

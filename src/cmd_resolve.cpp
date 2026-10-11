@@ -11,7 +11,6 @@
 #include "export_extras.hpp"  // readFileBytes
 #include "export_materials.hpp"
 #include "export_skin_resolution.hpp"
-#include "husk_config.hpp"
 #include "json_writer.hpp"
 #include "listfile.hpp"
 #include "listfile_cache.hpp"
@@ -67,11 +66,7 @@ void addResolveOptions(CLI::App& app, ResolveOptions& opts) {
     // `export` and not `resolve`, and four real slots on a real character
     // model reported `fuzzy-same-basename-pool` here while `export` resolved
     // them via `listfile` (see REFACTOR_LOG.md's verification entry).
-    app.set_config("--config", husk::defaultConfigPath(),
-                    "TOML file of default flag values (see README.md's config-file "
-                    "section) -- explicit CLI flags always override a config value")
-        ->envname("HUSK_CONFIG")
-        ->group("Diagnostics");
+    addConfigOption(app);
 
     app.add_option("-i,--input,input", opts.model, "the .m2 file to resolve texture slots for");
     app.add_option("-s,--skin", opts.skinArg,

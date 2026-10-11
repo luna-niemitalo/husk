@@ -15,7 +15,6 @@
 #include "cli_args.hpp"
 #include "cmd_db2_shared.hpp"
 #include "commands.hpp"
-#include "husk_config.hpp"
 #include "listfile.hpp"
 #include "listfile_cache.hpp"
 
@@ -141,10 +140,7 @@ std::string stampSourceFiles(const std::string& db2Dir, const std::vector<KbSour
 }  // namespace
 
 void addDb2BuildOptions(CLI::App& app, Db2BuildOptions& opts) {
-    app.set_config("--config", husk::defaultConfigPath(),
-                    "TOML file of default flag values -- explicit CLI flags always override a "
-                    "config value")
-        ->envname("HUSK_CONFIG");
+    addConfigOption(app);
     app.add_option("--db2-dir", opts.db2Dir, "a real, local, already-extracted DB2 directory")
         ->required();
     app.add_option("--dbd-dir", opts.dbdDir, "a local WoWDBDefs checkout")->required();

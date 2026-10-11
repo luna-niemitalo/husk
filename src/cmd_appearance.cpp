@@ -25,10 +25,7 @@
 namespace husk::commands {
 
 void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts) {
-    app.set_config("--config", husk::defaultConfigPath(),
-                    "TOML file of default flag values -- explicit CLI flags always override a "
-                    "config value")
-        ->envname("HUSK_CONFIG");
+    addConfigOption(app);
     app.add_option("--validate", opts.value, "the husk-appearance/1 string to validate")->required();
     app.add_option("--db2-dir", opts.db2DirArg,
                     "a real, local, already-extracted DB2 directory -- with --dbd-dir, resolves `gear` "
