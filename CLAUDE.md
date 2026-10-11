@@ -317,14 +317,13 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   - **Corpus location (2026-10-10, Luna)**: the extracted corpus moves
     from `/media/luna/data/wow_export` (gone; `wow_export_old`/
     `wow_export_superseded` beside it are not the current one) to
-    `/media/luna/wow_export`, a FUSE mount from the CASC work that
-    makes source-data updates declarative and deduplicated. It may be
-    absent. Luna will keep the mount command in a machine-local notes
-    file, outside git since it is machine-specific; once she has named
-    that file, running the command is pre-approved whenever the mount is
-    missing. Until then, ask. Never edit anything outside this repo for
-    it (the old path in `~/.config/husk/config.toml` is Luna's to
-    change).
+    `/media/luna/wow_export` (game files under `live/`), a FUSE mount
+    from the CASC work that makes source-data updates declarative and
+    deduplicated. It may be absent. The mount command, flag paths and
+    listfile are in `development/REFERENCES.md` (gitignored, machine-
+    local); running that mount command is pre-approved whenever the mount
+    is missing. Never edit anything outside this repo for it (the old
+    path in `~/.config/husk/config.toml` is Luna's to change).
     The old path is still hardcoded in `src/db2.hpp`, three tests
     (`test_dbd.cpp`, `test_cli_db2.cpp`) and about 20 `tools/` scripts;
     repoint them when work resumes.
