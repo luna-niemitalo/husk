@@ -54,12 +54,25 @@ Every WoW effect source is represented in one of two tiers:
 | Tier | What | Cost |
 |---|---|---|
 | **literal** | One effect per source mechanism: `classic_m2_particle_emitter`, `classic_m2_ribbon`, `classic_particulate_volume`, `classic_volumetric_fog`, `classic_local_fog`, `classic_zone_fog`, `classic_ambient_region`. Its inputs are the mechanism's whole parameter set, and each source record is an instance. | computable now for every source |
-| **classified** | One effect per behaviour (`ground_fog`, `falling_leaves`, `tornado`, `embers`, `dust`, ...), with the few inputs that vary between its instances. Each source record is judged and mapped to one. | item by item, a stretch goal |
+| **classified** | One effect per behaviour (`ground_fog`, `falling_leaves`, `tornado`, `embers`, `dust`, ...), with the few inputs that vary between its instances. Each source record is judged and mapped to one. | item by item; required before 1.0 |
 
 The literal tier is the cheap, computable cop-out. It represents
 everything faithfully but not *well*: a ground fog is "an M2 particle
 emitter with these 60 parameters" rather than "fog over the ground, this
-colour, this thick". It stays in place until classification replaces it.
+colour, this thick".
+
+**The literal tier is a placeholder, and it is built to be removed before
+1.0 (Luna).** Nothing is more permanent than a temporary solution, so
+three layers keep it from staying:
+- Every `classic_*` effect document carries `status: "placeholder"`.
+- `husk export` and `validate-bundle` **warn** on every instance of a
+  placeholder effect: a count per effect in the run summary, plus the
+  instances in the report. With `--release` they **fail**.
+- The 1.0 schema has no `placeholder` status, so a 1.0 document cannot
+  contain one, whatever flags were passed.
+
+What stays after 1.0 is the classic *look*, carried as `style` on
+classified instances. The literal *behaviour* goes.
 
 A classified instance keeps its literal instance's classic look as `style`,
 so the classic-style render stays exact.
@@ -80,6 +93,7 @@ A fourth document kind, `effect`, with the standard contract header:
 ```
 kind        "effect"
 subject     Ref: the effect (a synthesized name: "ground_fog", "classic_m2_particle_emitter")
+status      "placeholder" (literal tier only; absent otherwise)
 definition  inputs: {name: {type, x-unit, description, default?}}
 data        sources: [source, ...]   values may bind an input: "$color"
 references  textures, atlases, meshes it always uses
@@ -88,32 +102,77 @@ references  textures, atlases, meshes it always uses
 Exported as `effects/<name>.effect.bundle`. An effect's sources may have
 parents within the effect (embers spawned where the fire's heat is).
 
-### Effect instances
+### Dependencies point one way
 
-An instance is a selection: it places an effect and gives it inputs. It
-lives in the document that carries it:
-- a model's `resources.effects`: an M2's emitters, a WMO's fogs and
-  volumes;
-- a world's `scene.effects`: map fogs and volumes, zone fog.
+Effects follow the pattern the map already uses. Dependencies point down,
+and every document lists what it depends on in `references`:
 
 ```
-instance
-  effect      index into the document's references (kind "effect")
-  anchor      world | instance | joint (Ref into the carrying model's rig)
-  transform   translation, rotation, scale relative to the anchor
-  inputs      {name: value}; only names the effect declares
-  gate        when: world facts only, a 0..1 weight
-  priority    essential | ambient | decorative
-  style       the classic client's look; optional
-  provenance  derived fields and their rules; the classification entry
-  unresolved  fields not yet understood (evidence ladder)
-  source      raw flags and record id, for provenance only
+world ─▶ tile ─▶ placement set ─▶ model ─▶ textures, meshes
+                       │
+                       └──────────▶ effect ─▶ atlases, meshes it always uses
 ```
 
-A tree M2's leaf emitter is an instance of `falling_leaves`, with a joint
-anchor and a texture input. The tree's placement in a tile places the
-tree, and so its effect instances; the instance needs no transform of its
-own beyond the anchor.
+- **An effect declares what it depends on**: the assets every instance
+  uses, such as an atlas the behaviour itself defines. It knows nothing of
+  who places it (`PLACEMENT_SETS.md` invariant 5: an asset never knows
+  where it is placed).
+- **Whoever instances an effect knows the effect.** The instancer's
+  `references` lists the effect document. It also lists any asset it
+  supplies as an input: the tree's leaf texture is the tree's dependency,
+  not the leaf effect's.
+
+### Effect instances are placement instances
+
+Placing an effect is the same act as placing a model. An effect instance is
+therefore a **placement-set instance whose asset is an effect document**,
+with two additions to the placement instance shape:
+
+```
+Instance (placement_set.schema.json), additions in bold
+  id          stable within the set
+  asset       Ref to a model or an effect
+  anchor      **world | joint (Ref into the owning model's rig); default: the set's frame**
+  translation, rotation, scale   relative to the anchor
+  inputs      **{name: value}; only names the effect declares**
+  activeSets  models only
+  ...the effect-specific fields: gate, priority, style, provenance, unresolved, source
+```
+
+What this buys:
+- **Set switching is free.** `MFED` gives a fog the doodad set it applies
+  with, and `MAVD`/`MBVD` do the same. Those instances go *into* that
+  set's placement set, and the set's own switching turns them on and
+  off. `placement_set` disappears as a gate input.
+- **One list, no content-type split.** What an instance contains (medium,
+  particles, a light, or all three, like a fire) is the effect's fact,
+  stated once in the effect. Per-content lists would make every instancer
+  restate it, and a fire would belong in three lists.
+- **`anchor` is earned twice**: M2 emitters on joints, and gear attached
+  to a character's joints (attachment points), which needs the same thing
+  later.
+
+Where the instances sit:
+
+| Instancer | Set |
+|---|---|
+| WMO | its doodad sets (`sets/<index>.json`): an `MFED`/`doodadSetId` volume in that set, an ungated one in set 0, which is always on |
+| map | a world placement set `effects`: map fogs, particulate volumes, zone fog |
+| M2 | an `effects` set it owns, its emitters anchored to joints |
+
+Under the "embed or reference" rule (`BUNDLE_FORMAT.md`), a set may be
+written inline in its owner's manifest or as its own file. An M2's effects
+set is inline: it is never shared, and a file per emitter-bearing M2 would
+add tens of thousands of tiny files. A WMO's doodad sets stay files.
+
+**Per-part references use stable instance ids, not list positions.** A WMO
+group's fog list (`MFVR`/`fogIds`) becomes a list of `{set, id}`. So
+`MFOG` placeholder records simply aren't instances: a part that listed only
+the placeholder gets an empty list, and nothing else needs renumbering.
+
+A tree M2's leaf emitter is an instance of `falling_leaves` in the tree's
+own effects set, with a joint anchor and the tree's texture as an input.
+The tile's doodad set places the tree, and so its effects.
 
 ### Regions
 
@@ -147,7 +206,6 @@ fade:
 
 | Gate input | WoW source |
 |---|---|
-| `placement_set` | `MFED`; `MAVD`/`MBVD` `doodadSetId` |
 | `enabled` | `VFEX` enable (3 of 1,542 are 0; written `false`, kept) |
 | `animation` | the carrying instance's active animation (M2 emitter tracks are per animation) |
 | time of day, weather, season | zone fog by `LightData.Time`; the rest first producer |
@@ -293,6 +351,7 @@ Boundary rules:
   "use the enclosing fog". It is recognized by content, not by index:
   record 0 is the placeholder in 3,631 of 4,000 seeded roots, a later
   record never is, and in the other 369 roots record 0 is a real fog.
+  Part references are instance ids, so nothing is renumbered.
 - **Units convert at the boundary, for typed fields only.** Unresolved
   values stay as stored.
 
@@ -372,22 +431,32 @@ These are leads, not verified classifications:
 Each phase ends with the full suite green, the seeded-sample corpus check,
 and `validate-bundle` clean on real exports.
 
-**Phase 1: definitions and the effect kind.**
-- Add `effect.schema.json` and, in `common.schema.json`, `region`, `gate`,
-  `priority`, `provenance`, `unresolved` and the instance shape. Include
+**Phase 1: definitions, the effect kind, placement instances.**
+- Add `effect.schema.json` (with `status`) and, in `common.schema.json`,
+  `region`, `gate`, `priority`, `provenance` and `unresolved`. Include
   only the region and content kinds with a producer.
-- `canon::Effect`/`EffectInstance` in `canon_effects.hpp`.
-- `validate-bundle` follows effect references and checks inputs.
+- `placement_set.schema.json`: the instance's asset may be an effect;
+  add `anchor` and `inputs`. A set may be inline in its owner.
+- `canon::Effect` in `canon_effects.hpp`; `canon::PlacementSet`'s
+  instance gains anchor and inputs.
+- `validate-bundle` follows effect references and checks inputs against
+  the effect's declared ones. It warns on placeholder effects, and fails
+  on them with `--release`.
 - Lint additions: `hold` only under `medium`; input bindings name declared
   inputs.
 
 **Phase 2: the literal tier for everything exported today.**
-- The seven `classic_*` effect documents.
+- The seven `classic_*` effect documents, `status: "placeholder"`.
 - Every `MFOG`, `VFOG`, ambient, particulate and M2 emitter record becomes
-  an instance with its full input set, replacing `resources.scene`'s
-  per-source lists and `world.scene`'s.
-- `MFOG` placeholders dropped and part fog lists remapped; flags split;
-  one unresolved shape; always-zero asserts at the parsers.
+  a placement instance with its full input set. Each goes into the set
+  it switches with (WMO doodad sets, the world's `effects` set, an M2's
+  inline `effects` set). This replaces `resources.scene`'s per-source
+  lists and `world.scene`'s.
+- Part fog lists become `{set, id}`; `MFOG` placeholders are not
+  instances; flags split; one unresolved shape; always-zero asserts at
+  the parsers.
+- `husk export` reports the placeholder count per effect, and fails on
+  them with `--release`.
 - Verified on the 4,000-root WMO sample, every `_fogs.wdt`/`_mpv.wdt`,
   and a seeded M2 sample.
 
@@ -405,7 +474,7 @@ emitter float semantics, `VFOG` density.
 - The rest of the row (sky, ambient, direct light) waits for lighting's
   own design (`LIGHTING_TODO.md`).
 
-**Phase 5 (stretch): classification, one behaviour at a time.**
+**Phase 5 (before 1.0): classification, one behaviour at a time.**
 - The classification table and its first entries (`ground_fog` with
   `above_ground`, then `falling_leaves`, `tornado`, `dust`).
 - Each entry is verified by rendering its instances against in-game
@@ -423,12 +492,10 @@ Each result enters as a `candidate_role` first, then gets promoted.
 
 ## Open decisions (Luna)
 
-- **Lists.** One `effects` instance list per document is proposed, and the
-  part index refs (fog, ambient, particulate) point into it. The
-  alternative is per-content lists, which keep today's three ref targets.
-- **`MFOG` placeholders.** Recommended: drop them and remap. The
-  alternative keeps them as `inherit` instances so indices stay
-  source-stable.
-- **Literal effects as documents.** The seven `classic_*` effects are
-  documents like any other, so the export tree has one shape. They could
-  instead be implied by the schema, with no file.
+- **M2 effects sets inline.** This is proposed to avoid a file per
+  emitter-bearing M2. It means the placement-set schema now allows inline
+  sets, which `PLACEMENT_SETS.md` had only as files (it rejected inline
+  *only*, not inline *as well*).
+- **Phase 5 before 1.0.** With placeholders failing `--release`,
+  classification stops being a stretch goal and becomes the 1.0 gate.
+  Every effect source in the corpus needs a classified effect by then.
