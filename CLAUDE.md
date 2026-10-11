@@ -298,12 +298,13 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   data: tile seams, the azeroth grid, volumes on cells, and
   `tests/terrain_bundle_import_check.py` (takes a world bundle and tile
   names). **MantleCore must follow**: tile-local frames placed by the
-  world grid, the model-document tile shape, the world document. Open:
-  M2 bundles' subject has no FileDataID outside the store path (the
-  bundle-only path doesn't receive it). The WDT (`adt::parseWdt`) decides
-  a world's tiles (`MAIN`; the store keeps 11,014 stale tiles it no longer
-  lists), names them (`MAID`), and places a terrain-less map's WMO as the
-  world's off-grid `placements` (228 maps). After the format work:
+  world grid, the model-document tile shape, the world document. Every
+  bundle's subject carries its FileDataID (M2: passed by export-world,
+  else store name or listfile, `sources::fileDataIdForLocalFile`). The
+  WDT (`adt::parseWdt`) decides a world's tiles (`MAIN`; the store keeps
+  11,014 stale tiles it no longer lists), names them (`MAID`), and places
+  a terrain-less map's WMO as the world's off-grid `placements` (228
+  maps). Nothing open in the format work itself. After it:
   LOD (`MFOB` exists but is always empty, see `FOG_VOLUMES_TODO.md` §1); open
   items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
   and `FOG_VOLUMES_TODO.md` §2.

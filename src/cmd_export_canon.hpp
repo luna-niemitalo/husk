@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -74,7 +76,7 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            husk::sources::Catalog& catalog, const std::string& modelPath,
-                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline,
+                           std::optional<uint32_t> modelFileDataId, uint32_t objectSkinTextureFileDataId, const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline,
                            bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials = {});
 
@@ -82,7 +84,8 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
 // straight to `bundleDir` -- no lean glTF, no legacy comparison. Throws on
 // failure (unlike runCanonExport, the bundle is this mode's only output).
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, husk::sources::Catalog& catalog,
-                          const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
+                          const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
+                          uint32_t objectSkinTextureFileDataId,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir);
 

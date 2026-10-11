@@ -361,8 +361,8 @@ struct CanonBuild {
 writers::Provenance m2Provenance() { return writers::Provenance{std::string("husk ") + husk::version(), "m2", {}}; }
 
 CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
-                               const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
-                               const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
+                               const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
+                               uint32_t objectSkinTextureFileDataId, const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                                const std::vector<uint8_t>& skelBytes) {
     auto skinBytes = readFileBytes(skinPath);
     skin::Header skinHeader = skin::parseHeader(skinBytes);
@@ -417,7 +417,7 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
 
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
                                                          externalAnimBlobs, textureResolutions, externalSkeleton);
-    canonModel.subject = writers::subjectRef(modelPath, sources::fileDataIdForStorePath(modelPath));
+    canonModel.subject = writers::subjectRef(modelPath, modelFileDataId);
     return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
 }
 
@@ -427,11 +427,13 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            sources::Catalog& catalog, const std::string& modelPath,
-                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline,
+                           std::optional<uint32_t> modelFileDataId, uint32_t objectSkinTextureFileDataId,
+                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline,
                            bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials) {
     try {
-        CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId,
+        CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
+                                               objectSkinTextureFileDataId,
                                                animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes);
         const canon::Model& canonModel = build.model;
         const std::vector<skin::Batch>& batches = build.batches;
@@ -478,10 +480,12 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
 }
 
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
-                          const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
+                          const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
+                          uint32_t objectSkinTextureFileDataId,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir) {
-    CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId, animDir, listfileRoot,
+    CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
+                                           objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes);
     writers::writeBundle(build.model, bundleDir, m2Provenance());
 }

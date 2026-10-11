@@ -859,7 +859,8 @@ int exportWmo(int argc, char** args) {
         }
 
         std::optional<uint32_t> fileDataId =
-            listfile ? sources::fileDataIdForPath(*listfile, opts.input, listfileRoot) : std::nullopt;
+            listfile ? sources::fileDataIdForLocalFile(*listfile, opts.input, listfileRoot)
+                     : sources::fileDataIdForStorePath(opts.input);
         canon::Model model = loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot, warn);
 
         writers::AssetUris modelUris;
@@ -1146,7 +1147,7 @@ int exportWorld(int argc, char** args) {
                         if (!src) {
                             errors.add("model", std::to_string(fdid), "no local file (listfile or _by_fdid)");
                         } else if (exportOneModel(modelOpts, modelApp, src->string(), bundle.string(), true,
-                                                  *listfile) != 0) {
+                                                  *listfile, fdid) != 0) {
                             errors.add("model", std::to_string(fdid), "export failed (see stderr): " + src->string());
                         }
                     }

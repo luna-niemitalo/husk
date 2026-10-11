@@ -13,6 +13,8 @@
 
 #include <doctest/doctest.h>
 #include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 #include "run_husk.hpp"
 #include "test_cli_fixtures.hpp"
@@ -51,4 +53,22 @@ TEST_CASE("husk export --export-canon: writes '.canon.glb' and '.canon.bundle/' 
     CHECK(fs::is_directory(dir / "out.canon.bundle"));
     CHECK(fs::exists(dir / "out.canon.bundle" / "manifest.json"));
     CHECK(result.output.find("husk: canon-export:") != std::string::npos);
+}
+
+TEST_CASE("husk export --bundle-only: the bundle's subject carries the model's FileDataID from the listfile") {
+    auto dir = defaultsDir("bundleonly_subject");
+    fs::create_directories(dir / "world" / "doodad");
+    writeFile(dir / "world" / "doodad" / "textured.m2", oneTexturedModel(555));
+    writeFile(dir / "world" / "doodad" / "textured00.skin", oneTexturedModelSkin());
+    std::ofstream(dir / "listfile.csv") << "777;world/doodad/textured.m2\n";
+
+    auto bundle = dir / "out.bundle";
+    auto result = runHusk("export " + (dir / "world" / "doodad" / "textured.m2").string() + " -o " + bundle.string() +
+                          " --bundle-only --listfile " + (dir / "listfile.csv").string() + " --listfile-root " +
+                          dir.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = nlohmann::json::parse(std::ifstream(bundle / "manifest.json"));
+    CHECK(m["subject"]["id"]["value"] == 777);
+    CHECK(m["subject"]["name"] == "textured");
 }

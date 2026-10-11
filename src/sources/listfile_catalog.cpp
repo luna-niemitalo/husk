@@ -54,6 +54,12 @@ std::optional<uint32_t> fileDataIdForStorePath(const std::filesystem::path& path
     return static_cast<uint32_t>(value);
 }
 
+std::optional<uint32_t> fileDataIdForLocalFile(const husk::ListfileIndex& listfile, const std::string& path,
+                                               const std::string& listfileRoot) {
+    if (auto stored = fileDataIdForStorePath(path)) return stored;
+    return fileDataIdForPath(listfile, path, listfileRoot);
+}
+
 std::optional<std::filesystem::path> storePathForFileDataId(const std::string& listfileRoot, uint32_t fdid) {
     if (listfileRoot.empty()) return std::nullopt;
     std::filesystem::path path = std::filesystem::path(listfileRoot) / "_by_fdid" / std::to_string(fdid);

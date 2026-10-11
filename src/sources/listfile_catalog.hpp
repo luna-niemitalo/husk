@@ -63,6 +63,11 @@ std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex
 // or `.../_unresolved/<n>`. nullopt for any other path.
 std::optional<uint32_t> fileDataIdForStorePath(const std::filesystem::path& path);
 
+// A local file's FileDataID: its store name, else fileDataIdForPath (a full
+// listfile pass -- callers that already know the id pass it instead).
+std::optional<uint32_t> fileDataIdForLocalFile(const husk::ListfileIndex& listfile, const std::string& path,
+                                               const std::string& listfileRoot);
+
 // `<listfileRoot>/_by_fdid/<fdid>` when it exists, else nullopt. A
 // casc-tool tree (its mount or `view`) serves every FileDataID of its
 // build there, named by the listfile or not, so this is the one lookup that

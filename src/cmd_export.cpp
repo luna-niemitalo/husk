@@ -855,14 +855,6 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
         ->group("Game data");
 }
 
-// Forward declaration: exportGearAuxItemModels (below) recursively calls
-// this same function to export each resolved --appearance gear item's own
-// standalone geometry as its own real .glb -- reusing the exact
-// single-model pipeline every other `husk export` call already goes
-// through (the same function --from-list's own batch loop calls per
-// entry), rather than a second, parallel export path.
-int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
-                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile);
 
 // --appearance's case-1 gear items (skeleton.gearItems, already populated
 // by attachGearAppearance with real model FileDataIDs) each need their own
@@ -940,7 +932,7 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex
         std::filesystem::path auxAbsPath = mainDir / auxRelPath;
 
         int rc = exportOneModel(itemOpts, itemApp, itemModelPath.string(), auxAbsPath.string(),
-                                 /*outputGiven=*/true, listfile);
+                                 /*outputGiven=*/true, listfile, fdid);
         if (rc == 0) {
             item.auxGlbPath = auxRelPath;
             std::cerr << "husk: note: gear slot '" << item.slot << "' item model exported to '"
@@ -972,7 +964,8 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex
 // this is a reference now: a ListfileIndex may be an mmap-backed object
 // whose entire point is avoiding a per-process copy).
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
-                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile) {
+                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
+                    std::optional<uint32_t> modelFileDataId) {
     std::string outputPath = outputPathIn;
     bool skinDirGiven = app.count("--skin-dir") > 0;
     bool lodGiven = !opts.lodArg.empty();
@@ -1300,7 +1293,10 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             if (namedMeshes.empty()) {
                 throw std::runtime_error("--bundle-only: the resolved skin tier has no renderable geometry");
             }
-            writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath, objectSkinTextureFileDataId,
+            writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath,
+                                 modelFileDataId ? modelFileDataId
+                                                 : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
+                                 objectSkinTextureFileDataId,
                                  animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath);
             std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
             return 0;
@@ -1320,7 +1316,10 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                              "geometry -- nothing to compare\n";
             } else {
                 runCanonExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
-                                animations, outputPath, catalog, modelPath, objectSkinTextureFileDataId, animDir, listfileRoot,
+                                animations, outputPath, catalog, modelPath,
+                                modelFileDataId ? modelFileDataId
+                                                 : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
+                                objectSkinTextureFileDataId, animDir, listfileRoot,
                                 bonesAreInline, haveSkel, skelBytes, namedMeshes.front().materials);
             }
         }

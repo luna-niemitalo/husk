@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -319,8 +321,11 @@ void addExportOptions(CLI::App& app, ExportOptions& opts);
 // One model through the full `export` pipeline (cmd_export.cpp), with an
 // already-parsed `opts`/`app` and an already-loaded listfile -- what
 // --from-list's loop and export-world's model pass call per model. Only
-// reads `app` (count()), so concurrent calls may share it.
+// reads `app` (count()), so concurrent calls may share it. A caller that
+// knows the model's FileDataID passes it; otherwise the bundle's subject
+// looks it up (store name, else a listfile scan).
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
-                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile);
+                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
+                    std::optional<uint32_t> modelFileDataId = std::nullopt);
 
 }  // namespace husk::commands
