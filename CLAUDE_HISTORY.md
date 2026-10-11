@@ -14,6 +14,35 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-11 — Corpus on the casc-tool mount, `_by_fdid` resolution, bundle format stages 3–4.**
+
+- **Corpus**: moved to the casc-tool FUSE mount (`/media/luna/wow_export/live`,
+  build 12.1.0.69933; `development/REFERENCES.md`). Tests, tools and usage
+  docs repointed; `~/.config/husk/config.toml` is husk's own config and was
+  repointed too (Luna's correction: a tool's own config and output dirs are
+  in scope). The real-tile terrain integration tests ran for the first time
+  (tile copied into `test_data/`) and passed.
+- **`_by_fdid`**: the listfile can't name 19,903 files of the build; the
+  ones real data references are all DB2-reachable (193 `ModelFileData`
+  M2s, 188 `TextureFileData` textures, their skins). A listfile name can
+  also belong to another FileDataID: `helm_armor_ethereal_d_01_gn_m00.skin`
+  is FDID 6217827 while that M2's SFID says 6217937, and export silently
+  used the wrong skin. Every FDID lookup now tries `<listfile-root>/_by_fdid/`
+  (`sources::storePathForFileDataId`/`localFileForFileDataId`; a Store
+  texture tier after Listfile; BLP decoded by magic).
+- **casc-tool**: 79 partially encrypted DB2s (8 husk reads) were missing
+  from the store; Luna made the store serve them zero-filled (`.partial`).
+  `MFOB` exists in 225 roots of this build, always 0 bytes.
+- **Stage 3**: terrain tiles are `model` documents in their own frame
+  (`resources.terrain`, `definition.terrain.edge_vertices`); the seam
+  statement checked on `azeroth_32_49`/`32_50`.
+- **Stage 4**: `world` documents replace `map_scene` (`export-map`,
+  export-world pass 4); azeroth's 1,335-cell grid checked against the tile
+  frames and its volumes. JSON numbers are now exact (6 digits had been 0.03
+  yd off at world coordinates).
+
+---
+
 **2026-10-10 — WMO doodads into the world, WMO lights, liquids, particulate and ambient volumes.**
 
 - **Terrain onto placement sets**: a tile's `MDDF`/`MODF` placements are
