@@ -7,6 +7,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include "cli_args.hpp"
 #include "cmd_info_json.hpp"
 #include "commands.hpp"
 #include "m2.hpp"
@@ -88,13 +89,7 @@ int info(int argc, char** args) {
         "husk info"};
     addInfoOptions(app, opts);
 
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     const std::string& path = opts.model;
 
     m2::Model model;

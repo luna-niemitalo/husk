@@ -22,6 +22,7 @@
 #include "animationdata_db2.hpp"
 #include "appearance_string.hpp"
 #include "chunk.hpp"
+#include "cli_args.hpp"
 #include "cmd_export_canon.hpp"
 #include "commands.hpp"
 #include "export_animation.hpp"
@@ -1468,18 +1469,7 @@ int exportGlb(int argc, char** args) {
                  "husk export"};
     addExportOptions(app, opts);
 
-    try {
-        // App::parse(vector<string>&) processes tokens back-to-front
-        // (mirroring how its (argc, argv) sibling reverses argv before
-        // handing off to the same internal _parse) -- reverse `args` into
-        // that expected order, or every flag's value binds to the wrong
-        // neighbor.
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     bool batchMode = app.count("--from-list") > 0;
 

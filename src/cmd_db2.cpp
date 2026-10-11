@@ -15,6 +15,7 @@
 #include <CLI/CLI.hpp>
 #include <sqlite3.h>
 
+#include "cli_args.hpp"
 #include "cmd_db2_shared.hpp"
 #include "commands.hpp"
 #include "db2.hpp"
@@ -543,13 +544,7 @@ int db2Export(int argc, char** args) {
         "husk db2-export"};
     addDb2ExportOptions(app, opts);
 
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     // 'none' opts out of a --config/$HUSK_CONFIG-supplied --dbd-dir for this
     // one invocation -- same convention as export's own --dbd-dir (DESIGN.md's
     // "Three-state resolution, not two").
@@ -671,13 +666,7 @@ int db2Info(int argc, char** args) {
         "husk db2-info"};
     addDb2InfoOptions(app, opts);
 
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     const std::string& path = opts.model;
 
     size_t rowLimit = 5;

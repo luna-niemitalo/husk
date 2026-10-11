@@ -211,6 +211,7 @@ add_library(husk-lib STATIC
   src/dump_phys.cpp
   src/dump_chunks_misc.cpp
   src/cmd_dump.cpp
+  src/cli_args.cpp
   src/corpus_store.cpp
   src/input_log.cpp
   src/corpus_index.cpp

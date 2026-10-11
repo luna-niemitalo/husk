@@ -12,6 +12,7 @@
 #include <CLI/CLI.hpp>
 #include <sqlite3.h>
 
+#include "cli_args.hpp"
 #include "cmd_db2_shared.hpp"
 #include "commands.hpp"
 #include "husk_config.hpp"
@@ -168,13 +169,7 @@ int db2Build(int argc, char** args) {
         "husk db2-build"};
     addDb2BuildOptions(app, opts);
 
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     const std::string& db2Dir = opts.db2Dir;
     const std::string& dbdDir = opts.dbdDir;
     const std::string& listfilePath = opts.listfilePath;

@@ -7,6 +7,7 @@
 
 #include "bone.hpp"
 #include "chunk.hpp"
+#include "cli_args.hpp"
 #include "commands.hpp"
 #include "dump_chunks_misc.hpp"
 #include "dump_emitters.hpp"
@@ -103,13 +104,7 @@ int dumpChunks(int argc, char** args) {
         "husk dump-chunks"};
     addDumpChunksOptions(app, opts);
 
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     const std::string& path = opts.model;
 
     try {

@@ -22,6 +22,7 @@
 #include "adt_canon_input.hpp"
 #include "blp.hpp"
 #include "bundle_schema.hpp"
+#include "cli_args.hpp"
 #include "version.hpp"
 #include "commands.hpp"
 #include "husk_config.hpp"
@@ -589,19 +590,6 @@ std::set<uint32_t> placedAssets(const canon::Model& model) {
     return out;
 }
 
-// Reversed for the same reason as resolve()'s identical call (cmd_resolve.cpp).
-bool parseArgs(CLI::App& app, int argc, char** args, int& exitCode) {
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        exitCode = app.exit(e);
-        return false;
-    }
-    return true;
-}
-
 // --- export-world ---------------------------------------------------------
 
 // Thread-safe append-only failure log: one "phase<TAB>item<TAB>message" line
@@ -824,8 +812,7 @@ int exportTerrain(int argc, char** args) {
     CLI::App app{"husk export-terrain -- one ADT tile to a canonical terrain bundle", "husk export-terrain"};
     ExportTerrainOptions opts;
     addExportTerrainOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     try {
         std::filesystem::path rootPath(opts.input);
@@ -957,8 +944,7 @@ int exportWmo(int argc, char** args) {
     CLI::App app{"husk export-wmo -- one WMO building to a canonical object bundle", "husk export-wmo"};
     ExportWmoOptions opts;
     addExportWmoOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     try {
         auto announce = [](const std::string& note) { std::cerr << "husk: note: " << note << "\n"; };
@@ -1017,8 +1003,7 @@ int validateBundle(int argc, char** args) {
     CLI::App app{"husk validate-bundle -- check documents against the bundle format's schema", "husk validate-bundle"};
     ValidateBundleOptions opts;
     addValidateBundleOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     if (opts.paths.empty() && !opts.lintSchema) {
         std::cerr << "husk: validate-bundle: expected a bundle path or --lint-schema\n";
         return 2;
@@ -1044,8 +1029,7 @@ int exportMap(int argc, char** args) {
     CLI::App app{"husk export-map -- one map's world document: tile grid and map-wide volumes", "husk export-map"};
     ExportMapOptions opts;
     addExportMapOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     try {
         std::unique_ptr<ListfileIndex> listfile;
@@ -1106,8 +1090,7 @@ int exportWorld(int argc, char** args) {
     CLI::App app{"husk export-world -- every ADT tile of every map to a canonical scene", "husk export-world"};
     ExportWorldOptions opts;
     addExportWorldOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     try {
         unsigned jobs = opts.jobs > 0 ? opts.jobs : std::max(1u, std::thread::hardware_concurrency());
@@ -1307,7 +1290,7 @@ int exportWorld(int argc, char** args) {
                                                   "--config", "/dev/null"};
             std::vector<char*> argv;
             for (std::string& a : modelArgs) argv.push_back(a.data());
-            if (!parseArgs(modelApp, static_cast<int>(argv.size()), argv.data(), exitCode)) return exitCode;
+            if (auto exit = parseCommandArgs(modelApp, static_cast<int>(argv.size()), argv.data())) return *exit;
 
             std::vector<uint32_t> ids(modelIds.begin(), modelIds.end());
             Progress progress("models", ids.size());

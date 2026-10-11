@@ -6,6 +6,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include "cli_args.hpp"
 #include "commands.hpp"
 #include "export_extras.hpp"  // readFileBytes
 #include "export_materials.hpp"
@@ -174,23 +175,7 @@ int resolve(int argc, char** args) {
                  "husk resolve"};
     ResolveOptions opts;
     addResolveOptions(app, opts);
-    try {
-        // App::parse(vector<string>&) processes tokens back-to-front (see
-        // cmd_export.cpp's identical comment on its own call) -- reverse
-        // `args` into that expected order, or every flag's value binds to
-        // the wrong neighbor. Deliberately NOT app.parse(argc, args): that
-        // overload treats argv[0] as the program name and skips it, but
-        // `args` here already excludes both the program name and the
-        // subcommand word (commands.hpp's own doc comment on every
-        // int(int argc, char** args) command entry point) -- calling it
-        // silently ate the model path as a fake "program name" (found via
-        // a real CLI-tier test failure, not assumed).
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     if (opts.model.empty()) {
         std::cerr << "husk: resolve: the .m2 file is required\n";
         return 1;

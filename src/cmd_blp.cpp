@@ -10,6 +10,7 @@
 #include <CLI/CLI.hpp>
 
 #include "blp.hpp"
+#include "cli_args.hpp"
 #include "commands.hpp"
 
 // `husk blp-export` -- native BLP2 -> PNG conversion, reusing the exact
@@ -89,13 +90,7 @@ int blpExport(int argc, char** args) {
         "husk blp-export"};
     addBlpExportOptions(app, opts);
 
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     bool dirMode = app.count("--dir") > 0;
     if (dirMode) {

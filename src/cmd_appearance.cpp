@@ -1,12 +1,10 @@
-#include <algorithm>
 #include <iostream>
 #include <optional>
-#include <string>
-#include <vector>
 
 #include <CLI/CLI.hpp>
 
 #include "appearance_string.hpp"
+#include "cli_args.hpp"
 #include "commands.hpp"
 #include "husk_config.hpp"
 #include "itemappearance_db2.hpp"
@@ -53,13 +51,7 @@ int appearanceString(int argc, char** args) {
         "husk appearance-string"};
     addAppearanceStringOptions(app, opts);
 
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     // 'none' opts out of a --config/$HUSK_CONFIG-supplied value for this one
     // invocation -- same convention as export's own --db2-dir/--dbd-dir

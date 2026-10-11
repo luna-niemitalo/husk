@@ -20,6 +20,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include "cli_args.hpp"
 #include "commands.hpp"
 #include "corpus_index.hpp"
 #include "corpus_store.hpp"
@@ -30,19 +31,6 @@ namespace fs = std::filesystem;
 namespace husk::commands {
 
 namespace {
-
-// Reversed for the same reason as resolve()'s identical call (cmd_resolve.cpp).
-bool parseArgs(CLI::App& app, int argc, char** args, int& exitCode) {
-    try {
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        exitCode = app.exit(e);
-        return false;
-    }
-    return true;
-}
 
 // The game build a source tree is: casc-tool's mount serves `live` as a
 // link to builds/<label>.
@@ -435,8 +423,7 @@ int storeAdd(int argc, char** args) {
     CLI::App app{"husk store-add -- record an export tree as a build in the canonical store", "husk store-add"};
     StoreAddOptions opts;
     addStoreAddOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     try {
         std::string game = resolveGameLabel(opts.game, opts.gameFrom);
         storeTree(opts.store, opts.tree, game, opts.tags);
@@ -478,8 +465,7 @@ int exportCorpus(int argc, char** args) {
                  "husk export-corpus"};
     ExportCorpusOptions opts;
     addExportCorpusOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     try {
         bool storing = !opts.store.empty() && opts.store != "none";
         // Resolved before the hours of export, so a bad label fails now.
@@ -527,8 +513,7 @@ int indexTree(int argc, char** args) {
     CLI::App app{"husk index-tree -- (re)build an export tree's index/ lookup tables", "husk index-tree"};
     IndexTreeOptions opts;
     addIndexTreeOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     try {
         printIndex(corpus::buildIndex(opts.tree), opts.tree);
         return 0;
@@ -551,8 +536,7 @@ int mount(int argc, char** args) {
                  "husk mount"};
     MountOptions opts;
     addMountOptions(app, opts);
-    int exitCode = 0;
-    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     fs::path storeDir = fs::absolute(opts.store);
     if (!fs::is_directory(storeDir)) {
         std::cerr << "husk: mount: expected a store directory, got " << storeDir << "\n";
