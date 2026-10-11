@@ -234,3 +234,17 @@ TEST_CASE("corpus index: displays find their model and preset, ChrModels their m
     CHECK(readText(tree / "index" / "chr_models.tsv") ==
           "chr_model\tmodel\n1\tmodels/5.canon.bundle/manifest.json\n45\tmodels/5.canon.bundle/manifest.json\n");
 }
+
+TEST_CASE("input log: openUsed records only the candidate that opened") {
+    fs::path dir = freshDir("open-used");
+    writeText(dir / "src" / "_by_fdid" / "42", "anim");
+    {
+        inputs::Log log(dir / "inputs.log", dir / "src");
+        inputs::Scope scope(&log, "models/1.canon.bundle");
+        std::ifstream f;
+        CHECK_FALSE(inputs::openUsed(f, dir / "src" / "42.anim"));
+        CHECK(inputs::openUsed(f, dir / "src" / "_by_fdid" / "42"));
+    }
+    CHECK(readText(dir / "inputs.log") ==
+          "models/1.canon.bundle\t_by_fdid/42\t" + corpus::hex(corpus::md5File(dir / "src" / "_by_fdid" / "42")) + "\n");
+}

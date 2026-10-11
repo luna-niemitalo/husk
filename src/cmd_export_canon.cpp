@@ -282,16 +282,12 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
         animPath = std::filesystem::path(animDir) / (std::to_string(fileId) + ".anim");
     }
     std::ifstream f;
-    if (!animPath.empty()) f.open(animPath, std::ios::binary);
+    if (!animPath.empty()) inputs::openUsed(f, animPath);
     if (!f.is_open() && fileId != 0) {
-        if (auto stored = sources::storePathForFileDataId(listfileRoot, fileId)) f.open(*stored, std::ios::binary);
+        if (auto stored = sources::storePathForFileDataId(listfileRoot, fileId)) inputs::openUsed(f, *stored);
     }
-    if (!f.is_open()) {
-        animPath = findAnimFileByBasename(modelPath, animDir, seq.id, seq.variationIndex);
-        f.open(animPath, std::ios::binary);
-    }
+    if (!f.is_open()) inputs::openUsed(f, findAnimFileByBasename(modelPath, animDir, seq.id, seq.variationIndex));
     if (!f.is_open()) return std::nullopt;  // not available locally under either naming convention
-    inputs::use(animPath);
 
     std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     if (!animChunked) {

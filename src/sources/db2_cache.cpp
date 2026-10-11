@@ -35,14 +35,17 @@ std::map<CacheKey, ParsedDb2>& cache() {
 }  // namespace
 
 const ParsedDb2* getParsedDb2(const std::string& path, const std::string& dbdDir, std::ostream& err) {
-    inputs::use(path);
     CacheKey key{path, dbdDir};
     auto it = cache().find(key);
-    if (it != cache().end()) return &it->second;
+    if (it != cache().end()) {
+        inputs::use(path);
+        return &it->second;
+    }
 
     ParsedDb2 parsed;
     try {
         parsed.fileBytes = readFileBytes(path);
+        inputs::use(path);
         parsed.file = db2::parse(parsed.fileBytes);
     } catch (const std::exception& e) {
         err << "husk: db2 cache: couldn't read '" << path << "': " << e.what() << "\n";

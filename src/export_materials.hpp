@@ -218,7 +218,9 @@ BuiltMaterials buildMaterialsAndPrimitives(
 // buildMaterialsAndPrimitives's fuzzy-texture-pool scan and
 // findSameBasenameSkins's (export_skin_resolution.cpp) same-basename .skin
 // scan -- both need the same missing-vs-unreadable-vs-wrong-type
-// diagnostic.
-std::filesystem::directory_iterator scanDirOrWarn(const std::string& dir, const char* purpose);
+// diagnostic. Listings are kept per directory and modification time: a
+// corpus export asks for the same large directories once per model, and a
+// FUSE-served tree rebuilds every listing it is asked for.
+const std::vector<std::filesystem::directory_entry>& scanDirOrWarn(const std::string& dir, const char* purpose);
 
 }  // namespace husk::commands

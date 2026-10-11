@@ -242,25 +242,24 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
             // basename fallback.
             std::ifstream f;
             if (!animPath.empty()) {
-                f.open(animPath, std::ios::binary);
+                inputs::openUsed(f, animPath);
             }
             // The store before the basename convention: a listfile can give
             // this model's .anim names to another FileDataID.
             if (!f.is_open() && fileId != 0) {
                 if (auto stored = sources::storePathForFileDataId(animInputs.listfileRoot, fileId)) {
                     animPath = *stored;
-                    f.open(animPath, std::ios::binary);
+                    inputs::openUsed(f, animPath);
                 }
             }
             if (!f.is_open()) {
                 animPath = findAnimFileByBasename(animInputs.modelPath, animInputs.animDir, sourceSeq.id,
                                                    sourceSeq.variationIndex);
-                f.open(animPath, std::ios::binary);
+                inputs::openUsed(f, animPath);
             }
             if (!f.is_open()) {
                 continue;  // not available locally under either naming convention
             }
-            inputs::use(animPath);
             std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)),
                                                 std::istreambuf_iterator<char>());
             if (animInputs.animChunked) {

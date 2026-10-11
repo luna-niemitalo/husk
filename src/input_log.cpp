@@ -63,6 +63,12 @@ Scope::Adopt::~Adopt() { currentScope = previous_; }
 
 void setRunLog(Log* log) { runLog = log; }
 
+bool openUsed(std::ifstream& f, const fs::path& path) {
+    f.open(path, std::ios::binary);
+    if (f.is_open()) use(path);
+    return f.is_open();
+}
+
 void use(const fs::path& input) {
     if (currentScope) {
         currentScope->use(input);

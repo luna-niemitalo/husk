@@ -76,4 +76,8 @@ void setRunLog(Log* log);
 // Records that the current output used `input`.
 void use(const std::filesystem::path& input);
 
+// Opens `path` into `f` and records it only if that open succeeded, so a
+// reader trying several candidates records the one it read.
+bool openUsed(std::ifstream& f, const std::filesystem::path& path);
+
 }  // namespace husk::inputs
