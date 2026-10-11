@@ -322,9 +322,8 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
     deduplicated. It may be absent. The mount command, flag paths and
     listfile are in `development/REFERENCES.md` (gitignored, machine-
     local); running that mount command is pre-approved whenever the mount
-    is missing. `~/.config/husk/config.toml` is husk's own config (not
-    Luna's) but still names the old path; it is outside the repo, so
-    pass flags explicitly until it is updated.
+    is missing. `~/.config/husk/config.toml` (husk's own config, in
+    scope) points at the mount.
     The old path is still hardcoded in `src/db2.hpp`, three tests
     (`test_dbd.cpp`, `test_cli_db2.cpp`) and about 20 `tools/` scripts;
     repoint them when work resumes.
