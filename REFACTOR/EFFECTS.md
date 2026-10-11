@@ -92,15 +92,74 @@ A fourth document kind, `effect`, with the standard contract header:
 
 ```
 kind        "effect"
-subject     Ref: the effect (a synthesized name: "ground_fog", "classic_m2_particle_emitter")
-status      "placeholder" (literal tier only; absent otherwise)
-definition  inputs: {name: {type, x-unit, description, default?}}
-data        sources: [source, ...]   values may bind an input: "$color"
+subject     Ref: the effect (a synthesized name: "ground_fog", "classic_local_fog")
+definition  status: "placeholder" (literal tier only; absent otherwise)
+            inputs: {name: input spec}
+selection   {} (an effect selects nothing; its instances do)
 references  textures, atlases, meshes it always uses
+sources     [source, ...]
 ```
 
-Exported as `effects/<name>.effect.bundle`. An effect's sources may have
-parents within the effect (embers spawned where the fire's heat is).
+Exported as `effects/<name>.json`. An effect's sources may have parents
+within the effect (embers spawned where the fire's heat is).
+
+### Inputs: husk defines the shape, the consumer the storage (Luna)
+
+An input declares a **kind**: what shape the value is, never how it is
+stored (an `image` is an image, not a DDS file). Each kind has one value
+shape, so a spline can't be passed where a colour is wanted.
+`validate-bundle` checks every instance's inputs against its effect's
+declarations.
+
+| Kind | Value | Declaration adds |
+|---|---|---|
+| `number` | number | `unit` |
+| `integer`, `boolean` | integer, boolean | — |
+| `choice` | one of `options` | `options` |
+| `position` | 3 numbers, a point | (length unit from `space`) |
+| `vector` | 3 numbers | `unit` |
+| `direction` | 3 numbers, unit length | — |
+| `rotation` | quaternion x, y, z, w | — |
+| `color`, `color_alpha` | 3 or 4 numbers, linear 0..1 | — |
+| `image` | a texture entry | — |
+| `mesh` | an asset reference to a model | — |
+| `spline` | a list of positions | — |
+| `curve` | keyed values: per-animation curves (`seconds`) or over age (`age`) | `of` (a value kind), `clock` |
+| `list` | a list | `of` (an input spec) |
+| `record` | an object | `fields` ({name: input spec}) |
+
+Input names follow the schema's key rules (snake_case, no source names).
+An input spec may give a `default` and must give a `description`. Every
+declared input is bound by at least one source: an input nothing reads is
+an `unresolved` field, not an input.
+
+**Binding.** A source field is either a literal or `{"input": "name"}`.
+A source with `for_each: "<list input>"` is repeated per element, and
+`{"each": "field"}` binds a field of the element. Which fields may be
+bound is the schema's choice per field (regions and content, not ids).
+
+### Style sits on the instance
+
+The classic look is per-record data, never a template, so it is not bound
+through inputs. An instance's `style` is keyed by the effect's source ids:
+`style: {fog: {distance_fog: {...}, looks: {underwater: {...}}}}`. Inputs
+carry what world content needs (geometry, textures, rates); style carries
+the classic look. A classified instance keeps the literal instance's style
+unchanged.
+
+### Inline documents
+
+A `reference` holds either a `uri` (`asset.uri`) or the referenced
+document itself (`document`), per "embed or reference". `validate-bundle`
+checks an inline document like a file of its kind. An M2's effects set is
+inline.
+
+### Warnings
+
+`validate-bundle` reports problems as errors or warnings, and `--release`
+makes warnings errors. The one warning so far is a placeholder effect's
+instance. Export commands print the placeholder instance count per effect
+in their summary.
 
 ### Dependencies point one way
 
@@ -132,11 +191,13 @@ with two additions to the placement instance shape:
 Instance (placement_set.schema.json), additions in bold
   id          stable within the set
   asset       Ref to a model or an effect
-  anchor      **world | joint (Ref into the owning model's rig); default: the set's frame**
+  anchor      **joint (Ref into the owning model's rig); absent: the set's frame**
   translation, rotation, scale   relative to the anchor
   inputs      **{name: value}; only names the effect declares**
-  activeSets  models only
-  ...the effect-specific fields: gate, priority, style, provenance, unresolved, source
+  style       **{source id: classic look}**
+  gate, priority, provenance, unresolved   **effects only**
+  selection   models only (activeSets)
+  source      raw flags and the source record
 ```
 
 What this buys:
