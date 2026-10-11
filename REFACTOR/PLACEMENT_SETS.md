@@ -68,7 +68,9 @@ authored spot; after a move, a runtime may recompute it or ignore it.
 Same "embed or reference — one rule" as every other resource
 (`BUNDLE_FORMAT.md`): a set is written as its own small JSON file
 (`sets/<index>.json`: `schema_version`, `ref`, `instances`), and an owner
-references it by relative `uri`. Asset references inside a set are `Ref`s
+references it by relative `uri`. A set never shared may instead be
+inline in its owner's manifest (an M2's effects set, `EFFECTS.md`;
+Luna, 2026-10-11). Asset references inside a set are `Ref`s
 with a `uri` to the asset's own bundle when one was exported. A
 standalone set file is a complete document. A consumer can load one with
 no owner at all, which is the housing and hand-made-scene case.

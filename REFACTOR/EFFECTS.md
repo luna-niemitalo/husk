@@ -492,10 +492,8 @@ Each result enters as a `candidate_role` first, then gets promoted.
 
 ## Open decisions (Luna)
 
-- **M2 effects sets inline.** This is proposed to avoid a file per
-  emitter-bearing M2. It means the placement-set schema now allows inline
-  sets, which `PLACEMENT_SETS.md` had only as files (it rejected inline
-  *only*, not inline *as well*).
-- **Phase 5 before 1.0.** With placeholders failing `--release`,
-  classification stops being a stretch goal and becomes the 1.0 gate.
-  Every effect source in the corpus needs a classified effect by then.
+Decided (Luna, 2026-10-11):
+- **M2 effects sets are inline** in the M2's manifest. The placement-set
+  schema allows a set inline in its owner as well as a file.
+- **Classification is the 1.0 gate.** Every effect source in the corpus
+  needs a classified effect before 1.0.
