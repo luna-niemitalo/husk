@@ -1,14 +1,18 @@
 #include "writers/bundle_common.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <fstream>
 #include <initializer_list>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
 #include <variant>
+
+#include "bundle_schema_embedded.hpp"
 
 namespace husk::writers {
 
@@ -202,14 +206,140 @@ std::string identityKey(const canon::Ref& ref) {
     return key.str();
 }
 
+void writeVec3(json::Writer& w, const canon::Vec3& v) { writeFloats(w, {v.x, v.y, v.z}); }
+
+void writeInputValue(json::Writer& w, const canon::InputValue& value) {
+    std::visit(
+        [&w](const auto& v) {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, canon::Vec3>) {
+                writeVec3(w, v);
+            } else {
+                w.value(v);
+            }
+        },
+        value);
+}
+
+void writeDistanceFog(json::Writer& w, const canon::DistanceFog& fog) {
+    w.beginObject();
+    if (fog.linear) {
+        w.key("linear");
+        w.beginObject();
+        w.key("start");
+        w.value(static_cast<double>(fog.linear->start));
+        w.key("end");
+        w.value(static_cast<double>(fog.linear->end));
+        w.key("color");
+        writeVec3(w, fog.linear->color);
+        w.endObject();
+    }
+    w.endObject();
+}
+
+void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
+    w.beginObject();
+    if (style.distanceFog) {
+        w.key("distance_fog");
+        writeDistanceFog(w, *style.distanceFog);
+    }
+    if (style.exitBlend) {
+        w.key("exit_blend");
+        w.value(true);
+    }
+    if (style.underwater) {
+        w.key("looks");
+        w.beginObject();
+        w.key("underwater");
+        writeDistanceFog(w, *style.underwater);
+        w.endObject();
+    }
+    w.endObject();
+}
+
+const char* unresolvedKindName(canon::UnresolvedField::Kind kind) {
+    switch (kind) {
+        case canon::UnresolvedField::Kind::Scalar: return "scalar";
+        case canon::UnresolvedField::Kind::Scalars: return "scalars";
+        case canon::UnresolvedField::Kind::Bits: return "bits";
+        case canon::UnresolvedField::Kind::Color: return "color";
+        case canon::UnresolvedField::Kind::Count: return "count";
+        case canon::UnresolvedField::Kind::Id: return "id";
+        case canon::UnresolvedField::Kind::Angle: return "angle";
+        case canon::UnresolvedField::Kind::UnitVector: return "unit_vector";
+    }
+    return "scalar";
+}
+
+void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>& fields) {
+    w.beginObject();
+    w.key("fields");
+    w.beginArray();
+    for (const canon::UnresolvedField& f : fields) {
+        w.beginObject();
+        w.key("field");
+        w.value(f.field);
+        w.key("kind");
+        w.value(unresolvedKindName(f.kind));
+        w.key("value");
+        std::visit(
+            [&w](const auto& v) {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, uint32_t>) {
+                    w.value(hexFlags(v));
+                } else if constexpr (std::is_same_v<T, std::vector<double>>) {
+                    w.beginArray();
+                    for (double d : v) w.value(d);
+                    w.endArray();
+                } else {
+                    w.value(v);
+                }
+            },
+            f.value);
+        if (f.candidateRole) {
+            w.key("candidate_role");
+            w.value(*f.candidateRole);
+        }
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+}
+
+void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& effect) {
+    w.key("inputs");
+    w.beginObject();
+    for (const auto& [name, value] : effect.inputs) {
+        w.key(name);
+        writeInputValue(w, value);
+    }
+    w.endObject();
+    if (!effect.style.empty()) {
+        w.key("style");
+        w.beginObject();
+        for (const auto& [source, block] : effect.style) {
+            w.key(source);
+            writeStyleBlock(w, block);
+        }
+        w.endObject();
+    }
+    if (!effect.unresolved.empty()) {
+        w.key("unresolved");
+        writeUnresolved(w, effect.unresolved);
+    }
+}
+
+std::string effectUri(const canon::Ref& effect) { return "effects/" + effect.name + ".json"; }
+
 void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem::path& path, const AssetUris& uris,
                            const Provenance& provenance) {
-    std::vector<const canon::Ref*> assets;
+    std::vector<const canon::PlacedInstance*> assets;
     std::unordered_map<std::string, size_t> assetIndex;
     std::vector<size_t> instanceAsset;
     for (const canon::PlacedInstance& instance : set.instances) {
-        auto [it, added] = assetIndex.emplace(identityKey(instance.asset), assets.size());
-        if (added) assets.push_back(&instance.asset);
+        std::string key = (instance.effect ? "effect/" : "model/") + identityKey(instance.asset);
+        auto [it, added] = assetIndex.emplace(key, assets.size());
+        if (added) assets.push_back(&instance);
         instanceAsset.push_back(it->second);
     }
 
@@ -225,12 +355,17 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
     w.endObject();
     w.key("references");
     w.beginArray();
-    for (const canon::Ref* asset : assets) {
+    for (const canon::PlacedInstance* asset : assets) {
         w.beginObject();
         w.key("kind");
-        w.value("model");
+        w.value(asset->effect ? "effect" : "model");
         w.key("asset");
-        writeAssetRef(w, *asset, uris);
+        // Set files sit one level below the effects they place.
+        if (asset->effect) {
+            writeRef(w, asset->asset, "../" + effectUri(asset->asset));
+        } else {
+            writeAssetRef(w, asset->asset, uris);
+        }
         w.endObject();
     }
     w.endArray();
@@ -249,6 +384,18 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
         writeFloats(w, {instance.rotation.x, instance.rotation.y, instance.rotation.z, instance.rotation.w});
         w.key("scale");
         w.value(static_cast<double>(instance.scale));
+        if (instance.effect) {
+            writeEffectInstanceFields(w, *instance.effect);
+            w.key("source");
+            w.beginObject();
+            w.key("flags");
+            w.value(hexFlags(instance.flags));
+            w.key("record");
+            writeSourceRecord(w, instance.effect->origin);
+            w.endObject();
+            w.endObject();
+            continue;
+        }
         if (instance.tint) {
             w.key("tint");
             w.beginObject();
@@ -297,12 +444,32 @@ std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEn
     }
     if (!sets.empty()) std::filesystem::create_directories(bundleDir / "sets");
     std::vector<SetDocument> out;
+    std::set<std::string> effects;
     for (size_t i = 0; i < sets.size(); ++i) {
         std::string uri = "sets/" + std::to_string(i) + ".json";
         writePlacementSetFile(*sets[i].set, bundleDir / uri, setUris, provenance);
         out.push_back({sets[i].set->ref, uri, sets[i].alwaysOn, sets[i].set->instances.size()});
+        for (const canon::PlacedInstance& instance : sets[i].set->instances) {
+            if (instance.effect) effects.insert(instance.asset.name);
+        }
     }
+    if (!effects.empty()) std::filesystem::create_directories(bundleDir / "effects");
+    for (const std::string& name : effects) writeEffectDocument(name, bundleDir / ("effects/" + name + ".json"), provenance);
     return out;
+}
+
+void writeEffectDocument(const std::string& name, const std::filesystem::path& path, const Provenance& provenance) {
+    const auto& effects = bundle_schema::embeddedEffects();
+    auto body = std::find_if(effects.begin(), effects.end(), [&](const auto& e) { return e.name == name; });
+    if (body == effects.end()) throw std::runtime_error("bundle writer: no effect document '" + name + "' in effects/");
+    std::ostringstream text;
+    json::Writer w(text);
+    w.beginObject();
+    writeContractHeader(w, "effect", canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, provenance);
+    w.rawMembers(std::string(body->text));
+    w.endObject();
+    std::string bytes = text.str();
+    writeFile(path, std::vector<uint8_t>(bytes.begin(), bytes.end()));
 }
 
 void writeLiquidTypes(json::Writer& w, const std::vector<canon::LiquidType>& types,

@@ -378,13 +378,18 @@
           "enum": [
             "model",
             "placement_set",
-            "world"
+            "world",
+            "effect"
           ],
           "description": "Kind of the referenced document."
         },
         "asset": {
           "$ref": "#/definitions/asset_ref",
           "description": "Identity, and uri when exported alongside."
+        },
+        "document": {
+          "type": "object",
+          "description": "The referenced document itself, written inline instead of as its own file; checked like a file of its kind."
         }
       },
       "required": [
@@ -637,6 +642,371 @@
       },
       "required": [
         "identity"
+      ],
+      "additionalProperties": false
+    },
+    "instance_ref": {
+      "type": "object",
+      "description": "One instance of an owned placement set, by its stable id rather than its position.",
+      "properties": {
+        "set": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The owned placement set.",
+          "x-index-into": "/definition/placement_sets"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The instance's id in that set."
+        }
+      },
+      "required": [
+        "set",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "input_kind": {
+      "enum": [
+        "number",
+        "integer",
+        "boolean",
+        "choice",
+        "position",
+        "vector",
+        "direction",
+        "rotation",
+        "color",
+        "color_alpha",
+        "image",
+        "mesh",
+        "spline",
+        "curve",
+        "list",
+        "record"
+      ],
+      "description": "The shape of an effect input's value. The kind says what the value is, never how a consumer stores it."
+    },
+    "input_spec": {
+      "type": "object",
+      "description": "One input an effect declares: its kind, and what an instance must supply for it.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/input_kind",
+          "description": "Shape of the value."
+        },
+        "description": {
+          "type": "string",
+          "description": "What the input means to the effect."
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit of a number or vector value."
+        },
+        "options": {
+          "type": "array",
+          "description": "The values a choice may take.",
+          "items": {
+            "type": "string",
+            "description": "One option."
+          }
+        },
+        "item": {
+          "$ref": "#/definitions/input_spec",
+          "description": "A list's element."
+        },
+        "fields": {
+          "type": "object",
+          "description": "A record's fields by name.",
+          "additionalProperties": {
+            "$ref": "#/definitions/input_spec"
+          }
+        },
+        "value_kind": {
+          "$ref": "#/definitions/input_kind",
+          "description": "A curve's keyed value."
+        },
+        "clock": {
+          "enum": [
+            "seconds",
+            "age",
+            "day_time"
+          ],
+          "description": "What a curve is keyed by: time within an animation, normalized particle age, or time of day."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "An instance may leave the input out; absent means not stated."
+        },
+        "default": {
+          "description": "The value an instance that leaves the input out gets."
+        }
+      },
+      "required": [
+        "kind",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "binding": {
+      "description": "A field whose value comes from the instance: an input by name, or a field of the element a for_each source repeats over.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "An input of the instance.",
+          "properties": {
+            "input": {
+              "type": "string",
+              "description": "Input name."
+            }
+          },
+          "required": [
+            "input"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A field of the current for_each element.",
+          "properties": {
+            "each": {
+              "type": "string",
+              "description": "Field name in the element record."
+            }
+          },
+          "required": [
+            "each"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "bound_number": {
+      "description": "A number, or a binding to one.",
+      "oneOf": [
+        {
+          "type": "number",
+          "description": "The value."
+        },
+        {
+          "$ref": "#/definitions/binding",
+          "description": "Where the value comes from."
+        }
+      ]
+    },
+    "bound_vec3": {
+      "description": "Three numbers, or a binding to them.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/vec3",
+          "description": "The value."
+        },
+        {
+          "$ref": "#/definitions/binding",
+          "description": "Where the value comes from."
+        }
+      ]
+    },
+    "region": {
+      "description": "Where an effect source applies, relative to its instance. Every region may fade over a soft edge.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Everywhere the instance's anchor reaches: the whole model, or the whole map.",
+          "properties": {
+            "kind": {
+              "const": "everywhere",
+              "description": "Region kind."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A sphere: full strength inside inner_radius, fading out to outer_radius.",
+          "properties": {
+            "kind": {
+              "const": "sphere",
+              "description": "Region kind."
+            },
+            "center": {
+              "$ref": "#/definitions/bound_vec3",
+              "description": "Centre.",
+              "x-unit": "yard"
+            },
+            "inner_radius": {
+              "$ref": "#/definitions/bound_number",
+              "description": "Radius of full strength.",
+              "x-unit": "yard"
+            },
+            "outer_radius": {
+              "$ref": "#/definitions/bound_number",
+              "description": "Radius where it has faded out.",
+              "x-unit": "yard"
+            }
+          },
+          "required": [
+            "kind",
+            "center",
+            "inner_radius",
+            "outer_radius"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "effect_source": {
+      "type": "object",
+      "description": "One part of an effect: where it applies and what it puts in the world.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique within the effect; an instance's style is keyed by it."
+        },
+        "parent": {
+          "type": "string",
+          "description": "Id of the source this one lives in or spawns from."
+        },
+        "for_each": {
+          "type": "string",
+          "description": "A list input: the source repeats once per element, and each-bindings read the element."
+        },
+        "region": {
+          "$ref": "#/definitions/region",
+          "description": "Where it applies."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "linear_fog": {
+      "type": "object",
+      "description": "Fog that thickens linearly with distance from the viewer.",
+      "properties": {
+        "start": {
+          "type": "number",
+          "description": "Distance where fog begins.",
+          "x-unit": "yard"
+        },
+        "end": {
+          "type": "number",
+          "description": "Distance where fog is full.",
+          "x-unit": "yard"
+        },
+        "color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Fog colour.",
+          "x-unit": "1"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "color"
+      ],
+      "additionalProperties": false
+    },
+    "distance_fog": {
+      "type": "object",
+      "description": "The classic client's fog over view distance, in the blocks a source states; an absent block inherits from the enclosing fog.",
+      "properties": {
+        "linear": {
+          "$ref": "#/definitions/linear_fog",
+          "description": "The linear part."
+        }
+      },
+      "additionalProperties": false
+    },
+    "style_block": {
+      "type": "object",
+      "description": "How the classic client drew one effect source.",
+      "properties": {
+        "distance_fog": {
+          "$ref": "#/definitions/distance_fog",
+          "description": "Fog over view distance inside the source's region."
+        },
+        "exit_blend": {
+          "type": "boolean",
+          "description": "Draws nothing; scales the enclosing fog down near the model's exits."
+        },
+        "looks": {
+          "type": "object",
+          "description": "Alternative looks the client switched to under a viewer condition.",
+          "properties": {
+            "underwater": {
+              "$ref": "#/definitions/distance_fog",
+              "description": "The fog while the viewer is under water."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "style": {
+      "type": "object",
+      "description": "The classic look of an effect instance, by the effect's source id.",
+      "additionalProperties": {
+        "$ref": "#/definitions/style_block"
+      }
+    },
+    "unresolved_field": {
+      "type": "object",
+      "description": "A source value carried before its meaning is known.",
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "Which source field, in the source's own terms."
+        },
+        "kind": {
+          "enum": [
+            "scalar",
+            "scalars",
+            "bits",
+            "color",
+            "count",
+            "id",
+            "angle",
+            "unit_vector"
+          ],
+          "description": "What class of value it is, as far as the data shows."
+        },
+        "value": {
+          "description": "The value as stored: a number, an array of numbers, or a hex string for bits."
+        },
+        "candidate_role": {
+          "type": "string",
+          "description": "A proposed typed field for the value, not yet confirmed."
+        }
+      },
+      "required": [
+        "field",
+        "kind",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "unresolved": {
+      "type": "object",
+      "description": "Source values whose meaning is not known yet; a consumer never needs them to draw.",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "description": "The values.",
+          "items": {
+            "$ref": "#/definitions/unresolved_field",
+            "description": "One value."
+          }
+        }
+      },
+      "required": [
+        "fields"
       ],
       "additionalProperties": false
     }

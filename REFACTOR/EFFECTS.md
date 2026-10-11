@@ -1,13 +1,25 @@
 # EFFECTS.md — fog, volumes and particles in the canonical format
 
-**Status: proposed (2026-10-11), not built.** Nothing here exists in
-`src/` or `schema/` yet. Decisions marked **(Luna)** are settled; the rest
-is proposal.
+**Status: in progress (2026-10-11).** Decisions marked **(Luna)** are
+settled; the rest is proposal.
 
-Today the bundle carries each source in its own shape:
-- `canon::LocalFog` mirrors `MFOG`;
+**Built**: the `effect` kind (`schema/effect.schema.json`; documents in
+`effects/`, embedded and written as is), the input kinds, `everywhere` and
+`sphere` regions, `distance_fog.linear`, `exit_blend` and the underwater
+look as style, the shared `unresolved` shape, effect instances in
+placement sets (`canon::EffectPlacement`), `{set, id}` instance refs,
+inline reference documents, and `validate-bundle`'s input checks and
+placeholder warnings (`--release` fails on them). WMO `MFOG` is the first
+source on it (Phase 2): `classic_local_fog`, `classic_fog_exit_blend`.
+
+**Not yet**: every other source still carries its own shape:
 - `canon::FogVolume` mirrors `VFOG`+`VFEX`+`VFE2`, `unknown18` and all;
+- `canon::AmbientVolume` and `ParticulateVolume` mirror `MAVG`/`MAVD`/
+  `MBVD` and `MPVD`;
 - `canon::ParticleEmitter`/`RibbonEmitter` mirror M2's emitters.
+
+The `anchor` field, gate, priority, provenance and content kinds are not
+in the schema yet; each joins with its first source.
 
 Source facts are in `../WIKI_FINDINGS/WORLD.md`, open items in
 `../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in

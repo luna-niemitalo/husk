@@ -74,7 +74,7 @@
           "reference": {
             "type": "integer",
             "minimum": 0,
-            "description": "The placed model.",
+            "description": "The placed model or effect.",
             "x-index-into": "/references"
           },
           "translation": {
@@ -132,13 +132,29 @@
             ],
             "additionalProperties": false
           },
+          "inputs": {
+            "type": "object",
+            "description": "A placed effect's inputs by name: only the names the effect declares, each of its declared kind."
+          },
+          "style": {
+            "$ref": "common.schema.json#/definitions/style",
+            "description": "A placed effect's classic look."
+          },
+          "unresolved": {
+            "$ref": "common.schema.json#/definitions/unresolved",
+            "description": "A placed effect's source values whose meaning is not known yet."
+          },
           "source": {
             "type": "object",
             "description": "Source-specific raw values.",
             "properties": {
               "flags": {
                 "$ref": "common.schema.json#/definitions/flags",
-                "description": "The source's placement flags."
+                "description": "The source's placement flags, or a placed effect's record flags."
+              },
+              "record": {
+                "$ref": "common.schema.json#/definitions/source_record",
+                "description": "The source record a placed effect was decoded from."
               }
             },
             "additionalProperties": false,

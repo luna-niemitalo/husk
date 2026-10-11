@@ -125,8 +125,10 @@ struct Fog {
     Layer fog;
     Layer underwater;
     // MFED (SL+): the MODS index it applies with; nullopt without MFED.
-    // MFED's other 14 bytes are zero in all 300 real records.
     std::optional<uint16_t> doodadSet;
+    // MFED's other 14 bytes, zero in all 300 real records: set only when a
+    // record breaks that, so a build that starts using them shows up.
+    std::optional<std::vector<uint8_t>> doodadSetReserved;
 };
 
 // MOPT, 20 bytes: a portal polygon, MOPV[startVertex, +count). On 800 real

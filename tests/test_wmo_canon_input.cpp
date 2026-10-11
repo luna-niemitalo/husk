@@ -22,6 +22,14 @@ std::vector<uint8_t> readFile(const std::string& path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+// The wiki's "empty fog entry": record 0 of most real roots.
+wmo::Fog emptyFog() {
+    wmo::Fog f;
+    f.fog = {444.4444580078125f, 0.25f, 0xFFFFFFFFu};
+    f.underwater = {222.22222900390625f, -0.5f, 0xFF0000FFu};
+    return f;
+}
+
 // Two groups: group 0 has two triangles and two UV sets, group 1 one
 // triangle and one UV set. Two materials, two doodad sets over three doodads.
 wmo::RootFile syntheticRoot() {
@@ -52,7 +60,7 @@ wmo::RootFile syntheticRoot() {
     }
     root.doodadColorMultipliers = {1.0f, 2.0f, 3.0f};
     root.doodadSets = {{"Set_$DefaultGlobal", 0, 1}, {"Set_B", 1, 2}};
-    root.fogs.resize(1);  // every real root has an MFOG for its groups' fog id 0
+    root.fogs = {emptyFog()};  // every real root has an MFOG for its groups' fog id 0
     return root;
 }
 
@@ -426,8 +434,9 @@ TEST_CASE("buildCanonWmo: a group's MAVR/MBVR/MPVR name the scene volumes its pa
     // Scene order: MAVG 0, MAVD 1-2, MBVD 3.
     CHECK(model.mesh.parts[1].ambientVolumes == std::vector<uint32_t>{2, 3});
     CHECK(model.mesh.parts[1].particulateVolumes == std::vector<uint32_t>{0});
-    // MFVR replaces the four fogIds slots.
-    CHECK(model.mesh.parts[1].fogs == std::vector<uint32_t>{0});
+    // MFVR replaces the four fogIds slots; 0 is the default fog, here the
+    // empty entry, so no list entry.
+    CHECK(model.mesh.parts[1].fogs.empty());
     CHECK(model.mesh.parts[0].ambientVolumes.empty());
 
     g.ambientBoxRefs = {1};
@@ -524,7 +533,7 @@ TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
     wmo::GroupFile foggy = group(3, 1, 0, 1);
     foggy.fogIds = {0, 3, 0, 0};
     in.groups = {std::nullopt, foggy};
-    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "part 1's fogs: expected indices < 1 scene fogs, got 3",
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "WMO group 1's fogIds: expected refs < 1 MFOG records, got 3",
                          std::runtime_error);
 }
 
@@ -601,7 +610,17 @@ TEST_CASE("buildCanonWmo: MOPT portals go on the mesh, each group's MOPR range o
                          std::runtime_error);
 }
 
-TEST_CASE("buildCanonWmo: MFOG fogs become local fogs; parts name theirs, MFED picks the doodad set") {
+namespace {
+
+const canon::PlacedInstance* instanceById(const canon::Model& model, canon::InstanceRef ref) {
+    const auto& instances = model.placementSets.at(ref.set).set.instances;
+    auto it = std::find_if(instances.begin(), instances.end(), [&](const canon::PlacedInstance& i) { return i.id == ref.id; });
+    return it == instances.end() ? nullptr : &*it;
+}
+
+}  // namespace
+
+TEST_CASE("buildCanonWmo: MFOG fogs become effect instances in the set they apply with; parts name theirs") {
     wmo::RootFile root = syntheticRoot();
     wmo::Fog exitFog;
     exitFog.flags = 0x1001;
@@ -611,35 +630,84 @@ TEST_CASE("buildCanonWmo: MFOG fogs become local fogs; parts name theirs, MFED p
     exitFog.fog = {100, 0.25f, 0xFF336699u};
     exitFog.underwater = {50, -0.5f, 0xFF0000FFu};
     exitFog.doodadSet = 1;
-    root.fogs = {wmo::Fog{}, exitFog};
+    wmo::Fog sphere;
+    sphere.position = {4, 5, 6};
+    sphere.smallerRadius = 2;
+    sphere.largerRadius = 8;
+    sphere.fog = {40, 0.5f, 0x7F336699u};
+    sphere.underwater = {10, -1, 0xFF000000u};
+    root.fogs = {emptyFog(), exitFog, sphere};
     wmo::GroupFile g = group(3, 1, 0, 1);
-    g.fogIds = {1, 0, 0, 0};
+    g.fogIds = {2, 1, 0, 0};
     wmoinput::WmoInputs in;
     in.root = &root;
     in.groups = {g, std::nullopt};
 
     canon::Model model = wmoinput::buildCanonWmo(in);
 
-    REQUIRE(model.scene.fogs.size() == 2);
-    CHECK_FALSE(model.scene.fogs[0].placementSet.has_value());
-    const canon::LocalFog& f = model.scene.fogs[1];
-    CHECK(f.ref.name == "fog_1");
-    CHECK(f.origin.table == "MFOG");
-    CHECK(f.origin.index == 1);
-    CHECK(f.position.z == 3.0f);
-    CHECK(f.innerRadius == 5.0f);
-    CHECK(f.outerRadius == 20.0f);
-    CHECK(f.interiorExteriorBlend);
-    CHECK(f.sourceFlags == 0x1001);
-    CHECK(f.fog.end == 100.0f);
-    CHECK(f.fog.startScalar == 0.25f);
-    // BGRA bytes 99 66 33 FF -> RGBA 0x33 0x66 0x99 0xFF.
-    CHECK(f.fog.color[0] == doctest::Approx(0x33 / 255.0));
-    CHECK(f.underwater.startScalar == -0.5f);
-    CHECK(f.underwater.color[2] == 1.0f);
-    CHECK(f.placementSet->name == "Set_B");
-    CHECK(model.mesh.parts[0].fogs == std::vector<uint32_t>{1, 0, 0, 0});
+    // The empty entry is no instance and no default fog; ids follow the 3 doodads.
+    CHECK_FALSE(model.defaultFog.has_value());
+    REQUIRE(model.mesh.parts[0].fogs.size() == 2);
+    CHECK(model.mesh.parts[0].fogs[0].set == 0);
+    CHECK(model.mesh.parts[0].fogs[0].id == 4);
+    CHECK(model.mesh.parts[0].fogs[1].set == 1);
+    CHECK(model.mesh.parts[0].fogs[1].id == 3);
     CHECK(model.mesh.parts[1].fogs.empty());
+
+    const canon::PlacedInstance* exit = instanceById(model, model.mesh.parts[0].fogs[1]);
+    REQUIRE(exit);
+    CHECK(exit->asset.name == "classic_fog_exit_blend");
+    CHECK(exit->translation.z == 3.0f);
+    CHECK(exit->flags == 0x1001);
+    REQUIRE(exit->effect.has_value());
+    CHECK(exit->effect->origin.table == "MFOG");
+    CHECK(exit->effect->origin.index == 1);
+    CHECK(exit->effect->inputs.empty());
+    REQUIRE(exit->effect->style.size() == 1);
+    CHECK(exit->effect->style[0].first == "exit_blend");
+    CHECK(exit->effect->style[0].second.exitBlend);
+    REQUIRE(exit->effect->unresolved.size() == 3);
+    CHECK(exit->effect->unresolved[0].field == "smaller_radius");
+    CHECK(exit->effect->unresolved[2].field == "flags");
+    CHECK(std::get<uint32_t>(exit->effect->unresolved[2].value) == 0x1000);
+
+    const canon::PlacedInstance* local = instanceById(model, model.mesh.parts[0].fogs[0]);
+    REQUIRE(local);
+    CHECK(local->asset.name == "classic_local_fog");
+    REQUIRE(local->effect->inputs.size() == 2);
+    CHECK(local->effect->inputs[0].first == "inner_radius");
+    CHECK(std::get<double>(local->effect->inputs[1].second) == 8.0);
+    const canon::StyleBlock& style = local->effect->style.at(0).second;
+    // start = end * startScalar; BGRA bytes 99 66 33 7F -> RGB 0x33 0x66 0x99.
+    CHECK(style.distanceFog->linear->start == 20.0f);
+    CHECK(style.distanceFog->linear->end == 40.0f);
+    CHECK(style.distanceFog->linear->color.x == doctest::Approx(0x33 / 255.0));
+    CHECK(style.underwater->linear->start == -10.0f);
+    // A colour alpha other than 0xFF is carried, not dropped.
+    REQUIRE(local->effect->unresolved.size() == 1);
+    CHECK(local->effect->unresolved[0].field == "fog.color.alpha");
+    CHECK(std::get<double>(local->effect->unresolved[0].value) == 0x7F);
+}
+
+TEST_CASE("buildCanonWmo: a real MFOG record 0 is the model's default fog; a model without sets gets an effects set") {
+    wmo::RootFile root = syntheticRoot();
+    root.doodadSets.clear();
+    root.fogs[0].smallerRadius = 3;
+    root.fogs[0].largerRadius = 9;
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {g, std::nullopt};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.defaultFog.has_value());
+    REQUIRE(model.placementSets.size() == 1);
+    CHECK(model.placementSets[0].set.ref.name == "effects");
+    CHECK(model.placementSets[0].alwaysOn);
+    CHECK(instanceById(model, *model.defaultFog)->asset.name == "classic_local_fog");
+    // A fogIds slot of 0 names the default fog, not a list entry.
+    CHECK(model.mesh.parts[0].fogs.empty());
 }
 
 TEST_CASE("buildCanonWmo: real guardtower -- every batch in range, every set and doodad carried" *

@@ -317,9 +317,19 @@ std::vector<Fog> parseFogs(const Chunk& c) {
     return out;
 }
 
-std::vector<uint16_t> parseFogDoodadSets(const Chunk& c) {
-    std::vector<uint16_t> out(recordCount(c, kMfedSize));
-    for (size_t i = 0; i < out.size(); ++i) out[i] = read<uint16_t>(c.data, c.size, i * kMfedSize, "MFED");
+struct FogDoodadSet {
+    uint16_t doodadSet = 0;
+    std::optional<std::vector<uint8_t>> reserved;  // set only when not all zero
+};
+
+std::vector<FogDoodadSet> parseFogDoodadSets(const Chunk& c) {
+    std::vector<FogDoodadSet> out(recordCount(c, kMfedSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMfedSize;
+        out[i].doodadSet = read<uint16_t>(c.data, c.size, o, "MFED");
+        std::vector<uint8_t> rest(c.data + o + 2, c.data + o + kMfedSize);
+        if (std::any_of(rest.begin(), rest.end(), [](uint8_t b) { return b != 0; })) out[i].reserved = std::move(rest);
+    }
     return out;
 }
 
@@ -426,7 +436,7 @@ ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_
 RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     std::vector<Chunk> chunks = readChunksReversed(fileBytes.data(), fileBytes.size());
     RootFile root;
-    std::vector<uint16_t> fogDoodadSets;
+    std::vector<FogDoodadSet> fogDoodadSets;
     root.version = readVersion(chunks, "WMO root");
     root.header = parseHeader(requireChunk(chunks, "MOHD", "WMO root"));
     for (const Chunk& c : chunks) {
@@ -503,8 +513,9 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
                              std::to_string(fogDoodadSets.size()));
         }
         for (size_t i = 0; i < root.fogs.size(); ++i) {
-            requireSet("MFED", i, fogDoodadSets[i]);
-            root.fogs[i].doodadSet = fogDoodadSets[i];
+            requireSet("MFED", i, fogDoodadSets[i].doodadSet);
+            root.fogs[i].doodadSet = fogDoodadSets[i].doodadSet;
+            root.fogs[i].doodadSetReserved = std::move(fogDoodadSets[i].reserved);
         }
     }
     for (size_t i = 0; i < root.newLights.size(); ++i) {

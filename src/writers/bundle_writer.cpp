@@ -105,6 +105,15 @@ void writeUvRef(json::Writer& w, const canon::UvRef& uv) {
         uv);
 }
 
+void writeInstanceRef(json::Writer& w, const canon::InstanceRef& ref) {
+    w.beginObject();
+    w.key("set");
+    w.value(static_cast<int64_t>(ref.set));
+    w.key("id");
+    w.value(static_cast<int64_t>(ref.id));
+    w.endObject();
+}
+
 void writeVec3Value(json::Writer& w, const canon::Vec3& v) {
     w.beginArray();
     w.value(static_cast<double>(v.x));
@@ -301,7 +310,7 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         if (!part.fogs.empty()) {
             w.key("fog_volumes");
             w.beginArray();
-            for (uint32_t fog : part.fogs) w.value(static_cast<int64_t>(fog));
+            for (const canon::InstanceRef& fog : part.fogs) writeInstanceRef(w, fog);
             w.endArray();
         }
         for (auto [key, indices] : {std::pair{"ambient_particle_volumes", &part.particulateVolumes},
@@ -851,35 +860,6 @@ void writeParticulateVolumes(json::Writer& w, const std::vector<canon::Particula
     w.endArray();
 }
 
-void writeFogLayer(json::Writer& w, const char* key, const canon::LocalFog::Layer& layer) {
-    w.key(key);
-    w.beginObject();
-    writeFloatField(w, "end", layer.end);
-    writeFloatField(w, "start_scalar", layer.startScalar);
-    writeFloatArrayField(w, "color", layer.color.data(), layer.color.size());
-    w.endObject();
-}
-
-void writeLocalFogs(json::Writer& w, const std::vector<canon::LocalFog>& fogs) {
-    w.beginArray();
-    for (const canon::LocalFog& f : fogs) {
-        w.beginObject();
-        w.key("ref");
-        writeRef(w, f.ref);
-        writeVec3Field(w, "position", f.position);
-        writeFloatField(w, "inner_radius", f.innerRadius);
-        writeFloatField(w, "outer_radius", f.outerRadius);
-        w.key("interior_exterior_blend");
-        w.value(f.interiorExteriorBlend);
-        writeFogLayer(w, "fog", f.fog);
-        writeFogLayer(w, "underwater", f.underwater);
-        if (f.placementSet) writeIntField(w, "placement_set", placementSetIndex(*f.placementSet));
-        writeSourceBlock(w, f.sourceFlags, f.origin);
-        w.endObject();
-    }
-    w.endArray();
-}
-
 void writeAmbientVolumes(json::Writer& w, const std::vector<canon::AmbientVolume>& volumes) {
     w.beginArray();
     for (const canon::AmbientVolume& v : volumes) {
@@ -1171,8 +1151,10 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeLights(w, model.scene.lights);
     w.key("static_lights");
     writeLocalLights(w, model.scene.localLights);
-    w.key("fog_volumes");
-    writeLocalFogs(w, model.scene.fogs);
+    if (model.defaultFog) {
+        w.key("default_fog");
+        writeInstanceRef(w, *model.defaultFog);
+    }
     w.key("ambient_color_volumes");
     writeAmbientVolumes(w, model.scene.ambientVolumes);
     w.key("ambient_particle_volumes");

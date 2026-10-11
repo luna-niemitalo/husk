@@ -1,0 +1,32 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "inner_radius": {
+        "kind": "number",
+        "unit": "yard",
+        "optional": true,
+        "description": "Radius of full strength; absent when the source's radius is not a number."
+      },
+      "outer_radius": {
+        "kind": "number",
+        "unit": "yard",
+        "optional": true,
+        "description": "Radius where the fog has faded out; absent when the source's radius is not a number."
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "fog",
+      "region": {
+        "kind": "sphere",
+        "center": [0, 0, 0],
+        "inner_radius": {"input": "inner_radius"},
+        "outer_radius": {"input": "outer_radius"}
+      }
+    }
+  ]
+}

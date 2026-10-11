@@ -389,12 +389,10 @@
                       },
                       "fog_volumes": {
                         "type": "array",
-                        "description": "Fog volumes that apply inside the part: the group's MFVR list when it has one, else its four fogIds slots as stored.",
+                        "description": "Fog instances that apply inside the part, beyond the model's default fog, in source order.",
                         "items": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "description": "A fog volume.",
-                          "x-index-into": "/resources/scene/fog_volumes"
+                          "$ref": "common.schema.json#/definitions/instance_ref",
+                          "description": "A fog instance."
                         }
                       },
                       "ambient_particle_volumes": {
@@ -1420,128 +1418,9 @@
                 ]
               }
             },
-            "fog_volumes": {
-              "type": "array",
-              "description": "Fog volumes.",
-              "items": {
-                "type": "object",
-                "description": "A fog sphere: fog applies inside, fading between the radii.",
-                "properties": {
-                  "ref": {
-                    "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The fog volume."
-                  },
-                  "position": {
-                    "$ref": "common.schema.json#/definitions/vec3",
-                    "description": "Position in model space (not relative to the joint).",
-                    "x-unit": "yard"
-                  },
-                  "inner_radius": {
-                    "type": "number",
-                    "description": "Radius of full effect.",
-                    "x-unit": "yard"
-                  },
-                  "outer_radius": {
-                    "type": "number",
-                    "description": "Radius where the effect ends.",
-                    "x-unit": "yard"
-                  },
-                  "interior_exterior_blend": {
-                    "type": "boolean",
-                    "description": "Not drawn; scales the surrounding fog down near the model's exits, ignoring radius."
-                  },
-                  "fog": {
-                    "type": "object",
-                    "description": "Fog settings for one medium.",
-                    "properties": {
-                      "end": {
-                        "type": "number",
-                        "description": "Distance where visibility ends.",
-                        "x-unit": "yard"
-                      },
-                      "start_scalar": {
-                        "type": "number",
-                        "description": "Fog starts at end * start_scalar.",
-                        "x-unit": "1"
-                      },
-                      "color": {
-                        "$ref": "common.schema.json#/definitions/rgba",
-                        "description": "Fog colour.",
-                        "x-unit": "1"
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "end",
-                      "start_scalar",
-                      "color"
-                    ]
-                  },
-                  "underwater": {
-                    "type": "object",
-                    "description": "Fog settings for one medium.",
-                    "properties": {
-                      "end": {
-                        "type": "number",
-                        "description": "Distance where visibility ends.",
-                        "x-unit": "yard"
-                      },
-                      "start_scalar": {
-                        "type": "number",
-                        "description": "Fog starts at end * start_scalar.",
-                        "x-unit": "1"
-                      },
-                      "color": {
-                        "$ref": "common.schema.json#/definitions/rgba",
-                        "description": "Fog colour.",
-                        "x-unit": "1"
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "end",
-                      "start_scalar",
-                      "color"
-                    ]
-                  },
-                  "placement_set": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Owned set the fog applies with; absent means always.",
-                    "x-index-into": "/definition/placement_sets"
-                  },
-                  "source": {
-                    "type": "object",
-                    "description": "Source-specific raw values.",
-                    "properties": {
-                      "flags": {
-                        "$ref": "common.schema.json#/definitions/flags",
-                        "description": "The source's flag word."
-                      },
-                      "record": {
-                        "$ref": "common.schema.json#/definitions/source_record",
-                        "description": "The source record this entry was decoded from."
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "flags",
-                      "record"
-                    ]
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "ref",
-                  "position",
-                  "inner_radius",
-                  "outer_radius",
-                  "interior_exterior_blend",
-                  "fog",
-                  "underwater",
-                  "source"
-                ]
-              }
+            "default_fog": {
+              "$ref": "common.schema.json#/definitions/instance_ref",
+              "description": "The fog instance a part's unlisted fog falls back to: the model's own default fog. Absent: the enclosing fog."
             },
             "ambient_color_volumes": {
               "type": "array",
@@ -2379,7 +2258,6 @@
             "events",
             "animated_lights",
             "static_lights",
-            "fog_volumes",
             "ambient_color_volumes",
             "ambient_particle_volumes",
             "ribbon_emitters",

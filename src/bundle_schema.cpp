@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <regex>
 #include <set>
@@ -78,7 +80,8 @@ const std::vector<std::string> kHeader = {"format", "kind", "schema_version", "s
 
 // Definitions that are real-valued and so need a unit where they are used.
 const std::set<std::string> kRealValuedDefinitions = {"vec2", "vec3", "vec4", "quat", "rgb", "rgba",
-                                                      "animated", "lifetime_curve", "inline_curve"};
+                                                      "animated", "lifetime_curve", "inline_curve",
+                                                      "bound_number", "bound_vec3"};
 
 // Keys that hold file paths: only the shared link definitions may have them.
 const std::set<std::string> kPathKeys = {"uri", "file"};
@@ -208,6 +211,9 @@ struct Linter {
 
     void checkIndex(const std::string& pointer, const json& target, const std::vector<const json*>& objects) {
         std::string t = target;
+        // A shared definition's absolute target names a place in whichever
+        // document uses it, so only validation can check it.
+        if (t.starts_with("/") && stem == "common") return;
         if (t.starts_with("/")) {
             const json* found = followSchema(stem, &root, splitPointer(t));
             if (!found) {
@@ -242,12 +248,16 @@ void lintKindHeader(const std::string& stem, const json& schema, std::vector<Pro
 
 // ---------------------------------------------------------------- validation
 
+// `prefix` is where the document sits inside its file: empty for a file's
+// own document, a JSON pointer for an inline one.
 struct CollectingHandler : nlohmann::json_schema::error_handler {
     std::string where;
+    std::string prefix;
     std::vector<Problem>& problems;
-    CollectingHandler(std::string w, std::vector<Problem>& p) : where(std::move(w)), problems(p) {}
+    CollectingHandler(std::string w, std::string p, std::vector<Problem>& out)
+        : where(std::move(w)), prefix(std::move(p)), problems(out) {}
     void error(const json::json_pointer& ptr, const json&, const std::string& message) override {
-        problems.push_back({where + "#" + ptr.to_string(), message});
+        problems.push_back({where + "#" + prefix + ptr.to_string(), message});
     }
 };
 
@@ -268,12 +278,12 @@ bool escapes(const std::string& relative) {
 
 struct DocumentChecker {
     fs::path file;
+    std::string prefix;  // see CollectingHandler
     const json& document;
     std::vector<Problem>& problems;
-    std::vector<fs::path> placementSets;
 
     void fail(const std::string& pointer, const std::string& message) {
-        problems.push_back({file.string() + "#" + pointer, message});
+        problems.push_back({file.string() + "#" + prefix + pointer, message});
     }
 
     const json* resolveRef(std::string& stem, const json* node) {
@@ -359,56 +369,282 @@ struct DocumentChecker {
         if (!fs::exists(file.parent_path() / uri)) fail(pointer, "expected '" + uri + "' to exist relative to the document");
     }
 
-    void collectPlacementSets() {
-        const json& refs = document.value("references", json::array());
-        for (const json& r : refs) {
-            if (r.value("kind", "") != "placement_set") continue;
-            const json& asset = r["asset"];
-            if (asset.contains("uri")) placementSets.push_back(file.parent_path() / asset["uri"].get<std::string>());
+};
+
+// ---------------------------------------------------------------- effects
+
+// The same rule the lint applies to schema keys: an input name is part of
+// the format a consumer reads, so it may not leak the source format.
+std::string nameProblem(const std::string& name) {
+    static const std::regex snake("^[a-z][a-z0-9_]*$");
+    if (!std::regex_match(name, snake)) return "'" + name + "' is not lowercase snake_case";
+    for (const std::string& t : tokens(name)) {
+        if (kSourceJargon.count(t)) return "'" + name + "' contains source-format name '" + t + "'";
+    }
+    return {};
+}
+
+std::string describeValue(const json& value) {
+    std::string text = value.dump();
+    return text.size() > 60 ? text.substr(0, 57) + "..." : text;
+}
+
+bool isNumbers(const json& value, size_t count) {
+    return value.is_array() && value.size() == count &&
+           std::all_of(value.begin(), value.end(), [](const json& v) { return v.is_number(); });
+}
+
+// One value against one input spec. The schema has already checked the
+// specs themselves.
+struct InputChecker {
+    std::function<void(const std::string& pointer, const std::string& message)> fail;
+
+    void check(const json& spec, const json& value, const std::string& pointer, const std::string& name) {
+        std::string kind = spec["kind"];
+        auto expect = [&](bool ok, const std::string& shape) {
+            if (!ok) fail(pointer, "input '" + name + "' is a " + kind + ": expected " + shape + ", got " + describeValue(value));
+            return ok;
+        };
+        if (kind == "number") {
+            expect(value.is_number(), "a number");
+        } else if (kind == "integer") {
+            expect(value.is_number_integer(), "an integer");
+        } else if (kind == "boolean") {
+            expect(value.is_boolean(), "true or false");
+        } else if (kind == "choice") {
+            std::vector<std::string> options = spec.value("options", std::vector<std::string>{});
+            expect(value.is_string() && std::find(options.begin(), options.end(), value.get<std::string>()) != options.end(),
+                   "one of " + json(options).dump());
+        } else if (kind == "position" || kind == "vector" || kind == "color") {
+            expect(isNumbers(value, 3), "3 numbers");
+        } else if (kind == "direction") {
+            if (!expect(isNumbers(value, 3), "3 numbers of unit length")) return;
+            double length = std::sqrt(value[0].get<double>() * value[0].get<double>() +
+                                      value[1].get<double>() * value[1].get<double>() +
+                                      value[2].get<double>() * value[2].get<double>());
+            expect(std::abs(length - 1.0) < 1e-3, "3 numbers of unit length");
+        } else if (kind == "rotation" || kind == "color_alpha") {
+            expect(isNumbers(value, 4), "4 numbers");
+        } else if (kind == "image") {
+            expect(value.is_object() && value.contains("identity"), "a texture entry");
+        } else if (kind == "mesh") {
+            expect(value.is_object() && value.contains("id"), "an asset reference");
+        } else if (kind == "spline") {
+            expect(value.is_array() && std::all_of(value.begin(), value.end(), [](const json& p) { return isNumbers(p, 3); }),
+                   "a list of positions");
+        } else if (kind == "curve") {
+            expect(value.is_array(), "a list of keyed values");
+        } else if (kind == "list") {
+            if (!expect(value.is_array(), "a list")) return;
+            for (size_t i = 0; i < value.size(); ++i) check(spec["item"], value[i], pointer + "/" + std::to_string(i), name + "[" + std::to_string(i) + "]");
+        } else if (kind == "record") {
+            if (!expect(value.is_object(), "an object")) return;
+            checkFields(spec.value("fields", json::object()), value, pointer, name + ".");
         }
+    }
+
+    // `values` holds what an instance or record supplies for `specs`.
+    void checkFields(const json& specs, const json& values, const std::string& pointer, const std::string& namePrefix) {
+        for (const auto& [name, value] : values.items()) {
+            if (!specs.contains(name)) {
+                fail(pointer + "/" + name, "expected only the inputs the effect declares (" + describeValue(json(keysOf(specs))) + "), got '" + namePrefix + name + "'");
+                continue;
+            }
+            check(specs[name], value, pointer + "/" + name, namePrefix + name);
+        }
+        for (const auto& [name, spec] : specs.items()) {
+            if (values.contains(name) || spec.value("optional", false) || spec.contains("default")) continue;
+            fail(pointer, "expected input '" + namePrefix + name + "' (" + spec["kind"].get<std::string>() + "), which has no default, got none");
+        }
+    }
+
+    static std::vector<std::string> keysOf(const json& object) {
+        std::vector<std::string> out;
+        for (const auto& [key, _] : object.items()) out.push_back(key);
+        return out;
     }
 };
 
-void validateFile(const fs::path& file, std::vector<Problem>& problems, std::vector<fs::path>& checked) {
-    fs::path canonical = fs::weakly_canonical(file);
-    if (std::find(checked.begin(), checked.end(), canonical) != checked.end()) return;
-    checked.push_back(canonical);
-
-    std::ifstream in(file, std::ios::binary);
-    if (!in) {
-        problems.push_back({file.string(), "expected a readable document file"});
-        return;
+// Every binding inside a source: {"input": name} or {"each": field}.
+void collectBindings(const json& node, const std::string& pointer, std::vector<std::pair<std::string, const json*>>& out) {
+    if (node.is_object()) {
+        if ((node.contains("input") || node.contains("each")) && node.size() == 1) {
+            out.emplace_back(pointer, &node);
+            return;
+        }
+        for (const auto& [key, sub] : node.items()) collectBindings(sub, pointer + "/" + key, out);
+    } else if (node.is_array()) {
+        for (size_t i = 0; i < node.size(); ++i) collectBindings(node[i], pointer + "/" + std::to_string(i), out);
     }
-    json document = json::parse(in, nullptr, false);
-    if (document.is_discarded()) {
-        problems.push_back({file.string(), "expected JSON"});
-        return;
-    }
-    std::string kind = document.value("kind", "");
-    if (!schemas().count(kind) || kind == "common") {
-        problems.push_back({file.string() + "#/kind", "expected one of the document kinds schema/ defines, got '" + kind + "'"});
-        return;
-    }
-
-    size_t before = problems.size();
-    nlohmann::json_schema::json_validator validator(loadEmbedded);
-    validator.set_root_schema(schemaFor(kind));
-    CollectingHandler handler(file.string(), problems);
-    try {
-        validator.validate(document, handler);
-    } catch (const std::exception& e) {
-        problems.push_back({file.string(), std::string("schema validation could not run: ") + e.what()});
-    }
-    // The structural walk assumes the schema holds; past a schema failure it
-    // would only report the same problem again in a worse form.
-    if (problems.size() != before) return;
-
-    DocumentChecker checker{file, document, problems, {}};
-    std::vector<const json*> objects;
-    checker.walk(document, &schemaFor(kind), kind, "", objects);
-    checker.collectPlacementSets();
-    for (const fs::path& set : checker.placementSets) validateFile(set, problems, checked);
 }
+
+// What a schema can't say about an effect document: input names, that
+// every binding names a declared input and every input is bound, and that
+// source ids and parents hold together.
+void checkEffect(const json& effect, const std::function<void(const std::string&, const std::string&)>& fail) {
+    const json& inputs = effect["definition"]["inputs"];
+    for (const auto& [name, spec] : inputs.items()) {
+        if (std::string problem = nameProblem(name); !problem.empty()) fail("/definition/inputs/" + name, "input name " + problem);
+    }
+    std::set<std::string> bound;
+    std::set<std::string> ids;
+    const json& sources = effect["sources"];
+    for (size_t i = 0; i < sources.size(); ++i) {
+        const json& source = sources[i];
+        std::string pointer = "/sources/" + std::to_string(i);
+        std::string id = source["id"];
+        if (!ids.insert(id).second) fail(pointer + "/id", "expected source ids unique within the effect, got '" + id + "' twice");
+        const json* element = nullptr;
+        if (source.contains("for_each")) {
+            std::string list = source["for_each"];
+            bound.insert(list);
+            if (!inputs.contains(list) || inputs[list]["kind"] != "list") {
+                fail(pointer + "/for_each", "expected a list input, got '" + list + "'");
+            } else {
+                element = &inputs[list]["item"];
+            }
+        }
+        std::vector<std::pair<std::string, const json*>> bindings;
+        collectBindings(source, pointer, bindings);
+        for (const auto& [at, binding] : bindings) {
+            if (binding->contains("input")) {
+                std::string name = (*binding)["input"];
+                bound.insert(name);
+                if (!inputs.contains(name)) fail(at, "expected a binding to a declared input, got '" + name + "'");
+                continue;
+            }
+            std::string field = (*binding)["each"];
+            if (!element) {
+                fail(at, "expected 'each' only inside a for_each source, got '" + field + "'");
+            } else if (!element->value("fields", json::object()).contains(field)) {
+                fail(at, "expected a field of the for_each element, got '" + field + "'");
+            }
+        }
+    }
+    for (size_t i = 0; i < sources.size(); ++i) {
+        if (!sources[i].contains("parent")) continue;
+        std::string parent = sources[i]["parent"];
+        if (!ids.count(parent)) fail("/sources/" + std::to_string(i) + "/parent", "expected the id of another source, got '" + parent + "'");
+    }
+    for (const auto& [name, spec] : inputs.items()) {
+        if (!bound.count(name)) fail("/definition/inputs/" + name, "expected input '" + name + "' to be bound by a source; an input nothing reads is an unresolved field");
+    }
+}
+
+// ---------------------------------------------------------------- traversal
+
+struct Validation {
+    std::vector<Problem>& problems;
+    std::vector<Problem>* warnings;
+    std::vector<fs::path>& checked;
+    std::map<fs::path, json> files;  // parsed documents by canonical path
+
+    // A document by file: parsed once, validated once. Null when it can't be read.
+    const json* file(const fs::path& path) {
+        fs::path canonical = fs::weakly_canonical(path);
+        if (auto it = files.find(canonical); it != files.end()) return it->second.is_discarded() ? nullptr : &it->second;
+        checked.push_back(canonical);
+        json& document = files[canonical];
+        std::ifstream in(path, std::ios::binary);
+        if (!in) {
+            document = json::value_t::discarded;
+            problems.push_back({path.string(), "expected a readable document file"});
+            return nullptr;
+        }
+        document = json::parse(in, nullptr, false);
+        if (document.is_discarded()) {
+            problems.push_back({path.string(), "expected JSON"});
+            return nullptr;
+        }
+        if (!validate(document, path, "")) return nullptr;
+        return &document;
+    }
+
+    // One document, at `prefix` inside `path`. False when it fails its schema.
+    bool validate(const json& document, const fs::path& path, const std::string& prefix) {
+        std::string kind = document.value("kind", "");
+        if (!schemas().count(kind) || kind == "common") {
+            problems.push_back({path.string() + "#" + prefix + "/kind", "expected one of the document kinds schema/ defines, got '" + kind + "'"});
+            return false;
+        }
+        size_t before = problems.size();
+        nlohmann::json_schema::json_validator validator(loadEmbedded);
+        validator.set_root_schema(schemaFor(kind));
+        CollectingHandler handler(path.string(), prefix, problems);
+        try {
+            validator.validate(document, handler);
+        } catch (const std::exception& e) {
+            problems.push_back({path.string(), std::string("schema validation could not run: ") + e.what()});
+        }
+        // The structural walk assumes the schema holds; past a schema failure it
+        // would only report the same problem again in a worse form.
+        if (problems.size() != before) return false;
+
+        DocumentChecker checker{path, prefix, document, problems};
+        std::vector<const json*> objects;
+        checker.walk(document, &schemaFor(kind), kind, "", objects);
+        if (kind == "effect") checkEffect(document, [&](const std::string& p, const std::string& m) { checker.fail(p, m); });
+
+        std::vector<const json*> referenced = references(document, path, prefix);
+        if (kind == "placement_set") checkEffectInstances(document, referenced, checker);
+        return true;
+    }
+
+    // Validates every placement set and effect the document references and
+    // returns each reference's document (null for other kinds and failures).
+    std::vector<const json*> references(const json& document, const fs::path& path, const std::string& prefix) {
+        std::vector<const json*> out;
+        // Every kind's schema requires references; out keeps pointers into it.
+        const json& refs = document["references"];
+        for (size_t i = 0; i < refs.size(); ++i) {
+            const json& r = refs[i];
+            std::string kind = r.value("kind", "");
+            if (kind != "placement_set" && kind != "effect") {
+                out.push_back(nullptr);
+                continue;
+            }
+            if (r.contains("document")) {
+                bool ok = validate(r["document"], path, prefix + "/references/" + std::to_string(i) + "/document");
+                out.push_back(ok ? &r["document"] : nullptr);
+            } else if (r["asset"].contains("uri")) {
+                out.push_back(file(path.parent_path() / r["asset"]["uri"].get<std::string>()));
+            } else {
+                out.push_back(nullptr);
+            }
+        }
+        return out;
+    }
+
+    void checkEffectInstances(const json& set, const std::vector<const json*>& referenced, DocumentChecker& checker) {
+        const json& instances = set["instances"];
+        for (size_t i = 0; i < instances.size(); ++i) {
+            const json& instance = instances[i];
+            std::string pointer = "/instances/" + std::to_string(i);
+            size_t reference = instance["reference"];
+            if (reference >= referenced.size()) continue;  // the index check has reported it
+            if (set["references"][reference]["kind"] != "effect") {
+                for (const char* key : {"inputs", "style", "unresolved"}) {
+                    if (instance.contains(key)) checker.fail(pointer + "/" + key, std::string("expected '") + key + "' only on an effect instance");
+                }
+                continue;
+            }
+            const json* effect = referenced[reference];
+            if (!effect) continue;  // the effect's own problem is already reported
+            InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }};
+            inputs.checkFields((*effect)["definition"]["inputs"], instance.value("inputs", json::object()), pointer + "/inputs", "");
+            std::set<std::string> sourceIds;
+            for (const json& source : (*effect)["sources"]) sourceIds.insert(source["id"].get<std::string>());
+            for (const auto& [id, _] : instance.value("style", json::object()).items()) {
+                if (!sourceIds.count(id)) checker.fail(pointer + "/style/" + id, "expected style keyed by one of the effect's source ids, got '" + id + "'");
+            }
+            if ((*effect)["definition"].value("status", "") == "placeholder" && warnings) {
+                std::string name = (*effect)["subject"]["name"];
+                warnings->push_back({checker.file.string() + "#" + checker.prefix + pointer,
+                                     "instance of placeholder effect '" + name + "': classify it before a release build"});
+            }
+        }
+    }
+};
 
 }  // namespace
 
@@ -447,11 +683,13 @@ std::vector<Problem> lintSchemaText(const std::string& stem, const std::string& 
     return problems;
 }
 
-std::vector<Problem> validateDocument(const fs::path& path, std::vector<fs::path>* checked) {
+std::vector<Problem> validateDocument(const fs::path& path, std::vector<fs::path>* checked,
+                                      std::vector<Problem>* warnings) {
     std::vector<Problem> problems;
     std::vector<fs::path> seen;
     fs::path file = fs::is_directory(path) ? path / "manifest.json" : path;
-    validateFile(file, problems, seen);
+    Validation validation{problems, warnings, seen, {}};
+    validation.file(file);
     if (checked) *checked = seen;
     return problems;
 }

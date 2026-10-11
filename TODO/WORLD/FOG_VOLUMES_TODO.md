@@ -27,18 +27,25 @@ still open.
 
 ## 1. WMO fog (`MFOG` + `MFED` + `MFOB`)
 
-**Current state (2026-10-10)**: `MFOG` is parsed (`wmo::Fog`) and exported
-as the WMO bundle's `resources.scene.fog_volumes` (`canon::LocalFog`, schema in
-`schema/model.schema.json`), with `MFED`'s doodad set as each fog's
-`placement_set`; every group's `MOGP.fogIds` is `parts[].fog_volumes`. 253
-sampled roots export cleanly (462 fogs, all 300 `MFED` sets). Real-data
-facts: `../../WIKI_FINDINGS/WORLD.md` "WMO `MFOG` / `MFED`".
+**Current state (2026-10-11)**: `MFOG` is parsed (`wmo::Fog`), and each
+record but the empty entry is a placeholder effect instance
+(`classic_local_fog`, or `classic_fog_exit_blend` for flag 0x1) in the
+doodad set `MFED` names, else set 0 (`REFACTOR/EFFECTS.md`). A real
+record 0 is `resources.scene.default_fog`; group fog lists
+(`MFVR`/`fogIds`) are `parts[].fog_volumes` as `{set, id}`, 0 slots left
+out. 393 sampled roots export and validate (91 fog instances, 44 default
+fogs). Real-data facts: `../../WIKI_FINDINGS/WORLD.md` "WMO `MFOG` /
+`MFED`".
 
 Open:
 - **Flag bits 0x10, 0x100, 0x1000 (291/4,534), 0x10000**: undocumented,
-  kept raw as `source_flags`. Only 0x1 (F_IEBLEND) is typed.
-- **The four `fogIds` slots**: what distinguishes slot 0 from slots 1..3
-  is undocumented, so all four are written raw.
+  carried as `unresolved` bits. Only 0x1 (F_IEBLEND) is typed. Under
+  0x1000 the radius fields aren't always radii (a NaN and an integer in
+  one Torghast record).
+- **Fog slot 0 as the default fog** is inferred from the data's layout,
+  not confirmed against the client.
+- **Classification**: every fog is a placeholder instance until it is
+  classified (EFFECTS.md Phase 5).
 - **`MFOB`: present but always empty.** Build 12.1.0.69933 (the casc-tool
   mount): 225 of 12,824 roots carry it, every one 0 bytes (the old export
   had 0/86,134). No struct on the wiki, nothing to decode yet; husk skips

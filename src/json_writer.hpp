@@ -74,6 +74,18 @@ public:
         pending_ = false;
     }
 
+    // Splices the members of a JSON object given as text into the open
+    // object: for documents whose body is a checked-in file (effects/),
+    // so the writer adds only the header and never re-encodes the body.
+    void rawMembers(const std::string& objectText) {
+        size_t open = objectText.find('{');
+        size_t close = objectText.rfind('}');
+        std::string inner = objectText.substr(open + 1, close - open - 1);
+        if (inner.find_first_not_of(" \t\r\n") == std::string::npos) return;
+        comma();
+        out_ << inner.substr(inner.find_first_not_of(" \t\r\n"));
+    }
+
 private:
     std::ostream& out_;
     std::vector<bool> firstInScope_;  // one entry per open object/array

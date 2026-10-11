@@ -39,8 +39,11 @@ std::vector<Problem> lintSchemaText(const std::string& stem, const std::string& 
 
 // `path` is a document file, or a bundle directory (its manifest.json).
 // `checked` receives every document file validated, the referenced
-// placement sets included.
+// placement sets and effects included. Returns the errors; `warnings`
+// receives what a release build must not contain but a development build
+// may (an instance of a placeholder effect, REFACTOR/EFFECTS.md).
 std::vector<Problem> validateDocument(const std::filesystem::path& path,
-                                      std::vector<std::filesystem::path>* checked = nullptr);
+                                      std::vector<std::filesystem::path>* checked = nullptr,
+                                      std::vector<Problem>* warnings = nullptr);
 
 }  // namespace husk::bundle_schema

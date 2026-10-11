@@ -23,9 +23,10 @@ format itself is defined in exactly one place:
 
 ## 1. What changed, in one paragraph
 
-Every document is one of three kinds. A **world** (one per map) holds the
+Every document is one of four kinds. A **world** (one per map) holds the
 tile grid. A **model** is an asset in its own frame; terrain tiles, M2s
-and WMOs are all models. A **placement set** places models. A tile is now
+and WMOs are all models. A **placement set** places models and effects.
+An **effect** is a behaviour with declared inputs (`REFACTOR/EFFECTS.md`). A tile is now
 a model in its **own frame**: the origin is its corner vertex, the axes
 are the world's, and heights are unchanged. The world places each tile by
 translation alone. A tile's doodads and WMOs are two placement-set
@@ -182,8 +183,12 @@ A WMO bundle also has:
 - `definition.placement_sets`: its doodad sets, each a document under
   `sets/`. Set 0 is always on; an instance's selection adds others.
 - `resources.geometry.mesh.parts`: groups, with bounds, portals, and the
-  scene volumes each uses (`fog_volumes`, `ambient_color_volumes`,
-  `ambient_particle_volumes`, indices into `resources.scene`).
+  volumes each uses. `fog_volumes` are `{set, id}` refs to effect
+  instances in the doodad sets (`REFACTOR/EFFECTS.md`; a fog is placed by
+  its set, its look is the instance's `style`); `ambient_color_volumes`
+  and `ambient_particle_volumes` are still indices into
+  `resources.scene`. `resources.scene.default_fog` is the fog a part
+  falls back to.
 - `resources.geometry.mesh.attributes`: per-face flags and material, which
   select collision.
 - `resources.geometry.liquids`, and `resources.scene` lights and volumes.

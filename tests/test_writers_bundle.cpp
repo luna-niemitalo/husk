@@ -797,48 +797,58 @@ TEST_CASE("writeBundle: portals on the mesh, links on their parts") {
     CHECK(link["unresolved"]["side"] == -1);
 }
 
-TEST_CASE("writeBundle: local fogs, and the parts that name them") {
+TEST_CASE("writeBundle: fog instances in an owned set, the effects they place, and the parts that name them") {
     canon::Model model = buildSyntheticModel();
-    canon::LocalFog placeholder;
-    placeholder.ref = canon::Ref{canon::RecordIndex{0}, "mfog_0", canon::NameSource::Synthesized};
-    canon::LocalFog exitFog;
-    exitFog.ref = canon::Ref{canon::RecordIndex{1}, "mfog_1", canon::NameSource::Synthesized};
-    exitFog.position = {1, 2, 3};
-    exitFog.innerRadius = 5;
-    exitFog.outerRadius = 20;
-    exitFog.interiorExteriorBlend = true;
-    exitFog.fog = {100, 0.25f, {0.2f, 0.4f, 0.6f, 1.0f}};
-    exitFog.underwater = {50, -0.5f, {0, 0, 1, 1}};
-    exitFog.sourceFlags = 0x1001;
-    exitFog.placementSet = canon::Ref{canon::RecordIndex{0}, "Set_$DefaultGlobal", canon::NameSource::WmoEmbedded};
-    model.scene.fogs = {placeholder, exitFog};
-    model.placementSets.resize(1);
+    canon::PlacedInstance fog;
+    fog.id = 7;
+    fog.asset = canon::Ref{canon::None{}, "classic_local_fog", canon::NameSource::Synthesized};
+    fog.translation = {1, 2, 3};
+    fog.flags = 0x1000;
+    canon::EffectPlacement effect;
+    effect.inputs = {{"inner_radius", 5.0}, {"outer_radius", 20.0}};
+    canon::StyleBlock style;
+    style.distanceFog = canon::DistanceFog{canon::LinearFog{25, 100, {0.2f, 0.4f, 0.6f}}};
+    style.underwater = canon::DistanceFog{canon::LinearFog{-25, 50, {0, 0, 1}}};
+    effect.style = {{"fog", style}};
+    effect.unresolved = {{"flags", canon::UnresolvedField::Kind::Bits, uint32_t{0x1000}, std::nullopt}};
+    effect.origin = {"MFOG", 1};
+    fog.effect = effect;
+    canon::Model::OwnedSet set;
+    set.set.ref = canon::Ref{canon::RecordIndex{0}, "Set_$DefaultGlobal", canon::NameSource::WmoEmbedded};
+    set.alwaysOn = true;
+    set.set.instances = {fog};
+    model.placementSets = {set};
+    model.defaultFog = canon::InstanceRef{0, 7};
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0, {}, {},
-                                {1, 0, 0, 0}});
+                                {canon::InstanceRef{0, 7}}});
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{1}, "", canon::NameSource::None}, 0, {}, {}, {}});
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-fogs";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& fogs = manifest["resources"]["scene"]["fog_volumes"];
 
-    REQUIRE(fogs.size() == 2);
-    CHECK_FALSE(fogs[0].contains("placement_set"));
-    const auto& f = fogs[1];
-    CHECK(f["ref"]["name"] == "mfog_1");
-    CHECK(f["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
-    CHECK(f["inner_radius"] == 5.0);
-    CHECK(f["outer_radius"] == 20.0);
-    CHECK(f["interior_exterior_blend"] == true);
-    CHECK(f["fog"]["end"] == 100.0);
-    CHECK(f["fog"]["start_scalar"] == 0.25);
-    CHECK(f["fog"]["color"][1].get<double>() == doctest::Approx(0.4));
-    CHECK(f["underwater"]["start_scalar"] == -0.5);
-    CHECK(f["source"]["flags"] == "0x1001");
-    CHECK(f["placement_set"] == 0);
+    CHECK(manifest["resources"]["scene"]["default_fog"] == nlohmann::json({{"set", 0}, {"id", 7}}));
     const auto& parts = manifest["resources"]["geometry"]["mesh"]["parts"];
-    CHECK(parts[0]["fog_volumes"] == nlohmann::json::array({1, 0, 0, 0}));
+    CHECK(parts[0]["fog_volumes"] == nlohmann::json::array({{{"set", 0}, {"id", 7}}}));
     CHECK_FALSE(parts[1].contains("fog_volumes"));
+
+    nlohmann::json setDoc = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
+    CHECK(setDoc["references"][0]["kind"] == "effect");
+    CHECK(setDoc["references"][0]["asset"]["uri"] == "../effects/classic_local_fog.json");
+    const auto& instance = setDoc["instances"][0];
+    CHECK(instance["translation"] == nlohmann::json::array({1.0, 2.0, 3.0}));
+    CHECK(instance["inputs"]["outer_radius"] == 20.0);
+    CHECK(instance["style"]["fog"]["distance_fog"]["linear"]["start"] == 25.0);
+    CHECK(instance["style"]["fog"]["looks"]["underwater"]["linear"]["end"] == 50.0);
+    CHECK(instance["unresolved"]["fields"][0]["value"] == "0x1000");
+    CHECK(instance["source"]["record"]["table"] == "MFOG");
+    CHECK_FALSE(instance.contains("selection"));
+    CHECK(fs::exists(dir / "effects" / "classic_local_fog.json"));
+
+    // parseManifest checked the documents; the placeholder effect is a warning.
+    std::vector<bundle_schema::Problem> warnings;
+    bundle_schema::validateDocument(dir, nullptr, &warnings);
+    CHECK(warnings.size() == 1);
 }
 
 TEST_CASE("writeWorldBundle: tile grid, fog and particulate volumes, raw records sliced into world.bin") {

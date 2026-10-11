@@ -1,0 +1,14 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {}
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "exit_blend",
+      "region": {"kind": "everywhere"}
+    }
+  ]
+}

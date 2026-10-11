@@ -129,11 +129,17 @@ struct SetDocument {
 };
 
 // Writes each set as a placement_set document `sets/<index>.json` under
-// `bundleDir` (schema/placement_set.schema.json). `assetUris` are relative
-// to `bundleDir`.
+// `bundleDir` (schema/placement_set.schema.json), and every effect its
+// instances place as `effects/<name>.json`. `assetUris` are relative to
+// `bundleDir`.
 std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
                                                     const std::filesystem::path& bundleDir, const AssetUris& assetUris,
                                                     const Provenance& provenance);
+
+// An effect document (schema/effect.schema.json): the contract header,
+// then the body checked in as effects/<name>.json. Throws when husk embeds
+// no effect of that name.
+void writeEffectDocument(const std::string& name, const std::filesystem::path& path, const Provenance& provenance);
 
 // The parts of a document that link it to the sets it owns, set i being
 // reference i: `writeOwnedSetDefinitions` writes the "placement_sets" key

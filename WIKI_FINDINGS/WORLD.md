@@ -290,6 +290,18 @@ From the seeded 4,000-root sample, plus every group file under it:
   `MBVD`; 868/187/236/198 refs). `MFVR` replaces `fogIds`: all 481 groups
   carrying it have `fogIds` all zero, and it never lists fog 0 (the
   default fog).
+- **Record 0 is the model's default fog** (12.1.0, 4,000 seeded roots,
+  2026-10-11). It is the empty entry in 3,631 roots (a -0.0 position in
+  88 of them), and a later record never is. In the 255 roots whose record
+  0 is a real fog, the `fogIds` lists are left-packed: (1,0,0,0),
+  (2,1,0,0), (4,5,0,0); none has a 0 before a nonzero slot. So a 0 slot
+  names the default fog, not a list entry. This is inferred from layout
+  and frequency, not confirmed against the client.
+- **Flag 0x1000** (250 records): the radii are ordinary floats in 149
+  and zero in 101. In 116 the record is record 0, with a zero position.
+  Record 0 of `9du_torghast_modular_straight02.wmo` has flag 0x1000, a
+  NaN bit pattern (0x7F9DB1B8) as `smaller_radius` and the integer 3 as
+  `larger_radius`, so under 0x1000 those fields aren't always radii.
 
 ## `_fogs.wdt` `VFE2` — reverse-engineered (2026-10-11)
 

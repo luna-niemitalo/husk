@@ -5,6 +5,7 @@
 #include <optional>
 #include <vector>
 
+#include "canon_effects.hpp"
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
 
@@ -35,6 +36,9 @@ struct PlacedInstance {
     // For an asset that owns placement sets: which of them this instance
     // turns on, by set ref. nullopt = the asset's defaults (its always-on sets).
     std::optional<std::vector<Ref>> activeSets;
+    // Set: the asset is an effect document (REFACTOR/EFFECTS.md), named by
+    // `asset`; nullopt: a model.
+    std::optional<EffectPlacement> effect;
 };
 
 struct PlacementSet {

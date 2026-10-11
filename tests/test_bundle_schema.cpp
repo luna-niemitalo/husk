@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "bundle_schema.hpp"
+#include "writers/bundle_common.hpp"
 
 using namespace husk;
 namespace fs = std::filesystem;
@@ -47,7 +48,7 @@ std::string modelDocument() {
     "rig": {"skeleton": {"joint_count": 0, "parents": )" + slice(108, 0, "i32", 1, 0) + R"(, "bind_translation": )" +
            slice(108, 0, "f32", 3, 0) + R"(, "joints": []}, "animation": []},
     "materials": [{"layers": [], "unlit": false, "unfogged": false, "two_sided": false, "source": {"flags": "0x0"}}],
-    "scene": {"attachments": [], "events": [], "animated_lights": [], "static_lights": [], "fog_volumes": [],
+    "scene": {"attachments": [], "events": [], "animated_lights": [], "static_lights": [],
               "ambient_color_volumes": [], "ambient_particle_volumes": [], "ribbon_emitters": [], "particle_emitters": []}}
 })";
 }
@@ -97,11 +98,107 @@ std::string describe(const std::vector<bundle_schema::Problem>& problems) {
 
 }  // namespace
 
-TEST_CASE("bundle_schema: the embedded schema defines model, placement_set and world, and passes its own lint") {
-    CHECK(bundle_schema::kinds() == std::vector<std::string>{"model", "placement_set", "world"});
+TEST_CASE("bundle_schema: the embedded schema defines effect, model, placement_set and world, and passes its own lint") {
+    CHECK(bundle_schema::kinds() == std::vector<std::string>{"effect", "model", "placement_set", "world"});
     std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemas();
     INFO(describe(problems));
     CHECK(problems.empty());
+}
+
+namespace {
+
+// A placement set placing one instance of `effect`, written inline.
+std::string effectSetDocument(const std::string& effect, const std::string& instance) {
+    return std::string("{") + kHeader + R"(
+  "kind": "placement_set",
+  "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
+  "definition": {}, "selection": {},
+  "references": [{"kind": "effect", "asset": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
+                  "document": )" + effect + R"(}],
+  "instances": [)" + instance + R"(]
+})";
+}
+
+std::string glowEffect(const std::string& status = R"("status": "placeholder",)") {
+    return std::string("{") + kHeader + R"(
+  "kind": "effect",
+  "subject": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
+  "definition": {)" + status + R"( "inputs": {
+    "center": {"kind": "position", "description": "Centre."},
+    "radius": {"kind": "number", "unit": "yard", "description": "Radius."}}},
+  "selection": {}, "references": [],
+  "sources": [{"id": "glow", "region": {"kind": "sphere", "center": {"input": "center"},
+               "inner_radius": 0, "outer_radius": {"input": "radius"}}}]
+})";
+}
+
+constexpr const char* kGlowInstance = R"({"id": 1, "reference": 0, "translation": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": 1,
+  "inputs": {"center": [1, 2, 3], "radius": 4},
+  "style": {"glow": {"distance_fog": {"linear": {"start": 1, "end": 10, "color": [1, 1, 1]}}}},
+  "source": {"flags": "0x0", "record": {"table": "test", "index": 0}}})";
+
+fs::path writeSet(const std::string& name, const std::string& set) {
+    fs::path file = fs::temp_directory_path() / name / "set.json";
+    fs::remove_all(file.parent_path());
+    writeText(file, set);
+    return file;
+}
+
+}  // namespace
+
+TEST_CASE("bundle_schema: every effect husk writes validates") {
+    for (const char* name : {"classic_local_fog", "classic_fog_exit_blend"}) {
+        CAPTURE(name);
+        fs::path file = fs::temp_directory_path() / "husk-schema-effects" / (std::string(name) + ".json");
+        fs::create_directories(file.parent_path());
+        writers::writeEffectDocument(name, file, writers::Provenance{"husk test", "test", {}});
+        std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(file);
+        INFO(describe(problems));
+        CHECK(problems.empty());
+    }
+}
+
+TEST_CASE("bundle_schema: an inline effect's instance is checked against the inputs it declares") {
+    std::vector<bundle_schema::Problem> warnings;
+    std::vector<bundle_schema::Problem> problems =
+        bundle_schema::validateDocument(writeSet("husk-schema-effect-ok", effectSetDocument(glowEffect(), kGlowInstance)), nullptr, &warnings);
+    INFO(describe(problems));
+    CHECK(problems.empty());
+    CHECK(mentions(warnings, "instance of placeholder effect 'glow'"));
+
+    warnings.clear();
+    problems = bundle_schema::validateDocument(writeSet("husk-schema-effect-final", effectSetDocument(glowEffect(""), kGlowInstance)), nullptr, &warnings);
+    CHECK(problems.empty());
+    CHECK(warnings.empty());
+
+    std::string set = effectSetDocument(glowEffect(), replaced(kGlowInstance, R"("radius": 4)", R"("radius": [4, 4, 4])"));
+    CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-kind", set)),
+                   "input 'radius' is a number: expected a number, got [4,4,4]"));
+
+    set = effectSetDocument(glowEffect(), replaced(kGlowInstance, R"("radius": 4)", R"("radius": 4, "spline": [])"));
+    CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-extra", set)), "got 'spline'"));
+
+    set = effectSetDocument(glowEffect(), replaced(kGlowInstance, R"(, "radius": 4)", ""));
+    CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-missing", set)),
+                   "expected input 'radius' (number), which has no default, got none"));
+
+    set = effectSetDocument(glowEffect(), replaced(kGlowInstance, R"("style": {"glow")", R"("style": {"halo")"));
+    CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-style", set)), "got 'halo'"));
+}
+
+TEST_CASE("bundle_schema: an effect's bindings name declared inputs, and every input is bound") {
+    std::string unbound = replaced(glowEffect(), R"("outer_radius": {"input": "radius"})", R"("outer_radius": 5)");
+    CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-unbound", effectSetDocument(unbound, kGlowInstance))),
+                   "expected input 'radius' to be bound by a source"));
+
+    std::string undeclared = replaced(glowEffect(), R"({"input": "radius"})", R"({"input": "size"})");
+    CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-undeclared", effectSetDocument(undeclared, kGlowInstance))),
+                   "expected a binding to a declared input, got 'size'"));
+
+    std::string jargon = replaced(replaced(glowEffect(), R"("radius": {"kind")", R"("mfog_radius": {"kind")"),
+                                  R"({"input": "radius"})", R"({"input": "mfog_radius"})");
+    CHECK(mentions(bundle_schema::validateDocument(writeSet("husk-schema-effect-jargon", effectSetDocument(jargon, kGlowInstance))),
+                   "contains source-format name 'mfog'"));
 }
 
 TEST_CASE("bundle_schema: a well-formed model validates, together with the placement set it references") {

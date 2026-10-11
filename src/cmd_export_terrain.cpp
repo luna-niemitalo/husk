@@ -944,6 +944,7 @@ int exportWmo(int argc, char** args) {
 void addValidateBundleOptions(CLI::App& app, ValidateBundleOptions& opts) {
     app.add_option("paths", opts.paths, "bundle directories or document files to check");
     app.add_flag("--lint-schema", opts.lintSchema, "also check the embedded schema/ for format antipatterns");
+    app.add_flag("--release", opts.release, "fail on warnings too: a release build places no placeholder effect");
 }
 
 int validateBundle(int argc, char** args) {
@@ -958,16 +959,19 @@ int validateBundle(int argc, char** args) {
     }
 
     std::vector<bundle_schema::Problem> problems;
+    std::vector<bundle_schema::Problem> warnings;
     if (opts.lintSchema) problems = bundle_schema::lintSchemas();
     size_t documents = 0;
     for (const std::string& path : opts.paths) {
         std::vector<std::filesystem::path> checked;
-        for (bundle_schema::Problem& p : bundle_schema::validateDocument(path, &checked)) problems.push_back(std::move(p));
+        for (bundle_schema::Problem& p : bundle_schema::validateDocument(path, &checked, &warnings)) problems.push_back(std::move(p));
         documents += checked.size();
     }
     for (const bundle_schema::Problem& p : problems) std::cout << p.where << ": " << p.message << "\n";
-    std::cout << documents << " documents checked, " << problems.size() << " problems\n";
-    return problems.empty() ? 0 : 1;
+    for (const bundle_schema::Problem& p : warnings) std::cout << p.where << ": warning: " << p.message << "\n";
+    std::cout << documents << " documents checked, " << problems.size() << " problems, " << warnings.size()
+              << " warnings" << (opts.release && !warnings.empty() ? " (--release: warnings fail)" : "") << "\n";
+    return problems.empty() && (!opts.release || warnings.empty()) ? 0 : 1;
 }
 
 int exportMap(int argc, char** args) {

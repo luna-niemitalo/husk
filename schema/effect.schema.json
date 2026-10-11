@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/effect.schema.json",
+  "title": "effect",
+  "description": "A behaviour placed by instances: the inputs it takes and the sources it puts in the world. It knows nothing of who places it.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "effect",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The effect.",
+      "x-layer": "contract"
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, when, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "What an instance must supply.",
+      "properties": {
+        "status": {
+          "enum": [
+            "placeholder"
+          ],
+          "description": "A placeholder stands in for a source mechanism until its instances are classified; release builds reject its instances."
+        },
+        "inputs": {
+          "type": "object",
+          "description": "The inputs by name.",
+          "additionalProperties": {
+            "$ref": "common.schema.json#/definitions/input_spec"
+          }
+        }
+      },
+      "required": [
+        "inputs"
+      ],
+      "additionalProperties": false,
+      "x-layer": "definition"
+    },
+    "selection": {
+      "type": "object",
+      "description": "An effect selects nothing; its instances do.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection"
+    },
+    "references": {
+      "type": "array",
+      "description": "Assets every instance of the effect uses.",
+      "items": {
+        "$ref": "common.schema.json#/definitions/reference",
+        "description": "One dependency."
+      },
+      "x-layer": "contract"
+    },
+    "sources": {
+      "type": "array",
+      "description": "What the effect puts in the world.",
+      "items": {
+        "$ref": "common.schema.json#/definitions/effect_source",
+        "description": "One source."
+      },
+      "x-layer": "resource"
+    }
+  },
+  "required": [
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "sources"
+  ],
+  "additionalProperties": false
+}

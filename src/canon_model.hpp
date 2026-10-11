@@ -95,6 +95,9 @@ struct Model {
         bool alwaysOn = false;
     };
     std::vector<OwnedSet> placementSets;
+    // The fog a part's 0 fog slot names (WMO MFOG record 0, when it is a
+    // real fog and not the empty entry). nullopt: the enclosing fog.
+    std::optional<InstanceRef> defaultFog;
     std::vector<LiquidGrid> liquids;
     std::vector<LiquidType> liquidTypes;  // each type `liquids` name, once, first-seen order
     CollisionMesh collision;  // empty = the model has none (M2 only)
@@ -112,7 +115,8 @@ struct Model {
 // in range for `skeleton.joints`, every primitive's `part` must be in range
 // for `mesh.parts`, instance ids must be unique within each placement set, and a
 // local light's or ambient volume's placement set must be a RecordIndex in range
-// for `placementSets`.
+// for `placementSets`. Every part fog and `defaultFog` must name an effect
+// instance of `placementSets`.
 // Each liquid's part and RecordIndex material must be in range, and its
 // arrays sized to its grid. Collision indices must be in range for its
 // positions, three per triangle, with none or one normal per triangle.
@@ -124,7 +128,8 @@ struct Model {
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
                      Scene scene = {}, std::vector<Model::OwnedSet> placementSets = {},
-                     std::vector<LiquidGrid> liquids = {}, CollisionMesh collision = {});
+                     std::vector<LiquidGrid> liquids = {}, CollisionMesh collision = {},
+                     std::optional<InstanceRef> defaultFog = std::nullopt);
 
 // Resolves `model.primitiveMaterials[primitiveIndex]` to an index into
 // `model.materials` -- the one shared implementation of this lookup (I2):

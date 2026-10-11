@@ -162,7 +162,7 @@ alongside for exactly that reason.
 
 ## Document kinds and the contract header — agreed 2026-10-10
 
-Every husk document is one of three **kinds**, decided by what the document
+Every husk document is one of four **kinds**, decided by what the document
 has to do, not by which WoW file it came from:
 
 | Kind | What it is | Examples |
@@ -170,6 +170,7 @@ has to do, not by which WoW file it came from:
 | `model` | Content in its own local frame, placed by something else: an asset. | M2 doodad, item, character, WMO building, terrain tile |
 | `placement_set` | No content of its own: instances of other documents, each with a transform and the selection that instance makes. | a WMO's doodad sets, a tile's doodads and buildings |
 | `world` | The root: nothing places it. Holds the tile grid, off-grid placements and the objects owned by the place as a whole. | a map |
+| `effect` | A behaviour with declared inputs, placed by placement-set instances that supply them (`EFFECTS.md`). | a WMO's fog spheres (`classic_local_fog`) |
 
 A character, an item, a WMO and a doodad are all models; they differ in
 content, not kind. A WMO's doodad sets are its definition (what furniture
@@ -186,7 +187,7 @@ Every document opens with the same header, then its data:
 
 ```
 format          "husk-bundle", constant
-kind            "model" | "placement_set" | "world"
+kind            "model" | "placement_set" | "world" | "effect"
 schema_version  version of the schema/ definitions the document conforms to
 subject         Ref: what this document describes
 space           length/angle units, up axis, handedness of every position in it
@@ -198,6 +199,7 @@ references      other documents and assets this one depends on: [{ref, kind, uri
 model: resources {geometry, rig, materials, scene}
 placement_set: instances
 world: grid, placements, scene
+effect: sources
 ```
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`

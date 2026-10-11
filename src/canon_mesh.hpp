@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "canon_attribute.hpp"
+#include "canon_effects.hpp"  // InstanceRef
 #include "canon_geoset.hpp"
 #include "canon_primitives.hpp"  // Vec2/Vec3
 
@@ -57,9 +58,10 @@ struct MeshPart {
     uint32_t flags = 0;  // source-format group flags, raw (WMO MOGP flags)
     Vec3 boundsMin;
     Vec3 boundsMax;
-    // Indices into Scene::fogs: WMO MFVR when the group has one (its fogIds
-    // are then all 0), else MOGP fogIds, all four slots raw.
-    std::vector<uint32_t> fogs;
+    // Fog instances in the model's owned placement sets: WMO MFVR when the
+    // group has one (its fogIds are then all 0), else MOGP fogIds' nonzero
+    // slots. A 0 slot names the model's default fog (Model::defaultFog).
+    std::vector<InstanceRef> fogs;
     std::vector<PortalLink> portals;
     std::vector<uint32_t> particulateVolumes;  // indices into Scene::particulateVolumes (WMO MPVR)
     std::vector<uint32_t> ambientVolumes;      // indices into Scene::ambientVolumes (WMO MAVR, MBVR)

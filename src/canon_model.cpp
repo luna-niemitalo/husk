@@ -1,5 +1,6 @@
 #include "canon_model.hpp"
 
+#include <algorithm>
 #include <set>
 #include <variant>
 #include <stdexcept>
@@ -85,8 +86,19 @@ void requireSceneSets(const Scene& scene, size_t setCount) {
     for (size_t i = 0; i < scene.ambientVolumes.size(); ++i) {
         requireOwnedSet(scene.ambientVolumes[i].placementSet, setCount, "ambient volume " + std::to_string(i));
     }
-    for (size_t i = 0; i < scene.fogs.size(); ++i) {
-        requireOwnedSet(scene.fogs[i].placementSet, setCount, "fog " + std::to_string(i));
+}
+
+void requireEffectInstance(const InstanceRef& ref, const std::vector<Model::OwnedSet>& sets, const std::string& what) {
+    if (ref.set >= sets.size()) {
+        throw std::runtime_error(what + ": expected a placement set < " + std::to_string(sets.size()) + ", got " +
+                                  std::to_string(ref.set));
+    }
+    const std::vector<PlacedInstance>& instances = sets[ref.set].set.instances;
+    auto it = std::find_if(instances.begin(), instances.end(), [&](const PlacedInstance& i) { return i.id == ref.id; });
+    if (it == instances.end() || !it->effect) {
+        throw std::runtime_error(what + ": expected an effect instance with id " + std::to_string(ref.id) +
+                                  " in placement set " + std::to_string(ref.set) + ", got " +
+                                  (it == instances.end() ? "no instance" : "a model instance"));
     }
 }
 
@@ -126,14 +138,9 @@ void requireAttributes(const Mesh& mesh) {
     }
 }
 
-void requirePartFogs(const std::vector<MeshPart>& parts, size_t fogCount) {
+void requirePartFogs(const std::vector<MeshPart>& parts, const std::vector<Model::OwnedSet>& sets) {
     for (size_t p = 0; p < parts.size(); ++p) {
-        for (uint32_t fog : parts[p].fogs) {
-            if (fog >= fogCount) {
-                throw std::runtime_error("part " + std::to_string(p) + "'s fogs: expected indices < " +
-                                          std::to_string(fogCount) + " scene fogs, got " + std::to_string(fog));
-            }
-        }
+        for (const InstanceRef& fog : parts[p].fogs) requireEffectInstance(fog, sets, "part " + std::to_string(p) + "'s fog");
     }
 }
 
@@ -167,7 +174,7 @@ void requireLiquids(const std::vector<LiquidGrid>& liquids, size_t partCount, si
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
                      Scene scene, std::vector<Model::OwnedSet> placementSets,
-                     std::vector<LiquidGrid> liquids, CollisionMesh collision) {
+                     std::vector<LiquidGrid> liquids, CollisionMesh collision, std::optional<InstanceRef> defaultFog) {
     if (primitiveMaterials.size() != mesh.primitives.size()) {
         throw std::runtime_error("primitiveMaterials size (" + std::to_string(primitiveMaterials.size()) +
                                   ") must match mesh.primitives size (" + std::to_string(mesh.primitives.size()) +
@@ -190,7 +197,8 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     requireParts(mesh);
     requireUniqueInstanceIds(placementSets);
     requireSceneSets(scene, placementSets.size());
-    requirePartFogs(mesh.parts, scene.fogs.size());
+    requirePartFogs(mesh.parts, placementSets);
+    if (defaultFog) requireEffectInstance(*defaultFog, placementSets, "default fog");
     requireLiquids(liquids, mesh.parts.size(), materials.size());
     requireCollision(collision);
     requireAttributes(mesh);
@@ -203,6 +211,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     result.animations = std::move(animations);
     result.scene = std::move(scene);
     result.placementSets = std::move(placementSets);
+    result.defaultFog = defaultFog;
     result.liquids = std::move(liquids);
     result.collision = std::move(collision);
     return result;

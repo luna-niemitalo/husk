@@ -250,6 +250,7 @@ void addExportMapOptions(CLI::App& app, ExportMapOptions& opts);
 struct ValidateBundleOptions {
     std::vector<std::string> paths;
     bool lintSchema = false;
+    bool release = false;  // warnings (placeholder effect instances) fail too
 };
 void addValidateBundleOptions(CLI::App& app, ValidateBundleOptions& opts);
 

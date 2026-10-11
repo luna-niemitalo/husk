@@ -76,21 +76,28 @@ find_package(CLI11 CONFIG REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(nlohmann_json_schema_validator CONFIG REQUIRED)
 
-# schema/ is the bundle format's definition; it is embedded into the binary
-# so `husk validate-bundle` and the tests check against the same files.
-set(HUSK_SCHEMAS common model placement_set world)
+# schema/ is the bundle format's definition and effects/ the effect
+# documents husk writes; both are embedded into the binary so `husk
+# validate-bundle`, the writers and the tests use the same files.
+set(HUSK_SCHEMAS common model placement_set world effect)
+set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend)
 set(HUSK_SCHEMA_FILES)
 foreach(name IN LISTS HUSK_SCHEMAS)
   list(APPEND HUSK_SCHEMA_FILES ${CMAKE_SOURCE_DIR}/schema/${name}.schema.json)
 endforeach()
+foreach(name IN LISTS HUSK_EFFECTS)
+  list(APPEND HUSK_SCHEMA_FILES ${CMAKE_SOURCE_DIR}/effects/${name}.json)
+endforeach()
 set(HUSK_EMBEDDED_SCHEMAS ${CMAKE_BINARY_DIR}/generated/bundle_schema_embedded.cpp)
 string(REPLACE ";" "," HUSK_SCHEMA_NAMES "${HUSK_SCHEMAS}")
+string(REPLACE ";" "," HUSK_EFFECT_NAMES "${HUSK_EFFECTS}")
 add_custom_command(
   OUTPUT ${HUSK_EMBEDDED_SCHEMAS}
-  COMMAND ${CMAKE_COMMAND} -DSCHEMA_DIR=${CMAKE_SOURCE_DIR}/schema -DOUT=${HUSK_EMBEDDED_SCHEMAS}
-          -DNAMES=${HUSK_SCHEMA_NAMES} -P ${CMAKE_SOURCE_DIR}/cmake/embed_schemas.cmake
+  COMMAND ${CMAKE_COMMAND} -DSCHEMA_DIR=${CMAKE_SOURCE_DIR}/schema -DEFFECT_DIR=${CMAKE_SOURCE_DIR}/effects
+          -DOUT=${HUSK_EMBEDDED_SCHEMAS} -DNAMES=${HUSK_SCHEMA_NAMES} -DEFFECTS=${HUSK_EFFECT_NAMES}
+          -P ${CMAKE_SOURCE_DIR}/cmake/embed_schemas.cmake
   DEPENDS ${HUSK_SCHEMA_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_schemas.cmake
-  COMMENT "Embedding schema/")
+  COMMENT "Embedding schema/ and effects/")
 
 # Everything except main.cpp, as a library: lets the test binary link against
 # the exact same command/parsing code the real CLI runs, instead of

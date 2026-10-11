@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <cmath>
 #include <iterator>
 #include <stdexcept>
 #include <string>
@@ -249,20 +251,132 @@ canon::AmbientVolume buildAmbientBox(const WmoInputs& in, uint32_t index) {
     return out;
 }
 
-constexpr uint32_t kFogInteriorExteriorBlend = 0x1;
+// The wiki's F_IEBLEND: radius ignored; not drawn, but scales the area fog
+// down near the model's exits.
+constexpr uint32_t kFogExitBlend = 0x1;
 
-canon::LocalFog buildFog(const WmoInputs& in, uint32_t index) {
+// The wiki's "empty fog entry", byte for byte (a -0.0 position included):
+// what record 0 holds when the model has no default fog of its own. It is
+// record 0 in 3,631 of 4,000 sampled roots and never a later record.
+bool isEmptyFog(const wmo::Fog& f) {
+    return f.flags == 0 && f.position[0] == 0 && f.position[1] == 0 && f.position[2] == 0 && f.smallerRadius == 0 &&
+           f.largerRadius == 0 && f.fog.end == 444.4444580078125f && f.fog.startScalar == 0.25f &&
+           f.fog.color == 0xFFFFFFFF && f.underwater.end == 222.22222900390625f && f.underwater.startScalar == -0.5f &&
+           f.underwater.color == 0xFF0000FF;
+}
+
+void unresolvedFloat(const char* field, float value, std::vector<canon::UnresolvedField>& out) {
+    if (std::isfinite(value)) {
+        out.push_back({field, canon::UnresolvedField::Kind::Scalar, static_cast<double>(value), std::nullopt});
+    } else {
+        out.push_back({field, canon::UnresolvedField::Kind::Bits, std::bit_cast<uint32_t>(value), std::nullopt});
+    }
+}
+
+// The wiki's MoP fog: thickens from end * startScalar to end. A layer whose
+// numbers aren't finite is carried raw instead.
+std::optional<canon::DistanceFog> distanceFog(const wmo::Fog::Layer& layer, const std::string& name,
+                                              std::vector<canon::UnresolvedField>& unresolved) {
+    if (std::isfinite(layer.end) && std::isfinite(layer.startScalar)) {
+        return canon::DistanceFog{canon::LinearFog{layer.end * layer.startScalar, layer.end, colorOf(layer.color)}};
+    }
+    unresolvedFloat((name + ".end").c_str(), layer.end, unresolved);
+    unresolvedFloat((name + ".start_scalar").c_str(), layer.startScalar, unresolved);
+    return std::nullopt;
+}
+
+// Alpha is 0xFF in all 4,534 sampled records.
+void requireOpaque(const wmo::Fog::Layer& layer, const char* field, std::vector<canon::UnresolvedField>& out) {
+    uint32_t alpha = layer.color >> 24;
+    if (alpha != 0xFF) out.push_back({field, canon::UnresolvedField::Kind::Scalar, static_cast<double>(alpha), std::nullopt});
+}
+
+// One MFOG record as an effect instance (REFACTOR/EFFECTS.md, literal tier).
+canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index, uint32_t id) {
     const wmo::Fog& f = in.root->fogs[index];
-    canon::LocalFog out;
-    out.origin = {"MFOG", index};
-    out.position = toCanon(f.position);
-    out.innerRadius = f.smallerRadius;
-    out.outerRadius = f.largerRadius;
-    out.interiorExteriorBlend = (f.flags & kFogInteriorExteriorBlend) != 0;
-    out.fog = {f.fog.end, f.fog.startScalar, rgbaOf(f.fog.color)};
-    out.underwater = {f.underwater.end, f.underwater.startScalar, rgbaOf(f.underwater.color)};
-    out.sourceFlags = f.flags;
-    if (f.doodadSet) out.placementSet = ownedSetRef(in, *f.doodadSet);
+    canon::PlacedInstance instance;
+    instance.id = id;
+    instance.translation = toCanon(f.position);
+    instance.flags = f.flags;
+    canon::EffectPlacement effect;
+    effect.origin = {"MFOG", index};
+    canon::StyleBlock style;
+    style.distanceFog = distanceFog(f.fog, "fog", effect.unresolved);
+    style.underwater = distanceFog(f.underwater, "underwater", effect.unresolved);
+    // Radii that aren't finite numbers occur (a Torghast record holds a NaN
+    // and the integer 3): no radius is stated then, and the bits are kept.
+    bool radiiFinite = std::isfinite(f.smallerRadius) && std::isfinite(f.largerRadius);
+    if (f.flags & kFogExitBlend) {
+        instance.asset = canon::Ref{canon::None{}, "classic_fog_exit_blend", canon::NameSource::Synthesized};
+        style.exitBlend = true;
+        effect.style = {{"exit_blend", style}};
+        unresolvedFloat("smaller_radius", f.smallerRadius, effect.unresolved);
+        unresolvedFloat("larger_radius", f.largerRadius, effect.unresolved);
+    } else {
+        instance.asset = canon::Ref{canon::None{}, "classic_local_fog", canon::NameSource::Synthesized};
+        if (radiiFinite) {
+            effect.inputs = {{"inner_radius", static_cast<double>(f.smallerRadius)},
+                             {"outer_radius", static_cast<double>(f.largerRadius)}};
+        } else {
+            unresolvedFloat("smaller_radius", f.smallerRadius, effect.unresolved);
+            unresolvedFloat("larger_radius", f.largerRadius, effect.unresolved);
+        }
+        effect.style = {{"fog", style}};
+    }
+    if (uint32_t unknown = f.flags & ~kFogExitBlend; unknown != 0) {
+        effect.unresolved.push_back({"flags", canon::UnresolvedField::Kind::Bits, unknown, std::nullopt});
+    }
+    requireOpaque(f.fog, "fog.color.alpha", effect.unresolved);
+    requireOpaque(f.underwater, "underwater.color.alpha", effect.unresolved);
+    if (f.doodadSetReserved) {
+        effect.unresolved.push_back({"doodad_set.reserved", canon::UnresolvedField::Kind::Scalars,
+                                     std::vector<double>(f.doodadSetReserved->begin(), f.doodadSetReserved->end()),
+                                     std::nullopt});
+    }
+    instance.effect = std::move(effect);
+    return instance;
+}
+
+// Places every MFOG record but the empty entry in the set it applies with
+// (MFED), else in set 0, which is always on; a model without doodad sets
+// gets an always-on "effects" set. Ids follow the doodads' MODD indices,
+// so they stay unique across the model's sets. Returns each record's
+// instance, nullopt for the empty entry.
+std::vector<std::optional<canon::InstanceRef>> placeFogs(const WmoInputs& in, std::vector<canon::Model::OwnedSet>& sets) {
+    const wmo::RootFile& root = *in.root;
+    std::vector<std::optional<canon::InstanceRef>> out(root.fogs.size());
+    uint32_t nextId = static_cast<uint32_t>(root.doodads.size());
+    for (uint32_t i = 0; i < root.fogs.size(); ++i) {
+        if (isEmptyFog(root.fogs[i])) continue;
+        if (sets.empty()) {
+            canon::Model::OwnedSet effects;
+            effects.set.ref = canon::Ref{canon::RecordIndex{0}, "effects", canon::NameSource::Synthesized};
+            effects.alwaysOn = true;
+            sets.push_back(std::move(effects));
+        }
+        uint32_t set = root.fogs[i].doodadSet.value_or(0);
+        sets[set].set.instances.push_back(buildFogInstance(in, i, nextId));
+        out[i] = canon::InstanceRef{set, nextId};
+        ++nextId;
+    }
+    return out;
+}
+
+// A group's fog list: MFVR, else MOGP fogIds. A 0 names the model's default
+// fog, not a list entry: fogIds are left-packed (2,1,0,0) and MFVR never
+// lists 0, in every sampled root.
+std::vector<canon::InstanceRef> partFogs(uint32_t part, const wmo::GroupFile& g,
+                                         const std::vector<std::optional<canon::InstanceRef>>& fogs) {
+    std::vector<uint16_t> refs = g.fogRefs.empty() ? std::vector<uint16_t>(g.fogIds.begin(), g.fogIds.end()) : g.fogRefs;
+    const char* tag = g.fogRefs.empty() ? "fogIds" : "MFVR";
+    std::vector<canon::InstanceRef> out;
+    for (uint16_t r : refs) {
+        if (r >= fogs.size()) {
+            throw std::runtime_error("WMO group " + std::to_string(part) + "'s " + tag + ": expected refs < " +
+                                     std::to_string(fogs.size()) + " MFOG records, got " + std::to_string(r));
+        }
+        if (r != 0 && fogs[r]) out.push_back(*fogs[r]);
+    }
     return out;
 }
 
@@ -287,7 +401,6 @@ canon::Scene buildScene(const WmoInputs& in) {
             buildAmbientVolume(in, root.ambientVolumes[i], "MAVD", i, canon::AmbientVolume::Shape::Point));
     }
     for (uint32_t i = 0; i < root.ambientBoxes.size(); ++i) scene.ambientVolumes.push_back(buildAmbientBox(in, i));
-    for (uint32_t i = 0; i < root.fogs.size(); ++i) scene.fogs.push_back(buildFog(in, i));
     for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
         canon::ParticulateVolume v = buildParticulateVolume(root.particulateVolumes[i], in.textures);
         v.origin = {"MPVD", i};
@@ -296,7 +409,6 @@ canon::Scene buildScene(const WmoInputs& in) {
     for (uint32_t i = 0; i < in.root->newLights.size(); ++i) scene.localLights.push_back(buildNewLight(in, i));
     for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) scene.localLights.push_back(buildLegacyLight(in, i));
     nameByPosition(scene.ambientVolumes, "ambient");
-    nameByPosition(scene.fogs, "fog");
     nameByPosition(scene.particulateVolumes, "particles");
     nameByPosition(scene.localLights, "light");
     return scene;
@@ -494,6 +606,9 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         colorSetCount = std::max(colorSetCount, g->colorSets.size());
     }
 
+    std::vector<canon::Model::OwnedSet> sets = buildPlacementSets(in);
+    std::vector<std::optional<canon::InstanceRef>> fogs = placeFogs(in, sets);
+
     canon::Mesh mesh;
     if (uvSetCount > 1) mesh.uv1.emplace();
     if (uvSetCount > 2) mesh.uv2.emplace();
@@ -510,8 +625,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         meshPart.boundsMax = toCanon(info.bounds.max);
         if (in.groups[part]) {
             const wmo::GroupFile& g = *in.groups[part];
-            meshPart.fogs = g.fogRefs.empty() ? std::vector<uint32_t>(g.fogIds.begin(), g.fogIds.end())
-                                              : volumeRefs(part, "MFVR", g.fogRefs, root.fogs.size(), 0);
+            meshPart.fogs = partFogs(part, g, fogs);
             // Scene::ambientVolumes holds MAVG, then MAVD, then MBVD records.
             uint32_t pointsStart = static_cast<uint32_t>(root.globalAmbientVolumes.size());
             uint32_t boxesStart = pointsStart + static_cast<uint32_t>(root.ambientVolumes.size());
@@ -568,7 +682,8 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
 
     canon::Model model =
         canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials), {},
-                             buildScene(in), buildPlacementSets(in), std::move(liquids));
+                             buildScene(in), std::move(sets), std::move(liquids), {},
+                             fogs.empty() ? std::nullopt : fogs[0]);
     model.liquidTypes = std::move(liquidTypes);
     return model;
 }

@@ -275,22 +275,22 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   (`resources.scene.ambient_particle_volumes`); `MAVG`/`MAVD`/`MBVD` are
   `scene.ambientVolumes`. Map-wide `_fogs.wdt`/`_mpv.wdt` volumes are the
   world document's `scene` (`canon::World`, `husk export-map`,
-  `export-world` pass 4). WMO `MFOG`
-  fogs are `resources.scene.fog_volumes` (`MFED` set per fog), and each part lists
-  its `MOGP.fogIds`; map fogs carry `VFEX`'s typed part. Per-element data
+  `export-world` pass 4). WMO `MFOG` fogs are placeholder effect
+  instances in the doodad set `MFED` names (`REFACTOR/EFFECTS.md`), each
+  part lists them as `{set, id}`; map fogs carry `VFEX`'s typed part. Per-element data
   goes in generic mesh attribute channels (`canon::AttributeChannel`,
   `resources.geometry.mesh.attributes`; REFACTOR/BUNDLE_FORMAT.md): WMO face flags/material
   are the first, and select collision; M2 collision is
   `resources.geometry.collision`. Portals are `resources.geometry.mesh.portals` with
   per-part links.
 - **Bundle format as structure (2026-10-10, Luna's call, in progress)**:
-  three document kinds (`model`, `placement_set`, `world`) with one
+  four document kinds (`model`, `placement_set`, `world`, `effect`) with one
   contract header (`REFACTOR/BUNDLE_FORMAT.md` "Document kinds and the
   contract header"). `schema/*.schema.json` is the definition (JSON Schema
   draft-07, embedded in the binary); `src/bundle_schema.*` validates
   documents (`husk validate-bundle`) and lints the schema for format
   antipatterns. Project is C++23. **All four stages done (2026-10-11)**:
-  every document husk writes is one of the three kinds and validates;
+  every document husk writes is one of the kinds and validates;
   every writer test checks what it writes. Terrain tiles are `model`s in
   their own frame (`resources.terrain`); each map gets a `world` document
   (`maps/<map>/<map>.world.bundle`: grid, map-wide volumes), replacing
