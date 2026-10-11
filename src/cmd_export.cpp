@@ -976,7 +976,8 @@ std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& o
 // whose entire point is avoiding a per-process copy).
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
                     const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
-                    std::optional<uint32_t> modelFileDataId, const creaturedisplay::Data* creatures) {
+                    std::optional<uint32_t> modelFileDataId, const creaturedisplay::Data* creatures,
+                    const writers::StoreLink* textureStore) {
     std::string outputPath = outputPathIn;
     bool skinDirGiven = app.count("--skin-dir") > 0;
     bool lodGiven = !opts.lodArg.empty();
@@ -1307,7 +1308,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                                  modelFileDataId ? modelFileDataId
                                                  : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
                                  objectSkinTextureFileDataId,
-                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures);
+                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures, textureStore);
             std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
             return 0;
         }

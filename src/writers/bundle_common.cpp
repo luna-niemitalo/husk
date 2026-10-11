@@ -527,7 +527,7 @@ std::string effectUri(const canon::Ref& effect) { return "effects/" + effect.nam
 // own resources.textures; their payloads go under `bundleDir/textures/`.
 std::string placementSetText(const canon::PlacementSet& set, const std::string& prefix, const AssetUris& uris,
                              const Provenance& provenance, const std::filesystem::path& bundleDir,
-                             std::unordered_set<std::string>& writtenTextures) {
+                             std::unordered_set<std::string>& writtenTextures, const AssetUris& textureUris) {
     std::vector<const canon::PlacedInstance*> assets;
     std::unordered_map<std::string, size_t> assetIndex;
     std::vector<size_t> instanceAsset;
@@ -538,7 +538,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         instanceAsset.push_back(it->second);
     }
 
-    TextureTable textures(bundleDir, writtenTextures, prefix);
+    TextureTable textures(bundleDir, writtenTextures, prefix, &textureUris);
     std::ostringstream text;
     json::Writer w(text);
     w.beginObject();
@@ -700,7 +700,7 @@ void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>&
 
 std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
                                                     const std::filesystem::path& bundleDir, const AssetUris& assetUris,
-                                                    const Provenance& provenance) {
+                                                    const Provenance& provenance, const AssetUris& textureUris) {
     // Set files sit one level down, in sets/; inline sets at the bundle root.
     AssetUris setUris;
     for (const auto& [fdid, uri] : assetUris) {
@@ -713,11 +713,11 @@ std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEn
         const OwnedSetEntry& entry = sets[i];
         SetDocument doc{entry.set->ref, "", entry.alwaysOn, entry.set->instances.size(), ""};
         if (entry.inlineDocument) {
-            doc.inlineText = placementSetText(*entry.set, "", assetUris, provenance, bundleDir, writtenTextures);
+            doc.inlineText = placementSetText(*entry.set, "", assetUris, provenance, bundleDir, writtenTextures, textureUris);
         } else {
             doc.uri = "sets/" + std::to_string(i) + ".json";
             std::filesystem::create_directories(bundleDir / "sets");
-            std::string text = placementSetText(*entry.set, "../", setUris, provenance, bundleDir, writtenTextures);
+            std::string text = placementSetText(*entry.set, "../", setUris, provenance, bundleDir, writtenTextures, textureUris);
             writeFile(bundleDir / doc.uri, std::vector<uint8_t>(text.begin(), text.end()));
         }
         out.push_back(std::move(doc));
@@ -986,7 +986,27 @@ uint32_t TextureTable::add(const std::function<void(json::Writer&)>& writeEntry)
 }
 
 uint32_t TextureTable::add(const canon::TextureRef& texture) {
-    return add([&](json::Writer& w) { writeTextureEntry(w, texture, bundleDir_, writtenTextures_, uriPrefix_); });
+    auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id);
+    bool hasPayload = texture.payload || texture.rawPayload;
+    if (texture.state != canon::TextureRef::State::Resolved || hasPayload || !fdid || !shared_ || !shared_->count(fdid->value)) {
+        return add([&](json::Writer& w) { writeTextureEntry(w, texture, bundleDir_, writtenTextures_, uriPrefix_); });
+    }
+    std::string uri = uriPrefix_ + shared_->at(fdid->value);
+    return add([&](json::Writer& w) {
+        w.beginObject();
+        w.key("state");
+        w.value("resolved");
+        w.key("identity");
+        writeRef(w, texture.resolved);
+        w.key("payload");
+        w.beginObject();
+        w.key("uri");
+        w.value(uri);
+        w.key("media_type");
+        w.value(textureMediaType(std::filesystem::path(uri).extension().string().substr(1)));
+        w.endObject();
+        w.endObject();
+    });
 }
 
 void TextureTable::write(json::Writer& w) const {

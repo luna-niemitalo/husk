@@ -262,6 +262,14 @@ Identical entries share an index, so a texture used by several layers,
 options or instances appears once. An inline placement set is its own
 document with its own table.
 
+Where the bytes live (2026-10-11, Luna's call): a standalone export
+embeds them under the bundle's own `textures/`. `export-world` writes
+every texture of the export (tiles', models', WMOs') once to the shared
+`<out>/textures/<fdid>.<ext>` (`writers::TextureStore`), and entries point
+there by relative uri (`../../textures/…` from a model bundle). A
+character model's hundreds of baked NPC skins are why: embedded, one
+model would carry ~600 MB.
+
 ## Options and presets — what a model may be, and what a source used
 
 **Current** (2026-10-11, Luna's call): a model that can be dressed more

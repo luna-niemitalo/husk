@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "creature_display_db2.hpp"
+#include "writers/texture_store.hpp"
 #include "gltf_mesh.hpp"
 #include "gltf_skeleton.hpp"
 #include "m2.hpp"
@@ -89,6 +90,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, h
                           uint32_t objectSkinTextureFileDataId,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir,
-                          const creaturedisplay::Data* creatures = nullptr);
+                          const creaturedisplay::Data* creatures = nullptr,
+                          const writers::StoreLink* textureStore = nullptr);
 
 }  // namespace husk::commands

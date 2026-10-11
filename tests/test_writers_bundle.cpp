@@ -32,6 +32,7 @@
 #include "map_scene_input.hpp"
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_writer.hpp"
+#include "writers/texture_store.hpp"
 
 using namespace husk;
 namespace fs = std::filesystem;
@@ -1151,4 +1152,46 @@ TEST_CASE("writeBundle: a model without options writes no texture_slots, particl
     CHECK_FALSE(manifest["definition"].contains("texture_slots"));
     CHECK_FALSE(manifest["definition"].contains("particle_colors"));
     CHECK_FALSE(manifest["selection"].contains("presets"));
+}
+
+TEST_CASE("externalizeTextures: payloads go to the shared store once; the model and its set files point there") {
+    canon::Model model = buildSyntheticModel();
+    canon::TextureRef skin;
+    skin.state = canon::TextureRef::State::Resolved;
+    skin.resolved = canon::Ref{canon::FileDataId{101}, "skin", canon::NameSource::Listfile};
+    skin.rawPayload = canon::TextureRef::Payload{{9, 9, 9}, canon::TextureEncoding::Bc1};
+    model.materials[0].layers[0].texture = skin;
+    model.textureSlots = {{"monster_1", 11, {skin}, std::nullopt}};
+    wmo::ParticulateVolume v;
+    v.extent = {1, 1, 1};
+    wmo::ParticulateEmitter dust;
+    dust.textureFileDataId = 101;
+    v.emitters = {dust};
+    canon::Model::OwnedSet set;
+    set.set.ref = canon::Ref{canon::RecordIndex{0}, "Set_$DefaultGlobal", canon::NameSource::WmoEmbedded};
+    set.alwaysOn = true;
+    set.set.instances = {wmoinput::particulateInstance(v, {{101, skin}}, {"MPVD", 0})};
+    model.placementSets = {set};
+
+    fs::path root = fs::temp_directory_path() / "husk-test-texture-store";
+    fs::remove_all(root);
+    fs::create_directories(root / "textures");
+    writers::TextureStore store(root / "textures");
+    writers::AssetUris uris;
+    writers::externalizeTextures(model, store, "../../textures/", uris);
+    CHECK_FALSE(model.materials[0].layers[0].texture.rawPayload.has_value());
+    CHECK(uris.at(101) == "../../textures/101.dds");
+    CHECK(readFile((root / "textures" / "101.dds").string()) == std::vector<uint8_t>{9, 9, 9});
+    CHECK_FALSE(fs::exists(root / "textures" / "101.dds.partial"));
+
+    fs::path dir = root / "models" / "500.canon.bundle";
+    writers::writeBundle(model, dir, testProvenance(), {}, uris);
+    nlohmann::json manifest = parseManifest(dir);  // also checks the shared file exists
+    CHECK_FALSE(fs::exists(dir / "textures"));
+    REQUIRE(manifest["resources"]["textures"].size() == 1);
+    CHECK(textureAt(manifest, manifest["resources"]["materials"][0]["layers"][0]["texture"])["payload"]["uri"] ==
+          "../../textures/101.dds");
+    nlohmann::json setDoc = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
+    CHECK(textureAt(setDoc, setDoc["instances"][0]["inputs"]["emitters"][0]["texture"])["payload"]["uri"] ==
+          "../../../textures/101.dds");
 }

@@ -811,7 +811,7 @@ void writeCollision(json::Writer& w, const canon::CollisionMesh& c, std::vector<
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const Provenance& provenance,
-                 const AssetUris& assetUris) {
+                 const AssetUris& assetUris, const AssetUris& textureUris) {
     std::error_code ec;
     std::filesystem::create_directories(bundleDir, ec);
     if (ec) {
@@ -827,7 +827,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 
     std::vector<OwnedSetEntry> owned;
     for (const canon::Model::OwnedSet& set : model.placementSets) owned.push_back({&set.set, set.alwaysOn, set.inlineDocument});
-    std::vector<SetDocument> sets = writePlacementSetDocuments(owned, bundleDir, assetUris, provenance);
+    std::vector<SetDocument> sets = writePlacementSetDocuments(owned, bundleDir, assetUris, provenance, textureUris);
 
     std::ostringstream manifestStream;
     json::Writer w(manifestStream);
@@ -838,7 +838,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     // Owned placement sets are the model's first references, so set i is
     // reference i.
     std::unordered_set<std::string> writtenTextures;
-    TextureTable textures(bundleDir, writtenTextures);
+    TextureTable textures(bundleDir, writtenTextures, "", &textureUris);
     w.key("definition");
     w.beginObject();
     writeOwnedSetDefinitions(w, sets);

@@ -485,7 +485,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, s
                           uint32_t objectSkinTextureFileDataId,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir,
-                          const creaturedisplay::Data* creatures) {
+                          const creaturedisplay::Data* creatures, const writers::StoreLink* textureStore) {
     CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes);
@@ -499,7 +499,9 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, s
                       << " display(s); " << report.humanoid << " humanoid display(s) not read\n";
         }
     }
-    writers::writeBundle(build.model, bundleDir, m2Provenance());
+    writers::AssetUris textureUris;
+    if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
+    writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris);
 }
 
 }  // namespace husk::commands

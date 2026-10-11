@@ -28,42 +28,15 @@ std::string heightSourceName(canon::LiquidHeightSource source) {
     return "stored";
 }
 
-// The texture's index in the tile's table: a ground texture exported once
-// under the export's textures/ is referenced there by its shared uri.
-uint32_t terrainTexture(TextureTable& table, const canon::TextureRef& texture, const AssetUris& textureUris) {
-    bool hasPayload = texture.payload || texture.rawPayload;
-    auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id);
-    if (texture.state != canon::TextureRef::State::Resolved || hasPayload || !fdid || !textureUris.count(fdid->value)) {
-        return table.add(texture);
-    }
-    const std::string& uri = textureUris.at(fdid->value);
-    return table.add([&](json::Writer& w) {
-        w.beginObject();
-        w.key("state");
-        w.value("resolved");
-        w.key("identity");
-        writeRef(w, texture.resolved);
-        w.key("payload");
-        w.beginObject();
-        w.key("uri");
-        w.value(uri);
-        w.key("media_type");
-        w.value(textureMediaType(std::filesystem::path(uri).extension().string().substr(1)));
-        w.endObject();
-        w.endObject();
-    });
-}
-
-void writeTexturesSection(json::Writer& w, const std::vector<canon::TerrainTexture>& textures, TextureTable& table,
-                          const AssetUris& textureUris) {
+void writeTexturesSection(json::Writer& w, const std::vector<canon::TerrainTexture>& textures, TextureTable& table) {
     w.beginArray();
     for (const canon::TerrainTexture& t : textures) {
         w.beginObject();
         w.key("diffuse");
-        w.value(static_cast<int64_t>(terrainTexture(table, t.diffuse, textureUris)));
+        w.value(static_cast<int64_t>(table.add(t.diffuse)));
         if (t.height) {
             w.key("height");
-            w.value(static_cast<int64_t>(terrainTexture(table, *t.height, textureUris)));
+            w.value(static_cast<int64_t>(table.add(*t.height)));
         }
         w.key("repeats_per_chunk");
         w.value(static_cast<double>(t.repeatsPerChunk));
@@ -296,7 +269,8 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     writeOwnedSetSelectionAndReferences(w, sets);
 
     std::unordered_set<std::string> writtenTextures;
-    TextureTable table(bundleDir, writtenTextures);
+    // Ground textures exported once under the export's textures/ are referenced by their shared uri.
+    TextureTable table(bundleDir, writtenTextures, "", &textureUris);
     w.key("resources");
     w.beginObject();
     w.key("terrain");
@@ -323,7 +297,7 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.key("chunk_topology");
     w.value("quad_centre_fan");
     w.key("textures");
-    writeTexturesSection(w, terrain.textures, table, textureUris);
+    writeTexturesSection(w, terrain.textures, table);
     w.key("ground_effects");
     writeGroundEffectsSection(w, terrain.groundEffects, modelUris);
     w.key("chunks");
@@ -338,7 +312,7 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     if (!terrain.liquidTypes.empty()) {
         w.key("liquid_types");
         writeLiquidTypes(w, terrain.liquidTypes, [&](const canon::TextureRef& frame) {
-            w.value(static_cast<int64_t>(terrainTexture(table, frame, textureUris)));
+            w.value(static_cast<int64_t>(table.add(frame)));
         });
     }
     if (!table.empty()) table.write(w);

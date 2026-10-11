@@ -26,7 +26,9 @@ format itself is defined in exactly one place:
 Two document-wide rules first: every texture a document uses is listed
 once in its `resources.textures`, and everything else (material layers,
 terrain ground textures, liquid frames, effect image inputs) holds an
-index into it. A ref without a display name is just `{id}`: `name` and
+index into it. In an `export-world` tree a model's texture entries point
+into the shared `<out>/textures/` (like tiles' already did), not its own
+`textures/`. A ref without a display name is just `{id}`: `name` and
 `name_source` are present together or not at all.
 
 Every document is one of four kinds. A **world** (one per map) holds the

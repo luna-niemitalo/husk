@@ -131,6 +131,7 @@ add_library(husk-lib STATIC
   src/writers/writer_common.cpp
   src/writers/gltf_lean.cpp
   src/writers/bundle_common.cpp
+  src/writers/texture_store.cpp
   src/writers/bundle_writer.cpp
   src/writers/terrain_bundle_writer.cpp
   src/adt.cpp

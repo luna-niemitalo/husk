@@ -44,9 +44,10 @@
 namespace husk::writers {
 
 // `assetUris` links placement-set instances to bundles the caller exported
-// (FileDataID -> uri relative to `bundleDir`).
+// (FileDataID -> uri relative to `bundleDir`); `textureUris` are textures a
+// shared store holds (writers/texture_store.hpp), same keys and base.
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const Provenance& provenance,
-                 const AssetUris& assetUris = {});
+                 const AssetUris& assetUris = {}, const AssetUris& textureUris = {});
 
 // A `world` document (schema/world.schema.json): the map's tile grid, cell
 // i's tile being reference i with uri `tileUris[i]` (empty: known, not

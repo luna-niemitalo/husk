@@ -9,6 +9,7 @@
 
 #include "canon_policy.hpp"
 #include "creature_display_db2.hpp"
+#include "writers/texture_store.hpp"
 
 namespace husk {
 class ListfileIndex;
@@ -333,7 +334,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts);
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
                     const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
                     std::optional<uint32_t> modelFileDataId = std::nullopt,
-                    const creaturedisplay::Data* creatures = nullptr);
+                    const creaturedisplay::Data* creatures = nullptr,
+                    const writers::StoreLink* textureStore = nullptr);
 
 // --bundle-only's creature display tables, loaded once per run from
 // --db2-dir/--dbd-dir; nullopt without them (or for a glTF export).

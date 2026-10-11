@@ -38,6 +38,7 @@
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_common.hpp"
 #include "writers/bundle_writer.hpp"
+#include "writers/texture_store.hpp"
 #include "writers/terrain_bundle_writer.hpp"
 
 // `export-terrain` / `export-world`: ADT tiles (root + _obj0 + _tex0 + the
@@ -779,8 +780,8 @@ std::string exceptionMessage(std::exception_ptr e) {
 // <out>/textures/, and tiles reference it by uri.
 class SharedTextures {
 public:
-    SharedTextures(std::filesystem::path dir, const ListfileIndex& listfile, std::filesystem::path listfileRoot)
-        : dir_(std::move(dir)), listfile_(listfile), listfileRoot_(std::move(listfileRoot)) {}
+    SharedTextures(writers::TextureStore& store, const ListfileIndex& listfile, std::filesystem::path listfileRoot)
+        : store_(store), listfile_(listfile), listfileRoot_(std::move(listfileRoot)) {}
 
     // The texture without payload plus its filename under textures/ (empty
     // when unresolved). Two threads may resolve the same new FDID at once;
@@ -795,8 +796,7 @@ public:
         std::string filename;
         const canon::TextureRef::Payload* chosen = ref.rawPayload ? &*ref.rawPayload : ref.payload ? &*ref.payload : nullptr;
         if (chosen) {
-            filename = std::to_string(fdid) + "." + writers::textureFileExtension(chosen->encoding);
-            writers::writeFile(dir_ / filename, chosen->bytes);
+            filename = store_.put(fdid, *chosen);
             ref.payload.reset();
             ref.rawPayload.reset();
         }
@@ -805,7 +805,7 @@ public:
     }
 
 private:
-    std::filesystem::path dir_;
+    writers::TextureStore& store_;
     const ListfileIndex& listfile_;
     std::filesystem::path listfileRoot_;
     std::mutex mutex_;
@@ -1110,6 +1110,9 @@ int exportWorld(int argc, char** args) {
         std::filesystem::path texturesDir = out / "textures";
         std::filesystem::create_directories(modelsDir);
         std::filesystem::create_directories(texturesDir);
+        // Every texture payload of the export, tiles' and models' alike.
+        writers::TextureStore textureStore(texturesDir);
+        const writers::StoreLink modelTextures{&textureStore, "../../textures/"};
         ErrorLog errors(out / "errors.log");
 
         std::map<std::string, adt::WdtFile> wdts;
@@ -1279,7 +1282,7 @@ int exportWorld(int argc, char** args) {
                         if (!src) {
                             errors.add("model", std::to_string(fdid), "no local file (listfile or _by_fdid)");
                         } else if (exportOneModel(modelOpts, modelApp, src->string(), bundle.string(), true,
-                                                  *listfile, fdid, creatures ? &*creatures : nullptr) != 0) {
+                                                  *listfile, fdid, creatures ? &*creatures : nullptr, &modelTextures) != 0) {
                             errors.add("model", std::to_string(fdid), "export failed (see stderr): " + src->string());
                         }
                     }
@@ -1322,8 +1325,10 @@ int exportWorld(int argc, char** args) {
                                 doodadUris.emplace(doodad, "../" + modelBundleName(doodad) + "/manifest.json");
                             }
                         }
+                        writers::AssetUris textureUris;
+                        writers::externalizeTextures(model, textureStore, modelTextures.uriToStore, textureUris);
                         writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value()),
-                                             doodadUris);
+                                             doodadUris, textureUris);
                     }
                 } catch (...) {
                     errors.add("wmo", std::to_string(fdid), exceptionMessage(std::current_exception()));
@@ -1342,7 +1347,7 @@ int exportWorld(int argc, char** args) {
             auto wdt = wdts.find(t.map);
             wdtFlags[t.map] = wdt != wdts.end() ? std::optional<uint32_t>(wdt->second.flags) : std::nullopt;
         }
-        SharedTextures sharedTextures(texturesDir, *listfile, opts.listfileRoot);
+        SharedTextures sharedTextures(textureStore, *listfile, opts.listfileRoot);
         Progress progress("tiles", tiles.size());
         parallelFor(tiles.size(), jobs, [&](size_t i) {
             const WorldTile& t = tiles[i];

@@ -136,10 +136,11 @@ struct SetDocument {
 // Writes each set as a placement_set document (schema/placement_set.schema.json):
 // `sets/<index>.json` under `bundleDir`, or text for the caller to embed for
 // an inline set; and every effect their instances place as
-// `effects/<name>.json`. `assetUris` are relative to `bundleDir`.
+// `effects/<name>.json`. `assetUris` and `textureUris` (shared store
+// textures, TextureTable) are relative to `bundleDir`.
 std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
                                                     const std::filesystem::path& bundleDir, const AssetUris& assetUris,
-                                                    const Provenance& provenance);
+                                                    const Provenance& provenance, const AssetUris& textureUris = {});
 
 // An effect document (schema/effect.schema.json): the contract header,
 // then the body checked in as effects/<name>.json. Throws when husk embeds
@@ -171,25 +172,32 @@ void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const 
 // A document's resources.textures: every texture entry once, used
 // elsewhere by index (REFACTOR/BUNDLE_FORMAT.md "Textures"). Entries are
 // rendered when added, so identical ones share an index; the table is
-// written once everything that uses it has been.
+// written once everything that uses it has been. `shared` holds the uris
+// (relative to the bundle) of textures a shared store already holds
+// (writers/texture_store.hpp): a resolved texture without a payload found
+// there points at it.
 class TextureTable {
 public:
     TextureTable(std::filesystem::path bundleDir, std::unordered_set<std::string>& writtenTextures,
-                 std::string uriPrefix = "")
-        : bundleDir_(std::move(bundleDir)), writtenTextures_(writtenTextures), uriPrefix_(std::move(uriPrefix)) {}
+                 std::string uriPrefix = "", const AssetUris* shared = nullptr)
+        : bundleDir_(std::move(bundleDir)),
+          writtenTextures_(writtenTextures),
+          uriPrefix_(std::move(uriPrefix)),
+          shared_(shared) {}
 
     // The entry's index; its payload file is written on first sight.
     uint32_t add(const canon::TextureRef& texture);
-    // An entry rendered by the caller (a terrain texture shared across tiles).
-    uint32_t add(const std::function<void(json::Writer&)>& writeEntry);
     bool empty() const { return entries_.empty(); }
     // The "textures" member of an open resources object.
     void write(json::Writer& w) const;
 
 private:
+    uint32_t add(const std::function<void(json::Writer&)>& writeEntry);
+
     std::filesystem::path bundleDir_;
     std::unordered_set<std::string>& writtenTextures_;
     std::string uriPrefix_;
+    const AssetUris* shared_;
     std::vector<std::string> entries_;
     std::unordered_map<std::string, uint32_t> index_;
 };
