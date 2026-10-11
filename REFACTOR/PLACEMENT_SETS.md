@@ -68,9 +68,18 @@ authored spot; after a move, a runtime may recompute it or ignore it.
 Same "embed or reference — one rule" as every other resource
 (`BUNDLE_FORMAT.md`): a set is written as its own small JSON file
 (`sets/<index>.json`: `schema_version`, `ref`, `instances`), and an owner
-references it by relative `uri`. A set never shared may instead be
-inline in its owner's manifest (an M2's effects set, `EFFECTS.md`;
-Luna, 2026-10-11). Asset references inside a set are `Ref`s
+references it by relative `uri`. Both of these are allowed too (Luna,
+2026-10-11):
+- **Inline**: a set never shared may be inline in its owner's manifest,
+  for example an M2's effects set (`EFFECTS.md`).
+- **Ownerless**: a set may exist with no owner at all, a freeform set.
+
+Every set husk writes today has an owner. A shared or hand-made set may
+later carry a *context*, the scene it was made for. That is a reference
+to where it fits, not to where it is placed, so invariant 5 holds. It is
+not designed yet.
+
+Asset references inside a set are `Ref`s
 with a `uri` to the asset's own bundle when one was exported. A
 standalone set file is a complete document. A consumer can load one with
 no owner at all, which is the housing and hand-made-scene case.
