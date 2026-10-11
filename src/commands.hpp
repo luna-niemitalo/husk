@@ -104,6 +104,12 @@ int validateBundle(int argc, char** args);
 // failures logged and skipped (cmd_export_terrain.cpp).
 int exportWorld(int argc, char** args);
 
+// `store-add` -- records an export tree as a build in the canonical store;
+// `mount` -- serves the store read-only over FUSE (cmd_store.cpp,
+// REFACTOR/CORPUS_EXPORT.md).
+int storeAdd(int argc, char** args);
+int mount(int argc, char** args);
+
 // Every struct/addXOptions pair below is the same single-source-of-truth
 // split `ExportOptions`/`addExportOptions` established: the flag surface is
 // declared once here (names, defaults, descriptions), used both by the real
@@ -270,6 +276,22 @@ struct ExportWorldOptions {
     bool skipModels = false;
 };
 void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts);
+
+struct StoreAddOptions {
+    std::string store;
+    std::string tree;
+    std::string game;
+    std::string gameFrom;
+    std::vector<std::string> tags;
+};
+void addStoreAddOptions(CLI::App& app, StoreAddOptions& opts);
+
+struct MountOptions {
+    std::string store;
+    std::string mountpoint;
+    bool foreground = false;
+};
+void addMountOptions(CLI::App& app, MountOptions& opts);
 
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
 // export"), captured here (rather than as a local in cmd_export.cpp) so

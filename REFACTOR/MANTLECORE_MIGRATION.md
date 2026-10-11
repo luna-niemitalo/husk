@@ -29,7 +29,8 @@ terrain ground textures, liquid frames, effect image inputs) holds an
 index into it. In an `export-world` tree a model's texture entries point
 into the shared `<out>/textures/` (like tiles' already did), not its own
 `textures/`. A ref without a display name is just `{id}`: `name` and
-`name_source` are present together or not at all.
+`name_source` are present together or not at all. `provenance` no longer
+has `exported_at`; a stored build's `meta.json` carries the time.
 
 Every document is one of five kinds. A **material** (REFACTOR/MATERIALS.md)
 describes a surface as layers over textures and inputs; a character

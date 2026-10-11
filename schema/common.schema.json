@@ -329,15 +329,11 @@
     },
     "provenance": {
       "type": "object",
-      "description": "Who wrote the document, when, from what input, and which data sources could be consulted.",
+      "description": "Who wrote the document, from what input, and which data sources could be consulted. No export time: a document's bytes depend only on its inputs and the producer, so identical content is stored once (REFACTOR/CORPUS_EXPORT.md).",
       "properties": {
         "producer": {
           "type": "string",
           "description": "Exporter name and version."
-        },
-        "exported_at": {
-          "type": "string",
-          "description": "Wall-clock export time, ISO 8601 UTC."
         },
         "input_format": {
           "type": "string",
@@ -378,7 +374,6 @@
       },
       "required": [
         "producer",
-        "exported_at",
         "input_format",
         "sources"
       ],

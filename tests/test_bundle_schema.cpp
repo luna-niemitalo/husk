@@ -20,7 +20,7 @@ namespace {
 
 constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0.1.0",
   "space": {"length_unit": "yard", "angle_unit": "radian", "time_unit": "second", "up_axis": "+z", "handedness": "right"},
-  "provenance": {"producer": "husk test", "exported_at": "2026-10-10T00:00:00Z", "input_format": "test",
+  "provenance": {"producer": "husk test", "input_format": "test",
                  "sources": [{"name": "listfile", "role": "names", "available": true}]},)";
 
 std::string slice(size_t offset, size_t length, const char* type, int components, size_t count) {

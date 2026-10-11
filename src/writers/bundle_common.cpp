@@ -143,8 +143,6 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     w.beginObject();
     w.key("producer");
     w.value(provenance.producer);
-    w.key("exported_at");
-    w.value(isoTimestampUtc());
     w.key("input_format");
     w.value(provenance.inputFormat);
     w.key("sources");

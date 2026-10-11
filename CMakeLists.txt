@@ -75,6 +75,15 @@ find_package(TinyGLTF CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(nlohmann_json_schema_validator CONFIG REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FUSE3 REQUIRED IMPORTED_TARGET fuse3)
+
+# Solar Designer's public-domain MD5 (the same file casc-tool vendors): the
+# corpus store names objects by it. Built apart so the project's warning
+# flags don't apply to foreign code.
+add_library(husk-md5 STATIC vendor/md5/md5.cpp)
+target_include_directories(husk-md5 PUBLIC vendor/md5)
+target_compile_options(husk-md5 PRIVATE -w)
 
 # schema/ is the bundle format's definition and effects/ the effect
 # documents husk writes; both are embedded into the binary so `husk
@@ -202,10 +211,12 @@ add_library(husk-lib STATIC
   src/dump_phys.cpp
   src/dump_chunks_misc.cpp
   src/cmd_dump.cpp
+  src/corpus_store.cpp
+  src/cmd_store.cpp
 )
 target_include_directories(husk-lib PUBLIC src)
 target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11 SQLite::SQLite3
-                      PRIVATE nlohmann_json_schema_validator::validator)
+                      PRIVATE nlohmann_json_schema_validator::validator husk-md5 PkgConfig::FUSE3)
 
 add_executable(husk src/main.cpp)
 target_link_libraries(husk PRIVATE husk-lib)
@@ -250,6 +261,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_wdt_volumes.cpp
     tests/test_map_scene_input.cpp
   tests/test_bundle_schema.cpp
+  tests/test_corpus_store.cpp
     tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp

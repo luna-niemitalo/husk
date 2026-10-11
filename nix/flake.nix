@@ -127,6 +127,12 @@
           libnotify
         ];
 
+        # Linked by `husk mount`. Mounting itself goes through NixOS's
+        # setuid /run/wrappers/bin/fusermount3, not anything from here.
+        libs = with pkgs; [
+          fuse3
+        ];
+
         # blp/: BLP2 -> PNG texture conversion (roadmap stage 4). uv manages
         # its own venv + packages (Pillow, numpy, ...) via blp/pyproject.toml
         # -- deliberately not routed through python3Packages, per Luna's
@@ -162,9 +168,10 @@
           nativeBuildInputs = [
             pkgs.cmake
             pkgs.ninja
+            pkgs.pkg-config
           ];
 
-          buildInputs = [
+          buildInputs = libs ++ [
             pkgs.tinygltf
             pkgs.cli11
             pkgs.sqlite
@@ -190,6 +197,7 @@
         devShells.default = pkgs.mkShell {
           packages = lib.concatLists [
             cpp
+            libs
             python
             webtest
           ];

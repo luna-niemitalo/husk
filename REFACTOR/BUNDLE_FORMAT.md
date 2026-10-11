@@ -192,7 +192,7 @@ kind            "model" | "placement_set" | "world" | "effect"
 schema_version  version of the schema/ definitions the document conforms to
 subject         Ref: what this document describes
 space           length/angle units, up axis, handedness of every position in it
-provenance      producer, exported_at, input_format, sources[] (per table/file: available or not)
+provenance      producer, input_format, sources[] (per table/file: available or not)
 definition      what exists and is valid for the subject
 selection       what this instance chose; only ever indices into definition
 references      other documents and assets this one depends on: [{ref, kind, uri?}]
@@ -205,7 +205,9 @@ effect: sources
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
 "Settled"): per table, because the real failure is one empty table among
-good ones. `exported_at` lets someone without husk date a bundle.
+good ones. There is no export time: a document's bytes depend only on its
+inputs and the producer, so a corpus store keeps unchanged content once
+across builds; the time is the stored build's (`REFACTOR/CORPUS_EXPORT.md`).
 
 ### Structural, not described: `schema/`
 

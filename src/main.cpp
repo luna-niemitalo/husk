@@ -352,6 +352,8 @@ struct AllSubcommandOpts {
     husk::commands::ExportWmoOptions exportWmoOpts;
     husk::commands::ExportMapOptions exportMapOpts;
     husk::commands::ValidateBundleOptions validateBundleOpts;
+    husk::commands::StoreAddOptions storeAddOpts;
+    husk::commands::MountOptions mountOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -410,6 +412,12 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportWorldSub =
         root.add_subcommand("export-world", "export every ADT tile of every map to a canonical scene");
     husk::commands::addExportWorldOptions(*exportWorldSub, opts.exportWorldOpts);
+
+    CLI::App* storeAddSub = root.add_subcommand("store-add", "record an export tree as a build in the canonical store");
+    husk::commands::addStoreAddOptions(*storeAddSub, opts.storeAddOpts);
+
+    CLI::App* mountSub = root.add_subcommand("mount", "browse the canonical store as a read-only filesystem");
+    husk::commands::addMountOptions(*mountSub, opts.mountOpts);
 }
 
 std::string generateCompletionScript(const std::string& shell) {
@@ -589,6 +597,9 @@ int main(int argc, char** argv) {
         "                               check documents against the bundle format's schema\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
         "                               every tile of every map, parallel, resumable\n"
+        "  store-add <store> <tree> --game LABEL|--game-from DIR [--tag NAME]...\n"
+        "                               record an export tree as a build in the canonical store\n"
+        "  mount <store> <mountpoint>   browse the canonical store as a read-only filesystem\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -643,6 +654,12 @@ int main(int argc, char** argv) {
     }
     if (command == "validate-bundle") {
         return husk::commands::validateBundle(restArgc, rest);
+    }
+    if (command == "store-add") {
+        return husk::commands::storeAdd(restArgc, rest);
+    }
+    if (command == "mount") {
+        return husk::commands::mount(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

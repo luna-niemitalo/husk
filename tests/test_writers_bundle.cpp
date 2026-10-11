@@ -175,7 +175,7 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     CHECK(manifest["schema_version"] == "0.1.0");
     CHECK(manifest["space"]["length_unit"] == "yard");
     CHECK(manifest["provenance"]["producer"] == "husk test");
-    CHECK(manifest["provenance"].contains("exported_at"));
+    CHECK_FALSE(manifest["provenance"].contains("exported_at"));
     CHECK(manifest["definition"]["placement_sets"].empty());
     CHECK(manifest["selection"]["placement_sets"].empty());
     CHECK(manifest["references"].empty());
