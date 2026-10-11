@@ -111,6 +111,11 @@ here, rather than the place the rules are discovered by reading code.
    both exist (no redundant decode).
 2. **Listfile** — `<listfileRoot>/<real content path>` for that FileDataID.
    Deterministic: real data, not a guess, so it outranks tier 3.
+   - **Store** — `<listfileRoot>/_by_fdid/<FileDataID>` in a casc-tool tree,
+     for FileDataIDs the listfile can't name. Exact, so it also outranks
+     tier 3; after the listfile only because that path carries the real
+     name. Extensionless, so BLP is recognised by its `BLP2` magic. The
+     DB2-character tier reads its fdid through literal → listfile → store.
 3. **Fuzzy same-basename pool** — files in `texturesDir` whose stem starts with
    the model's basename, filtered by texture type, claim-and-remove so one image
    cannot fill every unresolved slot on a model.

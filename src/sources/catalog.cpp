@@ -141,6 +141,36 @@ Resolved<EncodedTexture> Catalog::resolveListfileTier(uint32_t fdid) const {
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Listfile, stem.string() + ".{png,blp}");
 }
 
+// After the listfile, not before: a named FileDataID reads the same bytes
+// either way, and the listfile path gives the texture its real name. This
+// tier exists for the FileDataIDs the listfile can't name (DB2-referenced
+// textures of new content); its name is the bare fdid. The entry has no
+// extension, so readTextureFileBytes decodes it by its BLP2 magic.
+Resolved<EncodedTexture> Catalog::resolveStoreTier(uint32_t fdid) const {
+    auto path = storePathForFileDataId(listfileRoot_, fdid);
+    if (!path) {
+        return Resolved<EncodedTexture>::miss(ResolutionTier::Store, "no '_by_fdid/" + std::to_string(fdid) +
+                                                                        "' under '" + listfileRoot_ + "'");
+    }
+    auto bytes = husk::commands::readTextureFileBytes(*path, listfileRoot_, texturesOutDir_);
+    if (!bytes) {
+        return Resolved<EncodedTexture>::miss(ResolutionTier::Store,
+                                               "'" + path->string() + "' exists but failed to read/decode");
+    }
+    EncodedTexture et;
+    et.bytes = std::move(*bytes);
+    et.imageName = std::to_string(fdid);
+    et.sourcePath = *path;
+    return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Store, path->string());
+}
+
+Resolved<EncodedTexture> Catalog::resolveFileDataIdTiers(uint32_t fdid) const {
+    Resolved<EncodedTexture> result = resolveLiteralTier(fdid);
+    if (!result.found()) result = resolveListfileTier(fdid);
+    if (!result.found()) result = resolveStoreTier(fdid);
+    return result;
+}
+
 // The DB2-character tier, between tier 2 (listfile) and tier 3 (fuzzy
 // pool) -- see `CharacterTextureContext`'s own doc comment for where the
 // two maps it reads come from. Three independent conditions all have to
@@ -181,14 +211,13 @@ Resolved<EncodedTexture> Catalog::resolveDb2CharacterTier(uint32_t textureType) 
     }
 
     uint32_t dbFdid = fdidIt->second;
-    Resolved<EncodedTexture> result = resolveLiteralTier(dbFdid);
-    if (!result.found()) result = resolveListfileTier(dbFdid);
+    Resolved<EncodedTexture> result = resolveFileDataIdTiers(dbFdid);
     if (!result.found()) {
         return Resolved<EncodedTexture>::miss(
             ResolutionTier::Db2Character, "DB2 names FileDataID " + std::to_string(dbFdid) + " for target " +
                                                std::to_string(target) +
-                                               ", but neither literal nor listfile resolution found bytes "
-                                               "for it (" +
+                                               ", but neither literal, listfile nor store resolution "
+                                               "found bytes for it (" +
                                                result.reason + ")");
     }
     result.tier = ResolutionTier::Db2Character;
@@ -315,10 +344,7 @@ Resolved<EncodedTexture> Catalog::texture(uint32_t fdid, uint32_t textureType, c
     // resolveListfileTextureBytes to look up a literal "0.png").
     Resolved<EncodedTexture> result =
         Resolved<EncodedTexture>::miss(ResolutionTier::Miss, "fdid == 0, no deterministic tier to try");
-    if (fdid != 0) {
-        result = resolveLiteralTier(fdid);
-        if (!result.found()) result = resolveListfileTier(fdid);
-    }
+    if (fdid != 0) result = resolveFileDataIdTiers(fdid);
     if (!result.found()) {
         result = resolveDb2CharacterTier(textureType);
     }

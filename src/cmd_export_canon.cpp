@@ -15,6 +15,7 @@
 #include "m2_scene_input.hpp"  // m2input::particleTextureIndices
 #include "skel.hpp"             // .skel-sourced bones/sequences (AUDIT.md §7.2)
 #include "skin.hpp"
+#include "sources/listfile_catalog.hpp"
 #include "sources/texture_payload.hpp"  // BUNDLE_FORMAT.md's DDS-housed source payload
 #include "writers/bundle_writer.hpp"
 #include "version.hpp"
@@ -120,7 +121,8 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
     // rehoused verbatim into DDS, for whichever writer wants the lossless
     // archival form (bundle_writer.cpp) rather than the PNG projection
     // (gltf_lean.cpp). Only reachable when the catalog's own answer names a
-    // real `.blp` file on disk (`EncodedTexture::sourcePath`) -- a `.png`
+    // real non-`.png` file on disk (`EncodedTexture::sourcePath`: a `.blp`,
+    // or an extensionless casc-tool `_by_fdid` entry) -- a `.png`
     // source, or a texture that resolved with no real file behind it at
     // all, simply leaves this unset rather than fabricating a DDS from
     // nothing. `blp::extractRawPayload` itself declines (ParseError) for
@@ -128,7 +130,8 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
     // treated the same "not available for this source" way, not a hard
     // failure of the whole texture resolution: the PNG `payload` above
     // still stands regardless.
-    if (resolved.value->sourcePath.extension() == ".blp") {
+    const std::filesystem::path& source = resolved.value->sourcePath;
+    if (!source.empty() && source.extension() != ".png") {
         try {
             ref.rawPayload = sources::ddsPayloadFromBlp(readFileBytes(resolved.value->sourcePath.string()));
         } catch (const blp::ParseError&) {
@@ -250,8 +253,8 @@ std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const
 
 // One non-inline, non-alias sequence's already-loaded external .anim
 // payload bytes, mirroring buildAnimations's own external-.anim resolution
-// (export_animation.cpp: FileDataID-named file first, same-basename
-// fallback second, AFSB-over-AFM2 priority in a chunked file) exactly --
+// (export_animation.cpp: FileDataID-named file first, the casc-tool store
+// second, same-basename fallback third, AFSB-over-AFM2 priority in a chunked file) exactly --
 // reimplemented independently in THIS file rather than calling into or
 // factoring shared code out of export_animation.cpp/.hpp. Deliberate:
 // `--export-canon`'s whole point is comparing canon:: against an
@@ -267,7 +270,8 @@ std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const
 // principle.
 std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
     const m2::Sequence& seq, const std::optional<std::vector<m2::Header::AnimFileEntry>>& animFileIds,
-    bool animChunked, const std::string& animDir, const std::string& modelPath) {
+    bool animChunked, const std::string& animDir, const std::string& listfileRoot,
+    const std::string& modelPath) {
     if (animDir.empty()) return std::nullopt;
 
     std::filesystem::path animPath;
@@ -277,6 +281,9 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
     }
     std::ifstream f;
     if (!animPath.empty()) f.open(animPath, std::ios::binary);
+    if (!f.is_open() && fileId != 0) {
+        if (auto stored = sources::storePathForFileDataId(listfileRoot, fileId)) f.open(*stored, std::ios::binary);
+    }
     if (!f.is_open()) {
         animPath = findAnimFileByBasename(modelPath, animDir, seq.id, seq.variationIndex);
         f.open(animPath, std::ios::binary);
@@ -316,7 +323,8 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
 m2input::ExternalAnimBlobs buildExternalAnimBlobs(
     const std::vector<m2::Sequence>& sequences,
     const std::optional<std::vector<m2::Header::AnimFileEntry>>& animFileIds, bool animChunked,
-    const std::string& animDir, const std::string& modelPath) {
+    const std::string& animDir, const std::string& listfileRoot,
+    const std::string& modelPath) {
     m2input::ExternalAnimBlobs blobs;
     if (animDir.empty()) return blobs;
 
@@ -324,7 +332,7 @@ m2input::ExternalAnimBlobs buildExternalAnimBlobs(
         const m2::Sequence& seq = sequences[si];
         if ((seq.flags & kSequenceStoredInlineFlag) != 0) continue;
         if ((seq.flags & kSequenceAliasFlag) != 0) continue;  // pure alias -- resolved via its terminal, not here
-        if (auto blob = resolveExternalAnimBlobForCanon(seq, animFileIds, animChunked, animDir, modelPath)) {
+        if (auto blob = resolveExternalAnimBlobForCanon(seq, animFileIds, animChunked, animDir, listfileRoot, modelPath)) {
             blobs.emplace(static_cast<uint32_t>(si), std::move(*blob));
         }
     }
@@ -354,7 +362,7 @@ writers::Provenance m2Provenance() { return writers::Provenance{std::string("hus
 
 CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
                                const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
-                               const std::string& animDir, bool bonesAreInline, bool haveSkel,
+                               const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                                const std::vector<uint8_t>& skelBytes) {
     auto skinBytes = readFileBytes(skinPath);
     skin::Header skinHeader = skin::parseHeader(skinBytes);
@@ -404,12 +412,12 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
 
     m2input::ExternalAnimBlobs externalAnimBlobs =
         (bonesAreInline || haveSkel)
-            ? buildExternalAnimBlobs(effectiveSequences, effectiveAnimFileIds, animChunked, animDir, modelPath)
+            ? buildExternalAnimBlobs(effectiveSequences, effectiveAnimFileIds, animChunked, animDir, listfileRoot, modelPath)
             : m2input::ExternalAnimBlobs{};
 
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
                                                          externalAnimBlobs, textureResolutions, externalSkeleton);
-    canonModel.subject = writers::subjectRef(modelPath, std::nullopt);
+    canonModel.subject = writers::subjectRef(modelPath, sources::fileDataIdForStorePath(modelPath));
     return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
 }
 
@@ -419,12 +427,12 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            sources::Catalog& catalog, const std::string& modelPath,
-                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline,
+                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline,
                            bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials) {
     try {
         CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId,
-                                               animDir, bonesAreInline, haveSkel, skelBytes);
+                                               animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes);
         const canon::Model& canonModel = build.model;
         const std::vector<skin::Batch>& batches = build.batches;
         const std::vector<skin::Submesh>& submeshes = build.submeshes;
@@ -471,9 +479,9 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
 
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
                           const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
-                          const std::string& animDir, bool bonesAreInline, bool haveSkel,
+                          const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir) {
-    CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId, animDir,
+    CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes);
     writers::writeBundle(build.model, bundleDir, m2Provenance());
 }

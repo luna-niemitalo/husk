@@ -102,7 +102,8 @@ struct Provenance {
 // definition, selection, references and the kind's data.
 // The subject Ref of a document decoded from `file`: identity is the
 // FileDataID when the caller knows it. The name is the file's stem; the
-// corpus's file names come from the community listfile.
+// corpus's file names come from the community listfile, except a
+// casc-tool store path (`_by_fdid/<fdid>`), whose stem is the id itself.
 canon::Ref subjectRef(const std::filesystem::path& file, std::optional<uint32_t> fileDataId);
 
 void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& subject, const Provenance& provenance);

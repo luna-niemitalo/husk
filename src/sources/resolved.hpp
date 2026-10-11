@@ -35,6 +35,7 @@ namespace husk::sources {
 enum class ResolutionTier {
     Literal,                // <texturesDir>/<FileDataID>.{png,blp}
     Listfile,                // <listfileRoot>/<real content path>
+    Store,                   // <listfileRoot>/_by_fdid/<FileDataID>, a casc-tool tree
     Db2Character,            // ChrModelTextureLayer/ChrCustomizationChoice-derived fdid, read via tier 1/2
     ParentDirectorySameBasename,  // one directory level up, same-basename pool
     FuzzySameBasenamePool,   // same-basename pool, claim-and-remove
@@ -50,6 +51,8 @@ constexpr std::string_view tierName(ResolutionTier tier) {
             return "literal";
         case ResolutionTier::Listfile:
             return "listfile";
+        case ResolutionTier::Store:
+            return "store";
         case ResolutionTier::Db2Character:
             return "db2-character";
         case ResolutionTier::ParentDirectorySameBasename:

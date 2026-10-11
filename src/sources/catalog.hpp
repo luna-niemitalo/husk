@@ -149,15 +149,15 @@ public:
 
     // RESOURCE_CATALOG.md's "Normative tier order", the real object owning
     // it: literal `<texturesDir>/<fdid>.{png,blp}` -> `--listfile` ->
-    // DB2-character (opt-in, see `setCharacterTextureContext`) ->
+    // store `<listfileRoot>/_by_fdid/<fdid>` -> DB2-character (opt-in, see `setCharacterTextureContext`) ->
     // same-basename fuzzy pool (claim-and-remove, now catalog-owned --
     // RESOURCE_CATALOG.md's Settled section, "Tier 3's shape": the three-way
     // branch a caller used to see -- claimed-and-read / nothing-claimed-so-
     // scan-for-ambiguity / 2+ candidates -- collapses into this one call).
     // The DB2-character tier produces a fdid, never bytes of its own --
-    // read via the same `resolveLiteralTier`/`resolveListfileTier` calls
-    // tier 1/2 already make (never a fourth way to turn a fdid into bytes),
-    // just against a DB2-derived fdid instead of the slot's own M2 one.
+    // read via the same `resolveFileDataIdTiers` the slot's own fdid goes
+    // through (never a second way to turn a fdid into bytes), just against
+    // a DB2-derived fdid instead of the slot's own M2 one.
     //
     // Deliberately does NOT include:
     // - Tier 4 (parent-directory same-basename). Blender-script-only today
@@ -237,6 +237,8 @@ private:
     ModelState& stateForModel(const TextureModelContext& model);
     Resolved<EncodedTexture> resolveLiteralTier(uint32_t fdid) const;
     Resolved<EncodedTexture> resolveListfileTier(uint32_t fdid) const;
+    Resolved<EncodedTexture> resolveStoreTier(uint32_t fdid) const;
+    Resolved<EncodedTexture> resolveFileDataIdTiers(uint32_t fdid) const;
     Resolved<EncodedTexture> resolveDb2CharacterTier(uint32_t textureType) const;
     Resolved<EncodedTexture> resolveFuzzyTier(ModelState& state, uint32_t textureType,
                                                const std::string& modelPath, bool preferGlowVariant);

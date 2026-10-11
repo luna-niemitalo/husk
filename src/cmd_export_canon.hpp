@@ -74,7 +74,7 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            husk::sources::Catalog& catalog, const std::string& modelPath,
-                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline,
+                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline,
                            bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials = {});
 
@@ -83,7 +83,7 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
 // failure (unlike runCanonExport, the bundle is this mode's only output).
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, husk::sources::Catalog& catalog,
                           const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
-                          const std::string& animDir, bool bonesAreInline, bool haveSkel,
+                          const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir);
 
 }  // namespace husk::commands

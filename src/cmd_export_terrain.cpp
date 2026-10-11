@@ -222,26 +222,25 @@ Sidecar<Parsed> loadSidecar(const std::filesystem::path& root, const std::string
     return out;
 }
 
-// FileDataID -> listfile path -> the BLP on disk -> its DDS-housed source
-// blocks, or decoded PNG when the encoding can't be rehoused (palettized).
-// Terrain has no model directory to search, so of RESOURCE_CATALOG.md's
-// texture tiers only the listfile one applies.
+// FileDataID -> the BLP on disk -> its DDS-housed source blocks, or decoded
+// PNG when the encoding can't be rehoused (palettized). Terrain has no
+// model directory to search, so of RESOURCE_CATALOG.md's texture tiers only
+// the listfile and store ones apply.
 canon::TextureRef resolveTexture(uint32_t fdid, const ListfileIndex& listfile, const std::string& listfileRoot) {
     canon::TextureRef ref;
-    std::optional<std::filesystem::path> path = sources::pathForFileDataId(listfile, listfileRoot, fdid);
+    std::optional<std::filesystem::path> path = sources::localFileForFileDataId(listfile, listfileRoot, fdid);
     if (!path) {
         ref.state = canon::TextureRef::State::KnownUnresolved;
-        ref.unresolvedReason = "FileDataID " + std::to_string(fdid) + " not in listfile";
-        return ref;
-    }
-    if (!std::filesystem::exists(*path)) {
-        ref.state = canon::TextureRef::State::KnownUnresolved;
-        ref.unresolvedReason = "listfile path not extracted locally: " + path->string();
+        ref.unresolvedReason = "FileDataID " + std::to_string(fdid) + " has no local file (listfile or _by_fdid)";
         return ref;
     }
     std::vector<uint8_t> bytes = adt::readFile(*path);
     ref.state = canon::TextureRef::State::Resolved;
-    ref.resolved = canon::Ref{canon::FileDataId{fdid}, path->stem().string(), canon::NameSource::Listfile};
+    ref.resolved = canon::Ref{canon::FileDataId{fdid}, std::to_string(fdid), canon::NameSource::Synthesized};
+    if (auto name = sources::contentNameForFileDataId(listfile, fdid)) {
+        ref.resolved.name = *name;
+        ref.resolved.source = canon::NameSource::Listfile;
+    }
     try {
         ref.rawPayload = sources::ddsPayloadFromBlp(bytes);
     } catch (const blp::ParseError&) {
@@ -314,16 +313,15 @@ void nameModelRefs(canon::Terrain& terrain, const ListfileIndex& listfile) {
 
 std::string modelBundleName(uint32_t fdid) { return std::to_string(fdid) + ".canon.bundle"; }
 
-// IN, critical when found: a WMO group file, by its GFID FileDataID through
-// the listfile, else by the <root stem>_NNN.wmo name beside the root (the
-// local extraction's naming). nullopt when neither exists.
+// IN, critical when found: a WMO group file, by its GFID FileDataID (listfile
+// path or the store), else by the <root stem>_NNN.wmo name beside the root
+// (the local extraction's naming). nullopt when neither exists.
 std::optional<std::filesystem::path> findWmoGroupFile(const std::filesystem::path& rootPath, const wmo::RootFile& root,
                                                       uint32_t group, const ListfileIndex* listfile,
                                                       const std::string& listfileRoot) {
     uint32_t fdid = wmo::groupFileDataId(root, 0, group);
     if (listfile && fdid != 0) {
-        std::optional<std::filesystem::path> listed = sources::pathForFileDataId(*listfile, listfileRoot, fdid);
-        if (listed && std::filesystem::exists(*listed)) return listed;
+        if (auto found = sources::localFileForFileDataId(*listfile, listfileRoot, fdid)) return found;
     }
     std::string suffix = std::to_string(group);
     suffix.insert(0, suffix.size() < 3 ? 3 - suffix.size() : 0, '0');
@@ -910,12 +908,8 @@ int exportWorld(int argc, char** args) {
         // The WMOs' own doodads join the model pass. Only roots are read
         // here; a WMO that can't be found is logged now and skipped silently
         // when its bundle would be written.
-        auto wmoSource = [&](uint32_t fdid) -> std::optional<std::filesystem::path> {
-            std::optional<std::string_view> listed = listfile->lookup(fdid);
-            if (!listed) return std::nullopt;
-            std::filesystem::path src = std::filesystem::path(opts.listfileRoot) / std::string(*listed);
-            if (!std::filesystem::exists(src)) return std::nullopt;
-            return src;
+        auto wmoSource = [&](uint32_t fdid) {
+            return sources::localFileForFileDataId(*listfile, opts.listfileRoot, fdid);
         };
         std::vector<uint32_t> wmos(wmoIds.begin(), wmoIds.end());
         if (!opts.skipModels) {
@@ -960,17 +954,13 @@ int exportWorld(int argc, char** args) {
                 std::filesystem::path bundle = modelsDir / modelBundleName(fdid);
                 try {
                     if (!std::filesystem::exists(bundle / "manifest.json")) {
-                        std::optional<std::string_view> listed = listfile->lookup(fdid);
-                        if (!listed) {
-                            errors.add("model", std::to_string(fdid), "not in listfile");
-                        } else {
-                            std::filesystem::path src = std::filesystem::path(opts.listfileRoot) / std::string(*listed);
-                            if (!std::filesystem::exists(src)) {
-                                errors.add("model", std::to_string(fdid), "not extracted: " + src.string());
-                            } else if (exportOneModel(modelOpts, modelApp, src.string(), bundle.string(), true,
-                                                      *listfile) != 0) {
-                                errors.add("model", std::to_string(fdid), "export failed (see stderr): " + src.string());
-                            }
+                        std::optional<std::filesystem::path> src =
+                            sources::localFileForFileDataId(*listfile, opts.listfileRoot, fdid);
+                        if (!src) {
+                            errors.add("model", std::to_string(fdid), "no local file (listfile or _by_fdid)");
+                        } else if (exportOneModel(modelOpts, modelApp, src->string(), bundle.string(), true,
+                                                  *listfile) != 0) {
+                            errors.add("model", std::to_string(fdid), "export failed (see stderr): " + src->string());
                         }
                     }
                 } catch (...) {

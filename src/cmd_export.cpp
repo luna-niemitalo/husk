@@ -174,7 +174,7 @@ std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model
 std::vector<gltf::Animation> resolveAnimationsForModel(
     bool animNone, bool bonesAreInline, bool haveSkel, const m2::Model& model,
     const std::vector<uint8_t>& skelBytes, const std::vector<m2::Bone>& bones, const gltf::Skeleton& skeleton,
-    const std::string& animDir, const std::string& modelPath,
+    const std::string& animDir, const std::string& listfileRoot, const std::string& modelPath,
     const std::unordered_map<uint32_t, std::string>* animationNames) {
     std::vector<gltf::Animation> animations;
     if (animNone) return animations;
@@ -189,6 +189,7 @@ std::vector<gltf::Animation> resolveAnimationsForModel(
         animInputs.animFileIds = header.animFileIds;
         animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
         animInputs.animDir = animDir;
+        animInputs.listfileRoot = listfileRoot;
         animInputs.modelPath = modelPath;
         animations = buildAnimations(blob, bones, skeleton, sequences, animInputs, animationNames);
         // Global-sequence-driven tracks (continuous looping animation
@@ -213,6 +214,7 @@ std::vector<gltf::Animation> resolveAnimationsForModel(
             animInputs.animFileIds = skel::findAnimFileIds(skelBytes);
             animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
             animInputs.animDir = animDir;
+            animInputs.listfileRoot = listfileRoot;
             animInputs.modelPath = modelPath;
             animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs, animationNames);
         }
@@ -914,20 +916,14 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex
         if (item.modelFileDataIds.empty()) continue;
         uint32_t fdid = item.modelFileDataIds.front();
 
-        auto resolved = husk::sources::pathForFileDataId(listfile, listfileRoot, fdid);
+        auto resolved = husk::sources::localFileForFileDataId(listfile, listfileRoot, fdid);
         if (!resolved) {
             std::cerr << "husk: note: gear slot '" << item.slot << "' model FileDataID " << fdid
-                      << " has no --listfile entry -- can't export its own aux .glb, skipping\n";
+                      << " has no local file (--listfile path or --listfile-root's _by_fdid) -- can't export "
+                         "its own aux .glb, skipping\n";
             continue;
         }
         std::filesystem::path itemModelPath = *resolved;
-        std::error_code ec;
-        if (!std::filesystem::exists(itemModelPath, ec) || ec) {
-            std::cerr << "husk: note: gear slot '" << item.slot << "' model FileDataID " << fdid
-                      << " resolved to '" << itemModelPath.string()
-                      << "' via --listfile, but that file doesn't exist locally -- skipping\n";
-            continue;
-        }
 
         std::error_code mkEc;
         std::filesystem::create_directories(auxDir, mkEc);
@@ -1255,7 +1251,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             // canon:: builds its own clips; legacy ones only feed the .glb and the deviation report.
             if (!opts.bundleOnly) {
                 animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, model, skelBytes,
-                                                        bones, skeleton, animDir, modelPath,
+                                                        bones, skeleton, animDir, listfileRoot, modelPath,
                                                         animationNames.empty() ? nullptr : &animationNames);
             }
             attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
@@ -1305,7 +1301,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                 throw std::runtime_error("--bundle-only: the resolved skin tier has no renderable geometry");
             }
             writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath, objectSkinTextureFileDataId,
-                                 animDir, bonesAreInline, haveSkel, skelBytes, outputPath);
+                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath);
             std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
             return 0;
         }
@@ -1324,7 +1320,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                              "geometry -- nothing to compare\n";
             } else {
                 runCanonExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
-                                animations, outputPath, catalog, modelPath, objectSkinTextureFileDataId, animDir,
+                                animations, outputPath, catalog, modelPath, objectSkinTextureFileDataId, animDir, listfileRoot,
                                 bonesAreInline, haveSkel, skelBytes, namedMeshes.front().materials);
             }
         }

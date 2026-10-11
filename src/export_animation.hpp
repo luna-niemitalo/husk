@@ -33,6 +33,7 @@ struct M2AnimInputs {
     // chunked .anim file.
     bool animChunked = false;
     std::string animDir;
+    std::string listfileRoot;  // a casc-tool tree's _by_fdid/, between the two conventions
     std::string modelPath;  // for findAnimFileByBasename's fallback below
 };
 

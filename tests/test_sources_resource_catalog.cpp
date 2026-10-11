@@ -13,6 +13,7 @@
 #include "../src/export_texture_resolution.hpp"
 #include "../src/listfile_index.hpp"
 #include "../src/sources/catalog.hpp"
+#include "test_adt_fixtures.hpp"  // adtfx::oneBlockBlp
 
 using husk::sources::Catalog;
 using husk::sources::CharacterTextureContext;
@@ -71,6 +72,39 @@ TEST_CASE("Catalog::texture hits tier 2 (listfile) when tier 1 misses but the li
     CHECK(r.tier == ResolutionTier::Listfile);
     CHECK(r.value->bytes == kPng);
     CHECK(r.value->imageName == "bubble");
+}
+
+TEST_CASE("Catalog::texture reads <listfileRoot>/_by_fdid/<fdid> when the listfile can't name it, "
+          "decoding the extensionless BLP by its magic") {
+    auto root = fs::temp_directory_path() / "husk-catalog-store-hit";
+    fs::remove_all(root);
+    writeFile(root / "_by_fdid" / "777", adtfx::oneBlockBlp());
+
+    Catalog cat(root.string(), kNoListfile, root.string(), "");
+    auto r = cat.texture(777, /*textureType=*/1, ctxFor((root / "somemodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::Store);
+    REQUIRE(r.value->bytes.size() > 8);
+    CHECK(r.value->bytes[1] == 'P');  // decoded to PNG, not passed through
+    CHECK(r.value->imageName == "777");
+    CHECK(r.value->sourcePath == root / "_by_fdid" / "777");
+    fs::remove_all(root);
+}
+
+TEST_CASE("Catalog::texture prefers the listfile path over the store: it carries the real name") {
+    auto root = fs::temp_directory_path() / "husk-catalog-store-vs-listfile";
+    fs::remove_all(root);
+    writeFile(root / "world" / "bubble.png", kPng);
+    writeFile(root / "_by_fdid" / "555", kPng);
+
+    std::unordered_map<uint32_t, std::string> listfile{{555, "world/bubble.blp"}};
+    husk::MapListfileIndex listfileIndex(listfile);
+    Catalog cat(root.string(), listfileIndex, root.string(), "");
+    auto r = cat.texture(555, /*textureType=*/1, ctxFor((root / "somemodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::Listfile);
+    CHECK(r.value->imageName == "bubble");
+    fs::remove_all(root);
 }
 
 TEST_CASE("Catalog::texture hits tier 3 (fuzzy pool) claiming the sole type-compatible candidate") {

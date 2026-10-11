@@ -103,7 +103,9 @@ void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris
 
 canon::Ref subjectRef(const std::filesystem::path& file, std::optional<uint32_t> fileDataId) {
     canon::Identity id = fileDataId ? canon::Identity{canon::FileDataId{*fileDataId}} : canon::Identity{canon::None{}};
-    return canon::Ref{id, file.stem().string(), canon::NameSource::Listfile};
+    std::string name = file.stem().string();
+    bool nameIsId = fileDataId && name == std::to_string(*fileDataId);
+    return canon::Ref{id, name, nameIsId ? canon::NameSource::Synthesized : canon::NameSource::Listfile};
 }
 
 void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& subject, const Provenance& provenance) {

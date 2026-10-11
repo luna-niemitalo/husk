@@ -59,6 +59,10 @@ std::optional<uint32_t> fileDataIdForPath(const husk::ListfileIndex& listfile, c
 std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex& listfile,
                                                          const std::string& listfileRoot, uint32_t fdid);
 
+// The FileDataID a casc-tool tree path names by itself: `.../_by_fdid/<n>`
+// or `.../_unresolved/<n>`. nullopt for any other path.
+std::optional<uint32_t> fileDataIdForStorePath(const std::filesystem::path& path);
+
 // `<listfileRoot>/_by_fdid/<fdid>` when it exists, else nullopt. A
 // casc-tool tree (its mount or `view`) serves every FileDataID of its
 // build there, named by the listfile or not, so this is the one lookup that
@@ -67,6 +71,13 @@ std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex
 // `..._gn_m00.skin` is FileDataID 6217827, while its SFID declares
 // 6217937). The entry has no extension; callers know what they asked for.
 std::optional<std::filesystem::path> storePathForFileDataId(const std::string& listfileRoot, uint32_t fdid);
+
+// The local file holding `fdid`: its listfile path under `listfileRoot`
+// when that exists (the path carries the real name and extension), else
+// storePathForFileDataId. nullopt when neither exists. For callers that
+// read the file by content; texture tiers keep their own .png/.blp order.
+std::optional<std::filesystem::path> localFileForFileDataId(const husk::ListfileIndex& listfile,
+                                                            const std::string& listfileRoot, uint32_t fdid);
 
 // The real --listfile content name for `fdid`, for human-readable display
 // (Blender image datablock/material names, --slim-textures' written

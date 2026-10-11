@@ -6,6 +6,7 @@
 
 #include "chunk.hpp"
 #include "export_transform.hpp"
+#include "sources/listfile_catalog.hpp"
 
 namespace husk::commands {
 
@@ -216,16 +217,17 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                 continue;
             }
             // FileDataID-named file first (primary -- some extraction tools
-            // do use this convention); same-basename convention second (the
-            // real wow.export-shaped fallback, see findAnimFileByBasename).
+            // do use this convention); `<listfileRoot>/_by_fdid/<id>` second;
+            // same-basename convention third (the real wow.export-shaped
+            // fallback, see findAnimFileByBasename).
             // Neither requires the other: an AFID-less model/.skel
             // (animFileIds == std::nullopt) skips straight to the basename
             // attempt below, rather than skipping external resolution
             // outright.
             std::filesystem::path animPath;
+            uint32_t fileId = 0;
             if (animInputs.animFileIds) {
-                uint32_t fileId =
-                    findAnimFileId(*animInputs.animFileIds, sourceSeq.id, sourceSeq.variationIndex);
+                fileId = findAnimFileId(*animInputs.animFileIds, sourceSeq.id, sourceSeq.variationIndex);
                 if (fileId != 0) {
                     animPath =
                         std::filesystem::path(animInputs.animDir) / (std::to_string(fileId) + ".anim");
@@ -240,6 +242,14 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
             std::ifstream f;
             if (!animPath.empty()) {
                 f.open(animPath, std::ios::binary);
+            }
+            // The store before the basename convention: a listfile can give
+            // this model's .anim names to another FileDataID.
+            if (!f.is_open() && fileId != 0) {
+                if (auto stored = sources::storePathForFileDataId(animInputs.listfileRoot, fileId)) {
+                    animPath = *stored;
+                    f.open(animPath, std::ios::binary);
+                }
             }
             if (!f.is_open()) {
                 animPath = findAnimFileByBasename(animInputs.modelPath, animInputs.animDir, sourceSeq.id,

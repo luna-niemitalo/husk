@@ -330,8 +330,11 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
     `helm_armor_ethereal_d_01_gn_m00.skin` is FDID 6217827, while that
     M2's SFID declares 6217937. Same-basename lookups (skins, fuzzy
     texture pool) can't detect this; the mount's `_by_fdid/<fdid>` can't
-    be wrong. The SFID skin stage reads it; textures, anims and model
-    FDIDs don't yet.
+    be wrong. Every FDID lookup tries it (`sources::
+    storePathForFileDataId`/`localFileForFileDataId`): SFID skins and
+    AFID anims before the same-basename names, textures after the
+    listfile tier, models/WMO groups/terrain textures after the listfile
+    path.
   - `tools/corpus_scan_tasks/unfillable_texture_task.py` is the one true
     source for "does this file's texture actually resolve" —
     `missing_texture_task.py` is an older, simpler check that over-flags;

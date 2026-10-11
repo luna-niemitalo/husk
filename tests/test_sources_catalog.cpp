@@ -19,6 +19,8 @@ using husk::MapListfileIndex;
 using husk::sources::contentNameForFileDataId;
 using husk::sources::fileDataIdForPath;
 using husk::sources::pathForFileDataId;
+using husk::sources::fileDataIdForStorePath;
+using husk::sources::localFileForFileDataId;
 using husk::sources::storePathForFileDataId;
 
 TEST_CASE("sources::fileDataIdForPath matches a real listfile row, case-insensitively") {
@@ -90,6 +92,32 @@ TEST_CASE("sources::storePathForFileDataId finds <root>/_by_fdid/<fdid> only whe
     CHECK_FALSE(storePathForFileDataId(root.string(), 43).has_value());
     CHECK_FALSE(storePathForFileDataId(root.string(), 7).has_value());
     CHECK_FALSE(storePathForFileDataId("", 42).has_value());
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("sources::fileDataIdForStorePath reads the id from _by_fdid/ and _unresolved/ paths only") {
+    CHECK(fileDataIdForStorePath("/mnt/live/_by_fdid/6184803") == 6184803u);
+    CHECK(fileDataIdForStorePath("/mnt/live/_unresolved/42") == 42u);
+    CHECK_FALSE(fileDataIdForStorePath("/mnt/live/item/6184803").has_value());
+    CHECK_FALSE(fileDataIdForStorePath("/mnt/live/_by_fdid/6184803.m2").has_value());
+    CHECK_FALSE(fileDataIdForStorePath("/mnt/live/_by_fdid/99999999999").has_value());
+}
+
+TEST_CASE("sources::localFileForFileDataId: the listfile path when it exists, else the store") {
+    auto root = std::filesystem::temp_directory_path() / "husk-local-file-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "_by_fdid");
+    std::filesystem::create_directories(root / "item");
+    std::ofstream(root / "item" / "named.m2") << "x";
+    std::ofstream(root / "_by_fdid" / "1") << "x";
+    std::ofstream(root / "_by_fdid" / "2") << "x";
+    std::unordered_map<uint32_t, std::string> listfile{{1, "item/named.m2"}, {3, "item/not_extracted.m2"}};
+    MapListfileIndex idx(listfile);
+
+    CHECK(localFileForFileDataId(idx, root.string(), 1) == root / "item" / "named.m2");
+    CHECK(localFileForFileDataId(idx, root.string(), 2) == root / "_by_fdid" / "2");
+    CHECK_FALSE(localFileForFileDataId(idx, root.string(), 3).has_value());
 
     std::filesystem::remove_all(root);
 }

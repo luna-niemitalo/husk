@@ -41,12 +41,34 @@ std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex
     return std::filesystem::path(listfileRoot) / std::filesystem::path(*found);
 }
 
+std::optional<uint32_t> fileDataIdForStorePath(const std::filesystem::path& path) {
+    std::string dir = path.parent_path().filename().string();
+    if (dir != "_by_fdid" && dir != "_unresolved") return std::nullopt;
+    std::string name = path.filename().string();
+    if (name.empty() || name.size() > 10 ||
+        !std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isdigit(c); })) {
+        return std::nullopt;
+    }
+    uint64_t value = std::stoull(name);
+    if (value > UINT32_MAX) return std::nullopt;
+    return static_cast<uint32_t>(value);
+}
+
 std::optional<std::filesystem::path> storePathForFileDataId(const std::string& listfileRoot, uint32_t fdid) {
     if (listfileRoot.empty()) return std::nullopt;
     std::filesystem::path path = std::filesystem::path(listfileRoot) / "_by_fdid" / std::to_string(fdid);
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec)) return std::nullopt;
     return path;
+}
+
+std::optional<std::filesystem::path> localFileForFileDataId(const husk::ListfileIndex& listfile,
+                                                            const std::string& listfileRoot, uint32_t fdid) {
+    if (auto listed = pathForFileDataId(listfile, listfileRoot, fdid)) {
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(*listed, ec)) return listed;
+    }
+    return storePathForFileDataId(listfileRoot, fdid);
 }
 
 std::optional<std::string> contentNameForFileDataId(const husk::ListfileIndex& listfile, uint32_t fdid) {
