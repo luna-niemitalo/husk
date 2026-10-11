@@ -21,6 +21,7 @@
 #include <CLI/CLI.hpp>
 
 #include "commands.hpp"
+#include "husk_config.hpp"
 #include "corpus_store.hpp"
 
 namespace fs = std::filesystem;
@@ -402,6 +403,76 @@ int storeAdd(int argc, char** args) {
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: store-add: " << e.what() << "\n";
+        return 1;
+    }
+}
+
+void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts) {
+    app.set_config("--config", husk::defaultConfigPath(),
+                   "TOML file of default flag values (see README.md's config-file section)")
+        ->envname("HUSK_CONFIG");
+    app.add_option("output", opts.output, "tree to write (export-world's layout, every asset)")->required();
+    app.add_option("--listfile", opts.listfile, "community listfile CSV")->required();
+    app.add_option("--listfile-root", opts.listfileRoot, "the game tree the listfile's paths are relative to")
+        ->required();
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, or 'none'")->default_val("none");
+    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->default_val("none");
+    app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)");
+    app.add_option("--map", opts.maps, "only this map (repeatable; default every map)");
+    app.add_option("--sample", opts.sample, "only this many listfile assets, a fixed seeded random choice");
+    app.add_option("--store", opts.store, "afterwards, record the tree as a build in this store");
+    app.add_option("--game", opts.game, "with --store: the game build label");
+    app.add_option("--game-from", opts.gameFrom,
+                   "with --store: read the game build from a source mount's tag link (default: --listfile-root)");
+    app.add_option("--tag", opts.tags, "with --store: point this tag at the build; repeatable");
+}
+
+int exportCorpus(int argc, char** args) {
+    CLI::App app{"husk export-corpus -- every map and every M2/WMO of a game build, optionally into the store",
+                 "husk export-corpus"};
+    ExportCorpusOptions opts;
+    addExportCorpusOptions(app, opts);
+    int exitCode = 0;
+    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    try {
+        // Resolved before the hours of export, so a bad label fails now.
+        std::string game;
+        if (!opts.store.empty()) game = opts.game.empty() ? gameLabelOf(opts.gameFrom.empty() ? opts.listfileRoot : opts.gameFrom) : opts.game;
+
+        std::vector<std::string> worldArgs = {(fs::path(opts.listfileRoot) / "world" / "maps").string(),
+                                              opts.output,
+                                              "--listfile", opts.listfile,
+                                              "--listfile-root", opts.listfileRoot,
+                                              "--db2-dir", opts.db2Dir,
+                                              "--dbd-dir", opts.dbdDir,
+                                              "--config", "/dev/null",
+                                              "--all-assets"};
+        if (opts.jobs > 0) {
+            worldArgs.push_back("--jobs");
+            worldArgs.push_back(std::to_string(opts.jobs));
+        }
+        for (const std::string& map : opts.maps) {
+            worldArgs.push_back("--map");
+            worldArgs.push_back(map);
+        }
+        if (opts.sample > 0) {
+            worldArgs.push_back("--sample");
+            worldArgs.push_back(std::to_string(opts.sample));
+        }
+        std::vector<char*> argv;
+        for (std::string& a : worldArgs) argv.push_back(a.data());
+        if (int code = exportWorld(static_cast<int>(argv.size()), argv.data()); code != 0) return code;
+        if (opts.store.empty()) return 0;
+
+        corpus::Store store(fs::absolute(opts.store));
+        corpus::IngestResult r = corpus::ingestTree(store, opts.output, game);
+        for (const std::string& tag : opts.tags) store.setTag(tag, r.id);
+        std::cout << (r.alreadyStored ? "already stored: " : "stored: ") << r.id.path() << ", " << r.files
+                  << " files, " << r.addedObjects << " new objects, " << r.missing << " missing, " << r.inputs
+                  << " input rows\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "husk: export-corpus: " << e.what() << "\n";
         return 1;
     }
 }

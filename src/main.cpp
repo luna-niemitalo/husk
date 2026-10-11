@@ -354,6 +354,7 @@ struct AllSubcommandOpts {
     husk::commands::ValidateBundleOptions validateBundleOpts;
     husk::commands::StoreAddOptions storeAddOpts;
     husk::commands::MountOptions mountOpts;
+    husk::commands::ExportCorpusOptions exportCorpusOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -415,6 +416,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
 
     CLI::App* storeAddSub = root.add_subcommand("store-add", "record an export tree as a build in the canonical store");
     husk::commands::addStoreAddOptions(*storeAddSub, opts.storeAddOpts);
+
+    CLI::App* exportCorpusSub =
+        root.add_subcommand("export-corpus", "every map and every M2/WMO of a game build, optionally into the store");
+    husk::commands::addExportCorpusOptions(*exportCorpusSub, opts.exportCorpusOpts);
 
     CLI::App* mountSub = root.add_subcommand("mount", "browse the canonical store as a read-only filesystem");
     husk::commands::addMountOptions(*mountSub, opts.mountOpts);
@@ -600,6 +605,8 @@ int main(int argc, char** argv) {
         "  store-add <store> <tree> --game LABEL|--game-from DIR [--tag NAME]...\n"
         "                               record an export tree as a build in the canonical store\n"
         "  mount <store> <mountpoint>   browse the canonical store as a read-only filesystem\n"
+        "  export-corpus <out> [--store DIR [--tag NAME]...]\n"
+        "                               every map and every M2/WMO, then optionally store-add\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -657,6 +664,9 @@ int main(int argc, char** argv) {
     }
     if (command == "store-add") {
         return husk::commands::storeAdd(restArgc, rest);
+    }
+    if (command == "export-corpus") {
+        return husk::commands::exportCorpus(restArgc, rest);
     }
     if (command == "mount") {
         return husk::commands::mount(restArgc, rest);

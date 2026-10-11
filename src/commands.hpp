@@ -110,6 +110,10 @@ int exportWorld(int argc, char** args);
 int storeAdd(int argc, char** args);
 int mount(int argc, char** args);
 
+// `export-corpus` -- export-world over every map with --all-assets, then
+// (with --store) store-add of the tree (cmd_store.cpp).
+int exportCorpus(int argc, char** args);
+
 // Every struct/addXOptions pair below is the same single-source-of-truth
 // split `ExportOptions`/`addExportOptions` established: the flag surface is
 // declared once here (names, defaults, descriptions), used both by the real
@@ -274,6 +278,8 @@ struct ExportWorldOptions {
     std::string dbdDir;
     unsigned jobs = 0;
     bool skipModels = false;
+    bool allAssets = false;
+    size_t sample = 0;
 };
 void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts);
 
@@ -285,6 +291,22 @@ struct StoreAddOptions {
     std::vector<std::string> tags;
 };
 void addStoreAddOptions(CLI::App& app, StoreAddOptions& opts);
+
+struct ExportCorpusOptions {
+    std::string output;
+    std::string listfile;
+    std::string listfileRoot;
+    std::string db2Dir;
+    std::string dbdDir;
+    unsigned jobs = 0;
+    std::vector<std::string> maps;
+    size_t sample = 0;
+    std::string store;
+    std::string game;
+    std::string gameFrom;
+    std::vector<std::string> tags;
+};
+void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts);
 
 struct MountOptions {
     std::string store;

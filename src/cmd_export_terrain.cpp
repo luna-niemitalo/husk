@@ -7,6 +7,7 @@
 #include <iostream>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -139,6 +140,13 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
                  "don't export model bundles (pass 2); placements link only to bundles already under "
                  "<output>/models/")
         ->group("Run");
+    app.add_flag("--all-assets", opts.allAssets,
+                 "also export every M2 and root WMO the listfile names, placed or not (export-corpus)")
+        ->group("Run");
+    app.add_option("--sample", opts.sample,
+                   "with --all-assets: only this many of them, a fixed seeded random choice (size and time "
+                   "projections)")
+        ->group("Run");
 }
 
 void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts) {
@@ -166,6 +174,12 @@ struct TileName {
     uint32_t x = 0;
     uint32_t y = 0;
 };
+
+// A WMO's groups are <root>_NNN.wmo, their LODs <root>_NNN_lodN.wmo.
+bool isRootWmoPath(std::string_view path) {
+    static const std::regex group(R"(_\d{3}(_lod\d)?\.wmo$)");
+    return path.ends_with(".wmo") && !std::regex_search(path.begin(), path.end(), group);
+}
 
 const std::regex& tileNamePattern() {
     static const std::regex pattern(R"(^(.+)_(\d{1,2})_(\d{1,2})$)");
@@ -1245,6 +1259,26 @@ int exportWorld(int argc, char** args) {
         }
         std::cout << "resolved " << gamePaths.size() << "/" << namedPaths.size()
                   << " name-table paths against the listfile" << std::endl;
+
+        if (opts.allAssets) {
+            std::vector<std::pair<uint32_t, bool>> assets;  // fdid, is a WMO
+            listfile->forEach([&](uint32_t fdid, std::string_view path) {
+                if (path.ends_with(".m2")) assets.push_back({fdid, false});
+                if (isRootWmoPath(path)) assets.push_back({fdid, true});
+                return true;
+            });
+            std::sort(assets.begin(), assets.end());
+            if (opts.sample > 0 && opts.sample < assets.size()) {
+                // Fixed seed: the same sample every run, so projections compare.
+                std::mt19937 rng(1);
+                std::shuffle(assets.begin(), assets.end(), rng);
+                assets.resize(opts.sample);
+            }
+            size_t before = modelIds.size() + wmoIds.size();
+            for (const auto& [fdid, isWmo] : assets) (isWmo ? wmoIds : modelIds).insert(fdid);
+            std::cout << "--all-assets: " << assets.size() << " listfile models and WMOs, "
+                      << modelIds.size() + wmoIds.size() - before << " of them placed nowhere" << std::endl;
+        }
 
         // The WMOs' own doodads join the model pass. Only roots are read
         // here; a WMO that can't be found is logged now and skipped silently
