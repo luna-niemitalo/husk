@@ -445,9 +445,9 @@ There is one `unresolved` shape everywhere:
 `field` is a value, so source names are allowed in it; the lint forbids
 chunk tags in keys only.
 
-A `candidate_role` is a hypothesis carried as data. A debug view can
-apply candidates and compare against an in-game screenshot. A confirmed
-candidate is promoted to its typed key (a schema minor bump).
+A `candidate_role` is a hypothesis carried as data. A candidate that
+corpus evidence or the client shaders confirm is promoted to its typed
+key (a schema minor bump).
 
 Boundary rules:
 - **Always-zero fields are asserted, not carried.** This covers
@@ -586,9 +586,18 @@ emitter float semantics, `VFOG` density.
 **Phase 5 (before 1.0): classification, one behaviour at a time.**
 - The classification table and its first entries (`ground_fog` with
   `above_ground`, then `falling_leaves`, `tornado`, `dust`).
-- Each entry is verified by rendering its instances against in-game
-  screenshots, then switches its instances from the literal effect to the
-  classified one, keeping the literal look as `style`.
+- Grouping is mechanical: a corpus scan groups instances whose literal
+  style differs only in values the classified effect takes as inputs
+  (colour, texture, size, rate). Listfile names and the client shaders
+  (`example_exports/shaders/`) name the groups.
+- Each entry is checked by coverage, not by eye: on every instance in the
+  group, each input the classified effect needs comes from a named
+  derivation rule over the instance's literal fields. An instance no rule
+  covers stays on the literal effect. Switched instances keep the literal
+  look as `style`, so a wrong group is fixed by regrouping, with nothing
+  lost.
+- No screenshot verification (Luna, 2026-10-11: too much manual work). A
+  wrong classification shows up in MantleCore's render.
 
 **Phase 6: research, as candidates.**
 - `VFE2` against `LightData` distributions.

@@ -327,8 +327,8 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   **Next** (each needs a design call or Luna): zone fog as a medium (a
   medium is one value; zone fog is keyed by time of day), deduplicating
   `zone_fogs`' shared LightParams (azeroth 7.8 MB), M2 particle light
-  roles (blend ids unsettled), Phase 5 classification (screenshot-verified)
-  before 1.0. Effect documents are written per
+  roles (blend ids unsettled), Phase 5 classification before 1.0
+  (mechanical grouping checked by derivation coverage, no screenshots). Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
   yet. The format is at schema_version 0.1.0.
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
