@@ -1,6 +1,7 @@
 #include "writers/terrain_bundle_writer.hpp"
 
 #include <array>
+#include <numbers>
 #include <initializer_list>
 #include <map>
 #include <sstream>
@@ -20,11 +21,11 @@ constexpr const char* kLiquidBin = "liquid.bin";
 
 std::string heightSourceName(canon::LiquidHeightSource source) {
     switch (source) {
-        case canon::LiquidHeightSource::Heightmap: return "heightmap";
+        case canon::LiquidHeightSource::Heightmap: return "stored";
         case canon::LiquidHeightSource::MinHeightLevel: return "min_height_level";
         case canon::LiquidHeightSource::Zero: return "zero";
     }
-    return "heightmap";
+    return "stored";
 }
 
 void writeTerrainTexture(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
@@ -80,7 +81,7 @@ void writeGroundEffectsSection(json::Writer& w, const std::vector<canon::GroundE
     w.beginArray();
     for (const canon::GroundEffect& e : effects) {
         w.beginObject();
-        w.key("ref");
+        w.key("identity");
         writeRef(w, e.ref);
         if (e.density) {
             w.key("density");
@@ -90,14 +91,17 @@ void writeGroundEffectsSection(json::Writer& w, const std::vector<canon::GroundE
         w.beginArray();
         for (const canon::GroundEffectDoodad& d : e.doodads) {
             w.beginObject();
-            w.key("doodad");
+            w.key("identity");
             writeRef(w, d.doodad);
             w.key("model");
             writeAssetRef(w, d.model, modelUris);
             w.key("weight");
             w.value(static_cast<int64_t>(d.weight));
+            w.key("source");
+            w.beginObject();
             w.key("flags");
-            w.value(static_cast<int64_t>(d.flags));
+            w.value(hexFlags(d.flags));
+            w.endObject();
             w.endObject();
         }
         w.endArray();
@@ -121,8 +125,8 @@ void writeLayer(json::Writer& w, const canon::TerrainLayer& layer, std::vector<u
     if (layer.animation) {
         w.key("animation");
         w.beginObject();
-        w.key("direction_degrees");
-        w.value(static_cast<double>(layer.animation->directionDegrees));
+        w.key("direction");
+        w.value(static_cast<double>(layer.animation->directionDegrees) * std::numbers::pi / 180.0);
         w.key("speed");
         w.value(static_cast<int64_t>(layer.animation->speed));
         w.endObject();
@@ -192,10 +196,10 @@ void writeChunksSection(json::Writer& w, const std::vector<canon::TerrainChunk>&
 
 void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uint8_t>& bin) {
     w.beginObject();
-    w.key("chunk_grid_x");
-    w.value(static_cast<int64_t>(l.chunkGridX));
-    w.key("chunk_grid_y");
+    w.key("chunk_row");
     w.value(static_cast<int64_t>(l.chunkGridY));
+    w.key("chunk_column");
+    w.value(static_cast<int64_t>(l.chunkGridX));
     w.key("liquid_type");
     writeRef(w, l.liquidType);
     if (!std::holds_alternative<canon::None>(l.liquidObject.id)) {
@@ -204,14 +208,14 @@ void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uin
     }
     w.key("quad_rect");
     w.beginObject();
-    w.key("x");
-    w.value(static_cast<int64_t>(l.quadX));
-    w.key("y");
+    w.key("row");
     w.value(static_cast<int64_t>(l.quadY));
-    w.key("width");
-    w.value(static_cast<int64_t>(l.width));
-    w.key("height");
+    w.key("column");
+    w.value(static_cast<int64_t>(l.quadX));
+    w.key("rows");
     w.value(static_cast<int64_t>(l.height));
+    w.key("columns");
+    w.value(static_cast<int64_t>(l.width));
     w.endObject();
     w.key("quad_exists");
     writeBufferSlice(w, appendArray(bin, kLiquidBin, l.quadExists, 1, "u8"));
@@ -233,7 +237,7 @@ void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uin
 }  // namespace
 
 void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::path& bundleDir,
-                         const AssetUris& modelUris, const AssetUris& textureUris, const std::string& producer) {
+                        const Provenance& provenance, const AssetUris& modelUris, const AssetUris& textureUris) {
     std::error_code ec;
     std::filesystem::create_directories(bundleDir, ec);
     if (ec) {
@@ -243,41 +247,50 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
 
     std::vector<uint8_t> terrainBin;
     std::vector<uint8_t> liquidBin;
+    // Both sets are the tile's own content, so both are always on.
+    std::vector<SetDocument> sets = writePlacementSetDocuments({{&terrain.doodads, true}, {&terrain.mapObjects, true}},
+                                                               bundleDir, modelUris, provenance);
     std::ostringstream manifestStream;
     json::Writer w(manifestStream);
 
     w.beginObject();
-    w.key("schema_version");
-    w.value("0.1.0");
-    w.key("kind");
-    w.value("terrain_tile");
-    w.key("exported_at");
-    w.value(isoTimestampUtc());
-    w.key("producer");
-    w.value(producer);
-    w.key("endianness");
-    w.value("little");
-
+    writeContractHeader(w, "model", terrain.subject, provenance);
+    w.key("definition");
+    w.beginObject();
+    writeOwnedSetDefinitions(w, sets);
     w.key("terrain");
     w.beginObject();
-    w.key("map");
-    writeRef(w, terrain.map);
-    w.key("tile_x");
-    w.value(static_cast<int64_t>(terrain.tileX));
-    w.key("tile_y");
-    w.value(static_cast<int64_t>(terrain.tileY));
-    w.key("frame");
-    w.value("wow_world_yards_x_north_y_west_z_up");
+    w.key("edge_vertices");
+    w.value("duplicated");
+    w.endObject();
+    w.endObject();
+    writeOwnedSetSelectionAndReferences(w, sets);
+
+    w.key("resources");
+    w.beginObject();
+    w.key("terrain");
+    w.beginObject();
+    w.key("chunks_per_side");
+    w.value(static_cast<int64_t>(canon::kTerrainChunksPerSide));
+    w.key("quads_per_side");
+    w.value(static_cast<int64_t>(canon::kTerrainQuadsPerSide));
     w.key("tile_size");
     w.value(static_cast<double>(canon::kTerrainTileSize));
     w.key("chunk_size");
     w.value(static_cast<double>(canon::kTerrainChunkSize));
     w.key("quad_size");
     w.value(static_cast<double>(canon::kTerrainQuadSize));
+    // canon_terrain.hpp's TerrainChunk: rows step south (-X), columns east (-Y).
+    for (auto [key, axis] : {std::pair{"row_axis", std::array{-1, 0, 0}}, std::pair{"column_axis", std::array{0, -1, 0}}}) {
+        w.key(key);
+        w.beginArray();
+        for (int c : axis) w.value(static_cast<double>(c));
+        w.endArray();
+    }
     w.key("chunk_vertex_layout");
     w.value("interleaved_9x9_corners_8x8_centres");
     w.key("chunk_topology");
-    w.value("quad_centre_fan_4_triangles_holes_skip_quad");
+    w.value("quad_centre_fan");
     w.key("textures");
     writeTexturesSection(w, terrain.textures, bundleDir, textureUris);
     w.key("ground_effects");
@@ -288,24 +301,9 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.beginArray();
     for (const canon::LiquidSurface& l : terrain.liquids) writeLiquid(w, l, liquidBin);
     w.endArray();
-    w.key("placement_sets");
-    // Both sets are the tile's own content, so both are always on.
-    std::vector<SetDocument> sets = writePlacementSetDocuments({{&terrain.doodads, true}, {&terrain.mapObjects, true}},
-                                                               bundleDir, modelUris, Provenance{producer, "adt", {}});
-    w.beginArray();
-    for (const SetDocument& set : sets) {
-        w.beginObject();
-        w.key("ref");
-        writeRef(w, set.ref, set.uri);
-        w.key("always_on");
-        w.value(set.alwaysOn);
-        w.key("instance_count");
-        w.value(static_cast<int64_t>(set.instanceCount));
-        w.endObject();
-    }
-    w.endArray();
     w.endObject();  // terrain
-    w.endObject();  // root
+    w.endObject();  // resources
+    w.endObject();
 
     writeFile(bundleDir / kTerrainBin, terrainBin);
     writeFile(bundleDir / kLiquidBin, liquidBin);

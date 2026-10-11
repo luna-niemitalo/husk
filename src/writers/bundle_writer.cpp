@@ -1120,37 +1120,9 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     // reference i.
     w.key("definition");
     w.beginObject();
-    w.key("placement_sets");
-    w.beginArray();
-    for (size_t i = 0; i < sets.size(); ++i) {
-        w.beginObject();
-        writeIntField(w, "reference", static_cast<int64_t>(i));
-        w.key("always_on");
-        w.value(sets[i].alwaysOn);
-        writeIntField(w, "instance_count", static_cast<int64_t>(sets[i].instanceCount));
-        w.endObject();
-    }
-    w.endArray();
+    writeOwnedSetDefinitions(w, sets);
     w.endObject();
-
-    w.key("selection");
-    w.beginObject();
-    w.key("placement_sets");
-    w.beginArray();
-    w.endArray();
-    w.endObject();
-
-    w.key("references");
-    w.beginArray();
-    for (const SetDocument& set : sets) {
-        w.beginObject();
-        w.key("kind");
-        w.value("placement_set");
-        w.key("asset");
-        writeRef(w, set.ref, set.uri);
-        w.endObject();
-    }
-    w.endArray();
+    writeOwnedSetSelectionAndReferences(w, sets);
 
     w.key("resources");
     w.beginObject();

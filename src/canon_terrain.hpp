@@ -14,11 +14,13 @@
 // ground-cover rules, liquid and placements. Pure value types; built by
 // adt_canon_input.hpp, written by writers/terrain_bundle_writer.hpp.
 //
-// Frame: WoW world space, yards. +X north, +Y west, +Z up -- the frame
-// MCNK.position is already in. Every on-disk frame variant (MDDF/MODF's
-// rotated frame, MCNR's int8 encoding, the low-res/high-res hole maps) is
-// collapsed into this one by the input module; nothing here records which
-// variant a value came from.
+// Frame: the tile's own, yards. Axes are WoW world space's (+X north, +Y
+// west, +Z up), the origin is the tile's corner vertex (chunk 0, corner
+// (0, 0)) at world height 0, so `terrainTileCorner` is all a world needs to
+// place the tile. Heights stay absolute. Every on-disk frame variant
+// (MDDF/MODF's rotated frame, MCNR's int8 encoding, the low-res/high-res
+// hole maps) is collapsed into this one by the input module; nothing here
+// records which variant a value came from.
 namespace husk::canon {
 
 inline constexpr float kTerrainTileSize = 1600.0f / 3.0f;
@@ -28,6 +30,16 @@ inline constexpr int kTerrainQuadsPerSide = 8;
 inline constexpr float kTerrainQuadSize = kTerrainChunkSize / kTerrainQuadsPerSide;
 inline constexpr int kTerrainVertexCount = 9 * 9 + 8 * 8;
 inline constexpr int kTerrainAlphaSize = 64;
+inline constexpr int kTerrainTilesPerSide = 64;
+
+// World (X, Y) of tile (tileX, tileY)'s frame origin. The map's origin is
+// its centre, so tile (0, 0)'s corner is +32 tiles on both axes; tileX
+// steps -Y, tileY steps -X.
+inline Vec2 terrainTileCorner(uint32_t tileX, uint32_t tileY) {
+    constexpr float kHalfExtent = kTerrainTilesPerSide / 2 * kTerrainTileSize;
+    return {kHalfExtent - static_cast<float>(tileY) * kTerrainTileSize,
+            kHalfExtent - static_cast<float>(tileX) * kTerrainTileSize};
+}
 
 // A ground texture the tile's layers draw from. Repeats `repeatsPerChunk`
 // times across one chunk along each axis.
@@ -82,8 +94,8 @@ struct GroundEffect {
 struct TerrainChunk {
     uint32_t gridX = 0;  // column within tile, steps -Y
     uint32_t gridY = 0;  // row within tile, steps -X
-    Vec2 origin;         // world (X, Y) of corner (0, 0)
-    std::array<float, kTerrainVertexCount> heights{};  // absolute world Z
+    Vec2 origin;         // tile-frame (X, Y) of corner (0, 0)
+    std::array<float, kTerrainVertexCount> heights{};  // absolute: world Z
     std::array<Vec3, kTerrainVertexCount> normals{};
     std::array<uint8_t, kTerrainQuadsPerSide> holeRows{};  // bit c of [r]: quad (r, c) absent
     Ref area;  // Db2Row AreaTable
@@ -121,6 +133,7 @@ struct LiquidSurface {
 
 
 struct Terrain {
+    Ref subject;  // the tile itself: its root ADT; set by the caller, like Model::subject
     Ref map;  // the map's directory name; no Map.db2 row is resolved
     uint32_t tileX = 0;
     uint32_t tileY = 0;
@@ -129,7 +142,7 @@ struct Terrain {
     std::vector<TerrainChunk> chunks;  // index gridY * 16 + gridX
     std::vector<LiquidSurface> liquids;
 
-    // What the tile places (REFACTOR/PLACEMENT_SETS.md), in the world frame:
+    // What the tile places (REFACTOR/PLACEMENT_SETS.md), in the tile frame:
     // MDDF models and MODF map objects (WMOs). Two sets because their unique
     // ids are separate number spaces. Instance ids are ADT uniqueIds, which
     // are map-wide: the same id in two tiles' sets is one object spanning

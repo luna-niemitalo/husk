@@ -124,6 +124,9 @@ TEST_CASE("real ADT: placements land on their own tile, mostly upright" *
           doctest::skip(testAdtTile().empty())) {
     canon::Terrain t = buildRealTile();
     REQUIRE_FALSE(t.doodads.instances.empty());
+    // The tile frame's origin is chunk 0's corner vertex.
+    CHECK(std::abs(t.chunks.front().origin.x) < 0.01f);
+    CHECK(std::abs(t.chunks.front().origin.y) < 0.01f);
     float maxX = t.chunks.front().origin.x;
     float maxY = t.chunks.front().origin.y;
     float minX = maxX - canon::kTerrainTileSize;

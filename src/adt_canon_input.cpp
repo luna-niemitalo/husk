@@ -10,9 +10,6 @@ namespace husk::adtinput {
 
 namespace {
 
-// Map origin is the map's centre; the north-west corner is +32 tiles on both axes.
-constexpr float kMapHalfExtent = 32.0f * canon::kTerrainTileSize;
-
 constexpr uint32_t kMcnkHighResHoles = 0x10000;
 
 // Liquid object IDs below this are not LiquidObject rows but a vertex
@@ -43,11 +40,11 @@ std::array<uint8_t, 8> expandLowResHoles(uint16_t bits) {
     return rows;
 }
 
-canon::TerrainChunk buildChunk(const adt::MapChunk& mc) {
+canon::TerrainChunk buildChunk(const adt::MapChunk& mc, canon::Vec2 corner) {
     canon::TerrainChunk out;
     out.gridX = mc.indexX;
     out.gridY = mc.indexY;
-    out.origin = {mc.position[0], mc.position[1]};
+    out.origin = {mc.position[0] - corner.x, mc.position[1] - corner.y};
     for (int i = 0; i < canon::kTerrainVertexCount; ++i) {
         out.heights[i] = mc.position[2] + mc.heights[i];
         out.normals[i] = decodeNormal(mc.normals[i]);
@@ -105,7 +102,8 @@ canon::LiquidSurface buildLiquid(const adt::LiquidInstance& inst, uint32_t chunk
 // from the map's north-west corner. Verified for MDDF against terrain height
 // (findings doc); MODF uses the same documented transform, not separately verified.
 canon::Vec3 placementPosition(const std::array<float, 3>& p) {
-    return {kMapHalfExtent - p[2], kMapHalfExtent - p[0], p[1]};
+    canon::Vec2 mapCorner = canon::terrainTileCorner(0, 0);
+    return {mapCorner.x - p[2], mapCorner.y - p[0], p[1]};
 }
 
 using Mat3 = std::array<std::array<double, 3>, 3>;
@@ -228,9 +226,12 @@ void requireUniqueIds(const canon::PlacementSet& set) {
     }
 }
 
+// The tile frame's origin is derived from the file name's coordinates, so
+// they must agree with where the tile's own first chunk sits.
 void checkTileCoordinates(const adt::MapChunk& first, uint32_t tileX, uint32_t tileY) {
-    float expectedY = kMapHalfExtent - static_cast<float>(tileX) * canon::kTerrainTileSize;
-    float expectedX = kMapHalfExtent - static_cast<float>(tileY) * canon::kTerrainTileSize;
+    canon::Vec2 corner = canon::terrainTileCorner(tileX, tileY);
+    float expectedX = corner.x;
+    float expectedY = corner.y;
     if (std::abs(first.position[0] - expectedX) > 0.5f || std::abs(first.position[1] - expectedY) > 0.5f) {
         throw std::runtime_error("tile (" + std::to_string(tileX) + "," + std::to_string(tileY) +
                                  ") from file name: expected MCNK #0 at world (" + std::to_string(expectedX) + "," +
@@ -350,7 +351,8 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
     out.map = canon::Ref{canon::None{}, sources.mapName, canon::NameSource::Listfile};
     out.tileX = sources.tileX;
     out.tileY = sources.tileY;
-    for (const adt::MapChunk& mc : root.chunks) out.chunks.push_back(buildChunk(mc));
+    canon::Vec2 corner = canon::terrainTileCorner(sources.tileX, sources.tileY);
+    for (const adt::MapChunk& mc : root.chunks) out.chunks.push_back(buildChunk(mc, corner));
 
     if (sources.tex) {
         if (!sources.wdtFlags) {
@@ -383,6 +385,12 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
         }
         requireUniqueIds(out.doodads);
         requireUniqueIds(out.mapObjects);
+    }
+    for (canon::PlacementSet* set : {&out.doodads, &out.mapObjects}) {
+        for (canon::PlacedInstance& instance : set->instances) {
+            instance.translation.x -= corner.x;
+            instance.translation.y -= corner.y;
+        }
     }
     return out;
 }

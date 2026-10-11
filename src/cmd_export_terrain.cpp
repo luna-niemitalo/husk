@@ -387,6 +387,39 @@ writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::stri
     return out;
 }
 
+// What a tile was built from. A sidecar marked unavailable was missing, or
+// (tex0 without a readable WDT) unusable.
+writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,
+                                      const std::string& listfilePath, bool haveGroundEffects) {
+    writers::Provenance out{std::string("husk ") + husk::version(), "adt", {}};
+    out.sources.push_back({"obj0", "doodad and map-object placements", haveObj, ""});
+    out.sources.push_back({"tex0", "texture layers and alpha maps", haveTex, ""});
+    out.sources.push_back({"wdt", "MPHD flags: the alpha-map format", haveWdt, ""});
+    out.sources.push_back({"listfile", "textures and name-table paths by FileDataID", listfile != nullptr,
+                           listfile ? listfilePath : "not given"});
+    out.sources.push_back({"groundeffect db2", "ground-cover rules", haveGroundEffects, ""});
+    return out;
+}
+
+// Root ADT FileDataIDs for `roots`, by listfile path under `listfileRoot`:
+// one listfile pass for all of them.
+std::unordered_map<std::string, uint32_t> tileFileDataIds(const ListfileIndex& listfile,
+                                                         const std::string& listfileRoot,
+                                                         const std::vector<std::filesystem::path>& roots) {
+    std::vector<std::string> gamePaths;
+    for (const std::filesystem::path& root : roots) {
+        gamePaths.push_back(std::filesystem::relative(root, listfileRoot).generic_string());
+    }
+    return sources::fileDataIdsForGamePaths(listfile, gamePaths);
+}
+
+std::optional<uint32_t> tileFileDataId(const std::unordered_map<std::string, uint32_t>& ids,
+                                       const std::string& listfileRoot, const std::filesystem::path& root) {
+    auto it = ids.find(std::filesystem::relative(root, listfileRoot).generic_string());
+    if (it == ids.end()) return std::nullopt;
+    return it->second;
+}
+
 // A map directory's _fogs.wdt and _mpv.wdt as a canon::MapScene; nullopt
 // when the map has neither file. A file that exists but doesn't parse
 // fails the export.
@@ -684,7 +717,13 @@ int exportTerrain(int argc, char** args) {
                 modelUris.emplace(fdid, std::filesystem::relative(manifest, bundleDir).generic_string());
             }
         }
-        writers::writeTerrainBundle(terrain, opts.output, modelUris);
+        std::unordered_map<std::string, uint32_t> rootIds;
+        if (listfile && !listfileRoot.empty()) rootIds = tileFileDataIds(*listfile, listfileRoot, {rootPath});
+        terrain.subject = writers::subjectRef(rootPath, tileFileDataId(rootIds, listfileRoot, rootPath));
+        writers::writeTerrainBundle(terrain, opts.output,
+                                    terrainProvenance(obj.has_value(), tex.has_value(), wdtFlags.has_value(),
+                                                      listfile.get(), listfilePath, !groundEffects.empty()),
+                                    modelUris);
         std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, " << terrain.textures.size()
                   << " textures, " << terrain.groundEffects.size() << " ground effects, " << terrain.liquids.size()
                   << " liquid surfaces, " << terrain.doodads.instances.size() << " doodads, "
@@ -1012,6 +1051,9 @@ int exportWorld(int argc, char** args) {
         }
 
         // Pass 3: tiles.
+        std::vector<std::filesystem::path> roots;
+        for (const WorldTile& t : tiles) roots.push_back(t.root);
+        const std::unordered_map<std::string, uint32_t> rootIds = tileFileDataIds(*listfile, opts.listfileRoot, roots);
         std::unordered_map<std::string, std::optional<uint32_t>> wdtFlags;
         for (const WorldTile& t : tiles) {
             if (wdtFlags.count(t.map)) continue;
@@ -1064,7 +1106,11 @@ int exportWorld(int argc, char** args) {
                             modelUris.emplace(fdid, (relToOut / "models" / modelBundleName(fdid) / "manifest.json").generic_string());
                         }
                     }
-                    writers::writeTerrainBundle(terrain, bundle, modelUris, textureUris);
+                    terrain.subject = writers::subjectRef(t.root, tileFileDataId(rootIds, opts.listfileRoot, t.root));
+                    writers::writeTerrainBundle(terrain, bundle,
+                                                terrainProvenance(obj.has_value(), tex.has_value(), flags.has_value(),
+                                                                  listfile.get(), opts.listfile, !groundEffects.empty()),
+                                                modelUris, textureUris);
                 }
             } catch (...) {
                 errors.add("tile", t.root.string(), exceptionMessage(std::current_exception()));

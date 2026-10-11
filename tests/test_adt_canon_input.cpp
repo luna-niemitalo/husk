@@ -92,8 +92,9 @@ TEST_CASE("adtinput: chunks land in the world frame with absolute heights and th
     const canon::TerrainChunk& c = t.chunks[16 * 2 + 7];
     CHECK(c.gridX == 7);
     CHECK(c.gridY == 2);
-    CHECK(c.origin.x == doctest::Approx(chunkOrigin(32, 48, 7, 2)[0]));
-    CHECK(c.origin.y == doctest::Approx(chunkOrigin(32, 48, 7, 2)[1]));
+    // Tile frame: the tile's corner is the origin, rows step -X, columns -Y.
+    CHECK(c.origin.x == doctest::Approx(-2 * kChunkSize));
+    CHECK(c.origin.y == doctest::Approx(-7 * kChunkSize));
     CHECK(c.heights[0] == 42.0f);
     CHECK(c.heights[144] == 42.0f + 36.0f);
     auto area = std::get<canon::Db2Row>(c.area.id);
@@ -200,14 +201,16 @@ TEST_CASE("adtinput: liquid surfaces keep their rect and record where their heig
     CHECK((*textured.uv)[0].y == 1.0f);
 }
 
-TEST_CASE("adtinput: MDDF position maps (map-corner-relative, height, ...) onto world X north, Y west, Z up") {
+TEST_CASE("adtinput: MDDF position maps (map-corner-relative, height, ...) onto X north, Y west, Z up, "
+          "relative to the tile's corner") {
     ObjSpec obj;
     obj.doodads.push_back({777, 42, {kMapHalfExtent - 100.0f, 50.0f, kMapHalfExtent - 200.0f}, {}, 2048, 0x40});
     canon::PlacedInstance p = onlyDoodad(obj);
     CHECK(std::get<canon::FileDataId>(p.asset.id).value == 777);
     CHECK(p.id == 42);
-    CHECK(p.translation.x == doctest::Approx(200.0f));
-    CHECK(p.translation.y == doctest::Approx(100.0f));
+    canon::Vec2 corner = canon::terrainTileCorner(32, 48);
+    CHECK(p.translation.x == doctest::Approx(200.0f - corner.x));
+    CHECK(p.translation.y == doctest::Approx(100.0f - corner.y));
     CHECK(p.translation.z == 50.0f);
     CHECK(p.scale == 2.0f);
     CHECK(p.flags == 0x40);

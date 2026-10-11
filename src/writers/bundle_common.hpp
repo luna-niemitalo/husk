@@ -133,6 +133,13 @@ std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEn
                                                     const std::filesystem::path& bundleDir, const AssetUris& assetUris,
                                                     const Provenance& provenance);
 
+// The parts of a document that link it to the sets it owns, set i being
+// reference i: `writeOwnedSetDefinitions` writes the "placement_sets" key
+// inside an open definition object; `writeOwnedSetSelectionAndReferences`
+// writes the selection (no optional set chosen) and references keys.
+void writeOwnedSetDefinitions(json::Writer& w, const std::vector<SetDocument>& sets);
+void writeOwnedSetSelectionAndReferences(json::Writer& w, const std::vector<SetDocument>& sets);
+
 std::string textureFileExtension(canon::TextureEncoding encoding);
 
 // IANA media type of a texture file by its extension ("png", "dds").

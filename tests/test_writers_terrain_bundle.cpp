@@ -57,7 +57,22 @@ nlohmann::json readPlacements(const fs::path& setFile) {
     return instances;
 }
 
-nlohmann::json readManifest(const fs::path& dir) { return readJsonFile(dir / "manifest.json"); }
+// The manifest, schema-checked (with its placement sets) on the way.
+nlohmann::json readManifest(const fs::path& dir) {
+    std::vector<husk::bundle_schema::Problem> problems = husk::bundle_schema::validateDocument(dir / "manifest.json");
+    std::string report;
+    for (const husk::bundle_schema::Problem& p : problems) report += p.where + ": " + p.message + "\n";
+    INFO(report);
+    CHECK(problems.empty());
+    return readJsonFile(dir / "manifest.json");
+}
+
+void writeTile(canon::Terrain terrain, const fs::path& dir, const husk::writers::AssetUris& modelUris = {},
+               const husk::writers::AssetUris& textureUris = {}) {
+    terrain.subject = canon::Ref{canon::FileDataId{777001}, "azeroth_32_48", canon::NameSource::Listfile};
+    husk::writers::Provenance provenance{"husk test", "adt", {{"obj0", "placements", true, ""}}};
+    husk::writers::writeTerrainBundle(terrain, dir, provenance, modelUris, textureUris);
+}
 
 template <typename T>
 std::vector<T> readSlice(const fs::path& dir, const nlohmann::json& slice) {
@@ -137,33 +152,35 @@ fs::path freshDir(const std::string& name) {
 
 }  // namespace
 
-TEST_CASE("writeTerrainBundle: top-level shape and tile constants") {
+TEST_CASE("writeTerrainBundle: a model document with the tile's subject, edge statement and constants") {
     fs::path dir = freshDir("husk-test-terrain-bundle-shape");
-    husk::writers::writeTerrainBundle(sampleTerrain(), dir, {}, {}, "husk test");
+    writeTile(sampleTerrain(), dir);
     nlohmann::json m = readManifest(dir);
 
-    CHECK(m["schema_version"] == "0.1.0");
-    CHECK(m["kind"] == "terrain_tile");
-    CHECK(m["producer"] == "husk test");
-    CHECK(m["endianness"] == "little");
-    CHECK_FALSE(m.contains("status"));
-    const nlohmann::json& t = m["terrain"];
-    CHECK(t["map"]["name"] == "azeroth");
-    CHECK(t["tile_x"] == 32);
-    CHECK(t["tile_y"] == 48);
-    CHECK(t["frame"] == "wow_world_yards_x_north_y_west_z_up");
+    CHECK(m["format"] == "husk-bundle");
+    CHECK(m["kind"] == "model");
+    CHECK(m["subject"]["name"] == "azeroth_32_48");
+    CHECK(m["subject"]["id"]["value"] == 777001);
+    CHECK(m["provenance"]["input_format"] == "adt");
+    CHECK(m["definition"]["terrain"]["edge_vertices"] == "duplicated");
+    CHECK_FALSE(m["resources"].contains("geometry"));
+    const nlohmann::json& t = m["resources"]["terrain"];
+    CHECK(t["chunks_per_side"] == 16);
+    CHECK(t["quads_per_side"] == 8);
     CHECK(t["tile_size"].get<double>() == doctest::Approx(533.3333));
     CHECK(t["chunk_size"].get<double>() == doctest::Approx(33.3333));
     CHECK(t["quad_size"].get<double>() == doctest::Approx(4.16667));
+    CHECK(t["row_axis"] == nlohmann::json::array({-1.0, 0.0, 0.0}));
+    CHECK(t["column_axis"] == nlohmann::json::array({0.0, -1.0, 0.0}));
     CHECK(t["chunk_vertex_layout"] == "interleaved_9x9_corners_8x8_centres");
-    CHECK(t["chunk_topology"] == "quad_centre_fan_4_triangles_holes_skip_quad");
+    CHECK(t["chunk_topology"] == "quad_centre_fan");
 }
 
 TEST_CASE("writeTerrainBundle: chunk slices hold exactly the canon chunk data") {
     canon::Terrain terrain = sampleTerrain();
     fs::path dir = freshDir("husk-test-terrain-bundle-chunks");
-    husk::writers::writeTerrainBundle(terrain, dir);
-    nlohmann::json chunks = readManifest(dir)["terrain"]["chunks"];
+    writeTile(terrain, dir);
+    nlohmann::json chunks = readManifest(dir)["resources"]["terrain"]["chunks"];
 
     CHECK(chunks["count"] == 256);
     CHECK(chunks["heights"]["component_count"] == 145);
@@ -200,8 +217,8 @@ TEST_CASE("writeTerrainBundle: chunk slices hold exactly the canon chunk data") 
 
 TEST_CASE("writeTerrainBundle: textures embed their payload, or state why they are unresolved") {
     fs::path dir = freshDir("husk-test-terrain-bundle-textures");
-    husk::writers::writeTerrainBundle(sampleTerrain(), dir);
-    nlohmann::json textures = readManifest(dir)["terrain"]["textures"];
+    writeTile(sampleTerrain(), dir);
+    nlohmann::json textures = readManifest(dir)["resources"]["terrain"]["textures"];
     REQUIRE(textures.size() == 2);
 
     const nlohmann::json& grass = textures[0];
@@ -221,8 +238,8 @@ TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the cal
     canon::Terrain terrain = sampleTerrain();
     terrain.textures[0].diffuse.rawPayload.reset();
     fs::path dir = freshDir("husk-test-terrain-bundle-shared-texture");
-    husk::writers::writeTerrainBundle(terrain, dir, {}, {{1001, "../../textures/1001.dds"}});
-    nlohmann::json grass = readManifest(dir)["terrain"]["textures"][0]["diffuse"];
+    writeTile(terrain, dir, {}, {{1001, "../../textures/1001.dds"}});
+    nlohmann::json grass = readJsonFile(dir / "manifest.json")["resources"]["terrain"]["textures"][0]["diffuse"];
     CHECK(grass["state"] == "resolved");
     CHECK(grass["payload"]["uri"] == "../../textures/1001.dds");
     CHECK(grass["payload"]["media_type"] == "image/vnd-ms.dds");
@@ -234,8 +251,9 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     fs::path placedModel = dir.parent_path() / "models" / "555.canon.bundle" / "manifest.json";
     fs::create_directories(placedModel.parent_path());
     std::ofstream(placedModel) << "{}";
-    husk::writers::writeTerrainBundle(sampleTerrain(), dir, {{555, "../models/555.canon.bundle/manifest.json"}});
-    nlohmann::json t = readManifest(dir)["terrain"];
+    writeTile(sampleTerrain(), dir, {{555, "../models/555.canon.bundle/manifest.json"}});
+    nlohmann::json m = readManifest(dir);
+    const nlohmann::json& t = m["resources"]["terrain"];
 
     REQUIRE(t["ground_effects"].size() == 1);
     const nlohmann::json& effect = t["ground_effects"][0];
@@ -246,23 +264,25 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
 
     REQUIRE(t["liquids"].size() == 2);
     const nlohmann::json& river = t["liquids"][0];
-    CHECK(river["height_source"] == "heightmap");
+    CHECK(river["height_source"] == "stored");
     CHECK(river["liquid_object"]["id"]["row"] == 100);
     CHECK(readSlice<float>(dir, river["heights"]) == std::vector<float>(4, 3.0f));
     CHECK(readSlice<float>(dir, river["depth"]) == std::vector<float>(4, 1.0f));
     const nlohmann::json& ocean = t["liquids"][1];
     CHECK(ocean["height_source"] == "min_height_level");
     CHECK_FALSE(ocean.contains("liquid_object"));
-    CHECK(ocean["quad_rect"]["width"] == 8);
+    CHECK(ocean["quad_rect"]["columns"] == 8);
     CHECK(readSlice<uint8_t>(dir, ocean["quad_exists"]) == std::vector<uint8_t>(64, 1));
 
-    REQUIRE(t["placement_sets"].size() == 2);
-    CHECK(t["placement_sets"][0]["ref"]["name"] == "doodads");
-    CHECK(t["placement_sets"][0]["ref"]["uri"] == "sets/0.json");
-    CHECK(t["placement_sets"][0]["always_on"] == true);
-    CHECK(t["placement_sets"][0]["instance_count"] == 1);
-    CHECK(t["placement_sets"][1]["ref"]["name"] == "map_objects");
-    CHECK(t["placement_sets"][1]["ref"]["uri"] == "sets/1.json");
+    const nlohmann::json& owned = m["definition"]["placement_sets"];
+    REQUIRE(owned.size() == 2);
+    CHECK(owned[0]["always_on"] == true);
+    CHECK(owned[0]["instance_count"] == 1);
+    REQUIRE(m["references"].size() == 2);
+    CHECK(m["references"][owned[0]["reference"].get<size_t>()]["asset"]["name"] == "doodads");
+    CHECK(m["references"][0]["asset"]["uri"] == "sets/0.json");
+    CHECK(m["references"][1]["asset"]["name"] == "map_objects");
+    CHECK(m["references"][1]["asset"]["uri"] == "sets/1.json");
 
     nlohmann::json doodads = readPlacements(dir / "sets" / "0.json");
     REQUIRE(doodads.size() == 1);
@@ -270,7 +290,7 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK(model["id"] == 1);
     // The bundle-relative uri, one level further up from sets/.
     CHECK(model["asset"]["uri"] == "../../models/555.canon.bundle/manifest.json");
-    CHECK(model["translation"][0].get<double>() == doctest::Approx(0.0));
+    CHECK(model["translation"][0].get<double>() == doctest::Approx(-canon::terrainTileCorner(32, 48).x));
     CHECK(model["rotation"].size() == 4);
     CHECK(model["selection"]["placement_sets"].empty());
 
@@ -283,7 +303,7 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
 
 TEST_CASE("writeTerrainBundle: every slice stays inside its .bin, and the manifest is written last") {
     fs::path dir = freshDir("husk-test-terrain-bundle-slices");
-    husk::writers::writeTerrainBundle(sampleTerrain(), dir);
+    writeTile(sampleTerrain(), dir);
     nlohmann::json m = readManifest(dir);
 
     std::vector<nlohmann::json> slices;

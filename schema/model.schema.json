@@ -151,6 +151,22 @@
           "required": [
             "options"
           ]
+        },
+        "terrain": {
+          "type": "object",
+          "description": "How a terrain tile meets its neighbours. Which tiles are neighbours is the world grid's fact, not the tile's.",
+          "properties": {
+            "edge_vertices": {
+              "enum": [
+                "duplicated"
+              ],
+              "description": "duplicated: a border vertex is stored by every tile it borders, at the same position in the world frame; heights agree to float precision unless the source tiles differ."
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "edge_vertices"
+          ]
         }
       },
       "additionalProperties": false,
@@ -2349,16 +2365,420 @@
             "ribbon_emitters",
             "particle_emitters"
           ]
+        },
+        "terrain": {
+          "type": "object",
+          "description": "A heightfield surface: a grid of chunks, each a grid of quads, with texture layers, ground-cover rules and liquids.",
+          "properties": {
+            "chunks_per_side": {
+              "type": "integer",
+              "description": "Chunks along each tile edge.",
+              "minimum": 0
+            },
+            "quads_per_side": {
+              "type": "integer",
+              "description": "Quads along each chunk edge.",
+              "minimum": 0
+            },
+            "tile_size": {
+              "type": "number",
+              "description": "Edge length of the tile.",
+              "x-unit": "yard"
+            },
+            "chunk_size": {
+              "type": "number",
+              "description": "Edge length of a chunk.",
+              "x-unit": "yard"
+            },
+            "quad_size": {
+              "type": "number",
+              "description": "Edge length of a quad.",
+              "x-unit": "yard"
+            },
+            "row_axis": {
+              "$ref": "common.schema.json#/definitions/vec3",
+              "description": "Unit direction rows step along, for chunks, vertices and alpha maps.",
+              "x-unit": "1"
+            },
+            "column_axis": {
+              "$ref": "common.schema.json#/definitions/vec3",
+              "description": "Unit direction columns step along.",
+              "x-unit": "1"
+            },
+            "chunk_vertex_layout": {
+              "enum": [
+                "interleaved_9x9_corners_8x8_centres"
+              ],
+              "description": "Vertex order within a chunk: per row pair, 9 corner vertices then 8 quad-centre vertices, 145 in all."
+            },
+            "chunk_topology": {
+              "enum": [
+                "quad_centre_fan"
+              ],
+              "description": "quad_centre_fan: each quad is four triangles around its centre vertex, counter-clockwise seen from +z; a hole quad has none."
+            },
+            "textures": {
+              "type": "array",
+              "description": "Ground textures; layers index this list.",
+              "items": {
+                "type": "object",
+                "description": "A ground texture.",
+                "properties": {
+                  "diffuse": {
+                    "$ref": "common.schema.json#/definitions/texture_entry",
+                    "description": "Colour texture."
+                  },
+                  "height": {
+                    "$ref": "common.schema.json#/definitions/texture_entry",
+                    "description": "Height texture for height-based blending."
+                  },
+                  "repeats_per_chunk": {
+                    "type": "number",
+                    "description": "Times the texture repeats across one chunk along each axis.",
+                    "x-unit": "1"
+                  },
+                  "height_scale": {
+                    "type": "number",
+                    "description": "Height-blend scale; 0 with height_offset 1 turns height blending off.",
+                    "x-unit": "1"
+                  },
+                  "height_offset": {
+                    "type": "number",
+                    "description": "Height-blend offset.",
+                    "x-unit": "1"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "diffuse",
+                  "repeats_per_chunk",
+                  "height_scale",
+                  "height_offset"
+                ]
+              }
+            },
+            "ground_effects": {
+              "type": "array",
+              "description": "Ground-cover rules; layers index this list.",
+              "items": {
+                "type": "object",
+                "description": "A ground-cover rule: the consumer scatters its doodads at runtime; nothing here is an instance.",
+                "properties": {
+                  "identity": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The rule."
+                  },
+                  "density": {
+                    "type": "integer",
+                    "description": "Doodads per chunk, as stored; absolute scale unverified.",
+                    "minimum": 0
+                  },
+                  "doodads": {
+                    "type": "array",
+                    "description": "Weighted doodad choices.",
+                    "items": {
+                      "type": "object",
+                      "description": "One doodad choice.",
+                      "properties": {
+                        "identity": {
+                          "$ref": "common.schema.json#/definitions/ref",
+                          "description": "The doodad record."
+                        },
+                        "model": {
+                          "$ref": "common.schema.json#/definitions/asset_ref",
+                          "description": "Model it places."
+                        },
+                        "weight": {
+                          "type": "integer",
+                          "description": "Relative weight; use as a ratio.",
+                          "minimum": 0
+                        },
+                        "source": {
+                          "type": "object",
+                          "description": "Source-specific raw values.",
+                          "properties": {
+                            "flags": {
+                              "$ref": "common.schema.json#/definitions/flags",
+                              "description": "Doodad flags as stored."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "flags"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "identity",
+                        "model",
+                        "weight",
+                        "source"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "identity",
+                  "doodads"
+                ]
+              }
+            },
+            "chunks": {
+              "type": "object",
+              "description": "The tile's chunks, index = row * chunks_per_side + column. Corner vertex (r, c) of a chunk sits at origin + (r * row_axis + c * column_axis) * quad_size; centre (r, c) at origin + ((r + 0.5) * row_axis + (c + 0.5) * column_axis) * quad_size.",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "Number of chunks.",
+                  "minimum": 0
+                },
+                "origin": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, (x, y) of corner vertex (0, 0), f32x2.",
+                  "x-unit": "yard"
+                },
+                "heights": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, absolute height of each vertex in chunk_vertex_layout order, f32x145.",
+                  "x-unit": "yard"
+                },
+                "normals": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per vertex, unit normal, f32x3, 145 per chunk."
+                },
+                "hole_rows": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, u8x8: bit c of byte r set means quad (r, c) draws nothing."
+                },
+                "dominant_layer": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, u8x64 row-major: per quad, the layer whose ground effect applies. Bit order unverified."
+                },
+                "ground_effect_suppressed_rows": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, u8x8: bit c of byte r set means no ground effect on quad (r, c). Bit order unverified."
+                },
+                "area_index": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, u32: index into areas."
+                },
+                "areas": {
+                  "type": "array",
+                  "description": "Areas the chunks belong to.",
+                  "items": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "One area."
+                  }
+                },
+                "layers": {
+                  "type": "array",
+                  "description": "Per chunk, its texture layers.",
+                  "items": {
+                    "type": "array",
+                    "description": "One chunk's layers, 0 to 8.",
+                    "items": {
+                      "type": "object",
+                      "description": "One texture layer of a chunk, bottom first.",
+                      "properties": {
+                        "texture_index": {
+                          "type": "integer",
+                          "description": "Texture the layer draws.",
+                          "minimum": 0,
+                          "x-index-into": "textures"
+                        },
+                        "ground_effect_index": {
+                          "type": "integer",
+                          "description": "Ground effect the layer scatters.",
+                          "minimum": 0,
+                          "x-index-into": "ground_effects"
+                        },
+                        "overbright": {
+                          "type": "boolean",
+                          "description": "Drawn brighter than its texture."
+                        },
+                        "animation": {
+                          "type": "object",
+                          "description": "Texture scrolling.",
+                          "properties": {
+                            "direction": {
+                              "type": "number",
+                              "description": "Scroll direction, counter-clockwise from +x seen from +z.",
+                              "x-unit": "radian"
+                            },
+                            "speed": {
+                              "type": "integer",
+                              "description": "Scroll speed step, 0..7; its unit is not established.",
+                              "minimum": 0
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "direction",
+                            "speed"
+                          ]
+                        },
+                        "alpha": {
+                          "$ref": "common.schema.json#/definitions/buffer_slice",
+                          "description": "Layer weight over the chunk, u8, 64x64 row-major, rows stepping along row_axis; absent on layer 0, which covers what later layers leave."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "texture_index"
+                      ]
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "count",
+                "origin",
+                "heights",
+                "normals",
+                "hole_rows",
+                "dominant_layer",
+                "ground_effect_suppressed_rows",
+                "area_index",
+                "areas",
+                "layers"
+              ]
+            },
+            "liquids": {
+              "type": "array",
+              "description": "Liquid surfaces.",
+              "items": {
+                "type": "object",
+                "description": "A liquid surface over a rectangle of one chunk's quads. Vertex arrays are (width + 1) * (height + 1), row-major, rows stepping along row_axis.",
+                "properties": {
+                  "chunk_row": {
+                    "type": "integer",
+                    "description": "Row of the chunk it lies in.",
+                    "minimum": 0
+                  },
+                  "chunk_column": {
+                    "type": "integer",
+                    "description": "Column of the chunk it lies in.",
+                    "minimum": 0
+                  },
+                  "liquid_type": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Liquid type."
+                  },
+                  "liquid_object": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Liquid object."
+                  },
+                  "quad_rect": {
+                    "type": "object",
+                    "description": "The covered quads.",
+                    "properties": {
+                      "row": {
+                        "type": "integer",
+                        "description": "First quad row.",
+                        "minimum": 0
+                      },
+                      "column": {
+                        "type": "integer",
+                        "description": "First quad column.",
+                        "minimum": 0
+                      },
+                      "rows": {
+                        "type": "integer",
+                        "description": "Quad rows covered.",
+                        "minimum": 0
+                      },
+                      "columns": {
+                        "type": "integer",
+                        "description": "Quad columns covered.",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "row",
+                      "column",
+                      "rows",
+                      "columns"
+                    ]
+                  },
+                  "quad_exists": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Per covered quad, 1 when liquid is present, u8."
+                  },
+                  "height_source": {
+                    "enum": [
+                      "stored",
+                      "min_height_level",
+                      "zero"
+                    ],
+                    "description": "stored: heights were stored per vertex; min_height_level: none stored, flat at the instance's minimum; zero: a depth-only layout, drawn at 0."
+                  },
+                  "heights": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Absolute vertex heights, f32.",
+                    "x-unit": "yard"
+                  },
+                  "depth": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Per vertex depth, f32, 0..1."
+                  },
+                  "uv": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Per vertex texture coordinates, f32x2."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "chunk_row",
+                  "chunk_column",
+                  "liquid_type",
+                  "quad_rect",
+                  "quad_exists",
+                  "height_source",
+                  "heights"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "chunks_per_side",
+            "quads_per_side",
+            "tile_size",
+            "chunk_size",
+            "quad_size",
+            "row_axis",
+            "column_axis",
+            "chunk_vertex_layout",
+            "chunk_topology",
+            "textures",
+            "ground_effects",
+            "chunks",
+            "liquids"
+          ]
         }
       },
       "additionalProperties": false,
-      "required": [
-        "geometry",
-        "rig",
-        "materials",
-        "scene"
-      ],
-      "x-layer": "resource"
+      "required": [],
+      "x-layer": "resource",
+      "anyOf": [
+        {
+          "required": [
+            "geometry",
+            "rig",
+            "materials",
+            "scene"
+          ]
+        },
+        {
+          "required": [
+            "terrain"
+          ]
+        }
+      ]
     }
   },
   "required": [

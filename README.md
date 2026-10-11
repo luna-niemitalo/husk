@@ -957,9 +957,10 @@ verified against that file's own current node shape) and
 
 ### `husk export-terrain <tile.adt> <out.bundle> [OPTIONS]`
 
-Exports one ADT terrain tile to a terrain bundle: a `manifest.json` plus
-`terrain.bin`/`liquid.bin`, in the same native bundle family as `husk export
---bundle-only`'s model bundles. The schema, coordinate frame and consumer
+Exports one ADT terrain tile to a bundle: a `model` document
+(`manifest.json`) whose content is a heightfield, plus `terrain.bin`/
+`liquid.bin`, in the tile's own frame (the world places it by
+translation). The schema, coordinate frame and consumer
 notes (splat layers, untextured chunks, tile-edge seams) are in
 `REFACTOR/BUNDLE_FORMAT.md`'s "Terrain tile bundles". Per tile it holds:
 
@@ -971,7 +972,7 @@ notes (splat layers, untextured chunks, tile-edge seams) are in
   `--db2-dir`/`--dbd-dir`): density plus a weighted doodad set per effect,
   not instances;
 - `MH2O` liquid surfaces, with where each one's heights came from;
-- M2 and WMO placements in the world frame, as two placement sets
+- M2 and WMO placements in the tile's frame, as two placement sets
   (`doodads`, `map_objects`). Placed assets are references (`--models-dir`
   links the model and WMO bundles already exported); a WMO placement's
   active doodad sets are resolved, including `MWDR`/`MWDS`.

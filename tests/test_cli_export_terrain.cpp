@@ -46,6 +46,16 @@ nlohmann::json readPlacements(const fs::path& setFile) {
     return instances;
 }
 
+// A tile's model document, schema-checked (with its placement sets) on the way.
+nlohmann::json readTile(const fs::path& manifest) {
+    std::vector<husk::bundle_schema::Problem> problems = husk::bundle_schema::validateDocument(manifest);
+    std::string report;
+    for (const husk::bundle_schema::Problem& p : problems) report += p.where + ": " + p.message + "\n";
+    INFO(report);
+    CHECK(problems.empty());
+    return readJson(manifest);
+}
+
 std::string readText(const fs::path& path) {
     std::ifstream in(path);
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -116,17 +126,18 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
     CHECK(r.output.find("256 chunks, 2 textures") != std::string::npos);
     CHECK(r.output.find("2 doodads, 1 map objects") != std::string::npos);
 
-    nlohmann::json t = readJson(out / "manifest.json")["terrain"];
-    CHECK(t["tile_x"] == 32);
-    CHECK(t["textures"][0]["diffuse"]["state"] == "resolved");
-    CHECK(t["textures"][0]["diffuse"]["identity"]["name"] == "grass");
+    nlohmann::json t = readTile(out / "manifest.json");
+    CHECK(t["subject"]["name"] == "azeroth_32_48");
+    CHECK(t["kind"] == "model");
+    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["state"] == "resolved");
+    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["identity"]["name"] == "grass");
     // Listed but not extracted locally.
-    CHECK(t["textures"][1]["diffuse"]["state"] == "known_unresolved");
+    CHECK(t["resources"]["terrain"]["textures"][1]["diffuse"]["state"] == "known_unresolved");
     bool ddsWritten = false;
     for (const auto& e : fs::directory_iterator(out / "textures")) ddsWritten |= e.path().extension() == ".dds";
     CHECK(ddsWritten);
 
-    CHECK(t["placement_sets"][0]["instance_count"] == 2);
+    CHECK(t["definition"]["placement_sets"][0]["instance_count"] == 2);
     nlohmann::json doodads = readPlacements(out / "sets" / "0.json");
     CHECK(doodads[0]["asset"]["id"]["value"] == 555);
     CHECK(doodads[0]["asset"]["name"] == "tree");
@@ -145,8 +156,8 @@ TEST_CASE("husk export-terrain: without a listfile, name-table paths stay names 
     auto r = runHusk("export-terrain " + q(c.tile()) + " " + q(out));
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    nlohmann::json t = readJson(out / "manifest.json")["terrain"];
-    CHECK(t["textures"][0]["diffuse"]["state"] == "known_unresolved");
+    nlohmann::json t = readTile(out / "manifest.json");
+    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["state"] == "known_unresolved");
     nlohmann::json rock = readPlacements(out / "sets" / "0.json")[1]["asset"];
     CHECK(rock["id"]["kind"] == "none");
     CHECK(rock["name"] == "World\\Generic\\Rock.mdx");
@@ -191,10 +202,10 @@ TEST_CASE("husk export-terrain --obj none --tex none needs no WDT and exports ba
     auto r = runHusk("export-terrain " + q(c.tile()) + " " + q(out) + " --obj none --tex none");
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    nlohmann::json t = readJson(out / "manifest.json")["terrain"];
-    CHECK(t["textures"].empty());
-    CHECK(t["placement_sets"][0]["instance_count"] == 0);
-    CHECK(t["placement_sets"][1]["instance_count"] == 0);
+    nlohmann::json t = readTile(out / "manifest.json");
+    CHECK(t["resources"]["terrain"]["textures"].empty());
+    CHECK(t["definition"]["placement_sets"][0]["instance_count"] == 0);
+    CHECK(t["definition"]["placement_sets"][1]["instance_count"] == 0);
 }
 
 TEST_CASE("husk export-terrain announces what it resolved for every sidecar") {
@@ -224,10 +235,10 @@ TEST_CASE("husk export-terrain: a broken auto-found sidecar is warned about and 
     REQUIRE(r.exitCode == 0);
     CHECK(r.output.find("husk: warning: expected a readable azeroth_32_48_obj0.adt, got: ") != std::string::npos);
     CHECK(r.output.find("--obj none silences this") != std::string::npos);
-    nlohmann::json t = readJson(out / "manifest.json")["terrain"];
-    CHECK(t["placement_sets"][0]["instance_count"] == 0);
-    CHECK(t["placement_sets"][1]["instance_count"] == 0);
-    CHECK(t["textures"].size() == 2);
+    nlohmann::json t = readTile(out / "manifest.json");
+    CHECK(t["definition"]["placement_sets"][0]["instance_count"] == 0);
+    CHECK(t["definition"]["placement_sets"][1]["instance_count"] == 0);
+    CHECK(t["resources"]["terrain"]["textures"].size() == 2);
 }
 
 TEST_CASE("husk export-terrain: a missing auto-located WDT drops texture layers with a warning") {
@@ -239,10 +250,10 @@ TEST_CASE("husk export-terrain: a missing auto-located WDT drops texture layers 
     REQUIRE(r.exitCode == 0);
     CHECK(r.output.find("husk: warning: expected the map WDT at") != std::string::npos);
     CHECK(r.output.find("pass --wdt <path>, or --tex none") != std::string::npos);
-    nlohmann::json t = readJson(out / "manifest.json")["terrain"];
-    CHECK(t["textures"].empty());
-    CHECK(t["placement_sets"][0]["instance_count"] == 2);
-    CHECK(t["placement_sets"][1]["instance_count"] == 1);
+    nlohmann::json t = readTile(out / "manifest.json");
+    CHECK(t["resources"]["terrain"]["textures"].empty());
+    CHECK(t["definition"]["placement_sets"][0]["instance_count"] == 2);
+    CHECK(t["definition"]["placement_sets"][1]["instance_count"] == 1);
 
     writeBytes(c.mapDir() / "azeroth.wdt", {1, 2, 3});
     auto broken = runHusk("export-terrain " + q(c.tile()) + " " + q(c.root / "broken.bundle"));
@@ -287,14 +298,14 @@ TEST_CASE("husk export-terrain reads per-machine flags from --config, and 'none'
     auto r = runHusk("export-terrain " + q(c.tile()) + " " + q(out) + " --config " + q(config));
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(readJson(out / "manifest.json")["terrain"]["textures"][0]["diffuse"]["state"] == "resolved");
+    CHECK(readTile(out / "manifest.json")["resources"]["terrain"]["textures"][0]["diffuse"]["state"] == "resolved");
 
     fs::path optedOut = c.root / "out-none.bundle";
     auto none = runHusk("export-terrain " + q(c.tile()) + " " + q(optedOut) + " --config " + q(config) +
                         " --listfile none");
     REQUIRE(none.exitCode == 0);
     CHECK(none.output.find("listfile: none") != std::string::npos);
-    CHECK(readJson(optedOut / "manifest.json")["terrain"]["textures"][0]["diffuse"]["state"] ==
+    CHECK(readTile(optedOut / "manifest.json")["resources"]["terrain"]["textures"][0]["diffuse"]["state"] ==
           "known_unresolved");
 }
 
@@ -316,8 +327,8 @@ TEST_CASE("husk export-world: shared textures, per-map tile bundles, logged fail
     CHECK(first.output.find("1 errors this run") != std::string::npos);
 
     fs::path tile = out / "maps" / "azeroth" / "azeroth_32_48.bundle";
-    nlohmann::json t = readJson(tile / "manifest.json")["terrain"];
-    CHECK(t["textures"][0]["diffuse"]["payload"]["uri"] == "../../../textures/1001.dds");
+    nlohmann::json t = readTile(tile / "manifest.json");
+    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["payload"]["uri"] == "../../../textures/1001.dds");
     CHECK(fs::exists(out / "textures" / "1001.dds"));
     CHECK_FALSE(fs::exists(tile / "textures"));
     nlohmann::json doodads = readPlacements(tile / "sets" / "0.json");
@@ -351,10 +362,10 @@ TEST_CASE("husk export-world: a broken sidecar is logged and its tile still expo
                      " --skip-models");
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    nlohmann::json t = readJson(out / "maps" / "azeroth" / "azeroth_32_48.bundle" / "manifest.json")["terrain"];
-    CHECK(t["placement_sets"][0]["instance_count"] == 0);
-    CHECK(t["placement_sets"][1]["instance_count"] == 0);
-    CHECK(t["textures"].size() == 2);
+    nlohmann::json t = readTile(out / "maps" / "azeroth" / "azeroth_32_48.bundle" / "manifest.json");
+    CHECK(t["definition"]["placement_sets"][0]["instance_count"] == 0);
+    CHECK(t["definition"]["placement_sets"][1]["instance_count"] == 0);
+    CHECK(t["resources"]["terrain"]["textures"].size() == 2);
     std::string log = readText(out / "errors.log");
     CHECK(log.find("obj\t") != std::string::npos);
     CHECK(log.find("expected a readable azeroth_32_48_obj0.adt") != std::string::npos);
@@ -368,10 +379,10 @@ TEST_CASE("husk export-world: a map whose WDT is unreadable exports its tiles un
                      " --skip-models");
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    nlohmann::json t = readJson(out / "maps" / "azeroth" / "azeroth_32_48.bundle" / "manifest.json")["terrain"];
-    CHECK(t["textures"].empty());
-    CHECK(t["placement_sets"][0]["instance_count"] == 2);
-    CHECK(t["placement_sets"][1]["instance_count"] == 1);
+    nlohmann::json t = readTile(out / "maps" / "azeroth" / "azeroth_32_48.bundle" / "manifest.json");
+    CHECK(t["resources"]["terrain"]["textures"].empty());
+    CHECK(t["definition"]["placement_sets"][0]["instance_count"] == 2);
+    CHECK(t["definition"]["placement_sets"][1]["instance_count"] == 1);
     CHECK(readText(out / "errors.log").find("tiles export untextured") != std::string::npos);
 }
 

@@ -456,11 +456,12 @@ a schema bump.
 
 ## Terrain tile bundles
 
-**Current, not target**: written today by `husk export-terrain` (one tile)
-and `husk export-world` (every tile of a map or world). The exact manifest
-schema is the doc comment in `src/writers/terrain_bundle_writer.hpp`; this
-section is what a consumer needs on top of it. `kind` is `"terrain_tile"`,
-`schema_version` `"0.1.0"`, slices and `Ref`s as everywhere else.
+**Current**: written by `husk export-terrain` (one tile) and `husk
+export-world` (every tile of a map or world). A tile is a `model` document
+whose content is `resources.terrain`, a heightfield; it has no mesh, rig
+or scene. `schema/model.schema.json` defines it key by key; this section is
+what a consumer needs on top of it. The subject is the root ADT (its
+FileDataID when the listfile knows it, named `<map>_<x>_<y>`).
 
 ### Layout
 
@@ -480,16 +481,20 @@ model with no `uri` was not produced (unresolved, not extracted, or failed
 
 ### Frame and heightfield
 
-WoW world space, yards: +X north, +Y west, +Z up. Every position in the
-manifest is already in it; nothing is chunk- or file-relative.
+The tile's own frame, yards. Its axes are WoW world space's (+X north, +Y
+west, +Z up); its origin is the tile's corner vertex (chunk 0, corner
+(0, 0)) at height 0. Heights stay absolute. A world places tile
+(x, y) by translation alone, to world (32 − y, 32 − x, 0) · `tile_size`
+(the world document's grid states it). Positions inside the tile are
+otherwise not chunk- or file-relative.
 
-A tile is 16×16 chunks (`index = grid_y * 16 + grid_x`, `grid_x` stepping
-−Y, `grid_y` stepping −X). A chunk holds 145 absolute heights, interleaved
-as 9 corners then 8 centres per row pair. Corner (r, c) sits at
-`origin − (r, c) · quad_size` along (X, Y); centre (r, c) at
-`origin − (r + 0.5, c + 0.5) · quad_size`. Each quad is four triangles
-fanned around its centre, counter-clockwise seen from +Z; a quad whose
-`hole_rows` bit is set (bit c of byte r) has none.
+A tile is 16×16 chunks (`index = row * 16 + column`). Rows step along
+`row_axis` (−X), columns along `column_axis` (−Y). A chunk holds 145
+absolute heights, interleaved as 9 corners then 8 centres per row pair.
+Corner (r, c) sits at `origin + (r · row_axis + c · column_axis) ·
+quad_size`; centre (r, c) half a quad further along both. Each quad is four
+triangles fanned around its centre, counter-clockwise seen from +Z; a quad
+whose `hole_rows` bit is set (bit c of byte r) has none.
 
 ### Splat layers
 
@@ -520,19 +525,21 @@ weights only as ratios; their absolute scale is an open question
 
 ### Liquid
 
-One entry per `MH2O` instance: the chunk, a quad rectangle inside its 8×8
-grid, a per-quad `quad_exists` mask, and `(width + 1) · (height + 1)`
-absolute vertex heights. `height_source` says where they came from:
-`heightmap` (stored), `min_height_level` (none stored: flat at the
-instance's minimum, the open-ocean case) or `zero` (a depth-only layout).
+One entry per `MH2O` instance: the chunk (`chunk_row`, `chunk_column`), a
+quad rectangle inside its 8×8 grid, a per-quad `quad_exists` mask, and
+`(columns + 1) · (rows + 1)` absolute vertex heights. `height_source` says
+where they came from: `stored`, `min_height_level` (none stored: flat at
+the instance's minimum, the open-ocean case) or `zero` (a depth-only
+layout). These are `resources.terrain.liquids`, not the WMO-shaped
+`resources.geometry.liquids`.
 
 ### Placements
 
 Two placement sets (`PLACEMENT_SETS.md`, set files are
 `placement_set` documents, `schema/placement_set.schema.json`), both always on: `doodads` (`MDDF`, M2s) and
-`map_objects` (`MODF`, WMOs). Instance `translation` is world-frame,
-`rotation` a world-from-asset quaternion (x, y, z, w), the asset in its own
-native M2/WMO space. Instance ids are ADT uniqueIds: unique within a set,
+`map_objects` (`MODF`, WMOs), references 0 and 1. Instance `translation` is
+in the tile's frame, `rotation` a tile-from-asset quaternion (x, y, z, w;
+the tile's axes are the world's), the asset in its own native M2/WMO space. Instance ids are ADT uniqueIds: unique within a set,
 and map-wide, so the same id in two tiles' sets is one object to load once.
 A map object's `active_sets` name the WMO's doodad sets (`record_index` =
 `MODS` index) it turns on beyond the always-on set 0, with `MWDR`/`MWDS`
@@ -544,8 +551,10 @@ know has no identity, only its raw path as `name` (`name_source:
 
 ### Seams between tiles
 
-Each tile stores its own copy of its edge vertices; husk does not weld
-them. Each height is the tile's own `MCNK` base height plus its `MCVT`
+Each tile stores its own copy of its edge vertices (`definition.terrain.
+edge_vertices: "duplicated"`); husk does not weld them. Verified on
+`azeroth_32_49`/`azeroth_32_50` (2026-10-11): all 144 shared vertices
+agree to 3e-5 yd in position and exactly in height. Each height is the tile's own `MCNK` base height plus its `MCVT`
 offset, so two tiles' copies of one edge vertex agree only to float
 precision — about 1–2e-4 yd at typical heights. A seam check needs a
 tolerance relative to the height's magnitude, not a fixed 1e-4.

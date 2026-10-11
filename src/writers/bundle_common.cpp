@@ -330,6 +330,43 @@ void writeFile(const std::filesystem::path& path, const std::vector<uint8_t>& by
 // every real producer still decodes BLP -> PNG before canon:: ever sees
 // the bytes), the rest exist so this switch doesn't need revisiting once
 // that changes.
+void writeOwnedSetDefinitions(json::Writer& w, const std::vector<SetDocument>& sets) {
+    w.key("placement_sets");
+    w.beginArray();
+    for (size_t i = 0; i < sets.size(); ++i) {
+        w.beginObject();
+        w.key("reference");
+        w.value(static_cast<int64_t>(i));
+        w.key("always_on");
+        w.value(sets[i].alwaysOn);
+        w.key("instance_count");
+        w.value(static_cast<int64_t>(sets[i].instanceCount));
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writeOwnedSetSelectionAndReferences(json::Writer& w, const std::vector<SetDocument>& sets) {
+    w.key("selection");
+    w.beginObject();
+    w.key("placement_sets");
+    w.beginArray();
+    w.endArray();
+    w.endObject();
+
+    w.key("references");
+    w.beginArray();
+    for (const SetDocument& set : sets) {
+        w.beginObject();
+        w.key("kind");
+        w.value("placement_set");
+        w.key("asset");
+        writeRef(w, set.ref, set.uri);
+        w.endObject();
+    }
+    w.endArray();
+}
+
 std::string textureFileExtension(canon::TextureEncoding encoding) {
     switch (encoding) {
         case canon::TextureEncoding::Png: return "png";
