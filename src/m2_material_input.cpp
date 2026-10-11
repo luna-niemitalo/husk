@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "m2_shader_names.hpp"
+
 namespace husk::m2input {
 
 namespace {
@@ -413,8 +415,15 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
         return result;
     }
 
+    m2::ShaderNames shaders = m2::resolveShaderNames(batch.shaderId, batch.textureCount);
+    if (shaders.resolved) {
+        result.pixelShader = shaders.pixel;
+        result.vertexShader = shaders.vertex;
+    }
+
     result.layers.push_back(
         assemblePrimaryLayer(batch, batchIndex, m2, sequenceIndex, blendOp, textureResolutions));
+    result.layers.back().textureUnit = 0;
 
     // Additional texture layers (textureCount > 1): per wowdev.wiki
     // M2/.skin#Texture_units, layer i's real combo index is
@@ -438,6 +447,7 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
         layer.slot = slotFor(m2.textures, tex.type);
         layer.role = resolveRole(layer.uv, tex.type, /*isPrimaryLayer=*/false);
         layer.blendIntoPrevious = blendOp;
+        layer.textureUnit = layerOffset;
         result.layers.push_back(std::move(layer));
     }
 

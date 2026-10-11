@@ -242,7 +242,9 @@ values) without yet being wired in as the thing that pipeline actually uses:
   unresolved / genuinely ambiguous) instead of collapsing "couldn't find it"
   and "found two plausible candidates" into one failure case. A material
   also carries its framebuffer blend (opaque / alpha-key / blended / ...),
-  a separate fact from how its texture layers combine with each other.
+  a separate fact from how its texture layers combine with each other,
+  which (for M2) is the named client pixel shader whose formula the schema
+  states.
 - **`canon::Curve` / `canon::SequenceRef`** — one keyframe-curve
   representation shared by skeletal animation and by material-parameter
   animation (tint, alpha fade, UV scroll), which the current production

@@ -133,6 +133,10 @@ struct MaterialLayer {
     // Index into Model::textureSlots when the slot's options may replace `texture`.
     std::optional<uint32_t> slot;
     UvRef uv;
+    // The shader texture this layer is (t<unit> in its pixel shader's
+    // formula). Not the vector position: a layer whose texture is missing
+    // is left out, and the later ones keep their units.
+    std::optional<uint32_t> textureUnit;
     LayerRole role;
     std::optional<VecCurve> tint;
     std::optional<ScalarCurve> alphaFade;
@@ -197,6 +201,12 @@ struct Material {
     // The client shader this material is drawn with: id = the source's shader
     // index, name = its wiki name (Synthesized). nullopt when not resolved.
     std::optional<Ref> shader;
+    // M2: the pixel and vertex shaders the batch's shader ID selects. The
+    // pixel shader names the formula over the layers' texture units
+    // (schema/model.schema.json "m2_pixel_shader"); nullopt when the ID
+    // doesn't resolve.
+    std::optional<std::string> pixelShader;
+    std::optional<std::string> vertexShader;
     // no normalLayer/roughnessLayer yet -- no real producer populates one; add when one actually exists, not speculatively.
 };
 

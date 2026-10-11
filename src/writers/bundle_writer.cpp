@@ -34,18 +34,6 @@ std::string billboardName(canon::BillboardMode mode) {
     return "none";
 }
 
-std::string blendOpName(canon::BlendOp op) {
-    switch (op) {
-        case canon::BlendOp::Modulate: return "modulate";
-        case canon::BlendOp::Modulate2x: return "modulate_2x";
-        case canon::BlendOp::Add: return "add";
-        case canon::BlendOp::Replace: return "replace";
-        case canon::BlendOp::Decal: return "decal";
-        case canon::BlendOp::Fade: return "fade";
-    }
-    return "modulate";
-}
-
 std::string knownRoleName(canon::KnownRole role) {
     switch (role) {
         case canon::KnownRole::Unknown: return "unknown";
@@ -654,8 +642,10 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
         w.key("slot");
         w.value(static_cast<int64_t>(*layer.slot));
     }
-    w.key("blend");
-    w.value(blendOpName(layer.blendIntoPrevious));
+    if (layer.textureUnit) {
+        w.key("texture_unit");
+        w.value(static_cast<int64_t>(*layer.textureUnit));
+    }
 
     if (layer.tint) {
         w.key("tint");
@@ -734,6 +724,14 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
         if (material.shader) {
             w.key("shader");
             writeRef(w, *material.shader);
+        }
+        if (material.pixelShader) {
+            w.key("pixel_shader");
+            w.value(*material.pixelShader);
+        }
+        if (material.vertexShader) {
+            w.key("vertex_shader");
+            w.value(*material.vertexShader);
         }
         w.key("source");
         w.beginObject();

@@ -8,11 +8,15 @@ binds its textures to the composite's inputs (`textures`, with
 `only_with` for textures that depend on another choice). Blend
 operations are the client compositor's (`texturecompositing.bls`,
 `WIKI_FINDINGS/M2/rendering.md`); the source mode → operation mapping is
-marked `blend_mapping: unverified`. Open: `TODO/MATERIALS_TODO.md`. Today a material lives inline in its
-model's `resources.materials` as texture layers with a combiner op each
-(`canon::Material`); the classic shader formula (`Combiners_*`, WMO shader
-ids) is only named, and a character's composited skin is not represented
-at all. This file proposes a fifth document kind so a renderer can draw
+marked `blend_mapping: unverified`. Open: `TODO/MATERIALS_TODO.md`.
+Inline model materials (`resources.materials`) name, for M2, the pixel
+shader the batch's shader ID selects (`pixel_shader`, 37 names), and the
+schema states each one's formula over the layers' texture units
+(`model.schema.json` `definitions.m2_pixel_shader`, from the client
+shaders: `WIKI_FINDINGS/M2/rendering.md`). They don't carry a per-layer
+combine: the one they did was derived from the framebuffer blend mode,
+not the combiner. WMO materials name their shader (`shader`) without a
+formula yet. This file proposes a fifth document kind so a renderer can draw
 any material on its own — a flat texture, a lit preview — from the
 document alone, and so texture overlays (a face choice on the skin atlas)
 can be checked for being in the right place.

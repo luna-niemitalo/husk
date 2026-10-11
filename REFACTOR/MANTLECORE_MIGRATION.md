@@ -32,6 +32,15 @@ into the shared `<out>/textures/` (like tiles' already did), not its own
 `name_source` are present together or not at all. `provenance` no longer
 has `exported_at`; a stored build's `meta.json` carries the time.
 
+Materials (2026-10-12): a material layer no longer has `blend`. It was
+derived from the M2 framebuffer blend mode, not the texture combiner, so
+it never said how layers combine. An M2 material now names its
+`pixel_shader` (and `vertex_shader`), each layer says which shader texture
+it is (`texture_unit`: t0..t3), and `model.schema.json`'s
+`definitions.m2_pixel_shader` gives every pixel shader's diffuse,
+emissive and alpha formula, from the client's compiled shaders. WMO
+materials name their `shader` but have no formula yet.
+
 Every document is one of five kinds. A **material** (REFACTOR/MATERIALS.md)
 describes a surface as layers over textures and inputs; a character
 model's skin, hair and eyes are composite materials its customization
