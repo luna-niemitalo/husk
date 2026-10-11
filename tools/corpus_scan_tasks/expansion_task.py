@@ -28,7 +28,7 @@ it consumes husk's own answer directly.
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.expansion_task:ExpansionTask \\
-        --root /media/luna/data/wow_export --output-stem expansion_data
+        --root /media/luna/wow_export/live --output-stem expansion_data
 """
 from __future__ import annotations
 

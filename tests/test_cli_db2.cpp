@@ -625,18 +625,18 @@ TEST_CASE("husk db2-export --dir: a $noninline,relation$ field gets a real colum
 TEST_CASE("husk db2-export --dir: real chrmodeltexturelayer.db2 -> charcomponenttexturelayouts.db2 "
           "non-inline relation joins correctly" *
           doctest::skip(husk::test::testDbdDir().empty() ||
-                         !fs::exists("/media/luna/data/wow_export/dbfilesclient/chrmodeltexturelayer.db2") ||
+                         !fs::exists("/media/luna/wow_export/live/dbfilesclient/chrmodeltexturelayer.db2") ||
                          !fs::exists(
-                             "/media/luna/data/wow_export/dbfilesclient/charcomponenttexturelayouts.db2"))) {
+                             "/media/luna/wow_export/live/dbfilesclient/charcomponenttexturelayouts.db2"))) {
     fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-noninline-relation";
     fs::remove_all(dir);
     fs::path db2Dir = dir / "db2";
     fs::create_directories(db2Dir);
     fs::path outPath = dir / "out.sqlite";
 
-    fs::copy_file("/media/luna/data/wow_export/dbfilesclient/chrmodeltexturelayer.db2",
+    fs::copy_file("/media/luna/wow_export/live/dbfilesclient/chrmodeltexturelayer.db2",
                    db2Dir / "chrmodeltexturelayer.db2");
-    fs::copy_file("/media/luna/data/wow_export/dbfilesclient/charcomponenttexturelayouts.db2",
+    fs::copy_file("/media/luna/wow_export/live/dbfilesclient/charcomponenttexturelayouts.db2",
                    db2Dir / "charcomponenttexturelayouts.db2");
 
     auto result = runHusk("db2-export --dir " + db2Dir.string() + " " + outPath.string() + " --dbd-dir " +
@@ -698,13 +698,13 @@ TEST_CASE("husk db2-export --dir: real chrmodeltexturelayer.db2 -> charcomponent
 // cleanly, not a failure, when the real local file isn't present.
 TEST_CASE(
     "husk db2-export: real scenescripttext.db2 offset-map section exports real Name/Script text" *
-    doctest::skip(!fs::exists("/media/luna/data/wow_export/dbfilesclient/scenescripttext.db2"))) {
+    doctest::skip(!fs::exists("/media/luna/wow_export/live/dbfilesclient/scenescripttext.db2"))) {
     fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-offsetmap";
     fs::remove_all(dir);
     fs::create_directories(dir);
     fs::path outPath = dir / "out.sqlite";
 
-    auto result = runHusk("db2-export /media/luna/data/wow_export/dbfilesclient/scenescripttext.db2 " +
+    auto result = runHusk("db2-export /media/luna/wow_export/live/dbfilesclient/scenescripttext.db2 " +
                            outPath.string());
     CHECK(result.exitCode == 0);
     REQUIRE(fs::exists(outPath));

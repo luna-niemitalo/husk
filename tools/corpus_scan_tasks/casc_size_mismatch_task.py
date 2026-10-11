@@ -35,7 +35,7 @@ mismatch count.
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.casc_size_mismatch_task:CascSizeMismatchTask \\
-        --root /media/luna/data/wow_export --output-stem casc_size_mismatch
+        --root /media/luna/wow_export/live --output-stem casc_size_mismatch
 """
 from __future__ import annotations
 

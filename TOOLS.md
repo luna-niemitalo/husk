@@ -1,7 +1,7 @@
 # TOOLS.md — tools/
 
 Standalone Python scripts for exploring the real WoW corpus at
-`/media/luna/data/wow_export` — the same "second opinion" discipline
+`/media/luna/wow_export/live` — the same "second opinion" discipline
 `WIKI_FINDINGS.md` describes: these read M2/`.skin`/DB2 bytes directly,
 independent of husk's own C++ parsing, to verify a wowdev.wiki claim or
 find a real-corpus edge case before (or after) husk's own code handles it.
@@ -41,7 +41,7 @@ Run from the command line:
 ```
 direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \
     --task corpus_scan_tasks.example_texture_count:TextureCountTask \
-    --root /media/luna/data/wow_export --output-stem texture_count
+    --root /media/luna/wow_export/live --output-stem texture_count
 ```
 
 **Concurrency is live-tuned, not guessed up front.** `AdaptiveConcurrency`
@@ -329,7 +329,7 @@ docstring — read the script for the real detail, not this list:
 * Do NOT use RM, nor let subagents use it, that will immidiately prompt me and stuck the whole toolchain
 * python via UV in tools/venv
 * listfile in ~/Downloads/community-listfile.csv (did not spell check the name)
-* current casc export /media/luna/data/wow_export
+* current casc export /media/luna/wow_export/live
 * current wow /media/luna/games/World of Warcraft
 * casc tool ~/dev/casc-tool
 * if you or subagent needs to chain several commands in bash, write a ephemereal scratch dir tool script

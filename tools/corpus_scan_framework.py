@@ -32,7 +32,7 @@ find_*.py tool already does):
         def summarize(rows, total_files) -> list[str]:
             return [f"{len(rows)} / {total_files} files matched"]
 
-    run_corpus_scan(MyTask, root=Path("/media/luna/data/wow_export"),
+    run_corpus_scan(MyTask, root=Path("/media/luna/wow_export/live"),
                      output_stem="my_check")
 
 Usage from the command line, against a task class living in its own file
@@ -40,7 +40,7 @@ Usage from the command line, against a task class living in its own file
 
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.example_texture_count:TextureCountTask \\
-        --root /media/luna/data/wow_export --output-stem texture_count
+        --root /media/luna/wow_export/live --output-stem texture_count
 
 Parallelism model: ProcessPoolExecutor by default (real CPU parallelism,
 no GIL contention, matches tasks that shell out to `husk`/`gltf_validator`
@@ -777,7 +777,7 @@ def run_corpus_scan(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--task", required=True, help="'module.path:AttrName' of a ScanTask-shaped class")
-    parser.add_argument("--root", type=Path, default=Path("/media/luna/data/wow_export"))
+    parser.add_argument("--root", type=Path, default=Path("/media/luna/wow_export/live"))
     parser.add_argument("--output-stem", required=True)
     parser.add_argument("--max-workers", type=int, default=None, help="concurrency ceiling, default: CPU count")
     parser.add_argument("--initial-workers", type=int, default=None,

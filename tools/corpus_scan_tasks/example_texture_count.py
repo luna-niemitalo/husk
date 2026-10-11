@@ -18,7 +18,7 @@ Run it against the real corpus with:
 
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.example_texture_count:TextureCountTask \\
-        --root /media/luna/data/wow_export --output-stem texture_count_demo \\
+        --root /media/luna/wow_export/live --output-stem texture_count_demo \\
         --limit 2000   # drop --limit for a real full-corpus run
 """
 from __future__ import annotations

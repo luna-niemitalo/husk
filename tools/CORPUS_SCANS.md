@@ -11,7 +11,7 @@ exactly one thing: what to do with a single file.
 ```
 direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \
     --task corpus_scan_tasks.<module>:<ClassName> \
-    --root /media/luna/data/wow_export \
+    --root /media/luna/wow_export/live \
     --output-stem <name>
 ```
 

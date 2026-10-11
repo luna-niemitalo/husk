@@ -49,7 +49,7 @@ try:
 except ImportError:
 	tqdm = None
 
-DEFAULT_ROOT = Path("/media/luna/data/wow_export")
+DEFAULT_ROOT = Path("/media/luna/wow_export/live")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_CSV = REPO_ROOT / "texture_type_collisions.csv"
 OUTPUT_LOG = REPO_ROOT / "texture_type_collisions_scan.log"

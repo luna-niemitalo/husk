@@ -24,7 +24,7 @@ import find_texture_type_collisions as ftc  # noqa: E402
 from corpus_scan_framework import discover, run_corpus_scan  # noqa: E402
 from corpus_scan_tasks.texture_type_collisions_task import TextureTypeCollisionsTask  # noqa: E402
 
-ROOT = Path("/media/luna/data/wow_export")
+ROOT = Path("/media/luna/wow_export/live")
 
 
 def bench_sequential(files: list[Path]) -> float:

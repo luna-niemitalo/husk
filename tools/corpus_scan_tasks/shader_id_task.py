@@ -24,7 +24,7 @@ Run against the real corpus with:
 
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.shader_id_task:ShaderIdTask \\
-        --root /media/luna/data/wow_export --output-stem shader_id_corpus
+        --root /media/luna/wow_export/live --output-stem shader_id_corpus
 """
 
 import struct

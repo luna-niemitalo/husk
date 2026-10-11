@@ -9,7 +9,7 @@ try:
 except ImportError:
     tqdm = None
 
-ROOT = Path("/media/luna/data/wow_export")
+ROOT = Path("/media/luna/wow_export/live")
 RUN_DIR = Path.cwd()
 SUMMARY_PATH = RUN_DIR / "summary.txt"
 FAILURES_PATH = RUN_DIR / "failures.txt"

@@ -39,7 +39,7 @@ Run against the real corpus with:
 
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.texture_dedup_collision_task:TextureDedupCollisionTask \\
-        --root /media/luna/data/wow_export --output-stem texture_dedup_collision
+        --root /media/luna/wow_export/live --output-stem texture_dedup_collision
 """
 from __future__ import annotations
 

@@ -68,7 +68,7 @@ CSV reader doesn't have to re-derive what specifically went wrong.
 Usage:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.dangling_references_task:DanglingReferencesTask \\
-        --root /media/luna/data/wow_export --output-stem dangling_references
+        --root /media/luna/wow_export/live --output-stem dangling_references
 """
 
 import functools

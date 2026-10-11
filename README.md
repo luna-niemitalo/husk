@@ -672,8 +672,8 @@ to a single `husk export` call with that same model. Example:
 
 ```sh
 husk export --from-list corpus_worklist.txt --output-dir out/ \
-  --textures /media/luna/data/wow_export --listfile community-listfile.csv \
-  --listfile-root /media/luna/data/wow_export
+  --textures /media/luna/wow_export/live --listfile community-listfile.csv \
+  --listfile-root /media/luna/wow_export/live
 ```
 
 Texture resolution deliberately tries real-filename matches before
@@ -835,9 +835,9 @@ Example `~/.config/husk/config.toml`:
 
 ```toml
 dbd-dir = "/home/luna/dev/husk/reference/WoWDBDefs"
-db2-dir = "/media/luna/data/wow_export/dbfilesclient"
-listfile = "/media/luna/data/wow_export/community-listfile.csv"
-listfile-root = "/media/luna/data/wow_export"
+db2-dir = "/media/luna/wow_export/live/dbfilesclient"
+listfile = "/home/luna/dev/casc-tool/development/community-listfile-2026-10-08.csv"
+listfile-root = "/media/luna/wow_export/live"
 ```
 
 `export`, `resolve`, `export-terrain`, `export-world`, `db2-export`,

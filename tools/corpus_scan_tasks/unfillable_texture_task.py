@@ -45,7 +45,7 @@ skin-overlay .blp files next to the model resolve at all.
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.unfillable_texture_task:UnfillableTextureTask \\
-        --root /media/luna/data/wow_export --output-stem unfillable_textures
+        --root /media/luna/wow_export/live --output-stem unfillable_textures
 """
 from __future__ import annotations
 

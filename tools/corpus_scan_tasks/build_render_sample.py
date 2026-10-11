@@ -15,7 +15,7 @@ import math
 import random
 from pathlib import Path
 
-ROOT = Path("/media/luna/data/wow_export")
+ROOT = Path("/media/luna/wow_export/live")
 OUT = Path("/home/luna/dev/husk/corpus_reports/render_sample.txt")
 TARGET_TOTAL = 700
 SEED = 20260809

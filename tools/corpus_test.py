@@ -102,7 +102,7 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_HUSK_BIN = REPO_ROOT / "build" / "husk"
-DEFAULT_CORPUS_ROOT = Path("/media/luna/data/wow_export")
+DEFAULT_CORPUS_ROOT = Path("/media/luna/wow_export/live")
 
 
 @dataclass

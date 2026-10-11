@@ -22,7 +22,7 @@ main process.
 
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.shader_inventory_task:ShaderInventoryTask \\
-        --root /media/luna/data/wow_export --output-stem shader_inventory \\
+        --root /media/luna/wow_export/live --output-stem shader_inventory \\
         --output-dir SHADER_FINDINGS/scan
 """
 from __future__ import annotations

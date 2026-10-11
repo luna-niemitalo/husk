@@ -5,7 +5,7 @@ every distinct compiled blob as a standalone DXBC file, plus its native
 (Direct3D) listing and its Vulkan form (SPIR-V, SPIR-V text, GLSL).
 
 	direnv exec . tools/venv/bin/python -I tools/export_shaders.py \\
-		[--corpus /media/luna/data/wow_export] [--output example_exports/shaders]
+		[--corpus /media/luna/wow_export/live] [--output example_exports/shaders]
 
 Output, per container (`<stage>/<api>/<name>/`, GFAT entries unwrapped into
 the same shape as standalone files):
@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CORPUS = Path("/media/luna/data/wow_export")
+DEFAULT_CORPUS = Path("/media/luna/wow_export/live")
 DEFAULT_OUTPUT = REPO_ROOT / "example_exports" / "shaders"
 
 GXSH = b"HSXG"

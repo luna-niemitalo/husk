@@ -27,7 +27,7 @@ try:
 except ImportError:
 	tqdm = None
 
-DEFAULT_ROOT = Path("/media/luna/data/wow_export")
+DEFAULT_ROOT = Path("/media/luna/wow_export/live")
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "multiroot_skeleton_files_for_exploration.txt"
 
 # Same fixed field offsets husk's own src/m2.cpp / src/cmd_export.cpp use.

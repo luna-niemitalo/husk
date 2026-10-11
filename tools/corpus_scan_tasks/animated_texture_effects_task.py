@@ -54,7 +54,7 @@ per-track animated/constant field.
 Usage:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.animated_texture_effects_task:AnimatedTextureEffectsTask \\
-        --root /media/luna/data/wow_export --output-stem animated_texture_effects
+        --root /media/luna/wow_export/live --output-stem animated_texture_effects
 """
 
 import struct

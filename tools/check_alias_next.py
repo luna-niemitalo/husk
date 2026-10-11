@@ -93,7 +93,7 @@ def load_skel_sequences(path: Path):
 
 
 def main() -> int:
-    root = Path("/media/luna/data/wow_export/character/bloodelf")
+    root = Path("/media/luna/wow_export/live/character/bloodelf")
     files = {
         "bloodelffemale.m2 (inline)": (load_m2_inline_sequences, root / "female/bloodelffemale.m2"),
         "bloodelffemale_hd.skel": (load_skel_sequences, root / "female/bloodelffemale_hd.skel"),

@@ -43,7 +43,7 @@ try:
 except ImportError:
     tqdm = None
 
-DEFAULT_ROOT = Path("/media/luna/data/wow_export")
+DEFAULT_ROOT = Path("/media/luna/wow_export/live")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TARGET_TAGS = (b"WFV1", b"WFV2", b"DPIV", b"AFRA", b"PCOL")
 MAX_HEX_BYTES = 96

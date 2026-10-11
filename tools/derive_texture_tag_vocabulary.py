@@ -59,7 +59,7 @@ applies to anything this session didn't happen to check).
 Run:
 
     direnv exec . tools/venv/bin/python tools/derive_texture_tag_vocabulary.py \\
-        --root /media/luna/data/wow_export \\
+        --root /media/luna/wow_export/live \\
         --output corpus_reports/texture_tag_vocabulary.json
 
 Validate against the TODO's own hand counts (character/bloodelf/female/)
@@ -564,7 +564,7 @@ def validate_against_bloodelf_female(vocab_by_len, root: Path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", type=Path, default=Path("/media/luna/data/wow_export"))
+    ap.add_argument("--root", type=Path, default=Path("/media/luna/wow_export/live"))
     ap.add_argument("--output", type=Path, default=Path("corpus_reports/texture_tag_vocabulary.json"))
     ap.add_argument(
         "--seed-min-count",

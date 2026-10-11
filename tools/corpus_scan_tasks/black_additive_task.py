@@ -38,7 +38,7 @@ work `RESOURCE_CATALOG.md`'s own verdict table names for this task.
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.black_additive_task:BlackAdditiveTask \\
-        --root /media/luna/data/wow_export --output-stem black_additive_candidates
+        --root /media/luna/wow_export/live --output-stem black_additive_candidates
 """
 from __future__ import annotations
 

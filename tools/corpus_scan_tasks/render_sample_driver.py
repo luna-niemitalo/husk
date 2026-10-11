@@ -51,7 +51,7 @@ from PIL.PngImagePlugin import PngInfo
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from corpus_scan_framework import AdaptiveConcurrency  # noqa: E402 -- see sys.path.insert above
 
-CORPUS_ROOT = Path("/media/luna/data/wow_export")
+CORPUS_ROOT = Path("/media/luna/wow_export/live")
 HUSK_BIN = Path("/home/luna/dev/husk/build/husk")
 BLENDER_BIN = "blender"
 RENDER_SCRIPT = Path(__file__).resolve().parent / "render_glb.py"

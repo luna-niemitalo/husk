@@ -37,7 +37,7 @@ prose stays stable).
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.particle_only_task:ParticleOnlyTask \\
-        --root /media/luna/data/wow_export --output-stem particle_only_candidates
+        --root /media/luna/wow_export/live --output-stem particle_only_candidates
 """
 from __future__ import annotations
 

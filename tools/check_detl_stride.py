@@ -28,7 +28,7 @@ try:
 except ImportError:
     tqdm = None
 
-DEFAULT_ROOT = Path("/media/luna/data/wow_export")
+DEFAULT_ROOT = Path("/media/luna/wow_export/live")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIGHTS_OFFSET = 0x108  # M2Array<M2Light>: count (u32) + offset (u32), src/m2.cpp offset::lights
 

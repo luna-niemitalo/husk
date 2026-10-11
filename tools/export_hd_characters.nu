@@ -4,7 +4,7 @@
 # TODO/CLEANUP_TODO.md), so this is the loop until that lands.
 
 def main [
-    --corpus-root: string = "/media/luna/data/wow_export"
+    --corpus-root: string = "/media/luna/wow_export/live"
     --listfile: string = "/media/luna/userdata/Downloads/community-listfile.csv"
     --out-dir: string = "/media/luna/work/cache/husk/hd_character_export"
     --husk-bin: string = "/home/luna/dev/husk/build/husk"
