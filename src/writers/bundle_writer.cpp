@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <ctime>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -15,6 +16,7 @@
 #include "canon_terrain.hpp"  // terrainTileCorner, the world grid
 #include "json_writer.hpp"
 #include "writers/bundle_common.hpp"
+#include "writers/material_writer.hpp"
 #include "writers/writer_common.hpp"
 
 namespace husk::writers {
@@ -414,7 +416,12 @@ void writeRgba(json::Writer& w, const std::array<float, 4>& rgba) {
     w.endArray();
 }
 
-void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon::Option& option) {
+// A choice's bound textures, by (option, choice) in the flat option list.
+using ChoiceTextures = std::map<std::pair<uint32_t, uint32_t>, std::vector<const canon::ChoiceTexture*>>;
+
+// `materialBase`: the reference index of material document 0.
+void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon::Option& option, uint32_t optionIndex,
+                              const ChoiceTextures& choiceTextures, uint32_t materialBase, TextureTable& textures) {
     w.beginObject();
     w.key("ref");
     writeRef(w, option.ref);
@@ -441,13 +448,38 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
             w.key("geoset_id");
             w.value(static_cast<int64_t>(choice.geoset->group * 100 + choice.geoset->variant));
         }
+        auto bound = choiceTextures.find({optionIndex, static_cast<uint32_t>(&choice - option.choices.data())});
+        if (bound != choiceTextures.end()) {
+            w.key("textures");
+            w.beginArray();
+            for (const canon::ChoiceTexture* t : bound->second) {
+                w.beginObject();
+                w.key("material");
+                w.value(static_cast<int64_t>(materialBase + t->material));
+                w.key("input");
+                w.value(t->input);
+                w.key("texture");
+                w.value(static_cast<int64_t>(textures.add(t->texture)));
+                if (t->onlyWith) {
+                    w.key("only_with");
+                    w.beginObject();
+                    w.key("option");
+                    w.value(static_cast<int64_t>(t->onlyWith->option));
+                    w.key("choice");
+                    w.value(static_cast<int64_t>(t->onlyWith->choice));
+                    w.endObject();
+                }
+                w.endObject();
+            }
+            w.endArray();
+        }
         w.endObject();
     }
     w.endArray();
     w.endObject();
 }
 
-void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures) {
+void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures, uint32_t materialBase) {
     if (!model.textureSlots.empty()) {
         w.key("texture_slots");
         w.beginArray();
@@ -470,6 +502,10 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
             w.beginArray();
             for (const canon::TextureRef& option : slot.options) w.value(static_cast<int64_t>(textures.add(option)));
             w.endArray();
+            if (slot.composite) {
+                w.key("composite");
+                w.value(static_cast<int64_t>(materialBase + *slot.composite));
+            }
             w.endObject();
         }
         w.endArray();
@@ -481,8 +517,13 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
         w.beginObject();
         w.key("options");
         w.beginArray();
+        ChoiceTextures choiceTextures;
+        for (const canon::ChoiceTexture& t : model.choiceTextures) choiceTextures[{t.choice.option, t.choice.choice}].push_back(&t);
+        uint32_t optionIndex = 0;
         for (const canon::Definition& definition : model.customization) {
-            for (const canon::Option& option : definition.options) writeCustomizationOption(w, definition.chrModelId, option);
+            for (const canon::Option& option : definition.options) {
+                writeCustomizationOption(w, definition.chrModelId, option, optionIndex++, choiceTextures, materialBase, textures);
+            }
         }
         w.endArray();
         w.endObject();
@@ -927,9 +968,25 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("definition");
     w.beginObject();
     writeOwnedSetDefinitions(w, sets);
-    writeOptions(w, model, textures);
+    uint32_t materialBase = static_cast<uint32_t>(sets.size());
+    writeOptions(w, model, textures, materialBase);
     w.endObject();
-    writeOwnedSetSelectionAndReferences(w, sets, [&](json::Writer& sw) { writePresets(sw, model.presets); });
+    for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
+        writeMaterialDocument(model.materialDocuments[i], bundleDir / "materials" / (std::to_string(i) + ".json"), provenance,
+                              bundleDir, "../", writtenTextures);
+    }
+    writeOwnedSetSelectionAndReferences(
+        w, sets, [&](json::Writer& sw) { writePresets(sw, model.presets); },
+        [&](json::Writer& rw) {
+            for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
+                rw.beginObject();
+                rw.key("kind");
+                rw.value("material");
+                rw.key("asset");
+                writeRef(rw, model.materialDocuments[i].subject, "materials/" + std::to_string(i) + ".json");
+                rw.endObject();
+            }
+        });
 
     w.key("resources");
     w.beginObject();

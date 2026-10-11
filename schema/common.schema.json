@@ -393,7 +393,8 @@
             "model",
             "placement_set",
             "world",
-            "effect"
+            "effect",
+            "material"
           ],
           "description": "Kind of the referenced document."
         },

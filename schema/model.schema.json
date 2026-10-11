@@ -108,6 +108,12 @@
                   "$ref": "common.schema.json#/definitions/texture_index",
                   "description": "One option."
                 }
+              },
+              "composite": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The material document whose composite builds the slot's texture from customization choices (REFACTOR/MATERIALS.md).",
+                "x-index-into": "/references"
               }
             },
             "additionalProperties": false,
@@ -235,6 +241,58 @@
                         "geoset_id": {
                           "type": "integer",
                           "description": "Mesh geoset the choice shows; group * 100 + variant."
+                        },
+                        "textures": {
+                          "type": "array",
+                          "description": "Textures the choice binds to a material document's image inputs.",
+                          "items": {
+                            "type": "object",
+                            "description": "One bound texture.",
+                            "properties": {
+                              "material": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "The material document.",
+                                "x-index-into": "/references"
+                              },
+                              "input": {
+                                "type": "string",
+                                "description": "The image input it binds."
+                              },
+                              "texture": {
+                                "$ref": "common.schema.json#/definitions/texture_index",
+                                "description": "The texture."
+                              },
+                              "only_with": {
+                                "type": "object",
+                                "description": "Bound only while this other choice is also made.",
+                                "properties": {
+                                  "option": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "description": "The option.",
+                                    "x-index-into": "/definition/customization/options"
+                                  },
+                                  "choice": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "description": "Index into that option's choices."
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "option",
+                                  "choice"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "material",
+                              "input",
+                              "texture"
+                            ]
+                          }
                         }
                       },
                       "additionalProperties": false,

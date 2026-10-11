@@ -190,3 +190,51 @@ shaders.
   feeds `computeparticlevs`/`material3_particle_vs`, so M2 particles
   appear to stay on the CPU path (**inferred**). It cannot confirm
   `M2Particle`'s offsets.
+
+## Character texture compositing (`texturecompositing.bls`)
+
+### The client compositor's operations — verified (shader, 12.1.0)
+
+The client composites a character's skin atlas in a compute shader,
+`shaders/compute/dx_5_0/texturecompositing.bls`
+(`example_exports/shaders/compute/dx_5_0/texturecompositing/glsl/0000.glsl`).
+Per texel it reads the canvas `P` (t0) and the layer `L` (t1) at integer
+offsets, texel for texel with no scaling, and switches on a mode
+(`cb[0].x`); `sat` clamps to 0..1:
+
+| case | output |
+|---|---|
+| 0 | nothing written |
+| 1 | `L` (rgba) |
+| 2 | `L` where `L.a >= 0.5`, else `P` |
+| 3 | rgb `mix(P, sat(P + L), L.a)`, alpha 1 |
+| 4 | rgb `mix(P, sat(P·L), L.a)`, alpha 1 |
+| 5 | rgb `mix(P, sat(2·P·L), L.a)`, alpha 1 |
+| 6 | overlay keyed on the **canvas**: `P < 0.5 ? 2PL : 1 − 2(1−P)(1−L)`, sat, mixed by `L.a`, alpha 1 |
+| 7 | screen `1 − (1−P)(1−L)`, sat, mixed by `L.a`, alpha 1 |
+| 8 | hard light keyed on the layer: `L <= 0.5 ? sat(2PL) : sat(1 − 2(1−P)(1−L))`, mixed by `L.a`, alpha 1 |
+| 9 | rgb `mix(P, L, L.a)`, alpha 1 |
+| 10 | rgb `sat(P·L)`, alpha `L.a`, not mixed |
+| 11 | rgb `sat(P·L)`, alpha `L.r` |
+| 12 | rgb = `sat(0.21 L.r + 0.72 L.g + 0.07 L.b)`, alpha `L.a` |
+| 13 | rgb = `L` at column `P.r × 255`, row 0 (a palette lookup), alpha `P.a` |
+| other | nothing written |
+
+### wow.export's character blends disagree — corrected
+
+wow.export (`CharMaterialRenderer.js`, `char.fragment.shader`) draws
+mode 0 as a copy (the shader draws nothing), keys overlay (6) on the
+layer (the shader keys it on the canvas), treats 2 as unused, and names
+10..13 differently from what those cases compute. It orders layers by
+texture target id; the table's own `ChrModelTextureLayer.Layer` gives a
+different order on real data (layout 103: target 30 at layer 4 vs 11..13
+after it). Neither order is shown from the client yet.
+
+### `ChrModelTextureLayer.BlendMode` → compositor case — hypothesis
+
+Taken to select the case of the same number. Not shown: human male's
+layout 103 uses modes 1, 6, 7, 9 and 15, and the shader has no case 15
+(wow.export, which draws 15 as an alpha blend, is the only other
+source). The client likely maps modes before dispatch; husk marks every
+composite `blend_mapping: unverified` and leaves modes with no case
+unnamed (the source number is kept).

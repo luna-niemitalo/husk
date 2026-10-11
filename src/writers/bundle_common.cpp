@@ -839,7 +839,8 @@ void writeOwnedSetDefinitions(json::Writer& w, const std::vector<SetDocument>& s
 }
 
 void writeOwnedSetSelectionAndReferences(json::Writer& w, const std::vector<SetDocument>& sets,
-                                         const std::function<void(json::Writer&)>& moreSelection) {
+                                         const std::function<void(json::Writer&)>& moreSelection,
+                                         const std::function<void(json::Writer&)>& moreReferences) {
     w.key("selection");
     w.beginObject();
     w.key("placement_sets");
@@ -864,6 +865,7 @@ void writeOwnedSetSelectionAndReferences(json::Writer& w, const std::vector<SetD
         }
         w.endObject();
     }
+    if (moreReferences) moreReferences(w);
     w.endArray();
 }
 

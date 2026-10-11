@@ -54,10 +54,12 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     auto items = db2table::readNamedArrayColumns(tablePath(db2Dir, "npcmodelitemslotdisplayinfo.db2"), dbdDir,
                                                  {"NpcModelID", "ItemDisplayInfoID", "ItemSlot"}, err);
     auto textures = texturefiledata::load(db2Dir, dbdDir, err);
-    auto chrModels = db2table::readNamedArrayColumns(tablePath(db2Dir, "chrmodel.db2"), dbdDir, {"ID", "DisplayID"}, err);
+    auto chrModels = db2table::readNamedArrayColumns(tablePath(db2Dir, "chrmodel.db2"), dbdDir,
+                                                     {"ID", "DisplayID", "CharComponentTextureLayoutID"}, err);
     auto customization = chrcustomization::load(db2Dir, dbdDir, err);
+    auto layouts = chrmodel::load(db2Dir, dbdDir, err);
     if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !textures || !chrModels ||
-        !customization) {
+        !customization || !layouts) {
         return std::nullopt;
     }
 
@@ -83,12 +85,7 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
         out.particleColors[first(row[0])] = {words<3>(row[1]), words<3>(row[2]), words<3>(row[3])};
     }
     for (const auto& row : *extras) {
-        Extra extra{first(row[1]), first(row[2])};
-        for (uint32_t bake : {extra.bake, extra.hdBake}) {
-            auto texture = textures->find(bake);
-            if (texture != textures->end()) out.bakeTextures.emplace(bake, texture->second);
-        }
-        out.extras.emplace(first(row[0]), extra);
+        out.extras.emplace(first(row[0]), Extra{first(row[1]), first(row[2])});
     }
     for (const auto& row : *picks) out.customizationByExtra[first(row[0])].push_back({first(row[1]), first(row[2])});
 
@@ -100,11 +97,14 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
         if (file != fileByModelData.end()) fileByDisplay.emplace(first(row[0]), file->second);
     }
     for (const auto& row : *chrModels) {
+        out.layoutByChrModel.emplace(first(row[0]), first(row[2]));
         auto file = fileByDisplay.find(first(row[1]));
         if (file != fileByDisplay.end()) out.chrModelsByFile[file->second].push_back(first(row[0]));
     }
     for (auto& [file, ids] : out.chrModelsByFile) std::sort(ids.begin(), ids.end());
     out.customization = std::move(*customization);
+    out.layouts = std::move(*layouts);
+    out.textureFiles = std::move(*textures);
     for (const auto& row : *items) out.itemsByExtra[first(row[0])].push_back({first(row[1]), first(row[2])});
     return out;
 }

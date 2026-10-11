@@ -97,8 +97,8 @@ std::string describe(const std::vector<bundle_schema::Problem>& problems) {
 
 }  // namespace
 
-TEST_CASE("bundle_schema: the embedded schema defines effect, model, placement_set and world, and passes its own lint") {
-    CHECK(bundle_schema::kinds() == std::vector<std::string>{"effect", "model", "placement_set", "world"});
+TEST_CASE("bundle_schema: the embedded schema defines effect, material, model, placement_set and world, and passes its own lint") {
+    CHECK(bundle_schema::kinds() == std::vector<std::string>{"effect", "material", "model", "placement_set", "world"});
     std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemas();
     INFO(describe(problems));
     CHECK(problems.empty());

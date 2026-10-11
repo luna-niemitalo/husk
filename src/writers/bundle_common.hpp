@@ -152,9 +152,11 @@ void writeEffectDocument(const std::string& name, const std::filesystem::path& p
 // inside an open definition object; `writeOwnedSetSelectionAndReferences`
 // writes the selection (no optional set chosen) and references keys.
 void writeOwnedSetDefinitions(json::Writer& w, const std::vector<SetDocument>& sets);
-// `moreSelection` writes further members of the selection object.
+// `moreSelection` writes further members of the selection object,
+// `moreReferences` further references after the sets'.
 void writeOwnedSetSelectionAndReferences(json::Writer& w, const std::vector<SetDocument>& sets,
-                                         const std::function<void(json::Writer&)>& moreSelection = {});
+                                         const std::function<void(json::Writer&)>& moreSelection = {},
+                                         const std::function<void(json::Writer&)>& moreReferences = {});
 
 std::string textureFileExtension(canon::TextureEncoding encoding);
 

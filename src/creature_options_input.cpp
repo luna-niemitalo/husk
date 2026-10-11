@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "canon_definition_builder.hpp"
+#include "m2_header.hpp"  // m2::textureTypeName
 
 namespace husk::creatureinput {
 
@@ -98,6 +99,100 @@ struct OptionIndex {
     std::unordered_map<uint32_t, uint32_t> item;                      // ItemDisplayInfoID
 };
 
+// A layer's rectangle on its canvas: the whole canvas for a mask of -1,
+// else the first section (by section type) its mask names.
+std::optional<std::array<uint32_t, 4>> layerRect(const chrmodel::ChrModelTextureLayer& layer,
+                                                 const chrmodel::ChrModelMaterial& canvas,
+                                                 const std::vector<const chrmodel::CharComponentTextureSection*>& sections) {
+    if (layer.textureSectionTypeBitMask == 0xFFFFFFFFu) return std::array<uint32_t, 4>{0, 0, canvas.width, canvas.height};
+    for (const chrmodel::CharComponentTextureSection* section : sections) {
+        if (section->sectionType < 32 && (layer.textureSectionTypeBitMask & (1u << section->sectionType)) != 0) {
+            return std::array<uint32_t, 4>{section->x, section->y, section->width, section->height};
+        }
+    }
+    return std::nullopt;
+}
+
+std::string targetInput(uint32_t target) { return "target_" + std::to_string(target); }
+
+// Where a texture target draws: the material document, and its input.
+struct TargetSlot {
+    uint32_t material = 0;
+    std::string input;
+};
+
+// Each canvas of a texture layout (one per ChrModelMaterial texture type)
+// as a material document whose composite draws the layout's layers, each
+// from the input its texture target binds. A slot of that texture type is
+// composed by the first layout that has one.
+std::map<uint32_t, TargetSlot> addLayoutMaterials(const chrmodel::Data& tables, uint32_t layout, canon::Model& model,
+                                                  std::string& notes) {
+    std::vector<const chrmodel::CharComponentTextureSection*> sections;
+    for (const auto& section : tables.sections) {
+        if (section.charComponentTextureLayoutId == layout) sections.push_back(&section);
+    }
+    std::sort(sections.begin(), sections.end(), [](auto* a, auto* b) { return a->sectionType < b->sectionType; });
+    std::vector<const chrmodel::ChrModelMaterial*> canvases;
+    for (const auto& material : tables.materials) {
+        if (material.charComponentTextureLayoutsId == layout) canvases.push_back(&material);
+    }
+    std::sort(canvases.begin(), canvases.end(), [](auto* a, auto* b) { return a->textureType < b->textureType; });
+
+    std::map<uint32_t, TargetSlot> targets;
+    for (const chrmodel::ChrModelMaterial* canvas : canvases) {
+        std::vector<const chrmodel::ChrModelTextureLayer*> layers;
+        for (const auto& layer : tables.textureLayers) {
+            if (layer.charComponentTextureLayoutsId == layout && layer.textureType == canvas->textureType) layers.push_back(&layer);
+        }
+        // The table's own order; wow.export draws by target id instead
+        // (WIKI_FINDINGS/M2/rendering.md), neither shown from the client.
+        std::sort(layers.begin(), layers.end(), [](auto* a, auto* b) { return a->layer < b->layer; });
+
+        canon::MaterialDocument document;
+        const char* typeName = m2::textureTypeName(canvas->textureType);
+        document.subject = canon::Ref{canon::Db2Row{"ChrModelMaterial", canvas->id},
+                                      std::string(typeName ? typeName : "type_" + std::to_string(canvas->textureType)) +
+                                          "_layout_" + std::to_string(layout),
+                                      canon::NameSource::Synthesized};
+        canon::CompositeTexture composite;
+        composite.width = canvas->width;
+        composite.height = canvas->height;
+        uint32_t index = static_cast<uint32_t>(model.materialDocuments.size());
+        for (const chrmodel::ChrModelTextureLayer* layer : layers) {
+            std::optional<std::array<uint32_t, 4>> rect = layerRect(*layer, *canvas, sections);
+            if (!rect) {
+                notes += "husk: note: texture layout " + std::to_string(layout) + " layer " + std::to_string(layer->layer) +
+                         ": section mask " + std::to_string(layer->textureSectionTypeBitMask) + " names no section; skipped\n";
+                continue;
+            }
+            std::string input = targetInput(layer->chrModelTextureTargetId);
+            canon::CompositeLayer drawn;
+            drawn.texture = input;
+            drawn.rect = *rect;
+            if (layer->blendMode <= static_cast<uint32_t>(canon::CompositeBlend::GradientMap)) {
+                drawn.blend = static_cast<canon::CompositeBlend>(layer->blendMode);
+            }
+            drawn.sourceBlendMode = layer->blendMode;
+            drawn.sourceLayer = layer->layer;
+            composite.layers.push_back(std::move(drawn));
+            auto named = [&](const canon::ImageInput& i) { return i.name == input; };
+            if (std::none_of(document.imageInputs.begin(), document.imageInputs.end(), named)) {
+                document.imageInputs.push_back({input, "The texture customization choices give texture target " +
+                                                           std::to_string(layer->chrModelTextureTargetId) +
+                                                           " (ChrModelTextureTargetID)."});
+            }
+            targets.emplace(layer->chrModelTextureTargetId, TargetSlot{index, input});
+        }
+        document.textures.push_back(std::move(composite));
+        document.layers.push_back({canon::SurfaceRole::Base, canon::TextureSource{0u}, canon::UvSetIndex{0}, canon::Combine::Replace});
+        model.materialDocuments.push_back(std::move(document));
+        for (canon::TextureSlot& slot : model.textureSlots) {
+            if (slot.sourceType == canvas->textureType && !slot.composite) slot.composite = index;
+        }
+    }
+    return targets;
+}
+
 }  // namespace
 
 void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDataId, canon::Model& model,
@@ -107,6 +202,12 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
 
     std::vector<uint32_t> meshIds = meshGeosetIds(model.mesh);
     OptionIndex index;
+    std::unordered_map<uint32_t, canon::TextureRef> resolved;
+    auto textureFor = [&](uint32_t fdid) -> const canon::TextureRef& {
+        auto it = resolved.find(fdid);
+        if (it == resolved.end()) it = resolved.emplace(fdid, texture(fdid)).first;
+        return it->second;
+    };
     if (auto chrModels = data.chrModelsByFile.find(modelFileDataId); chrModels != data.chrModelsByFile.end()) {
         uint32_t optionBase = 0;
         for (uint32_t chrModel : chrModels->second) {
@@ -124,6 +225,52 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
             optionBase += static_cast<uint32_t>(definition.options.size());
             model.customization.push_back(std::move(definition));
         }
+
+        // Each layout once, then every choice's textures onto their targets.
+        std::map<uint32_t, std::map<uint32_t, TargetSlot>> targetsByLayout;
+        optionBase = 0;
+        for (const canon::Definition& definition : model.customization) {
+            auto layout = data.layoutByChrModel.find(definition.chrModelId);
+            if (layout == data.layoutByChrModel.end() || layout->second == 0) {
+                optionBase += static_cast<uint32_t>(definition.options.size());
+                continue;
+            }
+            if (!targetsByLayout.count(layout->second)) {
+                targetsByLayout[layout->second] = addLayoutMaterials(data.layouts, layout->second, model, report.notes);
+            }
+            const std::map<uint32_t, TargetSlot>& targets = targetsByLayout.at(layout->second);
+            for (size_t o = 0; o < definition.options.size(); ++o) {
+                for (size_t c = 0; c < definition.options[o].choices.size(); ++c) {
+                    uint32_t choiceId = std::get<canon::Db2Row>(definition.options[o].choices[c].ref.id).row;
+                    std::ostringstream err;
+                    chrcustomization::Resolution resolution = chrcustomization::resolveChoice(data.customization, choiceId, err);
+                    report.notes += err.str();
+                    for (const chrcustomization::MaterialResolution& material : resolution.materials) {
+                        auto target = targets.find(material.chrModelTextureTargetId);
+                        auto file = data.textureFiles.find(material.materialResourcesId);
+                        if (target == targets.end() || file == data.textureFiles.end()) {
+                            ++report.unplacedChoiceTextures;
+                            continue;
+                        }
+                        canon::ChoiceTexture bound;
+                        bound.choice = {optionBase + static_cast<uint32_t>(o), static_cast<uint32_t>(c)};
+                        bound.material = target->second.material;
+                        bound.input = target->second.input;
+                        bound.texture = textureFor(file->second);
+                        if (material.relatedChoiceId != 0) {
+                            auto related = index.choice.find(material.relatedChoiceId);
+                            if (related == index.choice.end()) {
+                                ++report.unplacedChoiceTextures;
+                                continue;
+                            }
+                            bound.onlyWith = related->second;
+                        }
+                        model.choiceTextures.push_back(std::move(bound));
+                    }
+                }
+            }
+            optionBase += static_cast<uint32_t>(definition.options.size());
+        }
     }
     std::map<std::string, size_t> presetByChoices;
 
@@ -131,7 +278,7 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         auto [it, added] = index.textureOption.emplace(std::pair{slot, fdid}, 0);
         if (added) {
             it->second = static_cast<uint32_t>(model.textureSlots[slot].options.size());
-            model.textureSlots[slot].options.push_back(texture(fdid));
+            model.textureSlots[slot].options.push_back(textureFor(fdid));
         }
         return it->second;
     };
@@ -161,9 +308,9 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
             return;
         }
         uint32_t bake = extra->second.hdBake != 0 ? extra->second.hdBake : extra->second.bake;
-        auto bakeTexture = data.bakeTextures.find(bake);
+        auto bakeTexture = data.textureFiles.find(bake);
         std::optional<uint32_t> slot = bakeSlot(model.textureSlots);
-        if (bake != 0 && bakeTexture != data.bakeTextures.end() && slot) {
+        if (bake != 0 && bakeTexture != data.textureFiles.end() && slot) {
             preset.textures.push_back({*slot, textureOption(*slot, bakeTexture->second)});
             key += "b" + std::to_string(bakeTexture->second) + ";";
         } else if (bake != 0) {

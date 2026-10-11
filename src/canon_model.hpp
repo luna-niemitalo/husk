@@ -9,6 +9,7 @@
 #include "canon_curve.hpp"      // SequenceRef
 #include "canon_definition.hpp" // Definition
 #include "canon_liquid.hpp"     // LiquidGrid
+#include "canon_material_document.hpp"  // MaterialDocument
 #include "canon_material.hpp"   // Material
 #include "canon_mesh.hpp"       // Mesh
 #include "canon_placement.hpp"  // PlacementSet
@@ -115,6 +116,9 @@ struct Model {
     // draws the file, in ChrModelID order. Presets index their options as
     // one list, in that order.
     std::vector<Definition> customization;
+    std::vector<ChoiceTexture> choiceTextures;
+    // Materials described as documents of their own (REFACTOR/MATERIALS.md).
+    std::vector<MaterialDocument> materialDocuments;
     std::vector<Ref> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
     std::vector<Preset> presets;
 };

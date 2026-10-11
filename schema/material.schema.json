@@ -1,0 +1,322 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/material.schema.json",
+  "title": "material",
+  "description": "How a surface looks: textures and inputs combined in layers, and how the result meets the framebuffer. A renderer draws it with nothing else (REFACTOR/MATERIALS.md).",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "material",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The material.",
+      "x-layer": "contract"
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, when, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "What a user of the material may supply.",
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "description": "The inputs by name.",
+          "additionalProperties": {
+            "$ref": "common.schema.json#/definitions/input_spec"
+          }
+        }
+      },
+      "required": [
+        "inputs"
+      ],
+      "additionalProperties": false,
+      "x-layer": "definition"
+    },
+    "selection": {
+      "type": "object",
+      "description": "A material selects nothing; its users bind its inputs.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection"
+    },
+    "references": {
+      "type": "array",
+      "description": "Other documents the material uses.",
+      "items": {
+        "$ref": "common.schema.json#/definitions/reference",
+        "description": "One dependency."
+      },
+      "x-layer": "contract"
+    },
+    "layers": {
+      "type": "array",
+      "description": "Surface layers, bottom first, each combined into the result so far.",
+      "items": {
+        "type": "object",
+        "description": "One layer.",
+        "properties": {
+          "role": {
+            "enum": [
+              "base",
+              "emission",
+              "specular",
+              "reflection",
+              "mask",
+              "detail"
+            ],
+            "description": "What the layer contributes."
+          },
+          "texture": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Index into resources.textures.",
+                "x-index-into": "/resources/textures"
+              },
+              {
+                "$ref": "common.schema.json#/definitions/binding",
+                "description": "The input that supplies it."
+              }
+            ],
+            "description": "A texture: from the document's table, or an input."
+          },
+          "uv": {
+            "type": "string",
+            "description": "Texture coordinates it samples: uv_set_<n>, sphere_environment, cube_reflection or screen."
+          },
+          "combine": {
+            "enum": [
+              "replace",
+              "modulate",
+              "modulate_2x",
+              "add",
+              "alpha_blend"
+            ],
+            "description": "How the layer L meets the result so far P: replace L; modulate P x L; modulate_2x P x L x 2; add P + L; alpha_blend mix(P, L, L.a)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "texture",
+          "uv",
+          "combine"
+        ]
+      },
+      "x-layer": "resource"
+    },
+    "output": {
+      "type": "object",
+      "description": "How the result meets the framebuffer.",
+      "properties": {
+        "framebuffer_blend": {
+          "enum": [
+            "opaque",
+            "alpha_key",
+            "alpha",
+            "no_alpha_add",
+            "add",
+            "mod",
+            "mod2x",
+            "blend_add"
+          ],
+          "description": "Blend with what is drawn; absent: opaque."
+        },
+        "lit": {
+          "type": "boolean",
+          "description": "Shaded by scene lighting."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "lit"
+      ],
+      "x-layer": "resource"
+    },
+    "resources": {
+      "type": "object",
+      "description": "The material's textures.",
+      "properties": {
+        "textures": {
+          "type": "array",
+          "description": "Every texture the material uses, each once: a texture entry, or a composite built from others.",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "common.schema.json#/definitions/texture_entry",
+                "description": "A texture."
+              },
+              {
+                "type": "object",
+                "description": "A texture built by drawing others onto a canvas, in order.",
+                "properties": {
+                  "composite": {
+                    "type": "object",
+                    "description": "The canvas and what is drawn on it.",
+                    "properties": {
+                      "width": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Canvas width.",
+                        "x-unit": "pixel"
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Canvas height.",
+                        "x-unit": "pixel"
+                      },
+                      "blend_mapping": {
+                        "enum": [
+                          "verified",
+                          "unverified"
+                        ],
+                        "description": "Whether each layer's blend is known to be the operation its source mode selects. unverified: taken as the compositor case of the same number, which the client is not shown to use."
+                      },
+                      "layers": {
+                        "type": "array",
+                        "description": "Drawn in order; a layer whose input is unbound is skipped.",
+                        "items": {
+                          "type": "object",
+                          "description": "One drawn texture.",
+                          "properties": {
+                            "texture": {
+                              "oneOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "description": "Index into resources.textures.",
+                                  "x-index-into": "/resources/textures"
+                                },
+                                {
+                                  "$ref": "common.schema.json#/definitions/binding",
+                                  "description": "The input that supplies it."
+                                }
+                              ],
+                              "description": "A texture: from the document's table, or an input."
+                            },
+                            "rect": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "minItems": 4,
+                              "maxItems": 4,
+                              "description": "Where it is drawn: x, y, width, height, from the canvas's top left.",
+                              "x-unit": "pixel"
+                            },
+                            "blend": {
+                              "enum": [
+                                "none",
+                                "copy",
+                                "copy_alpha_tested",
+                                "add",
+                                "multiply",
+                                "multiply_2x",
+                                "overlay",
+                                "screen",
+                                "hard_light",
+                                "alpha_blend",
+                                "multiply_opaque",
+                                "multiply_red_alpha",
+                                "greyscale",
+                                "gradient_map"
+                              ],
+                              "description": "How the layer L meets the canvas so far P, as the client's compositor computes it (shaders/compute texturecompositing.bls; WIKI_FINDINGS/M2/rendering.md). sat clamps to 0..1. none: nothing drawn. copy: L, alpha included. copy_alpha_tested: L where L.a >= 0.5, else P. add, multiply, multiply_2x, screen, overlay, hard_light, alpha_blend: rgb = mix(P, f, L.a), alpha 1, with f = sat(P + L), sat(P L), sat(2 P L), sat(1 - (1 - P)(1 - L)), per channel P < 0.5 ? sat(2 P L) : sat(1 - 2(1 - P)(1 - L)), per channel L <= 0.5 ? sat(2 P L) : sat(1 - 2(1 - P)(1 - L)), and L. multiply_opaque: rgb sat(P L), alpha L.a. multiply_red_alpha: rgb sat(P L), alpha L.r. greyscale: rgb sat(0.21 L.r + 0.72 L.g + 0.07 L.b), alpha L.a. gradient_map: rgb = L sampled at column P.r x 255 of its first row, alpha P.a. L is read texel for texel, unscaled. Absent: no known operation for the source's mode."
+                            },
+                            "source": {
+                              "type": "object",
+                              "description": "The layer in the source's terms.",
+                              "properties": {
+                                "blend_mode": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "description": "The source's blend mode number."
+                                },
+                                "layer": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "description": "The source's layer order."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "blend_mode"
+                              ]
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "texture",
+                            "rect",
+                            "source"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "width",
+                      "height",
+                      "blend_mapping",
+                      "layers"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "composite"
+                ]
+              }
+            ],
+            "description": "One texture."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "textures"
+      ],
+      "x-layer": "resource"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "layers",
+    "output",
+    "resources"
+  ]
+}

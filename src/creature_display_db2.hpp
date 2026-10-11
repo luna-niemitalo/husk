@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "chrcustomization_db2.hpp"
+#include "chrmodel_db2.hpp"
 
 // Typed reader for the creature display chain: CreatureModelData (which
 // rows draw a given M2), CreatureDisplayInfo (each row one way to dress
@@ -78,13 +79,15 @@ struct Data {
     std::unordered_map<uint32_t, std::vector<CustomizationPick>> customizationByExtra;
     std::unordered_map<uint32_t, std::vector<NpcItem>> itemsByExtra;
     // MaterialResourcesID -> texture FileDataID (texturefiledata_db2.hpp's
-    // UsageType 0 rule), only for the bakes `extras` name.
-    std::unordered_map<uint32_t, uint32_t> bakeTextures;
+    // UsageType 0 rule): NPC bakes and customization materials.
+    std::unordered_map<uint32_t, uint32_t> textureFiles;
     // Model FileDataID -> the ChrModelIDs that draw it, ascending (a race's
     // alternate form can share another's mesh: humanmale_hd is ChrModel 1
     // and 45).
     std::unordered_map<uint32_t, std::vector<uint32_t>> chrModelsByFile;
+    std::unordered_map<uint32_t, uint32_t> layoutByChrModel;  // CharComponentTextureLayoutID
     chrcustomization::Data customization;
+    chrmodel::Data layouts;  // texture layouts, their canvases, sections and layers
 };
 
 // Loads the tables from `db2Dir`. nullopt when any can't be read.

@@ -283,7 +283,8 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `resources.geometry.collision`. Portals are `resources.geometry.mesh.portals` with
   per-part links.
 - **Bundle format as structure (2026-10-10, Luna's call, in progress)**:
-  four document kinds (`model`, `placement_set`, `world`, `effect`) with one
+  five document kinds (`model`, `placement_set`, `world`, `effect`,
+  `material`) with one
   contract header (`REFACTOR/BUNDLE_FORMAT.md` "Document kinds and the
   contract header"). `schema/*.schema.json` is the definition (JSON Schema
   draft-07, embedded in the binary); `src/bundle_schema.*` validates

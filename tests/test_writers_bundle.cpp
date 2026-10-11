@@ -1223,3 +1223,81 @@ TEST_CASE("externalizeTextures: payloads go to the shared store once; the model 
     CHECK(textureAt(setDoc, setDoc["instances"][0]["inputs"]["emitters"][0]["texture"])["payload"]["uri"] ==
           "../../../textures/101.dds");
 }
+
+TEST_CASE("writeBundle: material documents beside the model; a slot's composite and a choice's textures point at them") {
+    canon::Model model = buildSyntheticModel();
+    canon::MaterialDocument skin;
+    skin.subject = canon::Ref{canon::Db2Row{"ChrModelMaterial", 1}, "skin_layout_103", canon::NameSource::Synthesized};
+    skin.imageInputs = {{"target_4", "The face."}};
+    canon::CompositeTexture composite;
+    composite.width = 64;
+    composite.height = 32;
+    composite.layers.push_back({std::string("target_4"), {32, 0, 32, 32}, canon::CompositeBlend::Overlay, 6, 2});
+    skin.textures.push_back(composite);
+    skin.layers.push_back({canon::SurfaceRole::Base, canon::TextureSource{0u}, canon::UvSetIndex{0}, canon::Combine::Replace});
+    model.materialDocuments = {skin};
+    model.textureSlots = {{"skin", 1, {}, std::nullopt, 0}};
+    canon::Definition customization;
+    canon::Option face;
+    face.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "Face", canon::NameSource::Db2};
+    face.category.ref = canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None};
+    canon::Choice first;
+    first.ref = canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 30}, "", canon::NameSource::None};
+    face.choices = {first};
+    customization.options = {face};
+    model.customization = {customization};
+    canon::TextureRef faceTexture;
+    faceTexture.state = canon::TextureRef::State::KnownUnresolved;
+    faceTexture.resolved.id = canon::FileDataId{1700};
+    model.choiceTextures.push_back({{0, 0}, 0, "target_4", faceTexture, canon::CustomizationPick{0, 0}});
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-materials";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, testProvenance());
+    nlohmann::json manifest = parseManifest(dir);  // follows the material reference too
+    const auto& ref = manifest["references"][0];
+    CHECK(ref["kind"] == "material");
+    CHECK(ref["asset"]["uri"] == "materials/0.json");
+    CHECK(manifest["definition"]["texture_slots"][0]["composite"] == 0);
+    const auto& bound = manifest["definition"]["customization"]["options"][0]["choices"][0]["textures"][0];
+    CHECK(bound["material"] == 0);
+    CHECK(bound["input"] == "target_4");
+    CHECK(bound["only_with"]["option"] == 0);
+    CHECK(textureAt(manifest, bound["texture"])["identity"]["id"]["value"] == 1700);
+    nlohmann::json material = nlohmann::json::parse(std::ifstream(dir / "materials" / "0.json"));
+    CHECK(material["kind"] == "material");
+    CHECK(material["definition"]["inputs"]["target_4"]["kind"] == "image");
+    const auto& drawn = material["resources"]["textures"][0]["composite"];
+    CHECK(drawn["blend_mapping"] == "unverified");
+    CHECK(drawn["layers"][0]["blend"] == "overlay");
+    CHECK(drawn["layers"][0]["rect"] == nlohmann::json::array({32, 0, 32, 32}));
+}
+
+TEST_CASE("validateDocument: a choice binding an input its material doesn't declare is a problem") {
+    canon::Model model = buildSyntheticModel();
+    canon::MaterialDocument skin;
+    skin.subject = canon::Ref{canon::Db2Row{"ChrModelMaterial", 1}, "skin", canon::NameSource::Synthesized};
+    skin.imageInputs = {{"target_4", "The face."}};
+    canon::CompositeTexture composite;
+    composite.width = 4;
+    composite.height = 4;
+    skin.textures.push_back(composite);
+    skin.layers.push_back({canon::SurfaceRole::Base, canon::TextureSource{0u}, canon::UvSetIndex{0}, canon::Combine::Replace});
+    model.materialDocuments = {skin};
+    canon::Definition customization;
+    canon::Option face;
+    face.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "Face", canon::NameSource::Db2};
+    face.category.ref = canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None};
+    face.choices = {canon::Choice{canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 30}, "", canon::NameSource::None}, 0, std::nullopt}};
+    customization.options = {face};
+    model.customization = {customization};
+    canon::TextureRef texture;
+    model.choiceTextures.push_back({{0, 0}, 0, "target_9", texture, std::nullopt});
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-material-bad-input";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, testProvenance());
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].message.find("target_9") != std::string::npos);
+}

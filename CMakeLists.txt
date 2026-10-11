@@ -79,7 +79,7 @@ find_package(nlohmann_json_schema_validator CONFIG REQUIRED)
 # schema/ is the bundle format's definition and effects/ the effect
 # documents husk writes; both are embedded into the binary so `husk
 # validate-bundle`, the writers and the tests use the same files.
-set(HUSK_SCHEMAS common model placement_set world effect)
+set(HUSK_SCHEMAS common model placement_set world effect material)
 set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend classic_ambient_global classic_ambient_point
                  classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume
                  classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon classic_zone_fog_global
@@ -132,6 +132,7 @@ add_library(husk-lib STATIC
   src/writers/gltf_lean.cpp
   src/writers/bundle_common.cpp
   src/writers/texture_store.cpp
+  src/writers/material_writer.cpp
   src/writers/bundle_writer.cpp
   src/writers/terrain_bundle_writer.cpp
   src/adt.cpp

@@ -525,6 +525,11 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, s
             std::cerr << "husk: " << build.model.presets.size() << " creature preset(s) from " << report.displays
                       << " display(s), " << report.humanoid << " of them humanoid NPCs\n";
         }
+        if (report.unplacedChoiceTextures > 0) {
+            std::cerr << "husk: note: " << report.unplacedChoiceTextures
+                      << " customization texture(s) not placed (no layout layer draws the target, no texture file, or "
+                         "the related choice isn't this model's)\n";
+        }
     }
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
     writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris);

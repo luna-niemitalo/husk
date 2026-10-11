@@ -31,7 +31,10 @@ into the shared `<out>/textures/` (like tiles' already did), not its own
 `textures/`. A ref without a display name is just `{id}`: `name` and
 `name_source` are present together or not at all.
 
-Every document is one of four kinds. A **world** (one per map) holds the
+Every document is one of five kinds. A **material** (REFACTOR/MATERIALS.md)
+describes a surface as layers over textures and inputs; a character
+model's skin, hair and eyes are composite materials its customization
+choices bind textures into. A **world** (one per map) holds the
 tile grid. A **model** is an asset in its own frame; terrain tiles, M2s
 and WMOs are all models. A **placement set** places models and effects.
 An **effect** is a behaviour with declared inputs (`REFACTOR/EFFECTS.md`). A tile is now

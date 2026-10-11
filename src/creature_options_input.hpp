@@ -25,6 +25,9 @@ struct OptionsReport {
     size_t displays = 0;  // displays of this model, humanoid ones included
     size_t humanoid = 0;  // humanoid NPCs (baked skin, customization, items)
     std::string notes;    // what building the customization definition reported
+    // Choice textures whose target no layout layer draws, whose material
+    // names no texture, or whose related choice isn't the model's.
+    size_t unplacedChoiceTextures = 0;
 };
 
 // `model` must already carry its mesh and textureSlots; fills the slots'

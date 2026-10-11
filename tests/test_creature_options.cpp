@@ -123,7 +123,7 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     data.extras[77] = {500, 600};  // the HD bake wins
     data.extras[78] = {500, 600};
     data.extras[79] = {501, 0};    // no texture for this bake
-    data.bakeTextures = {{500, 1500}, {600, 1600}};
+    data.textureFiles = {{500, 1500}, {600, 1600}};
     data.customizationByExtra[77] = {{3, 30}, {4, 40}};
     data.customizationByExtra[78] = {{3, 30}, {4, 40}};
     data.itemsByExtra[77] = {{9000, 0}, {0, 3}, {9011, 11}};
@@ -229,4 +229,48 @@ TEST_CASE("creaturedisplay::load: real 12.1.0 tables -- the mana wyrm mount's di
     CHECK(white->textures[3] == 7266830);
     CHECK(data->geosetsByDisplay.at(137144) == std::vector<uint32_t>{102, 201});
     CHECK(data->particleColors.count(2426) == 1);
+}
+
+TEST_CASE("addCreatureOptions: a texture layout's canvases become composite materials; choices bind their textures") {
+    creaturedisplay::Data data;
+    data.modelDataByFile[kModelFile] = {{1, 1.0f, false}};
+    data.chrModelsByFile[kModelFile] = {5};
+    data.layoutByChrModel[5] = 103;
+    data.customization.options = {{3, 5, "Skin Color", 0, 0}, {4, 5, "Hair Color", 1, 0}};
+    data.customization.choices = {{30, 3, "", 0, std::nullopt}, {40, 4, "", 0, std::nullopt}};
+    // Choice 30 draws target 4 with material 700, only with choice 40.
+    data.customization.elements = {{30, 0, 0, 9, 40}};
+    data.customization.materials = {{9, 4, 700}};
+    data.textureFiles[700] = 1700;
+    data.layouts.materials = {{1, 103, 1, 64, 32, 0}};
+    data.layouts.sections = {{1, 103, 9, 32, 0, 32, 32, 0}};
+    data.layouts.textureLayers = {{1, 103, 1, 2, 0, 15, 512, 4}, {2, 103, 1, 1, 0, 1, 0xFFFFFFFFu, 1}};
+
+    canon::Model model = modelWithGeosets({0});
+    model.textureSlots.push_back({"skin", 1, {}, std::nullopt});
+    creatureinput::OptionsReport report;
+    creatureinput::addCreatureOptions(data, kModelFile, model, textureNamed, report);
+    INFO(report.notes);
+
+    REQUIRE(model.materialDocuments.size() == 1);
+    CHECK(model.textureSlots[2].composite == 0u);
+    const auto& composite = std::get<canon::CompositeTexture>(model.materialDocuments[0].textures[0]);
+    CHECK(composite.width == 64);
+    CHECK_FALSE(composite.blendMappingVerified);
+    // Drawn in the table's layer order: the whole-canvas copy, then section 9.
+    REQUIRE(composite.layers.size() == 2);
+    CHECK(std::get<std::string>(composite.layers[0].texture) == "target_1");
+    CHECK(composite.layers[0].rect == std::array<uint32_t, 4>{0, 0, 64, 32});
+    CHECK(composite.layers[0].blend == canon::CompositeBlend::Copy);
+    CHECK(composite.layers[1].rect == std::array<uint32_t, 4>{32, 0, 32, 32});
+    CHECK_FALSE(composite.layers[1].blend.has_value());  // mode 15: no compositor case
+    CHECK(composite.layers[1].sourceBlendMode == 15);
+
+    REQUIRE(model.choiceTextures.size() == 1);
+    const canon::ChoiceTexture& bound = model.choiceTextures[0];
+    CHECK(bound.choice.option == 0);
+    CHECK(bound.input == "target_4");
+    CHECK(std::get<canon::FileDataId>(bound.texture.resolved.id).value == 1700);
+    REQUIRE(bound.onlyWith.has_value());
+    CHECK(bound.onlyWith->option == 1);
 }

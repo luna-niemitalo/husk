@@ -29,6 +29,9 @@ struct TextureSlot {
     std::optional<uint32_t> sourceType;
     std::vector<TextureRef> options;
     std::optional<std::string> inferredFrom;
+    // The material document whose composite builds the slot's texture from
+    // customization choices (index into Model::materialDocuments).
+    std::optional<uint32_t> composite;
 };
 
 // One recolouring ramp for particles, RGBA 0..1.
@@ -63,6 +66,16 @@ struct PresetSource {
 struct CustomizationPick {
     uint32_t option = 0;
     uint32_t choice = 0;
+};
+
+// A texture a customization choice binds to an image input of a material
+// document (its composite), only while `onlyWith` is also chosen when set.
+struct ChoiceTexture {
+    CustomizationPick choice;
+    uint32_t material = 0;  // index into Model::materialDocuments
+    std::string input;
+    TextureRef texture;
+    std::optional<CustomizationPick> onlyWith;
 };
 
 // An item a preset wears. `slot`: the equipment slot's name, when the

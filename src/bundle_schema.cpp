@@ -587,13 +587,74 @@ struct Validation {
         checker.walk(document, &schemaFor(kind), kind, "", objects);
         if (kind == "effect") checkEffect(document, [&](const std::string& p, const std::string& m) { checker.fail(p, m); });
 
+        if (kind == "material") checkMaterialInputs(document, checker);
         std::vector<const json*> referenced = references(document, path, prefix);
         if (kind == "placement_set") checkEffectInstances(document, referenced, checker);
+        if (kind == "model") checkMaterialBindings(document, referenced, checker);
         return true;
     }
 
-    // Validates every placement set and effect the document references and
-    // returns each reference's document (null for other kinds and failures).
+    // Every {"input": name} a material's layers or composites read names an
+    // input its definition declares.
+    void checkMaterialInputs(const json& material, DocumentChecker& checker) {
+        const json& inputs = material["definition"]["inputs"];
+        auto check = [&](const json& source, const std::string& pointer) {
+            if (!source.is_object() || inputs.contains(source["input"].get<std::string>())) return;
+            checker.fail(pointer, "expected an input the material declares, got '" + source["input"].get<std::string>() + "'");
+        };
+        const json& layers = material["layers"];
+        for (size_t i = 0; i < layers.size(); ++i) check(layers[i]["texture"], "/layers/" + std::to_string(i) + "/texture");
+        const json& textures = material["resources"]["textures"];
+        for (size_t t = 0; t < textures.size(); ++t) {
+            if (!textures[t].contains("composite")) continue;
+            const json& drawn = textures[t]["composite"]["layers"];
+            for (size_t i = 0; i < drawn.size(); ++i) {
+                check(drawn[i]["texture"], "/resources/textures/" + std::to_string(t) + "/composite/layers/" + std::to_string(i) + "/texture");
+            }
+        }
+    }
+
+    // A model's slot composites and choice textures name material
+    // references, and each bound input is one that material declares.
+    void checkMaterialBindings(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
+        const json& refs = model["references"];
+        auto material = [&](const json& index, const std::string& pointer) -> const json* {
+            size_t i = index;
+            if (i >= refs.size()) return nullptr;  // the index check reports it
+            if (refs[i]["kind"] != "material") {
+                checker.fail(pointer, "expected a material reference, got a " + refs[i]["kind"].get<std::string>());
+                return nullptr;
+            }
+            return referenced[i];
+        };
+        const json& definition = model["definition"];
+        const json& slots = definition.value("texture_slots", json::array());
+        for (size_t s = 0; s < slots.size(); ++s) {
+            if (slots[s].contains("composite")) material(slots[s]["composite"], "/definition/texture_slots/" + std::to_string(s) + "/composite");
+        }
+        if (!definition.contains("customization")) return;
+        const json& options = definition["customization"]["options"];
+        for (size_t o = 0; o < options.size(); ++o) {
+            const json& choices = options[o]["choices"];
+            for (size_t c = 0; c < choices.size(); ++c) {
+                const json& bound = choices[c].value("textures", json::array());
+                for (size_t b = 0; b < bound.size(); ++b) {
+                    std::string pointer = "/definition/customization/options/" + std::to_string(o) + "/choices/" +
+                                          std::to_string(c) + "/textures/" + std::to_string(b);
+                    const json* target = material(bound[b]["material"], pointer + "/material");
+                    if (!target) continue;
+                    std::string input = bound[b]["input"];
+                    if (!(*target)["definition"]["inputs"].contains(input)) {
+                        checker.fail(pointer + "/input", "expected an input the material declares, got '" + input + "'");
+                    }
+                }
+            }
+        }
+    }
+
+    // Validates every placement set, effect and material the document
+    // references and returns each reference's document (null for other
+    // kinds and failures).
     std::vector<const json*> references(const json& document, const fs::path& path, const std::string& prefix) {
         std::vector<const json*> out;
         // Every kind's schema requires references; out keeps pointers into it.
@@ -601,7 +662,7 @@ struct Validation {
         for (size_t i = 0; i < refs.size(); ++i) {
             const json& r = refs[i];
             std::string kind = r.value("kind", "");
-            if (kind != "placement_set" && kind != "effect") {
+            if (kind != "placement_set" && kind != "effect" && kind != "material") {
                 out.push_back(nullptr);
                 continue;
             }
