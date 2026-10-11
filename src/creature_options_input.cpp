@@ -63,10 +63,36 @@ std::vector<uint32_t> shownGeosets(const std::vector<uint32_t>& meshIds, const s
     return shown;
 }
 
+// NPCModelItemSlotDisplayInfo.ItemSlot names, from wow.export's
+// DBNpcEquipment.js (not on the wiki); 11 has none.
+const char* npcItemSlotName(uint32_t slot) {
+    static const char* const kNames[] = {"head",  "shoulder", "shirt", "chest", "waist", "legs",
+                                         "feet",  "wrist",    "hands", "tabard", "back"};
+    return slot < std::size(kNames) ? kNames[slot] : nullptr;
+}
+
+// The slot a humanoid NPC's baked skin fills: the lowest texture type the
+// model takes, as wow.export applies it (the lowest type of the model's
+// character texture layout; for character models, type 1, skin).
+std::optional<uint32_t> bakeSlot(const std::vector<canon::TextureSlot>& slots) {
+    std::optional<uint32_t> best;
+    for (size_t i = 0; i < slots.size(); ++i) {
+        if (!slots[i].sourceType) continue;
+        if (!best || *slots[i].sourceType < *slots[*best].sourceType) best = static_cast<uint32_t>(i);
+    }
+    return best;
+}
+
+canon::Ref db2Ref(const char* table, uint32_t row) {
+    return canon::Ref{canon::Db2Row{table, row}, "", canon::NameSource::None};
+}
+
 // First-seen option indices, so the same source value is one option.
 struct OptionIndex {
     std::map<std::pair<uint32_t, uint32_t>, uint32_t> textureOption;  // (slot, fdid)
     std::unordered_map<uint32_t, uint32_t> particleOption;            // ParticleColorID
+    std::unordered_map<uint32_t, uint32_t> choice;                    // ChrCustomizationChoiceID
+    std::unordered_map<uint32_t, uint32_t> item;                      // ItemDisplayInfoID
 };
 
 }  // namespace
@@ -103,17 +129,60 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         return it->second;
     };
 
+    // A humanoid NPC: its baked skin as an option of the bake slot, and its
+    // customization choices and items by identity.
+    auto addNpcLook = [&](uint32_t extraId, canon::Preset& preset, std::string& key) {
+        key += "x";
+        auto extra = data.extras.find(extraId);
+        if (extra == data.extras.end()) {
+            preset.unresolved.push_back({"ExtendedDisplayInfoID", canon::UnresolvedField::Kind::Id, double(extraId), std::nullopt});
+            key += std::to_string(extraId) + ";";
+            return;
+        }
+        uint32_t bake = extra->second.hdBake != 0 ? extra->second.hdBake : extra->second.bake;
+        auto bakeTexture = data.bakeTextures.find(bake);
+        std::optional<uint32_t> slot = bakeSlot(model.textureSlots);
+        if (bake != 0 && bakeTexture != data.bakeTextures.end() && slot) {
+            preset.textures.push_back({*slot, textureOption(*slot, bakeTexture->second)});
+            key += "b" + std::to_string(bakeTexture->second) + ";";
+        } else if (bake != 0) {
+            preset.unresolved.push_back({"BakeMaterialResourcesID", canon::UnresolvedField::Kind::Id, double(bake), std::nullopt});
+            key += "b?" + std::to_string(bake) + ";";
+        }
+        if (auto picks = data.customizationByExtra.find(extraId); picks != data.customizationByExtra.end()) {
+            for (const creaturedisplay::CustomizationPick& pick : picks->second) {
+                auto [it, added] = index.choice.emplace(pick.choice, static_cast<uint32_t>(model.customizationChoices.size()));
+                if (added) {
+                    model.customizationChoices.push_back(
+                        {db2Ref("ChrCustomizationOption", pick.option), db2Ref("ChrCustomizationChoice", pick.choice)});
+                }
+                preset.customization.push_back(it->second);
+                key += "c" + std::to_string(pick.choice) + ";";
+            }
+        }
+        if (auto items = data.itemsByExtra.find(extraId); items != data.itemsByExtra.end()) {
+            for (const creaturedisplay::NpcItem& item : items->second) {
+                if (item.itemDisplayInfo == 0) continue;
+                const char* name = npcItemSlotName(item.slot);
+                auto [it, added] = index.item.emplace(item.itemDisplayInfo, static_cast<uint32_t>(model.items.size()));
+                if (added) model.items.push_back(db2Ref("ItemDisplayInfo", item.itemDisplayInfo));
+                preset.items.push_back({name ? std::optional<std::string>(name) : std::nullopt, item.slot, it->second});
+                key += "i" + std::to_string(item.slot) + ":" + std::to_string(item.itemDisplayInfo) + ";";
+            }
+        }
+    };
+
     for (const creaturedisplay::ModelData& modelData : modelRows->second) {
         auto displays = data.displaysByModelData.find(modelData.id);
         if (displays == data.displaysByModelData.end()) continue;
         for (const creaturedisplay::Display& display : displays->second) {
             ++report.displays;
-            if (display.humanoid) {
-                ++report.humanoid;
-                continue;
-            }
             canon::Preset preset;
             std::string key;
+            if (display.extra != 0) {
+                ++report.humanoid;
+                addNpcLook(display.extra, preset, key);
+            }
             for (size_t i = 0; i < display.textures.size(); ++i) {
                 uint32_t fdid = display.textures[i];
                 if (fdid == 0) continue;

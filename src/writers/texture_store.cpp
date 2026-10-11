@@ -17,9 +17,7 @@ std::string TextureStore::put(uint32_t fdid, const canon::TextureRef::Payload& p
     return written_.emplace(fdid, std::move(filename)).first->second;
 }
 
-namespace {
-
-void externalize(canon::TextureRef& texture, TextureStore& store, const std::string& uriToStore, AssetUris& uris) {
+void externalizeTexture(canon::TextureRef& texture, TextureStore& store, const std::string& uriToStore, AssetUris& uris) {
     auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id);
     if (texture.state != canon::TextureRef::State::Resolved || !fdid) return;
     const canon::TextureRef::Payload* chosen =
@@ -30,12 +28,14 @@ void externalize(canon::TextureRef& texture, TextureStore& store, const std::str
     texture.rawPayload.reset();
 }
 
+namespace {
+
 void externalize(canon::InputValue& value, TextureStore& store, const std::string& uriToStore, AssetUris& uris) {
     std::visit(
         [&](auto& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, canon::TextureRef>) {
-                externalize(v, store, uriToStore, uris);
+                externalizeTexture(v, store, uriToStore, uris);
             } else if constexpr (std::is_same_v<T, std::vector<canon::InputValue>>) {
                 for (canon::InputValue& element : v) externalize(element, store, uriToStore, uris);
             } else if constexpr (std::is_same_v<T, std::vector<canon::NamedInput>>) {
@@ -49,14 +49,14 @@ void externalize(canon::InputValue& value, TextureStore& store, const std::strin
 
 void externalizeTextures(canon::Model& model, TextureStore& store, const std::string& uriToStore, AssetUris& uris) {
     for (canon::Material& material : model.materials) {
-        for (canon::MaterialLayer& layer : material.layers) externalize(layer.texture, store, uriToStore, uris);
+        for (canon::MaterialLayer& layer : material.layers) externalizeTexture(layer.texture, store, uriToStore, uris);
     }
     for (canon::TextureSlot& slot : model.textureSlots) {
-        for (canon::TextureRef& option : slot.options) externalize(option, store, uriToStore, uris);
+        for (canon::TextureRef& option : slot.options) externalizeTexture(option, store, uriToStore, uris);
     }
     for (canon::LiquidType& type : model.liquidTypes) {
         for (canon::LiquidTextureSlot& slot : type.textures) {
-            for (canon::TextureRef& frame : slot.frames) externalize(frame, store, uriToStore, uris);
+            for (canon::TextureRef& frame : slot.frames) externalizeTexture(frame, store, uriToStore, uris);
         }
     }
     for (canon::Model::OwnedSet& owned : model.placementSets) {

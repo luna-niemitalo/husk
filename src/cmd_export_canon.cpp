@@ -349,6 +349,31 @@ void printReport(const std::string& label, const canon_diff::Report& r) {
     }
 }
 
+// A texture option named outside the model (a creature display's): its
+// source blocks as DDS straight from the located file, with no pixel
+// decode (a character model has thousands of baked NPC skins), else the
+// catalog's full resolution. With a store the payload goes there at once,
+// so the model never holds them all.
+canon::TextureRef optionTexture(sources::Catalog& catalog, uint32_t fdid, const writers::StoreLink* store,
+                                writers::AssetUris& uris) {
+    canon::TextureRef ref;
+    std::optional<sources::Catalog::Located> located = catalog.locateFileDataId(fdid);
+    if (located && located->path.extension() != ".png") {
+        try {
+            ref.rawPayload = sources::ddsPayloadFromBlp(readFileBytes(located->path.string()));
+            ref.state = canon::TextureRef::State::Resolved;
+            canon::NameSource source = located->tier == sources::ResolutionTier::Listfile ? canon::NameSource::Listfile
+                                                                                          : canon::NameSource::Synthesized;
+            ref.resolved = canon::Ref{canon::FileDataId{fdid}, located->name, source};
+        } catch (const blp::ParseError&) {
+            ref = {};  // a source DDS can't house (palettized): decoded below instead
+        }
+    }
+    if (!ref.rawPayload) ref = toCanonTextureRef(catalog.textureForFileDataId(fdid), fdid);
+    if (store) writers::externalizeTexture(ref, *store->store, store->uriToStore, uris);
+    return ref;
+}
+
 // Everything canon:: needs, built from the same resolved inputs the legacy
 // pipeline used. Shared by runCanonExport (which then diffs it against
 // legacy) and writeCanonBundleOnly (which only writes it).
@@ -489,17 +514,17 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, s
     CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes);
+    writers::AssetUris textureUris;
     if (creatures && modelFileDataId) {
         creatureinput::OptionsReport report;
         creatureinput::addCreatureOptions(
             *creatures, *modelFileDataId, build.model,
-            [&](uint32_t fdid) { return toCanonTextureRef(catalog.textureForFileDataId(fdid), fdid); }, report);
+            [&](uint32_t fdid) { return optionTexture(catalog, fdid, textureStore, textureUris); }, report);
         if (report.displays > 0) {
             std::cerr << "husk: " << build.model.presets.size() << " creature preset(s) from " << report.displays
-                      << " display(s); " << report.humanoid << " humanoid display(s) not read\n";
+                      << " display(s), " << report.humanoid << " of them humanoid NPCs\n";
         }
     }
-    writers::AssetUris textureUris;
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
     writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris);
 }

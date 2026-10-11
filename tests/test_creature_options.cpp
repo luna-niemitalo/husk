@@ -53,9 +53,7 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     creaturedisplay::Display b = display(11, {100, 200, 0, 0});
     creaturedisplay::Display c = display(12, {101, 200, 0, 400});
     c.alpha = 51;
-    creaturedisplay::Display npc = display(13, {0, 0, 0, 0});
-    npc.humanoid = true;
-    data.displaysByModelData[1] = {a, b, c, npc};
+    data.displaysByModelData[1] = {a, b, c};
 
     canon::Model model = modelWithGeosets({0, 101});
     std::vector<uint32_t> asked;
@@ -63,8 +61,8 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     creatureinput::addCreatureOptions(
         data, kModelFile, model, [&](uint32_t fdid) { asked.push_back(fdid); return textureNamed(fdid); }, report);
 
-    CHECK(report.displays == 4);
-    CHECK(report.humanoid == 1);
+    CHECK(report.displays == 3);
+    CHECK(report.humanoid == 0);
     // Entry 0 fills type 11 (slot 1), entry 1 type 12 (slot 0); each texture once.
     REQUIRE(model.textureSlots[1].options.size() == 2);
     CHECK(std::get<canon::FileDataId>(model.textureSlots[1].options[1].resolved.id).value == 101);
@@ -110,6 +108,53 @@ TEST_CASE("addCreatureOptions: a texture for a type no layer reads gets that typ
     CHECK(model.textureSlots[2].sourceType == 13u);
     CHECK_FALSE(model.textureSlots[2].inferredFrom.has_value());
     CHECK(model.presets[0].textures[0].slot == 2);
+}
+
+TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot; choices and items ride along by id") {
+    creaturedisplay::Data data;
+    data.modelDataByFile[kModelFile] = {{1, 1.0f, false}};
+    creaturedisplay::Display npc = display(10, {});
+    npc.extra = 77;
+    creaturedisplay::Display twin = display(11, {});
+    twin.extra = 78;
+    creaturedisplay::Display lost = display(12, {});
+    lost.extra = 79;
+    data.displaysByModelData[1] = {npc, twin, lost};
+    data.extras[77] = {500, 600};  // the HD bake wins
+    data.extras[78] = {500, 600};
+    data.extras[79] = {501, 0};    // no texture for this bake
+    data.bakeTextures = {{500, 1500}, {600, 1600}};
+    data.customizationByExtra[77] = {{3, 30}, {4, 40}};
+    data.customizationByExtra[78] = {{3, 30}, {4, 40}};
+    data.itemsByExtra[77] = {{9000, 0}, {0, 3}, {9011, 11}};
+    data.itemsByExtra[78] = {{9000, 0}, {0, 3}, {9011, 11}};
+
+    canon::Model model = modelWithGeosets({0});
+    model.textureSlots.push_back({"skin", 1, {}, std::nullopt});
+    creatureinput::OptionsReport report;
+    creatureinput::addCreatureOptions(data, kModelFile, model, textureNamed, report);
+    CHECK(report.humanoid == 3);
+    REQUIRE(model.textureSlots[2].options.size() == 1);
+    CHECK(std::get<canon::FileDataId>(model.textureSlots[2].options[0].resolved.id).value == 1600);
+    // Two NPCs dressed alike are one preset.
+    REQUIRE(model.presets.size() == 2);
+    const canon::Preset& p = model.presets[0];
+    CHECK(p.sources.size() == 2);
+    REQUIRE(p.textures.size() == 1);
+    CHECK(p.textures[0].slot == 2);
+    REQUIRE(p.customization == std::vector<uint32_t>{0, 1});
+    REQUIRE(model.customizationChoices.size() == 2);
+    CHECK(std::get<canon::Db2Row>(model.customizationChoices[1].choice.id).row == 40);
+    CHECK(std::get<canon::Db2Row>(model.customizationChoices[1].option.id).table == "ChrCustomizationOption");
+    // An empty item row is no item; slot 11 has no name.
+    REQUIRE(p.items.size() == 2);
+    CHECK(p.items[0].slot == std::optional<std::string>("head"));
+    REQUIRE(model.items.size() == 2);
+    CHECK(std::get<canon::Db2Row>(model.items[p.items[0].item].id).row == 9000);
+    CHECK_FALSE(p.items[1].slot.has_value());
+    CHECK(p.items[1].sourceSlot == 11);
+    REQUIRE(model.presets[1].unresolved.size() == 1);
+    CHECK(model.presets[1].unresolved[0].field == "BakeMaterialResourcesID");
 }
 
 TEST_CASE("addCreatureOptions: a model whose displays pick geosets shows 0, 900+ and the picked ones") {
@@ -170,6 +215,7 @@ TEST_CASE("creaturedisplay::load: real 12.1.0 tables -- the mana wyrm mount's di
     auto white = std::find_if(displays.begin(), displays.end(), [](const auto& d) { return d.id == 137144; });
     REQUIRE(white != displays.end());
     CHECK(white->particleColorId == 2426);
+    CHECK(white->extra == 0);
     CHECK(white->textures[3] == 7266830);
     CHECK(data->geosetsByDisplay.at(137144) == std::vector<uint32_t>{102, 201});
     CHECK(data->particleColors.count(2426) == 1);

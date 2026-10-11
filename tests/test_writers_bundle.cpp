@@ -1113,6 +1113,13 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     preset.shownGeosets = std::vector<uint32_t>{0, 203};
     preset.particleColors = 0;
     preset.opacity = 0.5f;
+    model.customizationChoices.push_back({canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "", canon::NameSource::None},
+                                          canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 30}, "", canon::NameSource::None}});
+    model.items = {canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9000}, "", canon::NameSource::None},
+                   canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9011}, "", canon::NameSource::None}};
+    preset.customization.push_back(0);
+    preset.items.push_back({"head", 0, 0});
+    preset.items.push_back({std::nullopt, 11, 1});
     preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1.5f, 2});
     preset.unresolved.push_back({"TextureVariationFileDataID[3]", canon::UnresolvedField::Kind::Id, 99.0, std::nullopt});
     model.presets.push_back(preset);
@@ -1137,6 +1144,13 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(p["shown_geosets"] == nlohmann::json::array({0, 203}));
     CHECK(p["particle_colors"] == 0);
     CHECK(p["opacity"] == 0.5);
+    CHECK(p["customization"] == nlohmann::json::array({0}));
+    CHECK(definition["customization_choices"][0]["choice"]["id"]["row"] == 30);
+    CHECK(p["items"][0]["slot"] == "head");
+    CHECK(p["items"][1]["item"] == 1);
+    CHECK(definition["items"][1]["id"]["row"] == 9011);
+    CHECK_FALSE(p["items"][1].contains("slot"));
+    CHECK(p["items"][1]["source"]["item_slot"] == 11);
     CHECK(p["sources"][0]["ref"]["id"]["row"] == 7);
     CHECK(p["sources"][0]["scale"] == 1.5);
     CHECK(p["sources"][0]["base_scale"] == 2);

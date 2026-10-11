@@ -106,7 +106,8 @@ gltf::Mesh buildBaseMesh(const std::vector<m2::Vertex>& vertices) {
 // .skel per the three-state --skel resolution (~/docs/CLI.md §2.11):
 // 'none' means never look, even if a same-basename .skel exists; an
 // explicit path overrides; unset auto-detects a same-basename '.skel' next
-// to the model. `bonesAreInline`/`haveSkel`/`skelBytes` are out-parameters
+// to the model, else the one SKID names (listfile path, then the store's
+// `_by_fdid/`, where a model's own name is its FileDataID). `bonesAreInline`/`haveSkel`/`skelBytes` are out-parameters
 // since buildAnimations (below) needs to know which source's track offsets
 // `bones` carries, and haveSkel/skelBytes are reused by --bones-dir
 // resolution too.
@@ -120,7 +121,8 @@ gltf::Mesh buildBaseMesh(const std::vector<m2::Vertex>& vertices) {
 // source, not just an empty field.
 std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model& model, bool skelGiven,
                                     bool skelNone, std::string skelPath, bool& bonesAreInline,
-                                    bool& haveSkel, std::vector<uint8_t>& skelBytes) {
+                                    bool& haveSkel, std::vector<uint8_t>& skelBytes,
+                                    const husk::ListfileIndex& listfile, const std::string& listfileRoot) {
     canon::enforcePartialFailurePolicy(model, "bones", kExportPartialFailurePolicy);
     auto bones = model.bones;
     bonesAreInline = !bones.empty();
@@ -142,12 +144,19 @@ std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model
         // Not finding one isn't an error: plenty of 0-bone models
         // genuinely have no skeleton at all, and this model falls back to
         // the same unskinned-mesh output it always did.
-        auto defaultSkel = std::filesystem::path(modelPath).replace_extension(".skel");
+        std::filesystem::path defaultSkel = std::filesystem::path(modelPath).replace_extension(".skel");
         std::error_code ec;
-        if (std::filesystem::exists(defaultSkel, ec) && !ec) {
+        bool found = std::filesystem::exists(defaultSkel, ec) && !ec;
+        if (!found && model.header.skeletonFileId) {
+            if (auto local = sources::localFileForFileDataId(listfile, listfileRoot, *model.header.skeletonFileId)) {
+                defaultSkel = *local;
+                found = true;
+            }
+        }
+        if (found) {
             skelPath = defaultSkel.string();
             std::cerr << "husk: note: '" << modelPath << "' has 0 inline bones -- found and using '"
-                      << skelPath << "' next to it\n";
+                      << skelPath << "'\n";
             skelBytes = readFileBytes(skelPath);
             haveSkel = true;
             bones = skel::parseBones(skelBytes);
@@ -1233,7 +1242,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         bool haveSkel = false;
         std::vector<uint8_t> skelBytes;
         auto bones = resolveBones(modelPath, model, skelGiven, skelNone, skelPath, bonesAreInline,
-                                   haveSkel, skelBytes);
+                                   haveSkel, skelBytes, listfile, listfileRoot);
 
         // AnimationData.db2's real Name column ("Stand", "Walk", ...) --
         // opportunistic, same "--db2-dir/--dbd-dir unlocks this, nothing

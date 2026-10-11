@@ -194,6 +194,18 @@ public:
     // no per-slot memo, since it fills no M2 texture-array slot.
     Resolved<EncodedTexture> textureForFileDataId(uint32_t fdid) const { return resolveFileDataIdTiers(fdid); }
 
+    // The file the FileDataID tiers would read, without reading it: for a
+    // caller that rehouses source blocks (DDS) and never needs pixels, at
+    // scale (a character model's baked NPC skins). nullopt when no tier's
+    // file exists under that exact name; textureForFileDataId may still
+    // find it (its readers fold case).
+    struct Located {
+        std::filesystem::path path;
+        std::string name;
+        ResolutionTier tier = ResolutionTier::Miss;
+    };
+    std::optional<Located> locateFileDataId(uint32_t fdid) const;
+
     // How many same-basename pool candidates are still unclaimed for
     // `modelPath` -- the diagnostic `buildMaterialsAndPrimitives` used to
     // read straight off its own local `FuzzyTexturePool` (now owned here

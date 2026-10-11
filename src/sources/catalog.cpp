@@ -164,6 +164,21 @@ Resolved<EncodedTexture> Catalog::resolveStoreTier(uint32_t fdid) const {
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Store, path->string());
 }
 
+std::optional<Catalog::Located> Catalog::locateFileDataId(uint32_t fdid) const {
+    if (!texturesDir_.empty()) {
+        if (auto p = existingTexturePath(std::filesystem::path(texturesDir_) / std::to_string(fdid))) {
+            return Located{*p, std::to_string(fdid), ResolutionTier::Literal};
+        }
+    }
+    if (auto target = listfileTargetPath(fdid)) {
+        auto stem = *target;
+        stem.replace_extension();
+        if (auto p = existingTexturePath(stem)) return Located{*p, stem.filename().string(), ResolutionTier::Listfile};
+    }
+    if (auto p = storePathForFileDataId(listfileRoot_, fdid)) return Located{*p, std::to_string(fdid), ResolutionTier::Store};
+    return std::nullopt;
+}
+
 Resolved<EncodedTexture> Catalog::resolveFileDataIdTiers(uint32_t fdid) const {
     Resolved<EncodedTexture> result = resolveLiteralTier(fdid);
     if (!result.found()) result = resolveListfileTier(fdid);

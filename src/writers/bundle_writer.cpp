@@ -441,6 +441,25 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
         }
         w.endArray();
     }
+    if (!model.customizationChoices.empty()) {
+        w.key("customization_choices");
+        w.beginArray();
+        for (const canon::CustomizationChoice& choice : model.customizationChoices) {
+            w.beginObject();
+            w.key("option");
+            writeRef(w, choice.option);
+            w.key("choice");
+            writeRef(w, choice.choice);
+            w.endObject();
+        }
+        w.endArray();
+    }
+    if (!model.items.empty()) {
+        w.key("items");
+        w.beginArray();
+        for (const canon::Ref& item : model.items) writeRef(w, item);
+        w.endArray();
+    }
     if (model.particleColorOptions.empty()) return;
     w.key("particle_colors");
     w.beginArray();
@@ -494,6 +513,32 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
             w.value(static_cast<int64_t>(*preset.particleColors));
         }
         if (preset.opacity) writeFloatField(w, "opacity", *preset.opacity);
+        if (!preset.customization.empty()) {
+            w.key("customization");
+            w.beginArray();
+            for (uint32_t choice : preset.customization) w.value(static_cast<int64_t>(choice));
+            w.endArray();
+        }
+        if (!preset.items.empty()) {
+            w.key("items");
+            w.beginArray();
+            for (const canon::PresetItem& item : preset.items) {
+                w.beginObject();
+                if (item.slot) {
+                    w.key("slot");
+                    w.value(*item.slot);
+                }
+                w.key("item");
+                w.value(static_cast<int64_t>(item.item));
+                w.key("source");
+                w.beginObject();
+                w.key("item_slot");
+                w.value(static_cast<int64_t>(item.sourceSlot));
+                w.endObject();
+                w.endObject();
+            }
+            w.endArray();
+        }
         w.key("sources");
         w.beginArray();
         for (const canon::PresetSource& source : preset.sources) {

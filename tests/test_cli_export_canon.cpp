@@ -19,6 +19,7 @@
 #include "run_husk.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
+#include "test_data_paths.hpp"
 
 using husk::test::runHusk;
 namespace fs = std::filesystem;
@@ -71,4 +72,26 @@ TEST_CASE("husk export --bundle-only: the bundle's subject carries the model's F
     nlohmann::json m = nlohmann::json::parse(std::ifstream(bundle / "manifest.json"));
     CHECK(m["subject"]["id"]["value"] == 777);
     CHECK(m["subject"]["name"] == "textured");
+}
+
+TEST_CASE("husk export --bundle-only: a model in the store finds the skeleton its SKID names" *
+          doctest::skip(!fs::exists(husk::test::testSkelM2()) || !fs::exists(husk::test::testSkel()))) {
+    // The store names files by FileDataID, so no same-basename .skel exists.
+    auto dir = defaultsDir("bundleonly_skid");
+    fs::path store = dir / "_by_fdid";
+    fs::create_directories(store);
+    fs::copy_file(husk::test::testSkelM2(), store / "1100000", fs::copy_options::overwrite_existing);
+    fs::copy_file(husk::test::testSkelSkin(), store / "1100298", fs::copy_options::overwrite_existing);
+    fs::copy_file(husk::test::testSkel(), store / "1838505", fs::copy_options::overwrite_existing);
+    std::ofstream(dir / "listfile.csv") << "1;unrelated/file.m2\n";
+
+    auto bundle = dir / "out.bundle";
+    auto result = runHusk("export " + (store / "1100000").string() + " -o " + bundle.string() +
+                          " --bundle-only --config /dev/null --listfile " + (dir / "listfile.csv").string() +
+                          " --listfile-root " + dir.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(result.output.find("_by_fdid/1838505") != std::string::npos);
+    nlohmann::json m = nlohmann::json::parse(std::ifstream(bundle / "manifest.json"));
+    CHECK(m["resources"]["rig"]["skeleton"]["joint_count"].get<int>() > 0);
 }

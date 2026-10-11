@@ -10,8 +10,11 @@
 
 // Typed reader for the creature display chain: CreatureModelData (which
 // rows draw a given M2), CreatureDisplayInfo (each row one way to dress
-// that model), CreatureDisplayInfoGeosetData and ParticleColor. Same
-// db2table-backed pattern as creature_geoset_db2.hpp.
+// that model), CreatureDisplayInfoGeosetData and ParticleColor; and for
+// humanoid NPCs, CreatureDisplayInfoExtra (baked skin), its
+// CreatureDisplayInfoOption customization choices,
+// NPCModelItemSlotDisplayInfo equipment and the TextureFileData rows the
+// bakes name. Same db2table-backed pattern as creature_geoset_db2.hpp.
 namespace husk::creaturedisplay {
 
 struct ModelData {
@@ -30,10 +33,26 @@ struct Display {
     // TextureVariationFileDataID[4]; slot i fills M2 texture type 11 + i
     // for i < 3. 0 = the slot is not set.
     std::array<uint32_t, 4> textures{};
-    // ExtendedDisplayInfoID != 0: a humanoid NPC dressed through the
-    // character path (baked skin, customization, items), not by texture
-    // variation.
-    bool humanoid = false;
+    // ExtendedDisplayInfoID: a humanoid NPC dressed through the character
+    // path (Data::extras), not by texture variation. 0 = not one.
+    uint32_t extra = 0;
+};
+
+// A humanoid NPC's CreatureDisplayInfoExtra row: its baked skin, as
+// MaterialResourcesIDs (0 = none).
+struct Extra {
+    uint32_t bake = 0;
+    uint32_t hdBake = 0;
+};
+
+struct CustomizationPick {
+    uint32_t option = 0;  // ChrCustomizationOptionID
+    uint32_t choice = 0;  // ChrCustomizationChoiceID
+};
+
+struct NpcItem {
+    uint32_t itemDisplayInfo = 0;
+    uint32_t slot = 0;  // NPCModelItemSlotDisplayInfo.ItemSlot, raw
 };
 
 // ParticleColor's three colour ramps, ARGB packed as stored; entry i
@@ -50,9 +69,15 @@ struct Data {
     // Geoset ids as (GeosetIndex + 1) * 100 + GeosetValue (creature_geoset_db2.hpp).
     std::unordered_map<uint32_t, std::vector<uint32_t>> geosetsByDisplay;
     std::unordered_map<uint32_t, ParticleColors> particleColors;
+    std::unordered_map<uint32_t, Extra> extras;
+    std::unordered_map<uint32_t, std::vector<CustomizationPick>> customizationByExtra;
+    std::unordered_map<uint32_t, std::vector<NpcItem>> itemsByExtra;
+    // MaterialResourcesID -> texture FileDataID (texturefiledata_db2.hpp's
+    // UsageType 0 rule), only for the bakes `extras` name.
+    std::unordered_map<uint32_t, uint32_t> bakeTextures;
 };
 
-// Loads the four tables from `db2Dir`. nullopt when any can't be read.
+// Loads the tables from `db2Dir`. nullopt when any can't be read.
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err);
 
 }  // namespace husk::creaturedisplay

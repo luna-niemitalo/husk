@@ -5,6 +5,7 @@
 
 #include "creature_geoset_db2.hpp"
 #include "db2table.hpp"
+#include "texturefiledata_db2.hpp"
 
 namespace husk::creaturedisplay {
 
@@ -43,7 +44,16 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
                                                     err);
     auto colors = db2table::readNamedArrayColumns(colorPath, dbdDir, {"ID", "Start", "MID", "End"}, err);
     auto geosets = creaturegeoset::load(db2Dir, dbdDir, err);
-    if (!models || !displays || !colors || !geosets) return std::nullopt;
+    auto extras = db2table::readNamedArrayColumns(tablePath(db2Dir, "creaturedisplayinfoextra.db2"), dbdDir,
+                                                  {"ID", "BakeMaterialResourcesID", "HDBakeMaterialResourcesID"}, err);
+    auto picks = db2table::readNamedArrayColumns(tablePath(db2Dir, "creaturedisplayinfooption.db2"), dbdDir,
+                                                 {"CreatureDisplayInfoExtraID", "ChrCustomizationOptionID",
+                                                  "ChrCustomizationChoiceID"},
+                                                 err);
+    auto items = db2table::readNamedArrayColumns(tablePath(db2Dir, "npcmodelitemslotdisplayinfo.db2"), dbdDir,
+                                                 {"NpcModelID", "ItemDisplayInfoID", "ItemSlot"}, err);
+    auto textures = texturefiledata::load(db2Dir, dbdDir, err);
+    if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !textures) return std::nullopt;
 
     Data out;
     for (const auto& row : *models) {
@@ -56,7 +66,7 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
         display.scale = asFloat(first(row[2]));
         display.alpha = row[3] ? first(row[3]) : 255;
         display.particleColorId = first(row[4]);
-        display.humanoid = first(row[5]) != 0;
+        display.extra = first(row[5]);
         display.textures = words<4>(row[6]);
         out.displaysByModelData[first(row[1])].push_back(display);
     }
@@ -66,6 +76,16 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     for (const auto& row : *colors) {
         out.particleColors[first(row[0])] = {words<3>(row[1]), words<3>(row[2]), words<3>(row[3])};
     }
+    for (const auto& row : *extras) {
+        Extra extra{first(row[1]), first(row[2])};
+        for (uint32_t bake : {extra.bake, extra.hdBake}) {
+            auto texture = textures->find(bake);
+            if (texture != textures->end()) out.bakeTextures.emplace(bake, texture->second);
+        }
+        out.extras.emplace(first(row[0]), extra);
+    }
+    for (const auto& row : *picks) out.customizationByExtra[first(row[0])].push_back({first(row[1]), first(row[2])});
+    for (const auto& row : *items) out.itemsByExtra[first(row[0])].push_back({first(row[1]), first(row[2])});
     return out;
 }
 

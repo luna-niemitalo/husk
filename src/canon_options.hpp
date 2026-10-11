@@ -58,6 +58,22 @@ struct PresetSource {
     float baseScale = 1;
 };
 
+// A character customization choice the model can take, by identity (the
+// option it belongs to, and the choice): the choices sources are seen
+// using, until the model's full customization definition is built.
+struct CustomizationChoice {
+    Ref option;
+    Ref choice;
+};
+
+// An item a preset wears. `slot`: the equipment slot's name, when the
+// source's slot number has a known one; `sourceSlot` is that number.
+struct PresetItem {
+    std::optional<std::string> slot;
+    uint32_t sourceSlot = 0;
+    uint32_t item = 0;  // index into Model::items
+};
+
 struct Preset {
     std::vector<SlotChoice> textures;
     // The mesh geoset ids shown; every other geoset is hidden. nullopt:
@@ -65,6 +81,8 @@ struct Preset {
     std::optional<std::vector<uint32_t>> shownGeosets;
     std::optional<uint32_t> particleColors;  // index into Model::particleColorOptions
     std::optional<float> opacity;            // 0..1; nullopt = opaque
+    std::vector<uint32_t> customization;  // indices into Model::customizationChoices
+    std::vector<PresetItem> items;
     std::vector<PresetSource> sources;
     // Source values the preset names but husk can't place in an option.
     std::vector<UnresolvedField> unresolved;

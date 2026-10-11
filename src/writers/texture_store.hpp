@@ -43,4 +43,7 @@ struct StoreLink {
 // bundle) in `uris` for the writer.
 void externalizeTextures(canon::Model& model, TextureStore& store, const std::string& uriToStore, AssetUris& uris);
 
+// The same for one texture.
+void externalizeTexture(canon::TextureRef& texture, TextureStore& store, const std::string& uriToStore, AssetUris& uris);
+
 }  // namespace husk::writers

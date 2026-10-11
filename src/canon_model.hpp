@@ -110,6 +110,8 @@ struct Model {
     // options, and the presets a source uses.
     std::vector<TextureSlot> textureSlots;
     std::vector<ParticleColorOption> particleColorOptions;
+    std::vector<CustomizationChoice> customizationChoices;
+    std::vector<Ref> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
     std::vector<Preset> presets;
 };
 

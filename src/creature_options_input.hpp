@@ -12,13 +12,15 @@
 // puts in a slot becomes one of that slot's options (a slot the model has
 // no layer for is added, as is an inferred one for the fourth entry, which
 // has no texture type), every particle colour row one particle colour
-// option; each distinct combination a display uses is a preset listing
-// every such display with its scale.
+// option; a humanoid NPC's baked skin is an option of the lowest-type slot,
+// its customization choices and items carried by identity. Each distinct
+// combination a display uses is a preset listing every such display with
+// its scale.
 namespace husk::creatureinput {
 
 struct OptionsReport {
     size_t displays = 0;  // displays of this model, humanoid ones included
-    size_t humanoid = 0;  // dressed through the character path; not read here
+    size_t humanoid = 0;  // humanoid NPCs (baked skin, customization, items)
 };
 
 // `model` must already carry its mesh and textureSlots; fills the slots'

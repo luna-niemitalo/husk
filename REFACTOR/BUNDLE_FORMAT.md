@@ -299,7 +299,15 @@ preset's `unresolved`.
 
 M2 creatures fill both from `CreatureModelData` → `CreatureDisplayInfo`
 (`src/creature_options_input.cpp`, `export --bundle-only` and
-`export-world` with `--db2-dir`/`--dbd-dir`). Options never swap the
+`export-world` with `--db2-dir`/`--dbd-dir`). A humanoid NPC (a display
+of a character model) is a preset too: its baked skin is an option of
+the lowest-type slot (`skin`). Its customization choices and equipment
+index two definition lists that hold each once by identity:
+`definition.customization_choices` (`{option, choice}` refs) and
+`definition.items` (`ItemDisplayInfo` refs); a preset's `customization`
+is choice indices, its `items` `{slot, item, source: {item_slot}}`. These
+stand in until the character model's customization definition and item
+documents exist. Options never swap the
 model: a creature that alternates between models is a level above the
 model document and isn't represented yet. Options that are only valid
 together ("this texture only with these geosets") would need a

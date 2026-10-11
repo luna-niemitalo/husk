@@ -167,6 +167,37 @@
             ]
           }
         },
+        "customization_choices": {
+          "type": "array",
+          "description": "Character customization choices the model can take, as sources are seen using them, by identity.",
+          "items": {
+            "type": "object",
+            "description": "One choice.",
+            "properties": {
+              "option": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "The option it belongs to."
+              },
+              "choice": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "The choice."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "option",
+              "choice"
+            ]
+          }
+        },
+        "items": {
+          "type": "array",
+          "description": "Items the model can wear, by identity.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "One item's display."
+          }
+        },
         "customization": {
           "type": "object",
           "description": "Customization options a character model offers, each with its valid choices.",
@@ -394,6 +425,68 @@
                 "maximum": 1,
                 "description": "Whole-model opacity; absent: opaque.",
                 "x-unit": "1"
+              },
+              "customization": {
+                "type": "array",
+                "description": "Customization choices the combination makes.",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A choice.",
+                  "x-index-into": "/definition/customization_choices"
+                }
+              },
+              "items": {
+                "type": "array",
+                "description": "Items the combination wears, by identity.",
+                "items": {
+                  "type": "object",
+                  "description": "One item.",
+                  "properties": {
+                    "slot": {
+                      "enum": [
+                        "head",
+                        "shoulder",
+                        "shirt",
+                        "chest",
+                        "waist",
+                        "legs",
+                        "feet",
+                        "wrist",
+                        "hands",
+                        "tabard",
+                        "back"
+                      ],
+                      "description": "The equipment slot; absent when the source's slot number has no known name."
+                    },
+                    "item": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The item.",
+                      "x-index-into": "/definition/items"
+                    },
+                    "source": {
+                      "type": "object",
+                      "description": "The slot in the source's terms.",
+                      "properties": {
+                        "item_slot": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "The source's slot number."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "item_slot"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "item",
+                    "source"
+                  ]
+                }
               },
               "sources": {
                 "type": "array",

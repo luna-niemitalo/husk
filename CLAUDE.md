@@ -341,7 +341,10 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `--db2-dir`/`--dbd-dir`). REFACTOR/BUNDLE_FORMAT.md "Options and
   presets"; open items (creatures spanning several models is a design
   call, humanoid NPCs, conditional displays) in
-  `TODO/CREATURE_OPTIONS_TODO.md`.
+  `TODO/CREATURE_OPTIONS_TODO.md`. Humanoid NPCs (2026-10-11) are presets
+  on their character model: baked skin as a `skin` option, customization
+  choices and items indexing `definition.customization_choices`/`items`
+  (refs only so far). export-world puts every texture in one shared store.
 - **Textures and refs (2026-10-11, Luna)**: each document lists its
   textures once in `resources.textures` and everything uses indices
   (layers, slot options, terrain, liquid frames, effect image inputs);
