@@ -411,6 +411,10 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
             if (listed) inputs.assetNames.emplace(fdid, std::filesystem::path(std::string(*listed)).stem().string());
         }
     }
+    for (const canon::SourceRecord& light : wmoinput::droppedLights(root)) {
+        std::cerr << "husk: note: " << rootPath.filename().string() << ": " << light.table << "[" << light.index
+                  << "] left out: a light with non-finite numbers can't be placed\n";
+    }
     canon::Model model = wmoinput::buildCanonWmo(inputs);
     model.subject = writers::subjectRef(rootPath, fileDataId);
     return model;

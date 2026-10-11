@@ -35,6 +35,12 @@ struct WmoInputs {
     const liquiddb::Data* liquids = nullptr;  // nullptr: liquid types are identities only
 };
 
+// The MNLD/MOLT lights buildCanonWmo leaves out: any of their numbers is not
+// finite, so they can't be placed or lit (brewerydungeon_main01's light 61
+// holds a NaN position). Dropped by Luna's call, 2026-10-11; a caller notes
+// them.
+std::vector<canon::SourceRecord> droppedLights(const wmo::RootFile& root);
+
 // Every LiquidType row the groups' MLIQ liquids resolve to, in first-seen
 // order: with liquidinput::textureFileDataIds, the liquid textures a caller
 // resolves into `textures`.

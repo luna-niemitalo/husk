@@ -308,15 +308,10 @@ consumer choose" precedent `.bone` correction sets already established.
 
 **Current state (2026-10-11)**: exported as the WMO bundle's
 `resources.scene.static_lights` (`canon::LocalLight`), each switching
-with its doodad set.
-
-Open:
-- **Non-finite records make the bundle invalid.**
-  `11du_brewerydungeon_main01.wmo` light 61 has a NaN position,
-  attenuation and one rotation angle. The writer turns them into `null`,
-  which fails validation. A light with no finite position can't be
-  placed; decide whether such a record is dropped with a note or carried
-  unresolved once lights move onto `REFACTOR/EFFECTS.md`.
+with its doodad set. A light with any non-finite number is left out with
+a note (`wmoinput::droppedLights`; Luna's call): the one known is
+`11du_brewerydungeon_main01.wmo`'s light 61, whose position, attenuation
+and one rotation angle are NaN.
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WMO.md`, `## MNLD`
 (854–905, root-scoped) and `## MNLR` (2368–2377, group-scoped).

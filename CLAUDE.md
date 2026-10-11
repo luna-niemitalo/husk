@@ -326,8 +326,7 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `writers/bundle_common.cpp`). Then Phase 3 (derivations), `LightData`
   zone fog, classification before 1.0. Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
-  yet. Open: a non-finite `MNLD` light makes its WMO bundle invalid
-  (`LIGHTING_TODO.md` §3).
+  yet. The format is at schema_version 0.1.0.
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
   documented feature. Open items, in order: ground-cover scatter placing
   nothing on grassy quads (`TODO/WORLD/ADT_TERRAIN_TODO.md` §1), confirming

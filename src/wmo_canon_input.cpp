@@ -462,10 +462,30 @@ void nameByPosition(std::vector<T>& entries, const std::string& prefix) {
     }
 }
 
+template <typename... Floats>
+bool allFinite(Floats... values) {
+    return (std::isfinite(values) && ...);
+}
+
+bool isFinite(const wmo::NewLight& l) {
+    return allFinite(l.position[0], l.position[1], l.position[2], l.rotation[0], l.rotation[1], l.rotation[2],
+                     l.attenuationStart, l.attenuationEnd, l.intensity, l.blendStart, l.blendEnd, l.flickerIntensity,
+                     l.flickerSpeed, l.falloff, l.innerAngle, l.outerAngle, l.scale, l.intensityMultiplier);
+}
+
+bool isFinite(const wmo::LegacyLight& l) {
+    return allFinite(l.position[0], l.position[1], l.position[2], l.intensity, l.rotation[0], l.rotation[1],
+                     l.rotation[2], l.rotation[3], l.attenuationStart, l.attenuationEnd);
+}
+
 canon::Scene buildScene(const WmoInputs& in) {
     canon::Scene scene;
-    for (uint32_t i = 0; i < in.root->newLights.size(); ++i) scene.localLights.push_back(buildNewLight(in, i));
-    for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) scene.localLights.push_back(buildLegacyLight(in, i));
+    for (uint32_t i = 0; i < in.root->newLights.size(); ++i) {
+        if (isFinite(in.root->newLights[i])) scene.localLights.push_back(buildNewLight(in, i));
+    }
+    for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) {
+        if (isFinite(in.root->legacyLights[i])) scene.localLights.push_back(buildLegacyLight(in, i));
+    }
     nameByPosition(scene.localLights, "light");
     return scene;
 }
@@ -795,6 +815,17 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
                              fogs.empty() ? std::nullopt : fogs[0]);
     model.liquidTypes = std::move(liquidTypes);
     return model;
+}
+
+std::vector<canon::SourceRecord> droppedLights(const wmo::RootFile& root) {
+    std::vector<canon::SourceRecord> out;
+    for (uint32_t i = 0; i < root.newLights.size(); ++i) {
+        if (!isFinite(root.newLights[i])) out.push_back({"MNLD", i});
+    }
+    for (uint32_t i = 0; i < root.legacyLights.size(); ++i) {
+        if (!isFinite(root.legacyLights[i])) out.push_back({"MOLT", i});
+    }
+    return out;
 }
 
 std::vector<uint32_t> liquidTypeRows(const WmoInputs& in) {

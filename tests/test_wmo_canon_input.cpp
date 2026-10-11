@@ -4,7 +4,9 @@
 
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <iterator>
 
@@ -231,6 +233,27 @@ TEST_CASE("buildCanonWmo: MNLD lights become local lights that switch with their
     CHECK_FALSE(p1.castsShadows);
     CHECK_FALSE(p1.cookie.has_value());
     CHECK(std::get<canon::RecordIndex>(p1.placementSet->id).value == 0);
+}
+
+TEST_CASE("buildCanonWmo: a light with a non-finite number is left out, and droppedLights names it") {
+    wmo::RootFile root = syntheticRoot();
+    root.newLights.resize(2);
+    root.newLights[0].position = {std::nanf(""), 0, 0};
+    root.legacyLights.resize(1);
+    root.legacyLights[0].attenuationEnd = std::numeric_limits<float>::infinity();
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, std::nullopt};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.scene.localLights.size() == 1);
+    CHECK(model.scene.localLights[0].origin.index == 1);
+    std::vector<canon::SourceRecord> dropped = wmoinput::droppedLights(root);
+    REQUIRE(dropped.size() == 2);
+    CHECK(dropped[0].table == "MNLD");
+    CHECK(dropped[0].index == 0);
+    CHECK(dropped[1].table == "MOLT");
 }
 
 TEST_CASE("buildCanonWmo: MOLT lights follow MNLD, always on, rotation only for spot and directional") {
