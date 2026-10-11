@@ -1043,6 +1043,8 @@ already exists (each writer writes it last) and retries the failures.
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--skip-models` | -- | don't export model bundles (pass 2); placements link only to bundles already under <output>/models/ | unset |
+| `--all-assets` | -- | also export every M2 and root WMO the listfile names, placed or not (export-corpus) | unset |
+| `--sample` | -- | with --all-assets: only this many of them, a fixed seeded random choice (size and time projections) | unset |
 
 <!-- END GENERATED FLAG TABLE: export-world -->
 
