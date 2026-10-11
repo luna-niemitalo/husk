@@ -323,8 +323,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   Phase 3 started (four derivation rules, provenance on instances);
   Phase 4: each map's `Light` zones are zone fog instances, their fog by
   time of day from `LightData` (`lightdb`; export-map/export-world
-  `--db2-dir`). **Next**: M2 particle light roles, zone fog as a medium,
-  then classification before 1.0. Effect documents are written per
+  `--db2-dir`); WMO/map particle emitters carry a derived light role.
+  **Next** (each needs a design call or Luna): zone fog as a medium (a
+  medium is one value; zone fog is keyed by time of day), deduplicating
+  `zone_fogs`' shared LightParams (azeroth 7.8 MB), M2 particle light
+  roles (blend ids unsettled), Phase 5 classification (screenshot-verified)
+  before 1.0. Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
   yet. The format is at schema_version 0.1.0.
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,

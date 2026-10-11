@@ -14,6 +14,25 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-11 (late night) — Effects: M2 emitters, derivations, zone fog.**
+
+- Luna's calls: schema_version is 0.1.0 (the 1.0 release is the one that
+  admits no placeholder); WMO lights with non-finite numbers are dropped
+  with a note (`wmoinput::droppedLights`).
+- M2 particle/ribbon emitters are bone-anchored effect instances in an
+  inline effects set (placement instances gain `anchor`; owned sets may be
+  inline). `--bundle-only` now exports emitter-only models (steam, spell
+  impacts): its no-geometry refusal was a glTF rule.
+- Phase 3: medium content, spawn density, priority, provenance, and five
+  rules (`linear_fog_to_extinction`, `fog_color_to_albedo`,
+  `fog_level_to_priority`, `count_to_spawn_density`,
+  `blend_to_light_role`). M2 particle light roles left out: the blend ids
+  are unsettled.
+- Phase 4: zone fog from `Light`/`LightData` (`lightdb`); the 12.1.0 table
+  stores world yards, not the old DBC's inches; `Time` is half-minutes.
+- Verified: 600-M2 and 400-spell samples, map 2656 end to end through
+  export-world (3,400 documents), all 763 maps with sidecars.
+
 **2026-10-11 (night) — Effects: design, then every WMO and map volume on it.**
 
 - Design (`REFACTOR/EFFECTS.md`, with Luna over several rounds, ingesting
