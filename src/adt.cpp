@@ -261,6 +261,24 @@ std::vector<std::string> readNameTable(const std::vector<Chunk>& chunks, const c
     return out;
 }
 
+// One 64-byte MODF record (ADT and WDT share the layout and flags).
+MapObjectPlacement readMapObjectPlacement(const Chunk& modf, size_t b) {
+    const uint8_t* d = modf.data;
+    size_t n = modf.size;
+    MapObjectPlacement p;
+    p.nameId = read<uint32_t>(d, n, b, "MODF.nameId");
+    p.uniqueId = read<uint32_t>(d, n, b + 4, "MODF.uniqueId");
+    p.position = readVec3(d, n, b + 8, "MODF.position");
+    p.rotation = readVec3(d, n, b + 20, "MODF.rotation");
+    p.extentsMin = readVec3(d, n, b + 32, "MODF.extents");
+    p.extentsMax = readVec3(d, n, b + 44, "MODF.extents");
+    p.flags = read<uint16_t>(d, n, b + 56, "MODF.flags");
+    p.doodadSet = read<uint16_t>(d, n, b + 58, "MODF.doodadSet");
+    p.nameSet = read<uint16_t>(d, n, b + 60, "MODF.nameSet");
+    p.scale = read<uint16_t>(d, n, b + 62, "MODF.scale");
+    return p;
+}
+
 void requireNameIndex(uint32_t nameId, const std::vector<std::string>& names, const char* what, const char* idTag) {
     if (nameId >= names.size()) {
         throw ParseError(std::string(what) + ": name-table placement expected nameId < " + std::to_string(names.size()) +
@@ -298,19 +316,7 @@ ObjFile parseObj(const std::vector<uint8_t>& bytes) {
             throw ParseError("MODF: expected size multiple of 64, got " + std::to_string(modf->size));
         }
         for (size_t b = 0; b < modf->size; b += kModfSize) {
-            const uint8_t* d = modf->data;
-            size_t n = modf->size;
-            MapObjectPlacement p;
-            p.nameId = read<uint32_t>(d, n, b, "MODF.nameId");
-            p.uniqueId = read<uint32_t>(d, n, b + 4, "MODF.uniqueId");
-            p.position = readVec3(d, n, b + 8, "MODF.position");
-            p.rotation = readVec3(d, n, b + 20, "MODF.rotation");
-            p.extentsMin = readVec3(d, n, b + 32, "MODF.extents");
-            p.extentsMax = readVec3(d, n, b + 44, "MODF.extents");
-            p.flags = read<uint16_t>(d, n, b + 56, "MODF.flags");
-            p.doodadSet = read<uint16_t>(d, n, b + 58, "MODF.doodadSet");
-            p.nameSet = read<uint16_t>(d, n, b + 60, "MODF.nameSet");
-            p.scale = read<uint16_t>(d, n, b + 62, "MODF.scale");
+            MapObjectPlacement p = readMapObjectPlacement(*modf, b);
             if (!(p.flags & kModfNameIsFileDataId)) requireNameIndex(p.nameId, out.mapObjectNames, "MODF", "MWID");
             out.mapObjects.push_back(p);
         }
@@ -397,6 +403,72 @@ uint32_t parseWdtFlags(const std::vector<uint8_t>& bytes) {
     std::optional<Chunk> mphd = findChunk(chunks, "MPHD");
     if (!mphd) throw ParseError("WDT: expected an MPHD chunk");
     return read<uint32_t>(mphd->data, mphd->size, 0, "MPHD.flags");
+}
+
+WdtFile parseWdt(const std::vector<uint8_t>& bytes) {
+    std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
+    WdtFile out;
+    out.flags = parseWdtFlags(bytes);
+
+    std::optional<Chunk> main = findChunk(chunks, "MAIN");
+    if (!main) throw ParseError("WDT: expected a MAIN chunk");
+    constexpr size_t kTiles = 64 * 64;
+    if (main->size != kTiles * 8) {
+        throw ParseError("WDT MAIN: expected " + std::to_string(kTiles * 8) + " bytes, got " + std::to_string(main->size));
+    }
+    for (size_t i = 0; i < kTiles; ++i) out.tileFlags[i] = read<uint32_t>(main->data, main->size, i * 8, "MAIN.flags");
+
+    // Each optional chunk must agree with the MPHD flag that announces it.
+    std::optional<Chunk> maid = findChunk(chunks, "MAID");
+    bool maidFlag = out.flags & kMphdHasMaid;
+    if (maidFlag != maid.has_value()) {
+        throw ParseError(std::string("WDT: MPHD flag 0x200 ") + (maidFlag ? "set" : "clear") + ", expected MAID " +
+                         (maidFlag ? "present" : "absent") + ", got it " + (maid ? "present" : "absent"));
+    }
+    if (maid) {
+        if (maid->size != kTiles * 32) {
+            throw ParseError("WDT MAID: expected " + std::to_string(kTiles * 32) + " bytes, got " +
+                             std::to_string(maid->size));
+        }
+        auto& ids = out.tileFileDataIds.emplace();
+        for (size_t i = 0; i < kTiles; ++i) {
+            const uint8_t* d = maid->data;
+            size_t n = maid->size;
+            size_t b = i * 32;
+            ids[i] = {read<uint32_t>(d, n, b, "MAID.rootADT"),   read<uint32_t>(d, n, b + 4, "MAID.obj0ADT"),
+                      read<uint32_t>(d, n, b + 8, "MAID.obj1ADT"), read<uint32_t>(d, n, b + 12, "MAID.tex0ADT"),
+                      read<uint32_t>(d, n, b + 16, "MAID.lodADT"), read<uint32_t>(d, n, b + 20, "MAID.mapTexture"),
+                      read<uint32_t>(d, n, b + 24, "MAID.mapTextureN"),
+                      read<uint32_t>(d, n, b + 28, "MAID.minimapTexture")};
+        }
+    }
+
+    std::optional<Chunk> modf = findChunk(chunks, "MODF");
+    bool globalFlag = out.flags & kMphdGlobalMapObject;
+    if (globalFlag != modf.has_value()) {
+        throw ParseError(std::string("WDT: MPHD flag 0x1 ") + (globalFlag ? "set" : "clear") + ", expected MODF " +
+                         (globalFlag ? "present" : "absent") + ", got it " + (modf ? "present" : "absent"));
+    }
+    if (modf) {
+        if (modf->size != kModfSize) {
+            throw ParseError("WDT MODF: expected one 64-byte record, got " + std::to_string(modf->size) + " bytes");
+        }
+        out.mapObject = readMapObjectPlacement(*modf, 0);
+        if (out.mapObject->flags & kModfUsesSetsFromMwds) {
+            throw ParseError("WDT MODF: expected no MWDS flag (0x80; a WDT has no MWDS), got flags " +
+                             std::to_string(out.mapObject->flags));
+        }
+        // Without the FileDataID flag the WMO is named by MWMO.
+        if (!(out.mapObject->flags & kModfNameIsFileDataId)) {
+            std::optional<Chunk> mwmo = findChunk(chunks, "MWMO");
+            if (!mwmo || mwmo->size == 0) {
+                throw ParseError("WDT MODF names its WMO by MWMO (flag 0x8 clear), expected a non-empty MWMO, got " +
+                                 std::string(mwmo ? "an empty one" : "none"));
+            }
+            out.mapObjectName = readCString(*mwmo, 0, "MWMO");
+        }
+    }
+    return out;
 }
 
 std::array<uint8_t, 64 * 64> decodeAlphaMap(const std::vector<uint8_t>& mcal, const TextureLayer& layer,

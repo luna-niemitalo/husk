@@ -200,19 +200,26 @@ canon::PlacedInstance buildDoodad(const adt::DoodadPlacement& d, const adt::ObjF
 
 constexpr uint16_t kModfHasScale = 0x4;
 
-canon::PlacedInstance buildMapObject(const adt::MapObjectPlacement& m, const adt::ObjFile& obj,
-                                     const Resolutions& resolutions) {
+// World frame; ADT and WDT MODF records place the same way.
+canon::PlacedInstance placeMapObject(const adt::MapObjectPlacement& m, canon::Ref asset,
+                                     const std::vector<uint16_t>& activeSets) {
     canon::PlacedInstance out;
     out.id = m.uniqueId;
-    out.asset = assetRef(m.nameId, m.flags & adt::kModfNameIsFileDataId, obj.mapObjectNames, resolutions);
+    out.asset = std::move(asset);
     out.translation = placementPosition(m.position);
     out.rotation = placementRotation(m.rotation);
     out.scale = (m.flags & kModfHasScale) ? static_cast<float>(m.scale) / 1024.0f : 1.0f;
     out.flags = m.flags;
     std::vector<canon::Ref> sets;
-    for (uint16_t set : adt::activeDoodadSets(m, obj)) sets.push_back(canon::Ref{canon::RecordIndex{set}, "", canon::NameSource::None});
+    for (uint16_t set : activeSets) sets.push_back(canon::Ref{canon::RecordIndex{set}, "", canon::NameSource::None});
     out.activeSets = std::move(sets);
     return out;
+}
+
+canon::PlacedInstance buildMapObject(const adt::MapObjectPlacement& m, const adt::ObjFile& obj,
+                                     const Resolutions& resolutions) {
+    return placeMapObject(m, assetRef(m.nameId, m.flags & adt::kModfNameIsFileDataId, obj.mapObjectNames, resolutions),
+                          adt::activeDoodadSets(m, obj));
 }
 
 // Instance ids are ADT uniqueIds; a set's ids must be unique (PLACEMENT_SETS.md).
@@ -392,6 +399,22 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
             instance.translation.y -= corner.y;
         }
     }
+    return out;
+}
+
+canon::PlacementSet buildGlobalMapObjects(const adt::WdtFile& wdt, const GamePathResolutions& gamePaths) {
+    canon::PlacementSet out;
+    out.ref = canon::Ref{canon::None{}, "map_objects", canon::NameSource::Synthesized};
+    if (!wdt.mapObject) return out;
+    const adt::MapObjectPlacement& m = *wdt.mapObject;
+    TextureResolutions noTextures;
+    GroundEffectDefinitions noEffects;
+    Resolutions resolutions{noTextures, noEffects, gamePaths};
+    canon::Ref asset = (m.flags & adt::kModfNameIsFileDataId)
+                           ? canon::Ref{canon::FileDataId{m.nameId}, "", canon::NameSource::None}
+                           : pathRef(wdt.mapObjectName, resolutions);
+    // A WDT has no MWDS (parseWdt rejects the flag), so doodadSet is the set itself.
+    out.instances.push_back(placeMapObject(m, std::move(asset), {m.doodadSet}));
     return out;
 }
 

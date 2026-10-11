@@ -27,6 +27,21 @@ omit `MWMO` entirely when `flags & 0x8` is set (35/228 real global-WMO
 files), with `nameId` then holding a real FileDataID directly. `MAI2`
 (wiki: "unshipped") is real in 2 files.
 
+12.1.0 mount, all 969 root `.wdt`s (2026-10-11):
+- `MAIN` is indexed `tileY * 64 + tileX`: the tile files match it that
+  way (azeroth: 1,176 of 1,176), not transposed (591 mismatches).
+- Every `MAIN` has-ADT tile has its root file, but 11,014 root files on
+  the mount are stale: the WDT doesn't list them (`MAIN` bit clear, `MAID`
+  root 0); azeroth has 1,335 root files for 1,176 tiles. The listfile
+  still names these old FileDataIDs and CASC still holds them.
+- `MAIN` flags are only ever 0, 1 or 2 (2 = wiki "all water", never with
+  the has-ADT bit). Every map with `MAID` has a `MAID` root for exactly
+  its `MAIN` tiles.
+- 228 maps have no tiles and one `MODF` WMO; 13 more have neither (12
+  garrison levels, `MPHD` 0xda; one 0x4e). 3 map directories have tiles
+  but no `.wdt` (`islands`: 603, `islands666`: 16, `dungeonblockout`: 6);
+  2 (`2641`, `2665`) have neither.
+
 ## ADT — see `ADT.md`
 
 Split out once `src/adt.cpp` landed: `ADT.md` holds every verified ADT fact,

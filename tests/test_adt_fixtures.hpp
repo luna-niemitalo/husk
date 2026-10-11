@@ -15,7 +15,9 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace adtfx {
@@ -235,6 +237,19 @@ struct MapObjectSpec {
     uint16_t scale = 1024;
 };
 
+void putMapObject(std::vector<uint8_t>& out, const MapObjectSpec& m) {
+    putU32(out, m.nameId);
+    putU32(out, m.uniqueId);
+    putVec3(out, m.position[0], m.position[1], m.position[2]);
+    putVec3(out, m.rotation[0], m.rotation[1], m.rotation[2]);
+    putVec3(out, -1, -1, -1);
+    putVec3(out, 1, 1, 1);
+    putU16(out, m.flags);
+    putU16(out, m.doodadSet);
+    putU16(out, m.nameSet);
+    putU16(out, m.scale);
+}
+
 // Name tables for the MMDX/MMID + MWMO/MWID (pre-FileDataID) placement path.
 std::vector<uint8_t> nameTable(const std::vector<std::string>& names, std::vector<uint8_t>& offsetsOut) {
     std::vector<uint8_t> table;
@@ -279,18 +294,7 @@ std::vector<uint8_t> objFile(const ObjSpec& spec) {
     }
     appendChunk(out, "MDDF", mddf);
     std::vector<uint8_t> modf;
-    for (const MapObjectSpec& m : spec.mapObjects) {
-        putU32(modf, m.nameId);
-        putU32(modf, m.uniqueId);
-        putVec3(modf, m.position[0], m.position[1], m.position[2]);
-        putVec3(modf, m.rotation[0], m.rotation[1], m.rotation[2]);
-        putVec3(modf, -1, -1, -1);
-        putVec3(modf, 1, 1, 1);
-        putU16(modf, m.flags);
-        putU16(modf, m.doodadSet);
-        putU16(modf, m.nameSet);
-        putU16(modf, m.scale);
-    }
+    for (const MapObjectSpec& m : spec.mapObjects) putMapObject(modf, m);
     appendChunk(out, "MODF", modf);
     if (!spec.doodadSetRanges.empty()) {
         std::vector<uint8_t> mwdr;
@@ -372,12 +376,48 @@ std::vector<uint8_t> texFile(const TexSpec& spec) {
     return out;
 }
 
-std::vector<uint8_t> wdtFile(uint32_t mphdFlags) {
+// A root WDT. MAID is written when `flags` has 0x200, MODF (and MWMO when
+// named) when `mapObject` is set; neither is tied to the flag here, so a
+// test can break the agreement parseWdt checks.
+struct WdtSpec {
+    uint32_t flags = 0x4;
+    std::vector<std::pair<uint32_t, uint32_t>> tiles{{32, 48}};  // (x, y) with MAIN's has-ADT bit
+    std::vector<std::pair<std::pair<uint32_t, uint32_t>, uint32_t>> rootIds;  // MAID root ADT FileDataIDs
+    std::optional<MapObjectSpec> mapObject;
+    std::string mapObjectName;  // MWMO, written when non-empty
+    bool writeMaid = false;
+};
+
+std::vector<uint8_t> wdtFile(const WdtSpec& spec) {
     std::vector<uint8_t> out = mverChunk();
     std::vector<uint8_t> mphd(32, 0);
-    setU32(mphd, 0, mphdFlags);
+    setU32(mphd, 0, spec.flags);
     appendChunk(out, "MPHD", mphd);
+    std::vector<uint8_t> main(64 * 64 * 8, 0);
+    for (const auto& [x, y] : spec.tiles) setU32(main, (y * 64 + x) * 8, 1);
+    appendChunk(out, "MAIN", main);
+    if ((spec.flags & 0x200) || spec.writeMaid) {
+        std::vector<uint8_t> maid(64 * 64 * 32, 0);
+        for (const auto& [tile, id] : spec.rootIds) setU32(maid, (tile.second * 64 + tile.first) * 32, id);
+        appendChunk(out, "MAID", maid);
+    }
+    if (!spec.mapObjectName.empty()) {
+        std::vector<uint8_t> mwmo(spec.mapObjectName.begin(), spec.mapObjectName.end());
+        mwmo.push_back(0);
+        appendChunk(out, "MWMO", mwmo);
+    }
+    if (spec.mapObject) {
+        std::vector<uint8_t> modf;
+        putMapObject(modf, *spec.mapObject);
+        appendChunk(out, "MODF", modf);
+    }
     return out;
+}
+
+std::vector<uint8_t> wdtFile(uint32_t mphdFlags) {
+    WdtSpec spec;
+    spec.flags = mphdFlags;
+    return wdtFile(spec);
 }
 
 // Minimal valid BLP2: DXT1, 4x4, one solid-red block (same fixture as

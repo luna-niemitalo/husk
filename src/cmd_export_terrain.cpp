@@ -594,11 +594,14 @@ std::pair<canon::Vec3, canon::Vec3> terrainBounds(const canon::Terrain& terrain)
     return {lo, hi};
 }
 
-// IN, critical: a map's world document from its root ADTs and its
-// _fogs.wdt/_mpv.wdt. Each root is read once more, alone (no sidecars), on
-// `jobs` threads, for its bounds; a root that doesn't parse fails the
-// world, a missing volume file leaves the scene empty.
-canon::World loadWorld(const std::filesystem::path& mapDir, const std::vector<WorldTile>& tiles,
+// IN, critical: a map's world document from its parsed WDT, its root ADTs
+// and its _fogs.wdt/_mpv.wdt. `tiles` holds only roots the WDT's MAIN lists
+// (the store keeps stale tiles the WDT dropped); MAID names each tile's
+// FileDataID (the listfile only when the WDT has no MAID). Each root is read
+// once more, alone (no sidecars), on `jobs` threads, for its bounds; a root
+// that doesn't parse fails the world, a missing volume file leaves the scene
+// empty.
+canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& wdt, const std::vector<WorldTile>& tiles,
                        const ListfileIndex* listfile, const std::string& listfileRoot, unsigned jobs) {
     std::string map = mapDir.filename().string();
     std::filesystem::path wdtPath = mapDir / (map + ".wdt");
@@ -606,9 +609,25 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const std::vector<Wo
     for (const WorldTile& t : tiles) named.push_back(t.root);
     std::unordered_map<std::string, uint32_t> ids;
     if (listfile && !listfileRoot.empty()) ids = tileFileDataIds(*listfile, listfileRoot, named);
+    auto rootId = [&](const WorldTile& t, const TileName& name) -> std::optional<uint32_t> {
+        if (wdt.tileFileDataIds) {
+            uint32_t id = (*wdt.tileFileDataIds)[name.y * 64 + name.x].rootAdt;
+            return id != 0 ? std::optional<uint32_t>(id) : std::nullopt;
+        }
+        return tileFileDataId(ids, listfileRoot, t.root);
+    };
 
     canon::World world;
     world.subject = writers::subjectRef(wdtPath, tileFileDataId(ids, listfileRoot, wdtPath));
+    adtinput::GamePathResolutions mapObjectPaths;
+    if (listfile && !wdt.mapObjectName.empty()) {
+        mapObjectPaths = sources::fileDataIdsForGamePaths(*listfile, {wdt.mapObjectName});
+    }
+    canon::PlacementSet mapObjects = adtinput::buildGlobalMapObjects(wdt, mapObjectPaths);
+    if (listfile) {
+        for (canon::PlacedInstance& instance : mapObjects.instances) nameFromListfile(instance.asset, *listfile);
+    }
+    if (!mapObjects.instances.empty()) world.placements.push_back(std::move(mapObjects));
     const std::optional<adt::ObjFile> noObj;
     const std::optional<adt::TexFile> noTex;
     const adtinput::TextureResolutions noTextures;
@@ -625,8 +644,7 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const std::vector<Wo
             adtinput::TileSources sources{root, noObj, noTex, std::nullopt, name.map, name.x, name.y};
             canon::Terrain terrain = adtinput::buildCanonTerrain(sources, {noTextures, noEffects, noPaths});
             auto [lo, hi] = terrainBounds(terrain);
-            world.cells[i] = {name.x, name.y, writers::subjectRef(t.root, tileFileDataId(ids, listfileRoot, t.root)),
-                              lo, hi};
+            world.cells[i] = {name.x, name.y, writers::subjectRef(t.root, rootId(t, name)), lo, hi};
         } catch (const std::exception& e) {
             std::lock_guard<std::mutex> lock(failureMutex);
             if (!failure) failure = std::make_exception_ptr(std::runtime_error(t.root.string() + ": " + e.what()));
@@ -918,14 +936,22 @@ int exportMap(int argc, char** args) {
         if (mapDir.filename().empty()) mapDir = mapDir.parent_path();
         std::string map = mapDir.filename().string();
         std::vector<WorldTile> tiles = findTiles(mapDir.parent_path(), {map});
-        if (tiles.empty()) {
-            throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() + ", found none");
-        }
-        canon::World world = loadWorld(mapDir, tiles, listfile.get(), unlessNone(opts.listfileRoot),
+        adt::WdtFile wdt = adt::parseWdt(adt::readFile(mapDir / (map + ".wdt")));
+        size_t unlisted = std::erase_if(tiles, [&](const WorldTile& t) {
+            TileName name = parseTileName(t.root);
+            return !wdt.hasTile(name.x, name.y);
+        });
+        if (unlisted > 0) std::cerr << "husk: note: " << unlisted << " root tiles the WDT's MAIN doesn't list, skipped\n";
+        canon::World world = loadWorld(mapDir, wdt, tiles, listfile.get(), unlessNone(opts.listfileRoot),
                                        std::max(1u, std::thread::hardware_concurrency()));
+        if (world.cells.empty() && world.placements.empty()) {
+            throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() +
+                                     " or a map-wide WMO in " + map + ".wdt, found neither");
+        }
         writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath),
                                   std::vector<std::string>(world.cells.size()));
-        std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles, " << world.scene.fogs.size()
+        std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles, " << world.placements.size()
+                  << " off-grid placement sets, " << world.scene.fogs.size()
                   << " fog volumes, " << world.scene.particulateVolumes.size() << " particulate volumes\n";
     } catch (const std::exception& e) {
         std::cerr << "husk: export-map: " << e.what() << "\n";
@@ -944,8 +970,9 @@ int exportMap(int argc, char** args) {
 //   3. export each tile to maps/<map>/<tile>.bundle, terrain textures shared
 //      under textures/, uris only to outputs that exist.
 //   4. write each map's world document to maps/<map>/<map>.world.bundle:
-//      its tile grid, linking the tile bundles that exist, and its fog and
-//      particulate volumes.
+//      its tile grid, linking the tile bundles that exist, its fog and
+//      particulate volumes, and for a map without terrain the one WMO its
+//      WDT places (exported with the others in pass 2).
 // Failures are logged to errors.log and never stop the run.
 int exportWorld(int argc, char** args) {
     CLI::App app{"husk export-world -- every ADT tile of every map to a canonical scene", "husk export-world"};
@@ -963,8 +990,34 @@ int exportWorld(int argc, char** args) {
         std::filesystem::create_directories(texturesDir);
         ErrorLog errors(out / "errors.log");
 
+        std::map<std::string, adt::WdtFile> wdts;
+        for (const auto& mapDir : std::filesystem::directory_iterator(opts.mapsRoot)) {
+            std::string map = mapDir.path().filename().string();
+            std::filesystem::path wdtPath = mapDir.path() / (map + ".wdt");
+            if (!mapDir.is_directory()) continue;
+            if (!opts.maps.empty() && std::find(opts.maps.begin(), opts.maps.end(), map) == opts.maps.end()) continue;
+            try {
+                wdts.emplace(map, adt::parseWdt(adt::readFile(wdtPath)));
+            } catch (...) {
+                errors.add("wdt", wdtPath.string(), exceptionMessage(std::current_exception()) + " (tiles export untextured)");
+            }
+        }
+        // The store keeps stale tiles a WDT no longer lists. A map without a
+        // readable WDT keeps all its tiles: nothing says which are stale.
         std::vector<WorldTile> tiles = findTiles(opts.mapsRoot, opts.maps);
-        std::cout << tiles.size() << " tiles, " << jobs << " threads" << std::endl;
+        size_t unlisted = std::erase_if(tiles, [&](const WorldTile& t) {
+            auto wdt = wdts.find(t.map);
+            if (wdt == wdts.end()) return false;
+            TileName name = parseTileName(t.root);
+            return !wdt->second.hasTile(name.x, name.y);
+        });
+        // Maps without terrain: their WDT places one map-wide WMO.
+        std::vector<std::string> globalMaps;
+        for (const auto& [map, wdt] : wdts) {
+            if (wdt.mapObject) globalMaps.push_back(map);
+        }
+        std::cout << tiles.size() << " tiles (" << unlisted << " more their WDT doesn't list, skipped), "
+                  << globalMaps.size() << " maps without terrain, " << jobs << " threads" << std::endl;
 
         std::unique_ptr<ListfileIndex> listfile = loadListfileCached(opts.listfile);
         std::string groundEffectNote;
@@ -1016,6 +1069,15 @@ int exportWorld(int argc, char** args) {
                 }
                 progress.tick();
             });
+        }
+        for (const std::string& map : globalMaps) {
+            const adt::WdtFile& wdt = wdts.at(map);
+            if (wdt.mapObject->flags & adt::kModfNameIsFileDataId) {
+                wmoIds.insert(wdt.mapObject->nameId);
+            } else {
+                namedPaths.insert(wdt.mapObjectName);
+                namedWmoPaths.insert(wdt.mapObjectName);
+            }
         }
         const adtinput::GamePathResolutions gamePaths =
             sources::fileDataIdsForGamePaths(*listfile, {namedPaths.begin(), namedPaths.end()});
@@ -1142,14 +1204,8 @@ int exportWorld(int argc, char** args) {
         const std::unordered_map<std::string, uint32_t> rootIds = tileFileDataIds(*listfile, opts.listfileRoot, roots);
         std::unordered_map<std::string, std::optional<uint32_t>> wdtFlags;
         for (const WorldTile& t : tiles) {
-            if (wdtFlags.count(t.map)) continue;
-            std::filesystem::path wdt = t.root.parent_path() / (t.map + ".wdt");
-            try {
-                wdtFlags[t.map] = adt::parseWdtFlags(adt::readFile(wdt));
-            } catch (...) {
-                wdtFlags[t.map] = std::nullopt;
-                errors.add("wdt", wdt.string(), exceptionMessage(std::current_exception()) + " (tiles export untextured)");
-            }
+            auto wdt = wdts.find(t.map);
+            wdtFlags[t.map] = wdt != wdts.end() ? std::optional<uint32_t>(wdt->second.flags) : std::nullopt;
         }
         SharedTextures sharedTextures(texturesDir, *listfile, opts.listfileRoot);
         Progress progress("tiles", tiles.size());
@@ -1207,14 +1263,16 @@ int exportWorld(int argc, char** args) {
         // Pass 4: worlds.
         std::map<std::string, std::vector<WorldTile>> tilesByMap;
         for (const WorldTile& t : tiles) tilesByMap[t.map].push_back(t);
-        std::vector<std::string> maps;
-        for (const auto& [map, _] : tilesByMap) maps.push_back(map);
+        std::set<std::string> mapSet;
+        for (const auto& [map, _] : tilesByMap) mapSet.insert(map);
+        for (const std::string& map : globalMaps) mapSet.insert(map);
+        std::vector<std::string> maps(mapSet.begin(), mapSet.end());
         size_t worlds = 0;
         {
             // One map at a time; loadWorld spreads a map's tiles over the threads.
             Progress worldProgress("worlds", maps.size());
             for (size_t i = 0; i < maps.size(); ++i) {
-                std::filesystem::path mapDir = tilesByMap.at(maps[i]).front().root.parent_path();
+                std::filesystem::path mapDir = std::filesystem::path(opts.mapsRoot) / maps[i];
                 std::filesystem::path bundle = out / "maps" / maps[i] / (maps[i] + ".world.bundle");
                 try {
                     if (!std::filesystem::exists(bundle / "manifest.json")) {
@@ -1222,22 +1280,32 @@ int exportWorld(int argc, char** args) {
                         // is a hole, already in errors.log from pass 3.
                         std::vector<WorldTile> mapTiles;
                         std::vector<std::string> tileUris;
-                        for (const WorldTile& t : tilesByMap.at(maps[i])) {
+                        for (const WorldTile& t : tilesByMap[maps[i]]) {
                             std::string tileBundle = t.root.stem().string() + ".bundle";
                             if (!std::filesystem::exists(out / "maps" / maps[i] / tileBundle / "manifest.json")) continue;
                             mapTiles.push_back(t);
                             tileUris.push_back("../" + tileBundle + "/manifest.json");
                         }
-                        canon::World world = loadWorld(mapDir, mapTiles, listfile.get(), opts.listfileRoot, jobs);
-                        writers::AssetUris shapeUris;
-                        for (const canon::FogVolume& f : world.scene.fogs) {
-                            auto fdid = std::get_if<canon::FileDataId>(&f.model.id);
+                        auto wdt = wdts.find(maps[i]);
+                        if (wdt == wdts.end()) {
+                            throw std::runtime_error("expected a readable " + (mapDir / (maps[i] + ".wdt")).string() +
+                                                     " for the world document (see its wdt error, if any)");
+                        }
+                        canon::World world =
+                            loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot, jobs);
+                        writers::AssetUris assetUris;
+                        auto link = [&](const canon::Ref& ref) {
+                            auto fdid = std::get_if<canon::FileDataId>(&ref.id);
                             if (fdid && exportedModels.count(fdid->value)) {
-                                shapeUris.emplace(fdid->value, "../../../models/" + modelBundleName(fdid->value) + "/manifest.json");
+                                assetUris.emplace(fdid->value, "../../../models/" + modelBundleName(fdid->value) + "/manifest.json");
                             }
+                        };
+                        for (const canon::FogVolume& f : world.scene.fogs) link(f.model);
+                        for (const canon::PlacementSet& set : world.placements) {
+                            for (const canon::PlacedInstance& instance : set.instances) link(instance.asset);
                         }
                         writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile),
-                                                  tileUris, shapeUris);
+                                                  tileUris, assetUris);
                     }
                     ++worlds;
                 } catch (...) {

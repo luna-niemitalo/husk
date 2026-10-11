@@ -1,12 +1,8 @@
 # TODO: `.wdt`/`.wdl` map-root and map-level sidecar formats
 
-**Status: an open punch list, not a historical record.** Only one byte of
-this is implemented: `MPHD.flags`, read by `adt::parseWdtFlags`
-(`src/adt.cpp`) because the terrain export needs it to pick the alpha-map
-format. Everything else below is a from-scratch plan. Two consequences of
-that for the terrain export: `export-world` finds a map's tiles by listing
-its directory, not from `MAIN`/`MAID`, and a single-WMO map (global
-`MODF`, no tiles) exports nothing at all. Once implementation starts, this file gets worked
+**Status: an open punch list, not a historical record.** The root `.wdt`
+is implemented (item 1 lists what's left); the sidecars below are plans.
+This file gets worked
 like `RO_COMPLETENESS_TODO.md`/`../INVESTIGATIONS_TODO.md` already are: fixed
 items get removed outright once closed, git history is the record of what
 was fixed and when, not this file.
@@ -65,232 +61,21 @@ needs to do differently from `m2.cpp` is compare against the
 `src/phys.cpp`'s own established idiom (reversed constants, e.g. `"SYHP"`
 for `"PHYS"`) — not a new chunk-walker.
 
-## 1. `.wdt` map root — tile existence (`MPHD`/`MAIN`/`MAID`/`MAI2`)
+## 1. `.wdt` map root — what's left
 
-**Current state**: `none`/`none`. Nothing in `src/` reads a `.wdt` byte.
+Done (2026-10-11): `adt::parseWdt` reads `MPHD.flags`, `MAIN`, `MAID` and
+the global `MWMO`/`MODF`, each optional chunk checked against its `MPHD`
+flag; the world document's grid holds the tiles `MAIN` lists, takes tile
+FileDataIDs from `MAID`, and places a terrain-less map's WMO
+(`REFACTOR/BUNDLE_FORMAT.md` "World documents"). Verified facts are in
+`WIKI_FINDINGS/WORLD.md` "WDT".
 
-**Wiki citation**: `documentation/wowdev-wiki/md/WDT.md`, `## MPHD chunk`
-(lines 11–81), `## MAIN chunk` (83–105), `## MAID chunk` (107–127), `## MAI2
-chunk` (129–149).
-
-### Verified struct shape
-
-`MPHD` (32 bytes, 8×`uint32_t`): `flags`, then either (≥8.1.0.28294)
-`lgtFileDataID`/`occFileDataID`/`fogsFileDataID`/`mpvFileDataID`/
-`texFileDataID`/`wdlFileDataID`/`pd4FileDataID`, or (older) `something` +
-`unused[6]`. **Real-data verification**: 959/959 real root `.wdt` files
-decode a clean 32-byte `MPHD` at offset 0 with no truncation — confirmed
-via `struct.unpack_from("<I", mphd, 0)` for `flags` and manual byte-offset
-reads for every other field across the corpus.
-
-`MAIN` (exactly 4096×8 bytes = 32768): confirmed exact size on 959/959
-files. Modern layout is `uint32_t flags` (bit 0 = `Flag_HasADT`) + `uint32_t
-asyncId` (runtime-only, always 0 on disk) — husk should read the pre-split
-`(offset,size)` variant only for the sake of documenting it exists (real
-corpus here is entirely post-split, build era confirmed Cata+ by every
-other finding in this doc), and treat `flags & 1` as the only bit worth
-acting on.
-
-`MAID` (4096×32 bytes = 131072): 753/959 real files carry it, matching
-`flags & 0x0200` (`wdt_has_maid`) being set on exactly the same 753 files —
-a clean, fully-consistent correlation. Fields (`rootADT`/`obj0ADT`/
-`obj1ADT`/`tex0ADT`/`lodADT`/`mapTexture`/`mapTextureN`/`minimapTexture`)
-decode as plausible FileDataIDs (checked ranges are consistent with known
-small-to-mid FileDataID space, non-zero for entries whose corresponding
-tile flag is set).
-
-`MAI2` (Midnight-era, wiki says "currently unshipped" as of 12.0.5.66330):
-**a real, wiki-correcting finding** — this corpus (the same `wow_export`
-tree used throughout this project) has **2 real files** with a genuine,
-correctly-shaped `MAI2` chunk: `world/maps/kalimdor/kalimdor.wdt` and
-`world/maps/azeroth/azeroth.wdt`, each exactly 131072 bytes (4096×32,
-matching the wiki's own documented `MapFileDataIDs2` stride). The wiki's
-"currently unshipped" framing is stale for at least these two continents in
-this build — worth a `../../WIKI_FINDINGS.md` follow-up once this item is
-implemented (not edited by this investigation session, per the task's own
-instructions). Every field beyond `unknown0` is still wiki-flagged
-"unknown0 only field with FileDataIDs in 12.0.5" — husk should parse and
-surface the raw values (`husk info`-style) without guessing at semantics
-for `unknown1..7`.
-
-**MPHD flag histogram (959 real files, full corpus, not a sample)** —
-verified via a from-scratch bit-decode:
-
-| bit | name | real count | note |
-|---|---|---|---|
-| 0x0001 | `wdt_uses_global_map_obj` | 228 | see §2 below |
-| 0x0002 | `adt_has_mccv` | 682 | |
-| 0x0004 | `adt_has_big_alpha` | 150 | |
-| 0x0008 | `adt_has_doodadrefs_sorted_by_size_cat` | 762 | |
-| 0x0010 | `FLAG_LIGHTINGVERTICES` | 12 | wiki: "deprecated and forbidden in 8.x?" — still present in 12 real files here |
-| 0x0020 | `adt_has_upside_down_ground` | 1 | |
-| 0x0040 | `unk_0x0040` | **959 (100%)** | see callout below |
-| 0x0080 | `adt_has_height_texturing` | 582 | |
-| 0x0100 | `unk_0x0100` (load `_lod.adt`) | 458 | |
-| 0x0200 | `wdt_has_maid` | 753 | exactly matches real `MAID`-chunk presence |
-| 0x0400–0x8000 | `unk_0x0400`.. `unk_0x8000` | 0 each | never seen in this corpus |
-
-**Callout — a real wiki discrepancy on `unk_0x0040`**: the wiki text says
-this bit is "only found on Firelands2.wdt (but only since MoP) before
-Legion." In this real, current-build corpus it is set on **literally every
-single file that has an `MPHD` chunk at all** (959/959, not a handful).
-Either the client now sets this unconditionally in modern builds, or the
-bit has been repurposed/its trigger condition broadened well past
-Firelands2 since the wiki text was last updated — genuinely unresolved,
-flagged here rather than guessed at. Not blocking (there's no rendering
-consequence to reading a bit that's simply "usually 1 now"), but worth a
-one-line `../../WIKI_FINDINGS.md` note once implemented so the next person
-doesn't waste time re-deriving this.
-
-**Tile-flag-vs-real-file cross-check**: comparing `MAIN`'s per-tile
-`Flag_HasADT` bit against actual `<map>_<x>_<y>.adt` files on disk found
-90/959 files where the counts disagree — in every checked case, the *real
-file count on disk exceeds the flag count* (e.g. `2656.wdt` flags 25 tiles
-but 80 real `.adt` files exist for that map; `garrison`-prefixed and
-numeric-only map directories are the common pattern). This reads as a
-**pre-extracted-corpus artifact** (stale multi-version dumps sitting
-alongside current ones — one map directory in this corpus is literally
-named `kalimdor 2`, an obvious duplicate-extraction artifact), not a real
-`MAIN` chunk bug: `MAIN`'s own internal structure (exact 32768-byte size,
-consistent bit-0 semantics) is otherwise 100% clean. Implementers should
-trust `MAIN`'s flags over "does a same-named file exist on disk," not the
-reverse.
-
-### Data model sketch (mirrors `src/phys.hpp`'s idiom)
-
-```cpp
-namespace husk::wdt {
-
-struct MapHeader {  // MPHD
-    uint32_t flags = 0;
-    // Only meaningful when flags & wdt_has_lgt_occ_fdids (post-8.1 -- the
-    // wiki doesn't name this bit explicitly; verify against a real
-    // pre-8.1 file before trusting fdid fields are zero there).
-    uint32_t lgtFileDataId = 0, occFileDataId = 0, fogsFileDataId = 0,
-             mpvFileDataId = 0, texFileDataId = 0, wdlFileDataId = 0,
-             pd4FileDataId = 0;
-};
-
-struct TileInfo {  // one MAIN entry
-    bool hasAdt = false;      // flags & 1
-    bool allWater = false;    // flags & 2, Cata+ -- "fake water" tile
-};
-
-struct TileFileDataIds {  // one MAID entry, only when MPHD.flags & 0x200
-    uint32_t rootAdt = 0, obj0Adt = 0, obj1Adt = 0, tex0Adt = 0, lodAdt = 0;
-    uint32_t mapTexture = 0, mapTextureN = 0, minimapTexture = 0;
-};
-
-// The global single-WMO-map case -- see §2.
-struct GlobalWmoPlacement {
-    uint32_t nameId = 0;       // FileDataID if flags & 0x8 (see §2's finding), else 0/unused
-    bool nameIsFileDataId = false;
-    Vec3 position, rotation, upperExtents, lowerExtents;
-    uint16_t flags = 0, doodadSet = 0, nameSet = 0;
-};
-
-struct File {
-    MapHeader header;
-    std::array<TileInfo, 64 * 64> tiles{};
-    std::optional<std::array<TileFileDataIds, 64 * 64>> tileFileDataIds;  // MAID
-    std::string globalWmoFilename;             // MWMO, empty if using FileDataID
-    std::optional<GlobalWmoPlacement> globalWmo;  // MODF, present iff flags & 0x1
-};
-
-File parse(const std::vector<uint8_t>& fileBytes);
-
-}  // namespace husk::wdt
-```
-
-### Parse / Consumption / glTF ceiling
-
-| Concept | Parse | Consumption | glTF ceiling |
-|---|---|---|---|
-| `MPHD` flags | `full` (all named bits decoded) | `diagnostic` (`husk info`-equivalent) | `n/a`, infrastructure |
-| `MAIN` tile table | `full` | `diagnostic` (drives which ADT files to look for) | `n/a`, infrastructure |
-| `MAID`/`MAI2` FileDataID tables | `full` | `diagnostic` | `n/a`, infrastructure |
-
-### Open design question
-
-**CLI surface shape** — flagged, not decided: does map-root parsing become
-`husk info <file.wdt>` (extending the existing per-format-dispatch
-convention `cmd_info.cpp` already uses for `.m2`/`.skel`/`.bone`/`.phys`),
-or a wholly new `husk world-info`/`husk map-info` subcommand? Given
-`.wdt`'s job is fundamentally "which tiles exist, drives what to load
-next" rather than "one renderable thing," `husk info` extension (same
-per-extension dispatch, new `.wdt` branch) is the more consistent fit with
-this project's existing CLI grammar — recommended, not decided.
-
-## 2. Global single-WMO-map placement (`MWMO` + `MODF`)
-
-**Current state**: `none`/`none`.
-
-**Wiki citation**: `WDT.md`, `## MWMO, MWMO chunks` / `### MODF chunk`
-(lines 151–190). Wiki text: "For worlds with terrain, parsing ends here [at
-`MAIN`]. If it has none, there is one `MWMO` and one `MODF` chunk here."
-
-### Verified struct shape and a real, previously-undocumented finding
-
-`MODF` (64 bytes, one instance only) matches the documented
-`SMMapObjDef` layout exactly (`nameId`/`uniqueId`/position/rotation/upper+
-lower extents/`flags`/`doodadSet`/`nameSet`/`pad`) — confirmed byte-for-byte
-on real files.
-
-**228/959 real files** have `MPHD.flags & 0x1` set (the global-WMO case).
-All 228 have `MAIN` present but **all-zero** (0 tiles flagged
-`Flag_HasADT` — confirmed across every one of the 228, not a sample) —
-consistent with the wiki's implicit model (a global-WMO map still carries
-a `MAIN` chunk, it's just empty).
-
-**The real finding**: only 193/228 of these files carry an actual `MWMO`
-chunk. The other **35** (e.g. `uldaman.wdt`, `moltencore.wdt`,
-`orgrimmarinstance.wdt`, `upperblackrockspire.wdt`, `mauradon.wdt`,
-`hellfireraid.wdt`, `auchindounshadow.wdt`, `2614.wdt`) have `MODF` but no
-`MWMO` at all. The wiki's own text for this `MODF` says `nameId` is
-"unused, always uses `MWMO`'s content instead" — that's only true when
-`MWMO` exists. Decoding `MODF.flags` (offset 0x38) for these 35 shows
-**`0x8` set** in every case checked (`uldaman.wdt`, `moltencore.wdt` both
-confirmed) — exactly ADT's own documented `modf_entry_is_filedata_id`
-bit (`ADT/v18.md`'s `MODFFlags` enum, `0x8`, "Legion+: nameId is a file
-data id to directly load"), which the WDT page's own `MODF` section never
-mentions applies here too (it only says "same math as ADT#MODF", not that
-the *flags* semantics carry over identically). In these 35 files,
-`MODF.nameId` decodes as a real, plausible WMO FileDataID (e.g. `109782`
-for `uldaman.wdt`, `108286` for `moltencore.wdt` — both in-range for known
-WMO FileDataIDs) rather than 0. By contrast, a real `MWMO`-bearing file
-(`garrison_alliance_salvageyard3.wdt`) has `MODF.flags == 0` and
-`MODF.nameId == 0`, matching the "unused" wiki text exactly when `MWMO` is
-present. **All 35 files have `MAID` present** (post-8.1 FileDataID-native
-builds) — consistent with "once the client can resolve WMOs by FileDataID
-map-wide, the string-filename `MWMO` chunk becomes optional even for the
-global-WMO case," though husk should keep this framed as an observed
-correlation, not a confirmed causal rule from client source.
-
-**Recommended correction for a future `../../WIKI_FINDINGS.md` entry** (not
-written this session, per this investigation's own scope — real-file
-findings are documented here, folded into `../../WIKI_FINDINGS.md` by a later
-pass): `WDT.md`'s `MODF` section should note that `flags` (offset 0x38)
-uses the *same* `MODFFlags` enum ADT's own `MODF` chunk does, including
-`modf_entry_is_filedata_id` (0x8) — and that `MWMO` is genuinely optional
-(not always present) once that bit is set.
-
-### Data model sketch
-
-Folded into `wdt::File`/`wdt::GlobalWmoPlacement` above — `nameIsFileDataId`
-is set from `flags & 0x8`, and `globalWmoFilename` stays empty exactly when
-that's the case (confirmed: real data never has both `MWMO` present *and*
-`nameIsFileDataId` set in the same file, checked across all 228).
-
-### Parse / Consumption / glTF ceiling
-
-| Concept | Parse | Consumption | glTF ceiling |
-|---|---|---|---|
-| Global WMO placement | `full` | depends on WMO export existing | `native-possible, not done` — same shape as ADT's own per-tile `MODF`, just one instance at map scope; blocked on WMO geometry export existing at all (a sibling scope, not this file's job) |
-
-### Open design question
-
-None specific to this item beyond the shared CLI-surface question in §1 —
-this is a single small record, not a new subsystem.
+Open:
+- `MAI2` (real in `azeroth.wdt`/`kalimdor.wdt`, 4096×32 bytes): not
+  parsed; only its first field is known to hold FileDataIDs.
+- `MPHD`'s sidecar FileDataIDs (`lgt`/`occ`/`fogs`/`mpv`/`tex`/`wdl`/
+  `pd4`): not parsed; the sidecars are found by name.
+- `MAIN` bits beyond 0x1 (0x2 "all water"): not read.
 
 ## 3. `_occ`/`_lgt` sidecars (WoD+)
 
@@ -585,17 +370,11 @@ session's own finding immediately if it existed before implementation).
 
 ## Priority order
 
-1. **§1 (`MPHD`/`MAIN`)** — the foundational "what exists" query every
-   other map-scoped format (ADT, `.wdl`) depends on; small, fully
-   wiki-and-real-data-verified, no open struct questions.
-2. **§2 (global WMO placement)** — small, self-contained, and its
-   `MODF.flags & 0x8` finding is a real correctness trap for anyone who
-   implements only the `MWMO`-present case first.
-3. **§3 (`_occ`/`_lgt`)** — `_occ`'s corrected stride is now known, no
+1. **§3 (`_occ`/`_lgt`)** — `_occ`'s corrected stride is now known, no
    remaining ambiguity; `_lgt` is fully clean. Medium priority — genuinely
    useful (`_lgt` lights are real, renderable data with a plausible
    `KHR_lights_punctual` glTF ceiling) but not blocking anything else here.
-4. **§4 (`.wdl`)** — lowest priority of the four real formats in this
+2. **§4 (`.wdl`)** — lowest priority of the four real formats in this
    file: a distant-rendering optimization layer, not primary content: `MAIN`
    tile existence and ADT terrain itself matter far more for "does the
    world look right" than a coarse background heightmap does.

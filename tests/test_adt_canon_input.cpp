@@ -256,6 +256,32 @@ TEST_CASE("adtinput: MODF placements turn on their doodad set, and scale only wh
     CHECK(t.mapObjects.instances[1].scale == 0.5f);
 }
 
+TEST_CASE("adtinput: a WDT's map-wide WMO is one world-frame instance; an MWMO path resolves like a tile's") {
+    WdtSpec spec;
+    spec.flags = 0x1;
+    spec.tiles = {};
+    spec.mapObject = MapObjectSpec{109782, 3, {kMapHalfExtent - 100.0f, 25.0f, kMapHalfExtent - 200.0f}, {}, 0x8, 1};
+    canon::PlacementSet set = adtinput::buildGlobalMapObjects(adt::parseWdt(wdtFile(spec)), {});
+    CHECK(set.ref.name == "map_objects");
+    REQUIRE(set.instances.size() == 1);
+    const canon::PlacedInstance& wmo = set.instances[0];
+    CHECK(std::get<canon::FileDataId>(wmo.asset.id).value == 109782);
+    CHECK(wmo.id == 3);
+    // World frame: no tile corner to subtract.
+    CHECK(wmo.translation.x == doctest::Approx(200.0f));
+    CHECK(wmo.translation.y == doctest::Approx(100.0f));
+    CHECK(wmo.translation.z == 25.0f);
+    CHECK(setIndices(wmo) == std::vector<uint32_t>{1});
+
+    spec.mapObject->flags = 0;
+    spec.mapObject->nameId = 0;
+    spec.mapObjectName = "World\\wmo\\Dungeon\\Test\\test.wmo";
+    adtinput::GamePathResolutions paths{{"World\\wmo\\Dungeon\\Test\\test.wmo", 4242}};
+    canon::PlacementSet named = adtinput::buildGlobalMapObjects(adt::parseWdt(wdtFile(spec)), paths);
+    CHECK(std::get<canon::FileDataId>(named.instances[0].asset.id).value == 4242);
+    CHECK(adtinput::buildGlobalMapObjects(adt::parseWdt(wdtFile(0x4)), {}).instances.empty());
+}
+
 TEST_CASE("adtinput: with the MWDS flag, MODF.doodadSet picks an MWDR range of MWDS set indices") {
     ObjSpec obj;
     obj.mapObjects.push_back({900, 1, {}, {}, 0x8 | 0x80, 1, 0, 1024});

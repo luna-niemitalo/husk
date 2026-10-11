@@ -346,6 +346,59 @@ TEST_CASE("adt::parseWdtFlags reads MPHD.flags and requires MPHD") {
                          adt::ParseError);
 }
 
+TEST_CASE("adt::parseWdt: MAIN tiles and MAID root ids, indexed tileY * 64 + tileX") {
+    WdtSpec spec;
+    spec.flags = 0x204;
+    spec.tiles = {{32, 48}, {33, 48}};
+    spec.rootIds = {{{32, 48}, 778001}, {{33, 48}, 778002}};
+    adt::WdtFile wdt = adt::parseWdt(wdtFile(spec));
+    CHECK(wdt.flags == 0x204);
+    CHECK(wdt.hasTile(32, 48));
+    CHECK(wdt.hasTile(33, 48));
+    CHECK_FALSE(wdt.hasTile(48, 32));
+    REQUIRE(wdt.tileFileDataIds.has_value());
+    CHECK((*wdt.tileFileDataIds)[48 * 64 + 33].rootAdt == 778002);
+    CHECK_FALSE(wdt.mapObject.has_value());
+}
+
+TEST_CASE("adt::parseWdt: a map without terrain places one WMO, by FileDataID or by MWMO name") {
+    WdtSpec byId;
+    byId.flags = 0x1;
+    byId.tiles = {};
+    byId.mapObject = MapObjectSpec{109782, 7, {100, 50, 200}, {}, 0x8, 2};
+    adt::WdtFile wdt = adt::parseWdt(wdtFile(byId));
+    REQUIRE(wdt.mapObject.has_value());
+    CHECK(wdt.mapObject->nameId == 109782);
+    CHECK(wdt.mapObject->doodadSet == 2);
+    CHECK(wdt.mapObjectName.empty());
+
+    WdtSpec byName = byId;
+    byName.mapObject->flags = 0;
+    byName.mapObject->nameId = 0;
+    byName.mapObjectName = "World\\wmo\\Dungeon\\Test\\test.wmo";
+    CHECK(adt::parseWdt(wdtFile(byName)).mapObjectName == "World\\wmo\\Dungeon\\Test\\test.wmo");
+}
+
+TEST_CASE("adt::parseWdt: each optional chunk must agree with the MPHD flag that announces it") {
+    WdtSpec maidWithoutFlag;
+    maidWithoutFlag.writeMaid = true;
+    CHECK_THROWS_WITH_AS(adt::parseWdt(wdtFile(maidWithoutFlag)), doctest::Contains("expected MAID absent, got it present"),
+                         adt::ParseError);
+
+    WdtSpec flagWithoutModf;
+    flagWithoutModf.flags = 0x1;
+    CHECK_THROWS_WITH_AS(adt::parseWdt(wdtFile(flagWithoutModf)), doctest::Contains("expected MODF present, got it absent"),
+                         adt::ParseError);
+
+    WdtSpec namedWithoutMwmo;
+    namedWithoutMwmo.flags = 0x1;
+    namedWithoutMwmo.mapObject = MapObjectSpec{0, 1, {}, {}, 0, 0};
+    CHECK_THROWS_WITH_AS(adt::parseWdt(wdtFile(namedWithoutMwmo)), doctest::Contains("expected a non-empty MWMO, got none"),
+                         adt::ParseError);
+
+    CHECK_THROWS_WITH_AS(adt::parseWdt(mverChunk()), doctest::Contains("expected an MPHD chunk"), adt::ParseError);
+}
+
 namespace {
 
 adt::TextureLayer layerAt(uint32_t offset, uint32_t flags) { return adt::TextureLayer{0, flags | 0x100, offset, 0}; }

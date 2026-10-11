@@ -5,6 +5,7 @@
 #include <optional>
 #include <vector>
 
+#include "canon_placement.hpp"
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
 #include "canon_scene.hpp"  // ParticulateVolume
@@ -98,6 +99,9 @@ struct WorldCell {
 struct World {
     Ref subject;  // the map
     std::vector<WorldCell> cells;
+    // What the world places off the grid, world frame: the map-wide WMO of a
+    // map without terrain.
+    std::vector<PlacementSet> placements;
     MapScene scene;
 };
 

@@ -164,14 +164,45 @@ struct TexFile {
 };
 
 // WDT MPHD flags this exporter reads.
+inline constexpr uint32_t kMphdGlobalMapObject = 0x1;  // no terrain: one map-wide WMO (MWMO/MODF)
 inline constexpr uint32_t kMphdBigAlpha = 0x4;
 inline constexpr uint32_t kMphdHeightTexturing = 0x80;
+inline constexpr uint32_t kMphdHasMaid = 0x200;
+inline constexpr uint32_t kMainHasAdt = 0x1;
+
+// One MAID entry: the FileDataIDs of one tile's files, 0 where a file
+// doesn't exist.
+struct TileFileDataIds {
+    uint32_t rootAdt = 0;
+    uint32_t obj0Adt = 0;
+    uint32_t obj1Adt = 0;
+    uint32_t tex0Adt = 0;
+    uint32_t lodAdt = 0;
+    uint32_t mapTexture = 0;
+    uint32_t mapTextureN = 0;
+    uint32_t minimapTexture = 0;
+};
+
+// A map's root WDT (WDT.md; TODO/WORLD/WDT_TODO.md has the full-corpus
+// checks): which tiles exist, their files' FileDataIDs, and the one
+// map-wide WMO of a map without terrain. Tables are indexed
+// tileY * 64 + tileX.
+struct WdtFile {
+    uint32_t flags = 0;                                                  // MPHD
+    std::array<uint32_t, 64 * 64> tileFlags{};                          // MAIN
+    std::optional<std::array<TileFileDataIds, 64 * 64>> tileFileDataIds;  // MAID, iff kMphdHasMaid
+    std::string mapObjectName;                    // MWMO; empty when MODF names a FileDataID
+    std::optional<MapObjectPlacement> mapObject;  // MODF, iff kMphdGlobalMapObject
+
+    bool hasTile(uint32_t tileX, uint32_t tileY) const { return tileFlags[tileY * 64 + tileX] & kMainHasAdt; }
+};
 inline constexpr uint32_t kMcnkDoNotFixAlphaMap = 0x8000;
 
 RootFile parseRoot(const std::vector<uint8_t>& bytes);
 ObjFile parseObj(const std::vector<uint8_t>& bytes);
 TexFile parseTex(const std::vector<uint8_t>& bytes);
 uint32_t parseWdtFlags(const std::vector<uint8_t>& bytes);
+WdtFile parseWdt(const std::vector<uint8_t>& bytes);
 
 // One layer's alpha map as 64x64 8-bit, row-major. Collapses the three
 // on-disk forms (ADT/v18.md MCAL): RLE-compressed and uncompressed 4096

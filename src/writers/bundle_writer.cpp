@@ -1203,6 +1203,9 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     std::filesystem::create_directories(bundleDir);
     std::vector<uint8_t> bin;
     std::unordered_set<std::string> writtenTextures;
+    std::vector<OwnedSetEntry> owned;
+    for (const canon::PlacementSet& set : world.placements) owned.push_back({&set, true});
+    std::vector<SetDocument> sets = writePlacementSetDocuments(owned, bundleDir, assetUris, provenance);
     std::ostringstream text;
     json::Writer w(text);
     w.beginObject();
@@ -1214,7 +1217,7 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     w.beginObject();
     w.endObject();
 
-    // Cell i's tile is reference i.
+    // Cell i's tile is reference i; the off-grid sets follow.
     w.key("references");
     w.beginArray();
     for (size_t i = 0; i < world.cells.size(); ++i) {
@@ -1223,6 +1226,14 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
         w.value("model");
         w.key("asset");
         writeRef(w, world.cells[i].tile, tileUris[i]);
+        w.endObject();
+    }
+    for (const SetDocument& set : sets) {
+        w.beginObject();
+        w.key("kind");
+        w.value("placement_set");
+        w.key("asset");
+        writeRef(w, set.ref, set.uri);
         w.endObject();
     }
     w.endArray();
@@ -1253,6 +1264,7 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
 
     w.key("placements");
     w.beginArray();
+    for (size_t i = 0; i < sets.size(); ++i) w.value(static_cast<int64_t>(world.cells.size() + i));
     w.endArray();
 
     w.key("scene");

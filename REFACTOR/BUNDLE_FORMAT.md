@@ -578,8 +578,12 @@ weld tile edges to one side's heights rather than rely on them matching.
 
 **Current**: written by `husk export-map` (one map, tiles referenced by
 identity only) and `husk export-world` (`maps/<map>/<map>.world.bundle`,
-every map, linking the tile bundles that exported). `kind` is `"world"`,
-`schema/world.schema.json` defines it; the subject is the map's WDT.
+every map with tiles or a map-wide WMO, linking the tile and WMO bundles
+that exported). `kind` is `"world"`, `schema/world.schema.json` defines
+it; the subject is the map's WDT. The WDT is the map's record of its
+tiles: a tile file its `MAIN` doesn't list is stale and left out (and
+`export-world` doesn't export it), and each tile's FileDataID comes from
+its `MAID` (the listfile only without one).
 
 - `grid`: cell (i, j) holds tile (x = i, y = j), its tile model placed by
   translation at `origin + (i · axis_i + j · axis_j) · cell_size`, which is
@@ -590,8 +594,10 @@ every map, linking the tile bundles that exported). `kind` is `"world"`,
   consumer can find the tile under a position without opening tiles.
   Verified on `azeroth` (1,335 tiles): every footprint matches its cell to
   0.002 yd.
-- `placements`: placement sets the world places off the grid. Empty today
-  (WDT-level `MODF`, the WMO-only maps, is not read).
+- `placements`: placement sets the world places off the grid, world
+  frame, documents under `sets/`. A map without terrain (WDT `MPHD` flag
+  0x1) has one, `map_objects`, holding the single WMO its WDT's `MODF`
+  places, with the doodad set it turns on; a map with terrain has none.
 - `scene`: what the map places as a whole, world frame. `fog_volumes`
   (`_fogs.wdt`) and `ambient_particle_volumes` (`_mpv.wdt`; each carries a
   model's `resources.scene.ambient_particle_volumes` entry as `volume`,

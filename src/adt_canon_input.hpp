@@ -47,6 +47,11 @@ struct Resolutions {
 
 canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& resolutions);
 
+// The WDT's map-wide WMO (maps without terrain) as a one-instance set, in
+// the world frame; empty when the WDT has none. An MWMO path absent from
+// `gamePaths` keeps its raw string, as a tile's would.
+canon::PlacementSet buildGlobalMapObjects(const adt::WdtFile& wdt, const GamePathResolutions& gamePaths);
+
 // Every texture FileDataID the tile references -- MDID, nonzero MHID, and
 // each MTEX path `gamePaths` resolves -- deduplicated, in first-seen order:
 // what a caller resolves into `Resolutions::textures` before building.

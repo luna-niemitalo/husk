@@ -313,6 +313,7 @@ TEST_CASE("husk export-world: shared textures, per-map tile bundles, logged fail
     Corpus c = makeCorpus("world");
     // A second, broken tile on the same map: logged, never fatal.
     writeBytes(c.mapDir() / "azeroth_33_48.adt", {0, 1, 2, 3});
+    writeBytes(c.mapDir() / "azeroth.wdt", wdtFile(WdtSpec{.tiles = {{32, 48}, {33, 48}}}));
     // A second map, excluded below by --map.
     writeBytes(c.root / "world" / "maps" / "other" / "other.wdt", wdtFile(0x4));
     writeBytes(c.root / "world" / "maps" / "other" / "other_32_48.adt", rootFile(RootSpec{}));
@@ -399,7 +400,7 @@ TEST_CASE("husk export-map: a map's tiles and _fogs.wdt become a world document;
     auto r = runHusk("export-map " + q(c.mapDir()) + " " + q(out) + " --listfile none");
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(r.output.find("1 tiles, 1 fog volumes, 0 particulate volumes") != std::string::npos);
+    CHECK(r.output.find("1 tiles, 0 off-grid placement sets, 1 fog volumes, 0 particulate volumes") != std::string::npos);
     nlohmann::json m = readTile(out / "manifest.json");
     CHECK(m["kind"] == "world");
     CHECK(m["subject"]["name"] == "azeroth");
@@ -417,11 +418,71 @@ TEST_CASE("husk export-map: a map's tiles and _fogs.wdt become a world document;
     CHECK(m["scene"]["fog_volumes"][0]["id"] == 1659);
     CHECK(m["scene"]["fog_volumes"][0]["unresolved"]["palette"]["mode"] == 2.0);
 
-    fs::create_directories(c.root / "world" / "maps" / "empty");
+    writeBytes(c.root / "world" / "maps" / "empty" / "empty.wdt", wdtFile(WdtSpec{.tiles = {}}));
     auto none = runHusk("export-map " + q(c.root / "world" / "maps" / "empty") + " " + q(c.root / "none.bundle") +
                         " --listfile none");
     CHECK(none.exitCode == 1);
     CHECK(none.output.find("expected root tiles empty_<x>_<y>.adt") != std::string::npos);
+}
+
+TEST_CASE("husk export-map: a map without terrain places its WDT's one WMO off the grid") {
+    Corpus c = makeCorpus("map-global-wmo");
+    WdtSpec spec;
+    spec.flags = 0x1;
+    spec.tiles = {};
+    spec.mapObject = MapObjectSpec{109782, 3, {kMapHalfExtent - 100.0f, 25.0f, kMapHalfExtent - 200.0f}, {}, 0x8, 1};
+    fs::path mapDir = c.root / "world" / "maps" / "dungeon";
+    writeBytes(mapDir / "dungeon.wdt", wdtFile(spec));
+    fs::path out = c.root / "dungeon.world.bundle";
+    auto r = runHusk("export-map " + q(mapDir) + " " + q(out) + " --listfile none");
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    CHECK(r.output.find("0 tiles, 1 off-grid placement sets") != std::string::npos);
+    nlohmann::json m = readTile(out / "manifest.json");
+    CHECK(m["grid"]["cells"].empty());
+    REQUIRE(m["placements"].size() == 1);
+    const nlohmann::json& set = m["references"][m["placements"][0].get<size_t>()];
+    CHECK(set["kind"] == "placement_set");
+    nlohmann::json instances = readPlacements(out / set["asset"]["uri"].get<std::string>());
+    REQUIRE(instances.size() == 1);
+    CHECK(instances[0]["asset"]["id"]["value"] == 109782);
+    CHECK(instances[0]["translation"][0].get<double>() == doctest::Approx(200.0));
+    CHECK(instances[0]["selection"]["placement_sets"] == nlohmann::json::array({1}));
+
+    WdtSpec terrain;
+    terrain.tiles = {};
+    writeBytes(c.root / "world" / "maps" / "empty" / "empty.wdt", wdtFile(terrain));
+    auto none = runHusk("export-map " + q(c.root / "world" / "maps" / "empty") + " " + q(c.root / "none.bundle") +
+                        " --listfile none");
+    CHECK(none.exitCode == 1);
+    CHECK(none.output.find("or a map-wide WMO in empty.wdt, found neither") != std::string::npos);
+}
+
+// The store keeps stale tiles the WDT no longer lists (11,014 on the 12.1.0
+// mount); the WDT decides which tiles the map has.
+TEST_CASE("husk export-map: a root tile the WDT's MAIN doesn't list is left off the grid") {
+    Corpus c = makeCorpus("map-main-mismatch");
+    writeBytes(c.mapDir() / "azeroth_40_40.adt", rootFile(RootSpec{}));
+    auto r = runHusk("export-map " + q(c.mapDir()) + " " + q(c.root / "w.bundle") + " --listfile none");
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    CHECK(r.output.find("1 root tiles the WDT's MAIN doesn't list, skipped") != std::string::npos);
+    nlohmann::json m = readTile(c.root / "w.bundle" / "manifest.json");
+    REQUIRE(m["grid"]["cells"].size() == 1);
+    CHECK(m["grid"]["cells"][0]["i"] == 32);
+}
+
+TEST_CASE("husk export-world: a root tile the WDT's MAIN doesn't list isn't exported") {
+    Corpus c = makeCorpus("world-main-mismatch");
+    writeBytes(c.mapDir() / "azeroth_40_40.adt", rootFile(RootSpec{}));
+    fs::path out = c.root / "out";
+    auto r = runHusk("export-world " + q(c.root / "world" / "maps") + " " + q(out) + " " + c.listfileArgs() +
+                     " --skip-models");
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    CHECK(r.output.find("1 tiles (1 more their WDT doesn't list, skipped)") != std::string::npos);
+    CHECK(fs::exists(out / "maps" / "azeroth" / "azeroth_32_48.bundle" / "manifest.json"));
+    CHECK_FALSE(fs::exists(out / "maps" / "azeroth" / "azeroth_40_40.bundle"));
 }
 
 TEST_CASE("husk export-world: every map gets a world document linking its exported tiles") {

@@ -300,9 +300,10 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   names). **MantleCore must follow**: tile-local frames placed by the
   world grid, the model-document tile shape, the world document. Open:
   M2 bundles' subject has no FileDataID outside the store path (the
-  bundle-only path doesn't receive it); the world's off-grid
-  `placements` are empty (WDT `MODF` unread); MAID (the WDT's per-tile
-  FileDataIDs) is unread, the listfile supplies them. After the format work:
+  bundle-only path doesn't receive it). The WDT (`adt::parseWdt`) decides
+  a world's tiles (`MAIN`; the store keeps 11,014 stale tiles it no longer
+  lists), names them (`MAID`), and places a terrain-less map's WMO as the
+  world's off-grid `placements` (228 maps). After the format work:
   LOD (`MFOB` exists but is always empty, see `FOG_VOLUMES_TODO.md` §1); open
   items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
   and `FOG_VOLUMES_TODO.md` §2.
