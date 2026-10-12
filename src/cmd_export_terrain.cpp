@@ -69,7 +69,7 @@ void addExportMapOptions(CLI::App& app, ExportMapOptions& opts) {
         ->group("Resolution");
     app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
-    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the zone lights (Light, LightData, Map), or 'none'")
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the zone lights (Light, LightData, LightParams, LightSkybox, Map), or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
 }

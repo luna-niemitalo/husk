@@ -7,7 +7,7 @@
   "references": [],
   "sources": [
     {
-      "id": "fog",
+      "id": "light",
       "region": {
         "kind": "everywhere"
       }

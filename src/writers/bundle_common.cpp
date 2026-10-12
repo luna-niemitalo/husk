@@ -264,28 +264,158 @@ void writeDistanceFog(json::Writer& w, const canon::DistanceFog& fog) {
 
 void writeRgba(json::Writer& w, const std::array<float, 4>& c) { writeFloats(w, {c[0], c[1], c[2], c[3]}); }
 
-void writeFogCycleKey(json::Writer& w, const canon::FogCycleKey& k) {
+void writeZoneFogValues(json::Writer& w, const canon::ZoneFogValues& f) {
     w.beginObject();
-    for (auto [key, value] : {std::pair{"time", k.time}, std::pair{"end", k.end}, std::pair{"scaler", k.scaler},
-                              std::pair{"density", k.density}, std::pair{"start_offset", k.startOffset},
-                              std::pair{"height", k.height}, std::pair{"height_scaler", k.heightScaler},
-                              std::pair{"height_density", k.heightDensity}, std::pair{"z_scalar", k.zScalar},
-                              std::pair{"curve_start", k.curveStart}, std::pair{"curve_end", k.curveEnd},
-                              std::pair{"sun_angle", k.sunAngle}, std::pair{"sun_strength", k.sunStrength},
-                              std::pair{"end_color_distance", k.endColorDistance}}) {
+    for (auto [key, value] : {std::pair{"end", f.end}, std::pair{"scaler", f.scaler}, std::pair{"density", f.density},
+                              std::pair{"start_offset", f.startOffset}, std::pair{"height", f.height},
+                              std::pair{"height_scaler", f.heightScaler}, std::pair{"height_density", f.heightDensity},
+                              std::pair{"z_scalar", f.zScalar}, std::pair{"curve_start", f.curveStart},
+                              std::pair{"curve_end", f.curveEnd}, std::pair{"sun_angle", f.sunAngle},
+                              std::pair{"sun_strength", f.sunStrength},
+                              std::pair{"end_color_distance", f.endColorDistance}}) {
         writeFloatField(w, key, value);
     }
-    for (auto [key, color] : {std::pair{"sky_color", &k.skyColor}, std::pair{"end_color", &k.endColor},
-                              std::pair{"sun_color", &k.sunColor}, std::pair{"height_color", &k.heightColor},
-                              std::pair{"end_height_color", &k.endHeightColor}}) {
+    for (auto [key, color] : {std::pair{"sky_color", &f.skyColor}, std::pair{"end_color", &f.endColor},
+                              std::pair{"sun_color", &f.sunColor}, std::pair{"height_color", &f.heightColor},
+                              std::pair{"end_height_color", &f.endHeightColor}}) {
         writeVec3Field(w, key, *color);
     }
-    for (auto [key, cubic] : {std::pair{"height_coefficients", &k.heightCoefficients},
-                              std::pair{"main_coefficients", &k.mainCoefficients},
-                              std::pair{"height_density_coefficients", &k.heightDensityCoefficients}}) {
+    for (auto [key, cubic] : {std::pair{"height_coefficients", &f.heightCoefficients},
+                              std::pair{"main_coefficients", &f.mainCoefficients},
+                              std::pair{"height_density_coefficients", &f.heightDensityCoefficients}}) {
         writeFloatArrayField(w, key, cubic->data(), cubic->size());
     }
     w.endObject();
+}
+
+void writeBoolField(json::Writer& w, const char* key, bool v) {
+    w.key(key);
+    w.value(v);
+}
+
+void writeLightKey(json::Writer& w, const canon::LightKey& k, const InputAssets& assets) {
+    w.beginObject();
+    writeFloatField(w, "time", k.time);
+    for (auto [key, color] : {std::pair{"direct_color", &k.directColor}, std::pair{"ambient_color", &k.ambientColor},
+                              std::pair{"horizon_ambient_color", &k.horizonAmbientColor},
+                              std::pair{"ground_ambient_color", &k.groundAmbientColor}, std::pair{"sun_color", &k.sunColor},
+                              std::pair{"shadow_opacity", &k.shadowOpacity}}) {
+        writeVec3Field(w, key, *color);
+    }
+    w.key("sky");
+    w.beginObject();
+    for (auto [key, color] : {std::pair{"top_color", &k.skyTopColor}, std::pair{"middle_color", &k.skyMiddleColor},
+                              std::pair{"band1_color", &k.skyBand1Color}, std::pair{"band2_color", &k.skyBand2Color},
+                              std::pair{"smog_color", &k.skySmogColor}}) {
+        writeVec3Field(w, key, *color);
+    }
+    w.endObject();
+    w.key("clouds");
+    w.beginObject();
+    for (auto [key, color] : {std::pair{"sun_color", &k.cloudSunColor}, std::pair{"emissive_color", &k.cloudEmissiveColor},
+                              std::pair{"layer1_ambient_color", &k.cloudLayer1AmbientColor},
+                              std::pair{"layer2_ambient_color", &k.cloudLayer2AmbientColor}}) {
+        writeVec3Field(w, key, *color);
+    }
+    writeFloatField(w, "density", k.cloudDensity);
+    w.endObject();
+    w.key("water");
+    w.beginObject();
+    for (auto [key, color] : {std::pair{"ocean_close_color", &k.oceanCloseColor}, std::pair{"ocean_far_color", &k.oceanFarColor},
+                              std::pair{"river_close_color", &k.riverCloseColor}, std::pair{"river_far_color", &k.riverFarColor}}) {
+        writeVec3Field(w, key, *color);
+    }
+    w.endObject();
+    for (auto [key, texture] : {std::pair{"color_grading", &k.colorGrading}, std::pair{"darker_color_grading", &k.darkerColorGrading}}) {
+        if (!*texture) continue;
+        w.key(key);
+        assets.texture(**texture);
+    }
+    w.key("fog");
+    writeZoneFogValues(w, k.fog);
+    if (!k.unresolved.empty()) {
+        w.key("unresolved");
+        writeUnresolved(w, k.unresolved);
+    }
+    w.endObject();
+}
+
+void writeLightSettings(json::Writer& w, const canon::LightSettings& s, const InputAssets& assets) {
+    w.beginObject();
+    writeBoolField(w, "highlight_sky", s.highlightSky);
+    if (s.skybox) {
+        w.key("skybox");
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, s.skybox->ref);
+        w.key("model");
+        assets.mesh(s.skybox->model);
+        if (s.skybox->celestialModel) {
+            w.key("celestial_model");
+            assets.mesh(*s.skybox->celestialModel);
+        }
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(s.skybox->flags));
+        w.endObject();
+        w.endObject();
+    }
+    writeFloatField(w, "glow", s.glow);
+    w.key("water_alpha");
+    w.beginObject();
+    for (auto [key, value] : {std::pair{"river_shallow", s.riverShallowAlpha}, std::pair{"river_deep", s.riverDeepAlpha},
+                              std::pair{"ocean_shallow", s.oceanShallowAlpha}, std::pair{"ocean_deep", s.oceanDeepAlpha}}) {
+        writeFloatField(w, key, value);
+    }
+    w.endObject();
+    w.key("sun");
+    w.beginObject();
+    for (auto [key, value] : {std::pair{"polar", s.sunPolar}, std::pair{"azimuth", s.sunAzimuth},
+                              std::pair{"attenuation_start", s.sunAttenuationStart},
+                              std::pair{"attenuation_end", s.sunAttenuationEnd}}) {
+        writeFloatField(w, key, value);
+    }
+    w.endObject();
+    // wowdev.wiki DB/LightParams: the only bits whose two name lists agree.
+    writeBoolField(w, "hide_sun", s.flags & 0x4);
+    writeBoolField(w, "hide_moon", s.flags & 0x8);
+    writeBoolField(w, "hide_stars", s.flags & 0x10);
+    if (s.celestialSphereOverride) writeVec3Field(w, "celestial_sphere_override", *s.celestialSphereOverride);
+    if (s.sunPositionOverride) writeVec3Field(w, "sun_position_override", *s.sunPositionOverride);
+    writeIntField(w, "cloud_kind", s.cloudType);
+    writeIntField(w, "ssao_settings", s.ssaoSettings);
+    w.key("source");
+    w.beginObject();
+    w.key("flags");
+    w.value(hexFlags(s.flags));
+    w.endObject();
+    if (!s.unresolved.empty()) {
+        w.key("unresolved");
+        writeUnresolved(w, s.unresolved);
+    }
+    w.endObject();
+}
+
+// resources.light_params: each parameter set once, as zone_light styles
+// index it.
+void writeLightParams(json::Writer& w, const std::vector<canon::LightParams>& table, const InputAssets& assets) {
+    w.beginArray();
+    for (const canon::LightParams& params : table) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, params.ref);
+        if (params.settings) {
+            w.key("settings");
+            writeLightSettings(w, *params.settings, assets);
+        }
+        w.key("keys");
+        w.beginArray();
+        for (const canon::LightKey& k : params.keys) writeLightKey(w, k, assets);
+        w.endArray();
+        w.endObject();
+    }
+    w.endArray();
 }
 
 void writeRibbonSystem(json::Writer& w, const canon::RibbonSystem& r) {
@@ -422,17 +552,14 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
         w.value(static_cast<int64_t>(style.volumetricFog->minQuality));
         w.endObject();
     }
-    if (style.zoneFog) {
+    if (style.zoneLight) {
         static constexpr const char* kSlots[] = {"clear", "clear_underwater", "storm", "storm_underwater", "death"};
-        w.key("zone_fog");
+        w.key("zone_light");
         w.beginObject();
-        for (size_t slot = 0; slot < canon::ZoneFog::SlotCount; ++slot) {
-            const std::vector<canon::FogCycleKey>& cycle = style.zoneFog->cycles[slot];
-            if (cycle.empty()) continue;
+        for (size_t slot = 0; slot < canon::ZoneLight::SlotCount; ++slot) {
+            if (!style.zoneLight->params[slot]) continue;
             w.key(kSlots[slot]);
-            w.beginArray();
-            for (const canon::FogCycleKey& k : cycle) writeFogCycleKey(w, k);
-            w.endArray();
+            w.value(static_cast<int64_t>(*style.zoneLight->params[slot]));
         }
         w.endObject();
     }
@@ -626,10 +753,23 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         w.endObject();
     }
     w.endArray();
-    if (!textures.empty()) {
+    // Rendered before the texture table is written: their colour-grading
+    // textures join it.
+    std::ostringstream lightParams;
+    if (!set.lightParams.empty()) {
+        json::Writer lw(lightParams);
+        writeLightParams(lw, set.lightParams,
+                         {[&](const canon::TextureRef& texture) { lw.value(static_cast<int64_t>(textures.add(texture))); },
+                          [&](const canon::Ref& model) { writeAssetRef(lw, model, uris); }});
+    }
+    if (!textures.empty() || !set.lightParams.empty()) {
         w.key("resources");
         w.beginObject();
-        textures.write(w);
+        if (!textures.empty()) textures.write(w);
+        if (!set.lightParams.empty()) {
+            w.key("light_params");
+            w.rawValue(lightParams.str());
+        }
         w.endObject();
     }
     w.endObject();

@@ -262,6 +262,18 @@ on husk's side (`BUNDLE_FORMAT.md` "Seams between tiles").
 - The map's volumes: two of `placements`' sets, `fogs` (`_fogs.wdt`) and
   `particulate_volumes` (`_mpv.wdt`), effect instances in the world frame
   (`REFACTOR/EFFECTS.md`).
+- Outdoor lighting: the `zone_lights` set (was `zone_fogs`; effects
+  `classic_zone_light`/`_global`, were `classic_zone_fog`/`_global`).
+  Each instance's `style.light.zone_light` maps a condition (clear,
+  clear_underwater, storm, storm_underwater, death) to an index into the
+  set's `resources.light_params`. An entry holds its `settings` (sky
+  model, glow, water opacity, sun, hide_sun/moon/stars; absent for
+  1,196 ids the build's LightParams file lacks) and `keys` by time of
+  day: direct/ambient/horizon/ground colours, `sky`, `clouds`, `water`,
+  `shadow_opacity`, `color_grading` (a 1024x32 LUT, index into the
+  set's `resources.textures`) and `fog` (the old cycle key without
+  `time`). Blend between a zone's inner and outer radius, and between
+  keys by time.
 - `subject.id`: the WDT's FileDataID. Every document's `subject` now
   carries its FileDataID when husk knows it, M2 bundles included.
 

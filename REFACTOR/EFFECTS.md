@@ -33,7 +33,7 @@ and `fog_color_to_albedo` (WMO fog spheres), `fog_level_to_priority`
 value is an optional input or the priority, named in the instance's
 provenance; `validate-bundle` checks every provenance path names a value
 the instance holds. Not yet: `fog_density_to_extinction` (its source,
-the zone fog below, is keyed by time of day, and a medium is one value
+the zone light below, is keyed by time of day, and a medium is one value
 so far), the gate. A fifth rule, `blend_to_light_role`, gives each
 WMO and map particle-volume emitter its light role (content
 `particles.light.role`): emission for `EGxBlend` Add, albedo for Alpha
@@ -44,18 +44,23 @@ self-contradictory on the wiki (1 and 2's names and GL functions swap),
 and 5..7 have two readings the shaders can't decide between
 (`SHADER_FINDINGS/notes/particles.md`).
 
-Phase 4: each map's `Light` zones are `classic_zone_fog` instances (a
-sphere fading between the falloff radii) or `classic_zone_fog_global`
-(the map-wide zone) in the world document's `zone_fogs` set, read
-through `lightdb` (`Light`, `LightData`, `Map`). Their style is
-`zone_fog`: per condition the client picks (clear, clear underwater,
-storm, storm underwater, death: `LightParams` slots 0..4), the fog
-columns of `LightData` at each time of day, in seconds since midnight.
-Names follow `LightData`; their roles in the fog record are the
-candidates in the table above. Params slots 5..7, and slots naming
-params with no `LightData` rows, stay unresolved. The rest of the row
-(sky, ambient, direct light) is `LIGHTING_TODO.md`'s. Open: `zone_fogs`
-repeats shared `LightParams` per zone (azeroth's set is 7.8 MB).
+Phase 4: each map's `Light` zones are `classic_zone_light` instances (a
+sphere fading between the falloff radii) or `classic_zone_light_global`
+(the map-wide zone) in the world document's `zone_lights` set, read
+through `lightdb` (`Light`, `LightData`, `LightParams`, `LightSkybox`,
+`Map`). Their style is `zone_light`: per condition the client picks
+(clear, clear underwater, storm, storm underwater, death: `LightParams`
+slots 0..4), an index into the set's `resources.light_params`, which
+lists each parameter set once: its `LightParams` settings (sky model,
+glow, water opacity, sun, hidden sky bodies) and every `LightData`
+column by time of day in seconds since midnight (direct, ambient, sky,
+sun, cloud, water and shadow colours, colour-grading lookup textures,
+fog). Fog names follow `LightData`; their roles in the fog record are
+the candidates in the table above. Params slots 5..7, and slots naming
+params with no `LightData` rows, stay unresolved. 1,196 of the 2,377
+params 12.1.0's zones use have keys but no `LightParams` row; those
+entries carry no `settings`. Azeroth's set: 274 zones, 195 parameter
+sets, 1,158 keys, 5.3 MB (was 7.8 MB holding fog alone).
 
 Source facts are in `../WIKI_FINDINGS/WORLD.md`, open items in
 `../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in
@@ -267,7 +272,7 @@ Where the instances sit:
 | Instancer | Set |
 |---|---|
 | WMO | its doodad sets (`sets/<index>.json`): an `MFED`/`doodadSetId` volume in that set, an ungated one in set 0, which is always on |
-| map | a world placement set `effects`: map fogs, particulate volumes, zone fog |
+| map | a world placement set `effects`: map fogs, particulate volumes, zone lights |
 | M2 | an `effects` set it owns, its emitters anchored to joints |
 
 Under the "embed or reference" rule (`BUNDLE_FORMAT.md`), a set may be
@@ -318,7 +323,7 @@ fade:
 |---|---|
 | `enabled` | `VFEX` enable (3 of 1,542 are 0; written `false`, kept) |
 | `animation` | the carrying instance's active animation (M2 emitter tracks are per animation) |
-| time of day, weather, season | zone fog by `LightData.Time`; the rest first producer |
+| time of day, weather, season | zone light by `LightData.Time`; the rest first producer |
 
 Two inputs are kept out of the gate:
 - **Viewer conditions** ("camera underwater"): the world can't depend on
@@ -509,7 +514,7 @@ then lives in one reviewable place, not on every instance.
 
 | Source | Effect | Anchor, region | Content | Style |
 |---|---|---|---|---|
-| Zone fog (`Light`/`LightData`) | `classic_zone_fog` | world, `everywhere`/`sphere` | medium (`base`, derived) | `distance_fog` by `day_time` |
+| Zone light (`Light`/`LightParams`/`LightData`) | `classic_zone_light` | world, `everywhere`/`sphere` | medium (`base`, derived) | `zone_light` → `light_params` by `day_time` |
 | WMO `MFOG` | `classic_local_fog` | instance, `sphere` | medium (derived) | `distance_fog.linear`, `looks.underwater` |
 | `MFOG` flag 0x1 | `classic_local_fog` | instance | — | `exit_blend` |
 | `VFOG`+`VFEX`+`VFE2` | `classic_volumetric_fog` | world, `shape` | medium (`pinned`), values absent until known | `volumetric_fog` |
@@ -576,12 +581,12 @@ and `validate-bundle` clean on real exports.
 Blocked items stay unresolved and are named in the TODO: box size,
 emitter float semantics, `VFOG` density.
 
-**Phase 4: `LightData` zone fog.**
-- A `light_db2` reader (same pattern as `liquid_db2`).
-- A world instance of `classic_zone_fog` per `Light` zone, styled by
-  `day_time`, plus a derived `base` medium.
-- The rest of the row (sky, ambient, direct light) waits for lighting's
-  own design (`LIGHTING_TODO.md`).
+**Phase 4: zone lights.**
+- A `light_db2` reader (same pattern as `liquid_db2`). Done.
+- A world instance of `classic_zone_light` per `Light` zone, its
+  parameter sets in the set's `light_params`. Done.
+- Open: a derived `base` medium (zone fog is keyed by time of day; a
+  medium is one value).
 
 **Phase 5 (before 1.0): classification, one behaviour at a time.**
 - The classification table and its first entries (`ground_fog` with

@@ -1518,28 +1518,28 @@
           "$ref": "#/definitions/ribbon_system",
           "description": "The classic ribbon an M2 emitter drew."
         },
-        "zone_fog": {
+        "zone_light": {
           "type": "object",
-          "description": "The classic zone light's fog, by the condition the client picks it under (wowdev.wiki DB/Light).",
+          "description": "The classic zone light: the light parameter set the client uses under each condition (wowdev.wiki DB/Light). A condition the zone doesn't state is absent.",
           "properties": {
             "clear": {
-              "$ref": "#/definitions/fog_cycle",
+              "$ref": "#/definitions/light_params_index",
               "description": "In clear weather."
             },
             "clear_underwater": {
-              "$ref": "#/definitions/fog_cycle",
+              "$ref": "#/definitions/light_params_index",
               "description": "In clear weather, under water."
             },
             "storm": {
-              "$ref": "#/definitions/fog_cycle",
+              "$ref": "#/definitions/light_params_index",
               "description": "In rain, snow or sandstorm."
             },
             "storm_underwater": {
-              "$ref": "#/definitions/fog_cycle",
+              "$ref": "#/definitions/light_params_index",
               "description": "In storm weather, under water."
             },
             "death": {
-              "$ref": "#/definitions/fog_cycle",
+              "$ref": "#/definitions/light_params_index",
               "description": "While the viewer is dead."
             }
           },
@@ -2072,150 +2072,537 @@
         "additionalProperties": false
       }
     },
-    "fog_cycle": {
-      "type": "array",
-      "description": "A zone light's fog values at times of day, ascending; between two keys the client interpolates. Names follow the source table (LightData); their roles in the fog record are candidates (REFACTOR/EFFECTS.md).",
-      "items": {
-        "type": "object",
-        "description": "The values at one time of day.",
-        "properties": {
-          "time": {
-            "type": "number",
-            "description": "Time of day the values hold at.",
-            "x-unit": "second"
-          },
-          "end": {
-            "type": "number",
-            "description": "Fog end (LightData FogEnd).",
-            "x-unit": "yard"
-          },
-          "scaler": {
-            "type": "number",
-            "description": "FogScaler.",
-            "x-unit": "1"
-          },
-          "density": {
-            "type": "number",
-            "description": "Exponential density (FogDensity).",
-            "x-unit": "1/yard"
-          },
-          "start_offset": {
-            "type": "number",
-            "description": "FogStartOffset.",
-            "x-unit": "yard"
-          },
-          "height": {
-            "type": "number",
-            "description": "Height-fog plane (FogHeight).",
-            "x-unit": "yard"
-          },
-          "height_scaler": {
-            "type": "number",
-            "description": "FogHeightScaler.",
-            "x-unit": "1"
-          },
-          "height_density": {
-            "type": "number",
-            "description": "Density inside the height fog (FogHeightDensity).",
-            "x-unit": "1/yard"
-          },
-          "z_scalar": {
-            "type": "number",
-            "description": "Vertical band (FogZScalar).",
-            "x-unit": "yard"
-          },
-          "curve_start": {
-            "type": "number",
-            "description": "Distance-curve near distance (MainFogStartDist).",
-            "x-unit": "yard"
-          },
-          "curve_end": {
-            "type": "number",
-            "description": "Distance-curve far distance (MainFogEndDist).",
-            "x-unit": "yard"
-          },
-          "sun_angle": {
-            "type": "number",
-            "description": "Cosine past which sun fog starts (SunFogAngle).",
-            "x-unit": "1"
-          },
-          "sun_strength": {
-            "type": "number",
-            "description": "Sun fog strength (SunFogStrength).",
-            "x-unit": "1"
-          },
-          "end_color_distance": {
-            "type": "number",
-            "description": "EndFogColorDistance.",
-            "x-unit": "yard"
-          },
-          "sky_color": {
-            "$ref": "#/definitions/rgb",
-            "description": "SkyFogColor.",
-            "x-unit": "1"
-          },
-          "end_color": {
-            "$ref": "#/definitions/rgb",
-            "description": "EndFogColor.",
-            "x-unit": "1"
-          },
-          "sun_color": {
-            "$ref": "#/definitions/rgb",
-            "description": "SunFogColor.",
-            "x-unit": "1"
-          },
-          "height_color": {
-            "$ref": "#/definitions/rgb",
-            "description": "FogHeightColor.",
-            "x-unit": "1"
-          },
-          "end_height_color": {
-            "$ref": "#/definitions/rgb",
-            "description": "EndFogHeightColor.",
-            "x-unit": "1"
-          },
-          "height_coefficients": {
-            "$ref": "#/definitions/vec4",
-            "description": "FogHeightCoefficients. Cubic coefficients x^3, x^2, x, 1.",
-            "x-unit": "1"
-          },
-          "main_coefficients": {
-            "$ref": "#/definitions/vec4",
-            "description": "MainFogCoefficients. Cubic coefficients x^3, x^2, x, 1.",
-            "x-unit": "1"
-          },
-          "height_density_coefficients": {
-            "$ref": "#/definitions/vec4",
-            "description": "HeightDensityFogCoeff. Cubic coefficients x^3, x^2, x, 1.",
-            "x-unit": "1"
-          }
+    "zone_fog_values": {
+      "type": "object",
+      "description": "A light parameter set's fog at one time of day. Names follow the source table (LightData); their roles in the fog record are candidates (REFACTOR/EFFECTS.md).",
+      "properties": {
+        "end": {
+          "type": "number",
+          "description": "Fog end (LightData FogEnd).",
+          "x-unit": "yard"
         },
-        "required": [
-          "time",
-          "end",
-          "scaler",
-          "density",
-          "start_offset",
-          "height",
-          "height_scaler",
-          "height_density",
-          "z_scalar",
-          "curve_start",
-          "curve_end",
-          "sun_angle",
-          "sun_strength",
-          "end_color_distance",
-          "sky_color",
-          "end_color",
-          "sun_color",
-          "height_color",
-          "end_height_color",
-          "height_coefficients",
-          "main_coefficients",
-          "height_density_coefficients"
-        ],
-        "additionalProperties": false
-      }
+        "scaler": {
+          "type": "number",
+          "description": "FogScaler.",
+          "x-unit": "1"
+        },
+        "density": {
+          "type": "number",
+          "description": "Exponential density (FogDensity).",
+          "x-unit": "1/yard"
+        },
+        "start_offset": {
+          "type": "number",
+          "description": "FogStartOffset.",
+          "x-unit": "yard"
+        },
+        "height": {
+          "type": "number",
+          "description": "Height-fog plane (FogHeight).",
+          "x-unit": "yard"
+        },
+        "height_scaler": {
+          "type": "number",
+          "description": "FogHeightScaler.",
+          "x-unit": "1"
+        },
+        "height_density": {
+          "type": "number",
+          "description": "Density inside the height fog (FogHeightDensity).",
+          "x-unit": "1/yard"
+        },
+        "z_scalar": {
+          "type": "number",
+          "description": "Vertical band (FogZScalar).",
+          "x-unit": "yard"
+        },
+        "curve_start": {
+          "type": "number",
+          "description": "Distance-curve near distance (MainFogStartDist).",
+          "x-unit": "yard"
+        },
+        "curve_end": {
+          "type": "number",
+          "description": "Distance-curve far distance (MainFogEndDist).",
+          "x-unit": "yard"
+        },
+        "sun_angle": {
+          "type": "number",
+          "description": "Cosine past which sun fog starts (SunFogAngle).",
+          "x-unit": "1"
+        },
+        "sun_strength": {
+          "type": "number",
+          "description": "Sun fog strength (SunFogStrength).",
+          "x-unit": "1"
+        },
+        "end_color_distance": {
+          "type": "number",
+          "description": "EndFogColorDistance.",
+          "x-unit": "yard"
+        },
+        "sky_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "SkyFogColor.",
+          "x-unit": "1"
+        },
+        "end_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "EndFogColor.",
+          "x-unit": "1"
+        },
+        "sun_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "SunFogColor.",
+          "x-unit": "1"
+        },
+        "height_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "FogHeightColor.",
+          "x-unit": "1"
+        },
+        "end_height_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "EndFogHeightColor.",
+          "x-unit": "1"
+        },
+        "height_coefficients": {
+          "$ref": "#/definitions/vec4",
+          "description": "FogHeightCoefficients. Cubic coefficients x^3, x^2, x, 1.",
+          "x-unit": "1"
+        },
+        "main_coefficients": {
+          "$ref": "#/definitions/vec4",
+          "description": "MainFogCoefficients. Cubic coefficients x^3, x^2, x, 1.",
+          "x-unit": "1"
+        },
+        "height_density_coefficients": {
+          "$ref": "#/definitions/vec4",
+          "description": "HeightDensityFogCoeff. Cubic coefficients x^3, x^2, x, 1.",
+          "x-unit": "1"
+        }
+      },
+      "required": [
+        "end",
+        "scaler",
+        "density",
+        "start_offset",
+        "height",
+        "height_scaler",
+        "height_density",
+        "z_scalar",
+        "curve_start",
+        "curve_end",
+        "sun_angle",
+        "sun_strength",
+        "end_color_distance",
+        "sky_color",
+        "end_color",
+        "sun_color",
+        "height_color",
+        "end_height_color",
+        "height_coefficients",
+        "main_coefficients",
+        "height_density_coefficients"
+      ],
+      "additionalProperties": false
+    },
+    "light_params_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "A light parameter set: index into the document's resources.light_params, where each set is listed once.",
+      "x-index-into": "/resources/light_params"
+    },
+    "light_key": {
+      "type": "object",
+      "description": "A light parameter set's values at one time of day (one LightData row). Colours are as stored; a colour's nonzero high byte (alpha or flags, unverified) is under unresolved.",
+      "properties": {
+        "time": {
+          "type": "number",
+          "description": "Time of day the values hold at; between two keys the client interpolates.",
+          "x-unit": "second"
+        },
+        "direct_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Directional (sun or moon) light colour.",
+          "x-unit": "1"
+        },
+        "ambient_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Ambient light colour.",
+          "x-unit": "1"
+        },
+        "horizon_ambient_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Ambient colour from the horizon.",
+          "x-unit": "1"
+        },
+        "ground_ambient_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Ambient colour from the ground.",
+          "x-unit": "1"
+        },
+        "sun_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Colour of the sun disc.",
+          "x-unit": "1"
+        },
+        "shadow_opacity": {
+          "$ref": "#/definitions/rgb",
+          "description": "Shadow opacity, stored as a colour: grey on every row seen.",
+          "x-unit": "1"
+        },
+        "sky": {
+          "type": "object",
+          "description": "The procedural sky's colour bands, top to horizon.",
+          "properties": {
+            "top_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Sky top.",
+              "x-unit": "1"
+            },
+            "middle_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Sky middle.",
+              "x-unit": "1"
+            },
+            "band1_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "First band above the horizon.",
+              "x-unit": "1"
+            },
+            "band2_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Second band above the horizon.",
+              "x-unit": "1"
+            },
+            "smog_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Haze at the horizon.",
+              "x-unit": "1"
+            }
+          },
+          "required": [
+            "top_color",
+            "middle_color",
+            "band1_color",
+            "band2_color",
+            "smog_color"
+          ],
+          "additionalProperties": false
+        },
+        "clouds": {
+          "type": "object",
+          "description": "The cloud layers' lighting.",
+          "properties": {
+            "sun_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Sunlit side of the clouds.",
+              "x-unit": "1"
+            },
+            "emissive_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Cloud emission.",
+              "x-unit": "1"
+            },
+            "layer1_ambient_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Ambient colour of the first layer.",
+              "x-unit": "1"
+            },
+            "layer2_ambient_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Ambient colour of the second layer.",
+              "x-unit": "1"
+            },
+            "density": {
+              "type": "number",
+              "description": "Cloud cover.",
+              "x-unit": "1"
+            }
+          },
+          "required": [
+            "sun_color",
+            "emissive_color",
+            "layer1_ambient_color",
+            "layer2_ambient_color",
+            "density"
+          ],
+          "additionalProperties": false
+        },
+        "water": {
+          "type": "object",
+          "description": "Water colours near and far from the viewer.",
+          "properties": {
+            "ocean_close_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Ocean, near.",
+              "x-unit": "1"
+            },
+            "ocean_far_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Ocean, far.",
+              "x-unit": "1"
+            },
+            "river_close_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Rivers and lakes, near.",
+              "x-unit": "1"
+            },
+            "river_far_color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Rivers and lakes, far.",
+              "x-unit": "1"
+            }
+          },
+          "required": [
+            "ocean_close_color",
+            "ocean_far_color",
+            "river_close_color",
+            "river_far_color"
+          ],
+          "additionalProperties": false
+        },
+        "color_grading": {
+          "$ref": "#/definitions/texture_index",
+          "description": "A 1024x32 lookup texture remapping the frame's colours (wowdev.wiki DB/LightData). Absent: none."
+        },
+        "darker_color_grading": {
+          "$ref": "#/definitions/texture_index",
+          "description": "The darker variant of color_grading. Absent: none."
+        },
+        "fog": {
+          "$ref": "#/definitions/zone_fog_values",
+          "description": "The fog."
+        },
+        "unresolved": {
+          "$ref": "#/definitions/unresolved",
+          "description": "Source values with no field yet."
+        }
+      },
+      "required": [
+        "time",
+        "direct_color",
+        "ambient_color",
+        "horizon_ambient_color",
+        "ground_ambient_color",
+        "sun_color",
+        "shadow_opacity",
+        "sky",
+        "clouds",
+        "water",
+        "fog"
+      ],
+      "additionalProperties": false
+    },
+    "light_settings": {
+      "type": "object",
+      "description": "A light parameter set's settings that don't change with time (one LightParams row).",
+      "properties": {
+        "highlight_sky": {
+          "type": "boolean",
+          "description": "LightParams HighlightSky."
+        },
+        "skybox": {
+          "type": "object",
+          "description": "The sky model drawn (LightSkybox).",
+          "properties": {
+            "ref": {
+              "$ref": "#/definitions/ref",
+              "description": "The LightSkybox row."
+            },
+            "model": {
+              "$ref": "#/definitions/asset_ref",
+              "description": "The sky model."
+            },
+            "celestial_model": {
+              "$ref": "#/definitions/asset_ref",
+              "description": "A second sky model, for celestial bodies."
+            },
+            "source": {
+              "type": "object",
+              "description": "Raw source values.",
+              "properties": {
+                "flags": {
+                  "$ref": "#/definitions/flags",
+                  "description": "LightSkybox Flags (names in wowdev.wiki DB/LightSkybox)."
+                }
+              },
+              "required": [
+                "flags"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ref",
+            "model",
+            "source"
+          ],
+          "additionalProperties": false
+        },
+        "glow": {
+          "type": "number",
+          "description": "How much fog is added to everything (wowdev.wiki DB/LightParams).",
+          "x-unit": "1"
+        },
+        "water_alpha": {
+          "type": "object",
+          "description": "Water opacity at shallow and deep points.",
+          "properties": {
+            "river_shallow": {
+              "type": "number",
+              "description": "Rivers and lakes, shallow.",
+              "x-unit": "1"
+            },
+            "river_deep": {
+              "type": "number",
+              "description": "Rivers and lakes, deep.",
+              "x-unit": "1"
+            },
+            "ocean_shallow": {
+              "type": "number",
+              "description": "Ocean, shallow.",
+              "x-unit": "1"
+            },
+            "ocean_deep": {
+              "type": "number",
+              "description": "Ocean, deep.",
+              "x-unit": "1"
+            }
+          },
+          "required": [
+            "river_shallow",
+            "river_deep",
+            "ocean_shallow",
+            "ocean_deep"
+          ],
+          "additionalProperties": false
+        },
+        "sun": {
+          "type": "object",
+          "description": "Where the sun stands and how its light fades; all 0 means the client's default.",
+          "properties": {
+            "polar": {
+              "type": "number",
+              "description": "SunPolar, converted from the degrees stored.",
+              "x-unit": "radian"
+            },
+            "azimuth": {
+              "type": "number",
+              "description": "SunAzimuth, converted from the degrees stored.",
+              "x-unit": "radian"
+            },
+            "attenuation_start": {
+              "type": "number",
+              "description": "SunAttenuationStart.",
+              "x-unit": "yard"
+            },
+            "attenuation_end": {
+              "type": "number",
+              "description": "SunAttenuationEnd.",
+              "x-unit": "yard"
+            }
+          },
+          "required": [
+            "polar",
+            "azimuth",
+            "attenuation_start",
+            "attenuation_end"
+          ],
+          "additionalProperties": false
+        },
+        "hide_sun": {
+          "type": "boolean",
+          "description": "The sun is not drawn (flag 0x4)."
+        },
+        "hide_moon": {
+          "type": "boolean",
+          "description": "The moon is not drawn (flag 0x8)."
+        },
+        "hide_stars": {
+          "type": "boolean",
+          "description": "The stars are not drawn (flag 0x10)."
+        },
+        "celestial_sphere_override": {
+          "$ref": "#/definitions/vec3",
+          "description": "OverrideCelestialSphere, as stored. Absent when stored zero.",
+          "x-unit": "1"
+        },
+        "sun_position_override": {
+          "$ref": "#/definitions/vec3",
+          "description": "OverrideSunPosition, as stored. Absent when stored zero.",
+          "x-unit": "yard"
+        },
+        "cloud_kind": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "CloudType row; 0 = none."
+        },
+        "ssao_settings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "SSAOSettings row; 0 = none."
+        },
+        "source": {
+          "type": "object",
+          "description": "Raw source values.",
+          "properties": {
+            "flags": {
+              "$ref": "#/definitions/flags",
+              "description": "LightParams Flags (names in wowdev.wiki DB/LightParams)."
+            }
+          },
+          "required": [
+            "flags"
+          ],
+          "additionalProperties": false
+        },
+        "unresolved": {
+          "$ref": "#/definitions/unresolved",
+          "description": "Source values with no field yet."
+        }
+      },
+      "required": [
+        "highlight_sky",
+        "glow",
+        "water_alpha",
+        "sun",
+        "hide_sun",
+        "hide_moon",
+        "hide_stars",
+        "cloud_kind",
+        "ssao_settings",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "light_params": {
+      "type": "object",
+      "description": "A light parameter set: what a zone light shows under one condition.",
+      "properties": {
+        "ref": {
+          "$ref": "#/definitions/ref",
+          "description": "The LightParams row."
+        },
+        "settings": {
+          "$ref": "#/definitions/light_settings",
+          "description": "Absent when the build's LightParams file has no row for this id, though LightData keys it."
+        },
+        "keys": {
+          "type": "array",
+          "description": "The values by time of day, ascending.",
+          "items": {
+            "$ref": "#/definitions/light_key",
+            "description": "One time of day."
+          }
+        }
+      },
+      "required": [
+        "ref",
+        "keys"
+      ],
+      "additionalProperties": false
     }
   }
 }

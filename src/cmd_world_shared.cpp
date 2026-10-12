@@ -371,13 +371,19 @@ std::vector<canon::PlacementSet> loadMapEffects(const std::filesystem::path& map
                 }
             }
         }
+        std::set<uint32_t> models;
         if (fogs) {
-            for (const wdt::Fog& f : fogs->fogs) {
-                uint32_t model = f.modelFileDataId ? f.modelFileDataId : mapinput::kFallbackFogModel;
-                if (std::optional<std::string_view> listed = listfile->lookup(model)) {
-                    inputs.assetNames.emplace(model, std::filesystem::path(std::string(*listed)).stem().string());
-                }
+            for (const wdt::Fog& f : fogs->fogs) models.insert(f.modelFileDataId ? f.modelFileDataId : mapinput::kFallbackFogModel);
+        }
+        mapinput::ZoneLightAssets zoneAssets = mapinput::zoneLightAssets(inputs);
+        models.insert(zoneAssets.models.begin(), zoneAssets.models.end());
+        for (uint32_t model : models) {
+            if (std::optional<std::string_view> listed = listfile->lookup(model)) {
+                inputs.assetNames.emplace(model, std::filesystem::path(std::string(*listed)).stem().string());
             }
+        }
+        for (uint32_t texture : zoneAssets.textures) {
+            if (!inputs.textures.count(texture)) inputs.textures.emplace(texture, resolveTexture(texture, *listfile, listfileRoot));
         }
     }
     return mapinput::buildMapEffects(inputs);

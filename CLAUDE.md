@@ -322,12 +322,13 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   set), is on it as a placeholder effect (literal tier, Phase 2 done);
   `validate-bundle` warns on placeholders and `--release` fails.
   Phase 3 started (four derivation rules, provenance on instances);
-  Phase 4: each map's `Light` zones are zone fog instances, their fog by
-  time of day from `LightData` (`lightdb`; export-map/export-world
-  `--db2-dir`); WMO/map particle emitters carry a derived light role.
+  Phase 4: each map's `Light` zones are zone light instances indexing
+  the set's `resources.light_params` (each LightParams once: settings,
+  sky model, every LightData column by time of day, colour grading;
+  `lightdb`; export-map/export-world `--db2-dir`); WMO/map particle
+  emitters carry a derived light role.
   **Next** (each needs a design call or Luna): zone fog as a medium (a
-  medium is one value; zone fog is keyed by time of day), deduplicating
-  `zone_fogs`' shared LightParams (azeroth 7.8 MB), M2 particle light
+  medium is one value; zone fog is keyed by time of day), M2 particle light
   roles (blend ids unsettled), Phase 5 classification before 1.0
   (mechanical grouping checked by derivation coverage, no screenshots). Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree

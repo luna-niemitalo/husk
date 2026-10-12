@@ -198,12 +198,17 @@
             "$ref": "common.schema.json#/definitions/texture_entry",
             "description": "One texture."
           }
+        },
+        "light_params": {
+          "type": "array",
+          "description": "Every light parameter set an instance's zone_light style uses, each once.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/light_params",
+            "description": "One set."
+          }
         }
       },
       "additionalProperties": false,
-      "required": [
-        "textures"
-      ],
       "x-layer": "resource"
     }
   },

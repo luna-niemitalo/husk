@@ -91,8 +91,8 @@ target_compile_options(husk-md5 PRIVATE -w)
 set(HUSK_SCHEMAS common model placement_set world effect material)
 set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend classic_ambient_global classic_ambient_point
                  classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume
-                 classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon classic_zone_fog_global
-                 classic_zone_fog)
+                 classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon classic_zone_light_global
+                 classic_zone_light)
 set(HUSK_SCHEMA_FILES)
 foreach(name IN LISTS HUSK_SCHEMAS)
   list(APPEND HUSK_SCHEMA_FILES ${CMAKE_SOURCE_DIR}/schema/${name}.schema.json)

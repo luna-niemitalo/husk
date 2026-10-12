@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "canon_effects.hpp"
+#include "canon_lighting.hpp"
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
 
@@ -48,6 +49,8 @@ struct PlacedInstance {
 struct PlacementSet {
     Ref ref;  // e.g. a WMO MODS name ("Set_$DefaultGlobal")
     std::vector<PlacedInstance> instances;
+    // What the instances' zone_light styles index, each set listed once.
+    std::vector<LightParams> lightParams;
 };
 
 }  // namespace husk::canon

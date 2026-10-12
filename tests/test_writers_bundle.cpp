@@ -14,6 +14,7 @@
 
 #include <doctest/doctest.h>
 
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -956,6 +957,73 @@ TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets wit
     CHECK_FALSE(fs::exists(dir / "world.bin"));
 
     CHECK_THROWS(writers::writeWorldBundle(world, root / "mismatch.bundle", provenance, {""}));
+}
+
+TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set written once") {
+    canon::World world;
+    world.subject = canon::Ref{canon::FileDataId{775971}, "azeroth", canon::NameSource::Listfile};
+    lightdb::Data lights;
+    lights.mapIds["azeroth"] = 0;
+    lightdb::Zone global;
+    global.id = 1;
+    global.params = {12, 12, 0, 0, 0, 0, 0, 0};
+    lightdb::Zone local = global;
+    local.id = 2;
+    local.position = {1, 2, 3};
+    local.falloffEnd = 10;
+    lights.zones = {global, local};
+    lightdb::Key noon;
+    noon.time = 1440;
+    noon.directColor = 0x01FF8000u;
+    noon.colorGradingFileDataId = 1140733;
+    noon.field_12_0_0_63854_043 = 1;
+    lights.keysByParams[12] = {noon};
+    lightdb::Params params;
+    params.id = 12;
+    params.flags = 0x4;
+    params.lightSkyboxId = 81;
+    params.unnamed = {0x3F800000, 0x3F800000, 0, 0, 0, 0, 0, 0, 0, 0x3F800000, 0x3F800000, 0, 0x3F800000,
+                      std::bit_cast<uint32_t>(0.35f), 0x3F800000, std::bit_cast<uint32_t>(0.7f)};
+    lights.params[12] = params;
+    lights.skyboxes[81] = {81, "ENVIRONMENTS\\Stars\\DeathSkybox.mdx", 0x2, 235313, 0};
+    mapinput::MapSceneInputs in;
+    in.map = "azeroth";
+    in.lights = &lights;
+    in.assetNames.emplace(235313, "deathskybox");
+    canon::TextureRef lut;
+    lut.state = canon::TextureRef::State::Resolved;
+    lut.resolved = canon::Ref{canon::FileDataId{1140733}, "colorgrading_identity", canon::NameSource::Listfile};
+    in.textures.emplace(1140733, lut);
+    world.placements = mapinput::buildMapEffects(in);
+
+    fs::path root = fs::temp_directory_path() / "husk-test-world-lights";
+    fs::remove_all(root);
+    fs::create_directories(root / "deathskybox.bundle");
+    std::ofstream(root / "deathskybox.bundle" / "manifest.json") << "{}";
+    fs::path dir = root / "azeroth.world.bundle";
+    writers::Provenance provenance{"husk test", "db2", {{"light.db2", "zone lights", true, ""}}};
+    writers::writeWorldBundle(world, dir, provenance, {}, {{235313, "../deathskybox.bundle/manifest.json"}});
+    parseManifest(dir);  // validates the set, its indices and its effects
+
+    nlohmann::json set = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
+    CHECK(set["subject"]["name"] == "zone_lights");
+    REQUIRE(set["instances"].size() == 2);
+    CHECK(set["instances"][1]["style"]["light"]["zone_light"] == nlohmann::json{{"clear", 0}, {"clear_underwater", 0}});
+    const auto& table = set["resources"]["light_params"];
+    REQUIRE(table.size() == 1);
+    const auto& settings = table[0]["settings"];
+    CHECK(settings["hide_sun"] == true);
+    CHECK(settings["skybox"]["model"]["uri"] == "../../deathskybox.bundle/manifest.json");
+    CHECK(settings["skybox"]["source"]["flags"] == "0x2");
+    CHECK_FALSE(settings.contains("unresolved"));
+    const auto& key = table[0]["keys"][0];
+    CHECK(key["time"] == 43200.0);
+    CHECK(key["direct_color"][0].get<double>() == doctest::Approx(1.0));
+    CHECK(key["unresolved"]["fields"][0]["field"] == "LightData DirectColor high byte");
+    const auto& texture = set["resources"]["textures"][key["color_grading"].get<size_t>()];
+    CHECK(texture["identity"]["name"] == "colorgrading_identity");
+    CHECK(fs::exists(dir / "effects" / "classic_zone_light.json"));
+    CHECK(fs::exists(dir / "effects" / "classic_zone_light_global.json"));
 }
 
 TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
