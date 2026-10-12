@@ -44,6 +44,8 @@ index/                              derived lookup tables, rebuildable from the 
   chr_models.tsv                    ChrModel row -> model manifest
 inputs.log, errors.log              the run's records; store-add turns them into
                                     inputs.tsv and missing.tsv
+store-journal.tsv                   store-add's record of what it stored, so a rerun
+                                    after a crash resumes (path, size, mtime, md5)
 ```
 
 There is no separate `corpus.json`: it would be neither one of the five
@@ -139,7 +141,12 @@ built; block cloning is active on `tank/data`).
   `store` (`--store` overrides).
   Hashes every file (parallel), stores new contents (staged in `tmp/`,
   re-hashed, renamed read-only), writes `missing.tsv`, `meta.json`, then
-  `files.tsv` last. The same build again is a no-op; other files under an
+  `files.tsv` last. Each stored file is journaled to the tree's
+  `store-journal.tsv` as it lands, and a rerun trusts a row while the
+  file's size and mtime match and its object exists, so a crash costs
+  no rehashing. A copy whose hash disagrees with the first read gets a
+  third read that decides, with a warning. Progress prints every 500
+  files. The same build again is a no-op; other files under an
   existing build are refused. `--game-from /media/luna/wow_export/live`
   reads the game label from the source mount's tag link. Measured on the
   garrison export: 12,367 files share 2,821 contents; a second build with

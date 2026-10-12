@@ -100,8 +100,10 @@ struct IngestResult {
 // tree's own documents, which must agree, and a dirty or unknown producer
 // is refused: a label has to name the code that wrote it. The tree's
 // errors.log and inputs.log become missing.tsv and inputs.tsv instead of
-// stored files. A build that
-// exists with other files is refused; with the same files it is a no-op.
+// stored files. Each stored file is journaled to the tree's
+// store-journal.tsv as it lands, so a rerun after a crash resumes instead
+// of rehashing. A build that exists with other files is refused; with the
+// same files it is a no-op.
 IngestResult ingestTree(const Store& store, const std::filesystem::path& tree, const std::string& game);
 
 }  // namespace husk::corpus

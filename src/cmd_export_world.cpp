@@ -23,6 +23,7 @@
 #include "liquid_canon_input.hpp"
 #include "listfile_cache.hpp"
 #include "parallel.hpp"
+#include "progress.hpp"
 #include "sources/listfile_catalog.hpp"
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_writer.hpp"
@@ -109,24 +110,6 @@ private:
     std::mutex mutex_;
     std::ofstream out_;
     std::atomic<size_t> count_{0};
-};
-
-class Progress {
-public:
-    Progress(std::string phase, size_t total) : phase_(std::move(phase)), total_(total) {}
-    void tick() {
-        size_t done = ++done_;
-        if (done % 500 == 0 || done == total_) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::cout << phase_ << ": " << done << "/" << total_ << std::endl;
-        }
-    }
-
-private:
-    std::string phase_;
-    size_t total_;
-    std::atomic<size_t> done_{0};
-    std::mutex mutex_;
 };
 
 std::string exceptionMessage(std::exception_ptr e) {

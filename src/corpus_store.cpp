@@ -6,15 +6,18 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
 #include <unistd.h>
+#include <unordered_map>
 
 #include "json_writer.hpp"
 #include "md5.h"
 #include "parallel.hpp"
+#include "progress.hpp"
 #include "writers/bundle_common.hpp"
 
 namespace fs = std::filesystem;
@@ -145,6 +148,38 @@ std::string inputsTsv(const fs::path& path, const std::set<std::string>& outputs
     return out.str();
 }
 
+// What an interrupted store-add already stored, so a rerun doesn't rehash
+// it: "path<TAB>size<TAB>mtime<TAB>md5" per file, appended and flushed as
+// each object lands. A row counts only while the file keeps that size and
+// mtime and its object is still stored; a torn last row is dropped.
+const std::string kStoreJournal = "store-journal.tsv";
+
+struct JournalRow {
+    uint64_t size = 0;
+    int64_t mtime = 0;
+    Md5 key{};
+};
+
+int64_t mtimeOf(const fs::path& path) { return fs::last_write_time(path).time_since_epoch().count(); }
+
+std::unordered_map<std::string, JournalRow> readJournal(const fs::path& path) {
+    std::unordered_map<std::string, JournalRow> rows;
+    std::ifstream in(path);
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream fields(line);
+        std::string file;
+        std::string md5;
+        JournalRow row;
+        if (!std::getline(fields, file, '\t') || !(fields >> row.size >> row.mtime >> md5)) continue;
+        std::optional<Md5> key = parseHex(md5);
+        if (!key) continue;
+        row.key = *key;
+        rows[file] = row;
+    }
+    return rows;
+}
+
 
 }  // namespace
 
@@ -239,10 +274,24 @@ Store::Put Store::putFile(const fs::path& source) const {
     fs::path staged = root_ / "tmp" / (std::to_string(::getpid()) + "-" + std::to_string(stagingCounter++));
     fs::create_directories(staged.parent_path());
     Md5 written = copyHashing(source, staged);
+    // A mismatch is either a file still being written or a bad read (this
+    // machine returned wrong bytes for an unchanged file once, 2026-10-12):
+    // a third read that agrees with one of the two settles which.
     if (written != key) {
-        fs::remove(staged);
-        throw std::runtime_error(source.string() + " changed while being stored: hashed " + hex(key) +
-                                 ", copied " + hex(written));
+        Md5 third = md5File(source);
+        std::cerr << "husk: warning: " << source.string() << ": hashed " << hex(key) << ", copied " << hex(written)
+                  << ", hashed again " << hex(third) << "\n";
+        if (third != written) {
+            fs::remove(staged);
+            throw std::runtime_error(source.string() + " changed while being stored: hashed " + hex(key) +
+                                     ", copied " + hex(written) + ", hashed again " + hex(third));
+        }
+        key = written;
+        target = objectPath(key);
+        if (fs::exists(target)) {
+            fs::remove(staged);
+            return {key, false};
+        }
     }
     fs::create_directories(target.parent_path());
     // Read-only: a reflinked or hardlinked view writing into an object would
@@ -351,7 +400,7 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
     for (const auto& entry : fs::recursive_directory_iterator(tree)) {
         if (!entry.is_regular_file()) continue;
         fs::path relative = entry.path().lexically_relative(tree);
-        if (relative == kErrorLog || relative == kInputLog) continue;
+        if (relative == kErrorLog || relative == kInputLog || relative == kStoreJournal) continue;
         // Interrupted writes of the exporters (TextureStore, writeTextAtomic).
         if (relative.extension() == ".partial") continue;
         files.push_back(relative);
@@ -366,11 +415,41 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
         std::optional<DocumentHeader> header;
     };
     std::vector<Row> rows(files.size());
+    std::unordered_map<std::string, JournalRow> journaled = readJournal(tree / kStoreJournal);
+    bool torn = false;
+    if (std::ifstream last(tree / kStoreJournal, std::ios::binary | std::ios::ate); last && last.tellg() > 0) {
+        last.seekg(-1, std::ios::end);
+        torn = last.get() != '\n';
+    }
+    std::ofstream journal(tree / kStoreJournal, std::ios::app);
+    if (!journal) throw std::runtime_error("cannot open " + (tree / kStoreJournal).string());
+    if (torn) journal << '\n';
+    std::mutex journalMutex;
+    std::atomic<size_t> resumed{0};
+    Progress progress("store", files.size());
     parallelFor(files.size(), 0, [&](size_t i) {
         fs::path source = tree / files[i];
+        std::string name = files[i].generic_string();
+        uint64_t size = fs::file_size(source);
+        int64_t mtime = mtimeOf(source);
+        auto done = journaled.find(name);
+        if (done != journaled.end() && done->second.size == size && done->second.mtime == mtime &&
+            fs::exists(store.objectPath(done->second.key))) {
+            rows[i] = {done->second.key, size, false, readHeader(source)};
+            ++resumed;
+            progress.tick();
+            return;
+        }
         Store::Put put = store.putFile(source);
-        rows[i] = {put.key, fs::file_size(source), put.added, readHeader(source)};
+        rows[i] = {put.key, size, put.added, readHeader(source)};
+        {
+            std::lock_guard<std::mutex> lock(journalMutex);
+            journal << name << '\t' << size << '\t' << mtime << '\t' << hex(put.key) << '\n';
+            journal.flush();
+        }
+        progress.tick();
     });
+    if (resumed > 0) std::cout << "store: " << resumed << " files resumed from " << kStoreJournal << std::endl;
 
     std::optional<DocumentHeader> build;
     for (size_t i = 0; i < files.size(); i++) {

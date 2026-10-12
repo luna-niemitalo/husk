@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -15,6 +16,7 @@
 
 #include "corpus_store.hpp"
 #include "parallel.hpp"
+#include "progress.hpp"
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -77,16 +79,30 @@ IndexResult buildIndex(const fs::path& tree) {
 
     Rows rows;
     std::mutex rowsMutex;
+    Progress progress("index", manifests.size());
     parallelFor(manifests.size(), 0, [&](size_t i) {
         Rows local;
+        std::string model = manifests[i].lexically_relative(tree).generic_string();
+        // One re-read before failing: this machine has returned wrong bytes
+        // for a valid manifest once (2026-10-12), and a second read tells a
+        // bad read from a bad file.
         try {
-            indexManifest(readIndexedParts(manifests[i]), manifests[i].lexically_relative(tree).generic_string(), local);
-        } catch (const std::exception& e) {
-            throw std::runtime_error(manifests[i].string() + ": " + e.what());
+            indexManifest(readIndexedParts(manifests[i]), model, local);
+        } catch (const std::exception& first) {
+            std::cerr << "husk: warning: " << manifests[i].string() << ": " << first.what() << "; reading it again\n";
+            local = {};
+            try {
+                indexManifest(readIndexedParts(manifests[i]), model, local);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(manifests[i].string() + ": " + e.what());
+            }
         }
-        std::lock_guard<std::mutex> lock(rowsMutex);
-        rows.displays.merge(local.displays);
-        rows.chrModels.merge(local.chrModels);
+        {
+            std::lock_guard<std::mutex> lock(rowsMutex);
+            rows.displays.merge(local.displays);
+            rows.chrModels.merge(local.chrModels);
+        }
+        progress.tick();
     });
 
     std::ostringstream displays;

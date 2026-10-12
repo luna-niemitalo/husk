@@ -140,6 +140,35 @@ TEST_CASE("corpus store: the same build again is a no-op, different files under 
                          doctest::Contains("already holds this build with other files"), std::runtime_error);
 }
 
+TEST_CASE("corpus store: an interrupted ingest resumes from its journal while files are unchanged") {
+    fs::path dir = freshDir("journal");
+    corpus::Store store(dir / "store");
+    fs::path tree = exportTree("journal-tree", "husk e587735");
+    corpus::IngestResult first = corpus::ingestTree(store, tree, "12.1.0.69933");
+    fs::path journal = tree / "store-journal.tsv";
+    std::string rows = readText(journal);
+    CHECK(rows.find("textures/7.dds\t9\t") != std::string::npos);
+    CHECK(rows.find("8.dds.partial") == std::string::npos);
+
+    // A journaled row is trusted without rehashing: point 7.dds's at another
+    // stored object, as only a resumed run would record it.
+    std::string manifestMd5 = corpus::hex(corpus::md5File(tree / "models" / "1.canon.bundle" / "manifest.json"));
+    std::string textureMd5 = corpus::hex(corpus::md5File(tree / "textures" / "7.dds"));
+    size_t at = rows.find(textureMd5);
+    REQUIRE(at != std::string::npos);
+    rows.replace(at, textureMd5.size(), manifestMd5);
+    writeText(journal, rows + "textures/7.dds\t9\t12");  // a torn last row
+    fs::remove_all(store.buildDir(first.id));
+    corpus::ingestTree(store, tree, "12.1.0.69933");
+    CHECK(readText(store.buildDir(first.id) / "files.tsv").find("textures/7.dds\t" + manifestMd5) != std::string::npos);
+
+    // A changed mtime voids the row.
+    fs::last_write_time(tree / "textures" / "7.dds", fs::last_write_time(tree / "textures" / "7.dds") + std::chrono::seconds(1));
+    fs::remove_all(store.buildDir(first.id));
+    corpus::ingestTree(store, tree, "12.1.0.69933");
+    CHECK(readText(store.buildDir(first.id) / "files.tsv").find("textures/7.dds\t" + textureMd5) != std::string::npos);
+}
+
 TEST_CASE("corpus store: a tree whose producer names no commit, or several, is refused") {
     fs::path dir = freshDir("refuse");
     corpus::Store store(dir / "store");
