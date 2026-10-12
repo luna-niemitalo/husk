@@ -186,6 +186,17 @@ int exportWorld(int argc, char** args) {
     if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     try {
+        // The casc-tool mount answers every lookup through its `live` link
+        // by re-reading its tag files; with every thread reading, that was
+        // the whole cost of the run (12.1.0 export, 2026-10-12). Resolve the
+        // links once and read by the real path.
+        for (std::string* root : {&opts.listfileRoot, &opts.mapsRoot}) {
+            std::error_code ec;
+            std::filesystem::path real = std::filesystem::canonical(*root, ec);
+            if (ec) throw SourceGone("expected the source tree " + *root + ", got none (unmounted?): " + ec.message());
+            *root = real.string();
+        }
+        std::cout << "source: " << opts.listfileRoot << std::endl;
         unsigned jobs = opts.jobs > 0 ? opts.jobs : std::max(1u, std::thread::hardware_concurrency());
         std::filesystem::path out = std::filesystem::absolute(opts.output);
         std::filesystem::path modelsDir = out / "models";
