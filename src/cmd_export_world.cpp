@@ -2,6 +2,7 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <optional>
@@ -343,6 +344,7 @@ int exportWorld(int argc, char** args) {
             return sources::localFileForFileDataId(*listfile, opts.listfileRoot, fdid);
         };
         std::vector<uint32_t> wmos(wmoIds.begin(), wmoIds.end());
+        std::unordered_map<uint32_t, size_t> wmoSetCounts;  // pass 1's roots; empty with --skip-models
         if (!opts.skipModels) {
             std::mutex doodadsMutex;
             Progress progress("wmo roots", wmos.size());
@@ -352,6 +354,7 @@ int exportWorld(int argc, char** args) {
                     if (std::optional<std::filesystem::path> src = wmoSource(wmos[i])) {
                         wmo::RootFile root = wmo::parseRoot(adt::readFile(*src));
                         std::lock_guard<std::mutex> lock(doodadsMutex);
+                        wmoSetCounts[wmos[i]] = root.doodadSets.size();
                         for (uint32_t fdid : root.doodadFileDataIds) {
                             if (fdid != 0) modelIds.insert(fdid);
                         }
@@ -500,6 +503,8 @@ int exportWorld(int argc, char** args) {
                     canon::Terrain terrain = adtinput::buildCanonTerrain(
                         sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr});
                     nameModelRefs(terrain, *listfile);
+                    dropMissingDoodadSets(terrain.mapObjects, wmoSetCounts,
+                                          [&](const std::string& w) { errors.add("placement", t.root.string(), w); });
 
                     writers::AssetUris modelUris;
                     for (uint32_t fdid : referencedAssets(terrain)) {
@@ -556,6 +561,10 @@ int exportWorld(int argc, char** args) {
                         canon::World world =
                             loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot,
                                       lights ? &*lights : nullptr, jobs);
+                        for (canon::PlacementSet& set : world.placements) {
+                            dropMissingDoodadSets(set, wmoSetCounts,
+                                                  [&](const std::string& w) { errors.add("placement", mapDir.string(), w); });
+                        }
                         writers::AssetUris assetUris;
                         auto link = [&](const canon::Ref& ref) {
                             auto fdid = std::get_if<canon::FileDataId>(&ref.id);

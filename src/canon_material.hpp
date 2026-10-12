@@ -164,12 +164,14 @@ struct MaterialLayer {
 };
 
 // How a finished draw combines with what's already on screen -- M2Material::
-// blendMode, wowdev.wiki M2/Rendering#M2BLEND, values 0..7 in this order. A
+// blendMode, wowdev.wiki M2/Rendering#M2BLEND, values 0..7 in this order
+// (m2_material_input casts onto it), then the EGxBlend modes M2 can't name
+// that WMO materials use (ModAdd, EGxBlend 6). A
 // different GPU stage from MaterialLayer::blendIntoPrevious's texture-combiner
 // op: this is what tells a renderer opaque from alpha-tested (foliage) from
 // blended, which the combiner op can't (OPAQUE and ALPHA_KEY both combine as
 // Replace).
-enum class FramebufferBlend { Opaque, AlphaKey, Alpha, NoAlphaAdd, Add, Mod, Mod2x, BlendAdd };
+enum class FramebufferBlend { Opaque, AlphaKey, Alpha, NoAlphaAdd, Add, Mod, Mod2x, BlendAdd, ModAdd };
 
 struct Material {
     // This material's own identity -- what a primitive's entry in

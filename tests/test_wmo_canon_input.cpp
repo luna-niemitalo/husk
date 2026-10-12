@@ -110,6 +110,15 @@ TEST_CASE("buildCanonWmo: groups become parts sharing one vertex buffer, batches
     CHECK(canon::resolveMaterialIndex(model, 0) == 1u);
 }
 
+TEST_CASE("buildCanonWmo: EGxBlend 6 is mod_add (7bs_nightelf_moonwell_complete.wmo material 5)") {
+    wmo::RootFile root = syntheticRoot();
+    root.materials[1].blendMode = 6;
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, std::nullopt};
+    CHECK(wmoinput::buildCanonWmo(in).materials[1].framebufferBlend == canon::FramebufferBlend::ModAdd);
+}
+
 TEST_CASE("buildCanonWmo: materials carry blend, shared flags, shader name, textures and UV scroll") {
     wmo::RootFile root = syntheticRoot();
     wmoinput::WmoInputs in;

@@ -264,6 +264,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_m2_scene_input.cpp
     tests/test_wmo.cpp
     tests/test_wmo_canon_input.cpp
+    tests/test_world_shared.cpp
     tests/test_wdt_volumes.cpp
     tests/test_map_scene_input.cpp
   tests/test_bundle_schema.cpp

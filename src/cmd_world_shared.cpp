@@ -389,6 +389,24 @@ std::vector<canon::PlacementSet> loadMapEffects(const std::filesystem::path& map
     return mapinput::buildMapEffects(inputs);
 }
 
+void dropMissingDoodadSets(canon::PlacementSet& set, const std::unordered_map<uint32_t, size_t>& setCounts,
+                           const std::function<void(const std::string&)>& warn) {
+    for (canon::PlacedInstance& instance : set.instances) {
+        auto fdid = std::get_if<canon::FileDataId>(&instance.asset.id);
+        if (!fdid || !instance.activeSets) continue;
+        auto count = setCounts.find(fdid->value);
+        if (count == setCounts.end()) continue;
+        std::erase_if(*instance.activeSets, [&](const canon::Ref& ref) {
+            uint32_t index = std::get<canon::RecordIndex>(ref.id).value;
+            if (index < count->second) return false;
+            warn("placement " + std::to_string(instance.id) + " selects doodad set " + std::to_string(index) +
+                 " of WMO " + std::to_string(fdid->value) + ", which has " + std::to_string(count->second) +
+                 " sets: dropped from the selection");
+            return true;
+        });
+    }
+}
+
 std::set<uint32_t> placedAssets(const canon::Model& model) {
     std::set<uint32_t> out;
     for (const canon::Model::OwnedSet& owned : model.placementSets) {

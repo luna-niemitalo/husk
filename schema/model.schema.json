@@ -17,7 +17,7 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.1.0",
+      "const": "0.2.0",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
@@ -1319,16 +1319,7 @@
                 }
               },
               "framebuffer_blend": {
-                "enum": [
-                  "opaque",
-                  "alpha_key",
-                  "alpha",
-                  "no_alpha_add",
-                  "add",
-                  "mod",
-                  "mod2x",
-                  "blend_add"
-                ],
+                "$ref": "common.schema.json#/definitions/framebuffer_blend",
                 "description": "How the result combines with what is already drawn."
               },
               "diffuse_layer": {

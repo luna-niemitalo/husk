@@ -122,7 +122,7 @@ three layers keep it from staying:
   placeholder effect: a count per effect in the run summary, plus the
   instances in the report. With `--release` they **fail**.
 - The 1.0 schema has no `placeholder` status, so a 1.0 document cannot
-  contain one, whatever flags were passed. The format is at 0.1.0
+  contain one, whatever flags were passed. The format is at 0.2.0
   (`schema_version`).
 
 What stays after 1.0 is the classic *look*, carried as `style` on

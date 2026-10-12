@@ -30,6 +30,7 @@ std::optional<canon::FramebufferBlend> framebufferBlendFor(uint32_t egxBlend) {
         case 3: return canon::FramebufferBlend::Add;
         case 4: return canon::FramebufferBlend::Mod;
         case 5: return canon::FramebufferBlend::Mod2x;
+        case 6: return canon::FramebufferBlend::ModAdd;
         case 10: return canon::FramebufferBlend::NoAlphaAdd;
         case 13: return canon::FramebufferBlend::BlendAdd;
         default: return std::nullopt;

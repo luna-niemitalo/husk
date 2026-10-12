@@ -18,7 +18,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0.1.0",
+constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0.2.0",
   "space": {"length_unit": "yard", "angle_unit": "radian", "time_unit": "second", "up_axis": "+z", "handedness": "right"},
   "provenance": {"producer": "husk test", "input_format": "test",
                  "sources": [{"name": "listfile", "role": "names", "available": true}]},)";

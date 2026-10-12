@@ -428,6 +428,37 @@ std::vector<Batch> parseBatches(const Chunk& c) {
     return out;
 }
 
+// MOBA's count is a u16, so a batch of 65,536 or more indices stores it
+// wrapped: egglayeradd_000.wmo has one batch over all 69,072 indices and a
+// count of 3,536. Batches were contiguous in every sampled group (25,201 of
+// 25,201 ended at the next one's start), so a batch before another ends
+// there. The last one grows by 65,536 while the faces it would take are
+// rendered with its own material: groups often end with faces outside any
+// batch (1,386 of 3,890 sampled), which this leaves alone.
+void unwrapBatchCounts(GroupFile& g) {
+    constexpr uint32_t kWrap = 65536;
+    for (size_t i = 0; i + 1 < g.batches.size(); ++i) {
+        Batch& b = g.batches[i];
+        uint32_t next = g.batches[i + 1].startIndex;
+        if (next <= b.startIndex + b.indexCount) continue;
+        uint32_t span = next - b.startIndex;
+        if ((span - b.indexCount) % kWrap == 0) b.indexCount = span;
+    }
+    if (g.batches.empty() || g.triangles.empty()) return;
+    Batch& last = g.batches.back();
+    auto ownsFaces = [&](size_t from, size_t to) {
+        for (size_t t = from / 3; t < (to + 2) / 3; ++t) {
+            if (g.triangles[t].material != last.material) return false;
+        }
+        return true;
+    };
+    while (size_t{last.startIndex} + last.indexCount + kWrap <= g.indices.size()) {
+        size_t end = size_t{last.startIndex} + last.indexCount;
+        if (!ownsFaces(end, end + kWrap)) break;
+        last.indexCount += kWrap;
+    }
+}
+
 void requireVertexCount(const char* tag, size_t actual, size_t vertexCount) {
     if (actual != vertexCount) {
         throw ParseError(std::string(tag) + ": expected " + std::to_string(vertexCount) +
@@ -716,6 +747,7 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
                              std::to_string(i));
         }
     }
+    unwrapBatchCounts(g);
     for (size_t i = 0; i < g.batches.size(); ++i) {
         const Batch& b = g.batches[i];
         if (b.startIndex > g.indices.size() || b.indexCount > g.indices.size() - b.startIndex) {

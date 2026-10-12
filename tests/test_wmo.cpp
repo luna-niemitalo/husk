@@ -508,6 +508,41 @@ TEST_CASE("wmo::parseGroup: reads the MOGP header and every sub-chunk after it")
     CHECK(g.batches[0].material == 7);  // the large-id flag picks material_id_large
 }
 
+TEST_CASE("wmo::parseGroup: a MOBA count past 65,535 is unwrapped from where the batch's faces end") {
+    // Batches of 65,544 and 65,538 indices, stored wrapped as 8 and 2, then
+    // one collision-only face outside any batch.
+    constexpr uint32_t kFirst = 65544;
+    constexpr uint32_t kSecond = 65538;
+    constexpr uint32_t kTail = 3;
+    std::vector<uint8_t> movi;
+    std::vector<uint8_t> mopy;
+    uint32_t total = kFirst + kSecond + kTail;
+    for (uint32_t i = 0; i < total; ++i) put<uint16_t>(movi, movi.size(), static_cast<uint16_t>(i % 3));
+    for (uint32_t t = 0; t < total / 3; ++t) {
+        uint8_t material = t < kFirst / 3 ? 1 : t < (kFirst + kSecond) / 3 ? 2 : 0xFF;
+        mopy.insert(mopy.end(), {0x20, material});
+    }
+    std::vector<uint8_t> moba = batch(0, static_cast<uint16_t>(kFirst), 0, 1, 0);
+    std::vector<uint8_t> second = batch(kFirst, static_cast<uint16_t>(kSecond), 0, 2, 0);
+    moba.insert(moba.end(), second.begin(), second.end());
+    wmo::GroupFile g = wmo::parseGroup(groupFile({{"MOPY", mopy},
+                                                  {"MOVI", movi},
+                                                  {"MOVT", floats({0, 0, 0, 1, 0, 0, 0, 1, 0})},
+                                                  {"MOBA", moba}}));
+    REQUIRE(g.batches.size() == 2);
+    CHECK(g.batches[0].indexCount == kFirst);   // up to the next batch's start
+    CHECK(g.batches[1].indexCount == kSecond);  // grown over its own faces, not the collision tail
+}
+
+TEST_CASE("wmo::parseGroup: a short last batch before faces of another material keeps its count") {
+    std::vector<uint8_t> movi = u16s({0, 1, 2, 0, 1, 2});
+    std::vector<uint8_t> file = groupFile({{"MOPY", {0x20, 1, 0x20, 2}},
+                                           {"MOVI", movi},
+                                           {"MOVT", floats({0, 0, 0, 1, 0, 0, 0, 1, 0})},
+                                           {"MOBA", batch(0, 3, 0, 1, 0)}});
+    CHECK(wmo::parseGroup(file).batches[0].indexCount == 3);
+}
+
 namespace {
 
 // An MLIQ chunk with vertex i's height = i and data bytes {i, 0, 0, 0}, and

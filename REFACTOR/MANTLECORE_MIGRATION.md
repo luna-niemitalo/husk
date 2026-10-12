@@ -32,6 +32,21 @@ into the shared `<out>/textures/` (like tiles' already did), not its own
 `name_source` are present together or not at all. `provenance` no longer
 has `exported_at`; a stored build's `meta.json` carries the time.
 
+v0.2 (`schema_version` "0.2.0", 2026-10-13), from MantleCore's
+preliminary feedback:
+- `framebuffer_blend` is one shared definition (common.schema.json)
+  whose description gives each mode's formula, and gains `mod_add`
+  (EGxBlend 6: the five Broken Shore moonwell/shrine WMO materials that
+  had no blend).
+- WMO batches of 65,536 or more indices: `MOBA` stores the count in 16
+  bits, so 109158, 219651 and 219655 came out short (3,536 of 69,072).
+  husk now recovers the full count; their `index_count`s are multiples of
+  3.
+- A placement selecting a doodad set its WMO lacks keeps only the sets
+  that exist; each dropped one is an `errors.log`/`missing.tsv` row
+  (phase `placement`). What the client shows for such a placement is not
+  known.
+
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so
 it never said how layers combine. An M2 material now names its

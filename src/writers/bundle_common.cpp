@@ -123,7 +123,7 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     // Every schema/*.schema.json pins this as its schema_version const;
     // bump them together. Below 1.0, placeholder effects are allowed
     // (REFACTOR/EFFECTS.md).
-    w.value("0.1.0");
+    w.value("0.2.0");
     w.key("subject");
     writeRef(w, subject);
     w.key("space");
@@ -1112,6 +1112,7 @@ std::string framebufferBlendName(canon::FramebufferBlend blend) {
         case canon::FramebufferBlend::Mod: return "mod";
         case canon::FramebufferBlend::Mod2x: return "mod2x";
         case canon::FramebufferBlend::BlendAdd: return "blend_add";
+        case canon::FramebufferBlend::ModAdd: return "mod_add";
     }
     return "opaque";
 }

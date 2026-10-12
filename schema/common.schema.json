@@ -1487,16 +1487,7 @@
           "description": "How the classic client drew the source's particles.",
           "properties": {
             "blend": {
-              "enum": [
-                "opaque",
-                "alpha_key",
-                "alpha",
-                "no_alpha_add",
-                "add",
-                "mod",
-                "mod2x",
-                "blend_add"
-              ],
+              "$ref": "#/definitions/framebuffer_blend",
               "description": "How a particle combines with what is already drawn."
             },
             "color": {
@@ -1632,16 +1623,7 @@
             "description": "One render setting.",
             "properties": {
               "framebuffer_blend": {
-                "enum": [
-                  "opaque",
-                  "alpha_key",
-                  "alpha",
-                  "no_alpha_add",
-                  "add",
-                  "mod",
-                  "mod2x",
-                  "blend_add"
-                ],
+                "$ref": "#/definitions/framebuffer_blend",
                 "description": "Blend with what is drawn."
               },
               "source": {
@@ -2603,6 +2585,20 @@
         "keys"
       ],
       "additionalProperties": false
+    },
+    "framebuffer_blend": {
+      "enum": [
+        "opaque",
+        "alpha_key",
+        "alpha",
+        "no_alpha_add",
+        "add",
+        "mod",
+        "mod2x",
+        "mod_add",
+        "blend_add"
+      ],
+      "description": "How the drawn colour (src) combines with the framebuffer (dst), per the client's EGxBlend states (wowdev.wiki Rendering, EGxBlend table; its authors checked it against several clients, husk has not verified it independently). opaque: rgb = src.rgb, a = src.a, no blending. alpha_key: as opaque, after discarding pixels with alpha below 128/255. alpha: rgb = src.rgb*src.a + dst.rgb*(1-src.a), a = src.a + dst.a*(1-src.a). no_alpha_add: rgb = src.rgb + dst.rgb, a = dst.a. add: rgb = src.rgb*src.a + dst.rgb, a = dst.a. mod: rgb = src.rgb*dst.rgb, a = src.a*dst.a. mod2x: rgb = 2*src.rgb*dst.rgb, a = 2*src.a*dst.a. mod_add: rgb = src.rgb*dst.rgb + dst.rgb, a = src.a*dst.a + dst.a. blend_add: rgb = src.rgb + dst.rgb*(1-src.a), a = src.a + dst.a*(1-src.a) (premultiplied). Every mode but opaque and alpha_key discards alpha below 1/255 (WIKI_FINDINGS/M2/rendering.md)."
     }
   }
 }

@@ -97,6 +97,13 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
                           const ListfileIndex* listfile, const std::string& listfileRoot, const liquiddb::Data* liquids,
                           const std::function<void(const std::string&)>& warn);
 std::set<uint32_t> placedAssets(const canon::Model& model);
+// A placement can select a doodad set its WMO doesn't have (azeroth_39_16,
+// placement 53492465: set 8 of a WMO with sets 0..7). What the client shows
+// then is not known; the selection keeps the sets that exist and each
+// dropped one is reported through `warn`. `setCounts`: doodad sets per WMO
+// FileDataID; a WMO not in it is left alone.
+void dropMissingDoodadSets(canon::PlacementSet& set, const std::unordered_map<uint32_t, size_t>& setCounts,
+                           const std::function<void(const std::string&)>& warn);
 
 writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids);
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,

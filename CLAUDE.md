@@ -332,7 +332,7 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   roles (blend ids unsettled), Phase 5 classification before 1.0
   (mechanical grouping checked by derivation coverage, no screenshots). Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
-  yet. The format is at schema_version 0.1.0.
+  yet. The format is at schema_version 0.2.0.
 - **Creature options (2026-10-11, Luna's shape)**: the model declares
   options, each valid alone (renderer chooses): texture slots with their
   texture options (layers name their `slot`), particle colour options,
