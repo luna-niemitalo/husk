@@ -252,6 +252,43 @@ struct NewLight {
     float intensityMultiplier = 0;  // stored as a half float; the client treats 0 as 1
 };
 
+// MOLS, 56 bytes: a group's spot lights, for its light sets (BfA+). Layout
+// corpus-verified on all 378 records (WIKI_FINDINGS/WORLD.md "WMO lightset
+// lights"); the field names are inferred from value classes.
+struct GroupSpotLight {
+    uint32_t lightIndex = 0;
+    uint32_t color = 0;  // CImVector (BGRA), raw
+    Vec3 position{};
+    float attenuationStart = 0;
+    float attenuationEnd = 0;
+    float intensity = 0;
+    Vec3 rotation{};      // Euler radians, axis order undocumented
+    float unknown = 0;    // 1.0 in every real record
+    float innerAngle = 0; // radians
+    float outerAngle = 0; // radians, at most ~pi/4 in real records
+};
+
+// MOLP, 44 bytes: a group's point lights, for its light sets. The wiki's
+// attenStart/attenEnd labels are swapped (start > end in 97.4% of 57,584
+// records under its reading): +0x18 is the end, +0x1C the start.
+struct GroupPointLight {
+    uint32_t unknown0 = 0;
+    uint32_t color = 0;  // CImVector (BGRA), raw
+    Vec3 position{};
+    float intensity = 0;
+    float attenuationEnd = 0;
+    float attenuationStart = 0;
+    float unknown20 = 0;  // 0 in every real record
+    float unknown24 = 0;  // a float, default -0.0
+    float unknown28 = 0;  // a float, default -1.0
+};
+
+// MLSS/MLSP: one light set's window into the group's MOLS/MOLP records.
+struct LightSetWindow {
+    uint32_t offset = 0;
+    uint32_t count = 0;
+};
+
 struct RootFile {
     uint32_t version = 0;
     RootHeader header;
@@ -356,6 +393,15 @@ struct GroupFile {
     std::vector<uint16_t> ambientVolumeRefs;
     std::vector<uint16_t> ambientBoxRefs;
     std::vector<uint16_t> fogRefs;
+    // The root lights reaching this group: MOLR into MOLT, MNLR into MNLD.
+    std::vector<uint16_t> legacyLightRefs;
+    std::vector<uint16_t> newLightRefs;
+    // The group's own light-set lights (MOLS, MOLP) and each set's window
+    // into them (MLSS, MLSP; set k pairs the k-th window of each).
+    std::vector<GroupSpotLight> spotLights;
+    std::vector<GroupPointLight> pointLights;
+    std::vector<LightSetWindow> spotLightSets;
+    std::vector<LightSetWindow> pointLightSets;
 };
 
 // Throws ParseError when a required chunk (MVER, MOHD) is missing, a chunk's
@@ -365,7 +411,8 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes);
 // Throws ParseError when MVER or MOGP is missing, MOGP is shorter than its
 // 68-byte header, a per-vertex chunk's count differs from MOVT's, a batch
 // runs past the index buffer, or MLIQ's counts don't match its size or each
-// other (tiles = verts - 1 per axis).
+// other (tiles = verts - 1 per axis), or an MLSS/MLSP window runs past its
+// MOLS/MOLP records.
 GroupFile parseGroup(const std::vector<uint8_t>& fileBytes);
 
 // GFID cell for (lodTier, group); 0 when the cell is empty or out of range.

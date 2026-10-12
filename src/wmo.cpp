@@ -19,6 +19,8 @@ constexpr size_t kMouvSize = 16;
 constexpr size_t kMobaSize = 24;
 constexpr size_t kMoltSize = 48;
 constexpr size_t kMnldSize = 184;
+constexpr size_t kMolsSize = 56;
+constexpr size_t kMolpSize = 44;
 constexpr size_t kMavdSize = 48;
 constexpr size_t kMbvdSize = 128;
 constexpr size_t kMfogSize = 48;
@@ -223,6 +225,56 @@ std::vector<NewLight> parseNewLights(const Chunk& c) {
         l.intensityMultiplier = readHalf(c.data, c.size, o + 0x8A, "MNLD");
     }
     return out;
+}
+
+std::vector<GroupSpotLight> parseGroupSpotLights(const Chunk& c) {
+    std::vector<GroupSpotLight> out(recordCount(c, kMolsSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMolsSize;
+        GroupSpotLight& l = out[i];
+        l.lightIndex = read<uint32_t>(c.data, c.size, o + 0x00, "MOLS");
+        l.color = read<uint32_t>(c.data, c.size, o + 0x04, "MOLS");
+        l.position = readVec3(c.data, c.size, o + 0x08, "MOLS");
+        l.attenuationStart = read<float>(c.data, c.size, o + 0x14, "MOLS");
+        l.attenuationEnd = read<float>(c.data, c.size, o + 0x18, "MOLS");
+        l.intensity = read<float>(c.data, c.size, o + 0x1C, "MOLS");
+        l.rotation = readVec3(c.data, c.size, o + 0x20, "MOLS");
+        l.unknown = read<float>(c.data, c.size, o + 0x2C, "MOLS");
+        l.innerAngle = read<float>(c.data, c.size, o + 0x30, "MOLS");
+        l.outerAngle = read<float>(c.data, c.size, o + 0x34, "MOLS");
+    }
+    return out;
+}
+
+std::vector<GroupPointLight> parseGroupPointLights(const Chunk& c) {
+    std::vector<GroupPointLight> out(recordCount(c, kMolpSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMolpSize;
+        GroupPointLight& l = out[i];
+        l.unknown0 = read<uint32_t>(c.data, c.size, o + 0x00, "MOLP");
+        l.color = read<uint32_t>(c.data, c.size, o + 0x04, "MOLP");
+        l.position = readVec3(c.data, c.size, o + 0x08, "MOLP");
+        l.intensity = read<float>(c.data, c.size, o + 0x14, "MOLP");
+        l.attenuationEnd = read<float>(c.data, c.size, o + 0x18, "MOLP");
+        l.attenuationStart = read<float>(c.data, c.size, o + 0x1C, "MOLP");
+        l.unknown20 = read<float>(c.data, c.size, o + 0x20, "MOLP");
+        l.unknown24 = read<float>(c.data, c.size, o + 0x24, "MOLP");
+        l.unknown28 = read<float>(c.data, c.size, o + 0x28, "MOLP");
+    }
+    return out;
+}
+
+// IN, critical: a window past its records would index lights that don't exist.
+void checkLightSetWindows(const std::vector<LightSetWindow>& windows, size_t records, const char* windowTag,
+                          const char* recordTag) {
+    for (size_t k = 0; k < windows.size(); ++k) {
+        uint64_t end = static_cast<uint64_t>(windows[k].offset) + windows[k].count;
+        if (end > records) {
+            throw ParseError(std::string(windowTag) + "[" + std::to_string(k) + "]: expected a window within " +
+                             std::to_string(records) + " " + recordTag + " records, got offset " +
+                             std::to_string(windows[k].offset) + " count " + std::to_string(windows[k].count));
+        }
+    }
 }
 
 Liquid parseLiquid(const Chunk& c) {
@@ -629,12 +681,26 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
             g.ambientBoxRefs = readArray<uint16_t>(c);
         } else if (c.tag == "MFVR") {
             g.fogRefs = readArray<uint16_t>(c);
+        } else if (c.tag == "MOLR") {
+            g.legacyLightRefs = readArray<uint16_t>(c);
+        } else if (c.tag == "MNLR") {
+            g.newLightRefs = readArray<uint16_t>(c);
+        } else if (c.tag == "MOLS") {
+            g.spotLights = parseGroupSpotLights(c);
+        } else if (c.tag == "MOLP") {
+            g.pointLights = parseGroupPointLights(c);
+        } else if (c.tag == "MLSS") {
+            g.spotLightSets = readArray<LightSetWindow>(c);
+        } else if (c.tag == "MLSP") {
+            g.pointLightSets = readArray<LightSetWindow>(c);
         }
     }
 
     if (g.indices.size() % 3 != 0) {
         throw ParseError("MOVI: expected a multiple of 3 indices, got " + std::to_string(g.indices.size()));
     }
+    checkLightSetWindows(g.spotLightSets, g.spotLights.size(), "MLSS", "MOLS");
+    checkLightSetWindows(g.pointLightSets, g.pointLights.size(), "MLSP", "MOLP");
     if (!g.triangles.empty() && g.triangles.size() != g.indices.size() / 3) {
         throw ParseError("MOPY/MPY2: expected one entry per MOVI triangle (" + std::to_string(g.indices.size() / 3) +
                          "), got " + std::to_string(g.triangles.size()));

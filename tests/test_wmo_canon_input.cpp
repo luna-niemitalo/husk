@@ -194,7 +194,10 @@ TEST_CASE("buildCanonWmo: MNLD lights become local lights that switch with their
     wmoinput::WmoInputs in;
     in.root = &root;
     in.groups = {std::nullopt, std::nullopt};
-    in.assetNames.emplace(9001, "cookie_window");
+    canon::TextureRef cookie;
+    cookie.state = canon::TextureRef::State::Resolved;
+    cookie.resolved = canon::Ref{canon::FileDataId{9001}, "cookie_window", canon::NameSource::Listfile};
+    in.textures.emplace(9001, cookie);
 
     canon::Model model = wmoinput::buildCanonWmo(in);
 
@@ -220,7 +223,8 @@ TEST_CASE("buildCanonWmo: MNLD lights become local lights that switch with their
     CHECK(s0.flicker->mode == 2);
     CHECK(s0.castsShadows);
     CHECK(s0.shadowScale == 0.5f);
-    CHECK(s0.cookie->name == "cookie_window");
+    REQUIRE(s0.cookie.has_value());
+    CHECK(s0.cookie->resolved.name == "cookie_window");
     CHECK(std::get<canon::RecordIndex>(s0.placementSet->id).value == 1);
     CHECK(s0.placementSet->name == "Set_B");
 
@@ -249,7 +253,7 @@ TEST_CASE("buildCanonWmo: a light with a non-finite number is left out, and drop
 
     REQUIRE(model.scene.localLights.size() == 1);
     CHECK(model.scene.localLights[0].origin.index == 1);
-    std::vector<canon::SourceRecord> dropped = wmoinput::droppedLights(root);
+    std::vector<canon::SourceRecord> dropped = wmoinput::droppedLights(in);
     REQUIRE(dropped.size() == 2);
     CHECK(dropped[0].table == "MNLD");
     CHECK(dropped[0].index == 0);
@@ -808,4 +812,59 @@ TEST_CASE("buildCanonWmo: real guardtower -- every batch in range, every set and
     for (const auto& owned : model.placementSets) instances += owned.set.instances.size();
     CHECK(instances == 4 + 58 + 108);
     CHECK(model.mesh.colorSets.size() == 1);
+}
+
+TEST_CASE("buildCanonWmo: group light refs, group lights and their sets index the model's static lights") {
+    wmo::RootFile root = syntheticRoot();
+    root.newLights.resize(1);
+    root.legacyLights.resize(2);
+    root.legacyLights[0].attenuationEnd = std::numeric_limits<float>::infinity();  // left out
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    g.legacyLightRefs = {0, 1};  // 0 was left out: only 1 reaches the part
+    g.newLightRefs = {0};
+    g.spotLights.resize(1);
+    g.spotLights[0].unknown = 1.0f;
+    g.spotLights[0].lightIndex = 4;
+    g.pointLights.resize(2);
+    g.pointLights[1].unknown28 = 2.0f;  // differs from the -1.0 default
+    g.pointLights[0].unknown28 = -1.0f;
+    g.pointLights[0].unknown24 = -0.0f;
+    g.pointLights[1].unknown24 = -0.0f;
+    g.spotLightSets = {{0, 1}};
+    g.pointLightSets = {{0, 2}, {1, 1}};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {g, std::nullopt};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    // MNLD 0, MOLT 1, then the group's MOLS 0, MOLP 0, MOLP 1.
+    const auto& lights = model.scene.localLights;
+    REQUIRE(lights.size() == 5);
+    CHECK(lights[2].origin.table == "MOLS");
+    CHECK(lights[2].part == 0u);
+    CHECK_FALSE(lights[2].cone->falloffExponent.has_value());
+    REQUIRE(lights[2].unresolved.size() == 1);
+    CHECK(lights[2].unresolved[0].field == "lightIndex");
+    CHECK(lights[3].unresolved.empty());
+    REQUIRE(lights[4].unresolved.size() == 1);
+    CHECK(lights[4].unresolved[0].field == "unknown_28");
+    CHECK(lights[4].ref.name == "light_4");
+
+    const canon::MeshPart& part = model.mesh.parts[0];
+    CHECK(part.lights == std::vector<uint32_t>{1, 0});
+    REQUIRE(part.lightSets.size() == 2);
+    CHECK(part.lightSets[0] == std::vector<uint32_t>{2, 3, 4});
+    CHECK(part.lightSets[1] == std::vector<uint32_t>{4});
+}
+
+TEST_CASE("buildCanonWmo: a light ref past the root's lights throws with both values") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    g.newLightRefs = {3};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {g, std::nullopt};
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), doctest::Contains("MNLR: expected refs < 0 root lights, got 3"),
+                         std::runtime_error);
 }

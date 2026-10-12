@@ -11,6 +11,7 @@
 #include "canon_material.hpp"  // TextureRef, FramebufferBlend
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
+#include "canon_unresolved.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's Resources layer, the non-mesh things a model places in
@@ -183,7 +184,7 @@ struct LocalLight {
     std::optional<Gradient> gradient;
 
     struct Cone {
-        float falloffExponent = 0;
+        std::optional<float> falloffExponent;  // MNLD only
         float innerAngle = 0;  // radians; whole-cone or half-angle is unverified (real values reach 2.2)
         float outerAngle = 0;
     };
@@ -198,11 +199,17 @@ struct LocalLight {
 
     bool castsShadows = false;
     float shadowScale = 0;  // MNLD scale, meaningful with castsShadows
-    std::optional<Ref> cookie;  // projected texture (FileDataID); a cube map for point lights
+    std::optional<TextureRef> cookie;  // projected texture; a cube map for point lights
     // The owned placement set this light switches with (MNLD doodadSet);
     // nullopt = always on with the model.
     std::optional<Ref> placementSet;
     uint32_t sourceFlags = 0;  // MNLD flags or MOLT's two unknown bytes, raw
+    // The mesh part whose own light this is (WMO MOLS/MOLP, which live in a
+    // group); nullopt for a model-wide light.
+    std::optional<uint32_t> part;
+    // Source values with no field here, carried raw (MOLS/MOLP unknowns
+    // when they differ from their corpus-wide defaults).
+    std::vector<UnresolvedField> unresolved;
     SourceRecord origin;
 };
 

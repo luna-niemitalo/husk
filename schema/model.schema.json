@@ -751,6 +751,30 @@
                           "description": "An ambient colour instance."
                         }
                       },
+                      "lights": {
+                        "type": "array",
+                        "description": "The model's static lights that reach this part (WMO MOLR, MNLR).",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "A static light.",
+                          "x-index-into": "/resources/scene/static_lights"
+                        }
+                      },
+                      "light_sets": {
+                        "type": "array",
+                        "description": "The part's switchable light sets: a renderer lights the part with one of them. Pairing the k-th MLSS and MLSP window into one set is inferred from their parallel layout.",
+                        "items": {
+                          "type": "array",
+                          "description": "One light set.",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "A static light.",
+                            "x-index-into": "/resources/scene/static_lights"
+                          }
+                        }
+                      },
                       "portals": {
                         "type": "array",
                         "description": "Openings onto other parts.",
@@ -1691,7 +1715,7 @@
                     "properties": {
                       "falloff_exponent": {
                         "type": "number",
-                        "description": "Falloff exponent.",
+                        "description": "Falloff exponent; absent when the source has none (WMO MOLS).",
                         "x-unit": "1"
                       },
                       "inner_angle": {
@@ -1707,7 +1731,6 @@
                     },
                     "additionalProperties": false,
                     "required": [
-                      "falloff_exponent",
                       "inner_angle",
                       "outer_angle"
                     ]
@@ -1752,7 +1775,7 @@
                     "x-unit": "1"
                   },
                   "cookie": {
-                    "$ref": "common.schema.json#/definitions/ref",
+                    "$ref": "common.schema.json#/definitions/texture_index",
                     "description": "Texture projected by the light; a cube map for point lights."
                   },
                   "placement_set": {
@@ -1760,6 +1783,16 @@
                     "minimum": 0,
                     "description": "Owned set the light switches with; absent means always on.",
                     "x-index-into": "/definition/placement_sets"
+                  },
+                  "part": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The mesh part whose own light this is (a WMO group's light-set light); absent for a model-wide light.",
+                    "x-index-into": "/resources/geometry/mesh/parts"
+                  },
+                  "unresolved": {
+                    "$ref": "common.schema.json#/definitions/unresolved",
+                    "description": "Source values with no field here, carried raw."
                   },
                   "source": {
                     "type": "object",

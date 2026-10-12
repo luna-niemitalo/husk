@@ -257,14 +257,18 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
                 if (!inputs.textures.count(fdid)) inputs.textures.emplace(fdid, resolveTexture(fdid, *listfile, listfileRoot));
             }
         }
+        for (const wmo::NewLight& light : root.newLights) {
+            if (light.cookieFileDataId != 0 && !inputs.textures.count(light.cookieFileDataId)) {
+                inputs.textures.emplace(light.cookieFileDataId, resolveTexture(light.cookieFileDataId, *listfile, listfileRoot));
+            }
+        }
         std::vector<uint32_t> named = root.doodadFileDataIds;
-        for (const wmo::NewLight& light : root.newLights) named.push_back(light.cookieFileDataId);
         for (uint32_t fdid : named) {
             std::optional<std::string_view> listed = fdid != 0 ? listfile->lookup(fdid) : std::nullopt;
             if (listed) inputs.assetNames.emplace(fdid, std::filesystem::path(std::string(*listed)).stem().string());
         }
     }
-    for (const canon::SourceRecord& light : wmoinput::droppedLights(root)) {
+    for (const canon::SourceRecord& light : wmoinput::droppedLights(inputs)) {
         std::cerr << "husk: note: " << rootPath.filename().string() << ": " << light.table << "[" << light.index
                   << "] left out: a light with non-finite numbers can't be placed\n";
     }

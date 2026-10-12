@@ -65,6 +65,13 @@ struct MeshPart {
     std::vector<PortalLink> portals;
     std::vector<InstanceRef> particulateVolumes;  // particle effect instances (WMO MPVR)
     std::vector<InstanceRef> ambientVolumes;   // ambient effect instances (WMO MAVR, then MBVR)
+    // Indices into Scene::localLights: the model's lights that reach this
+    // part (WMO MOLR into MOLT, MNLR into MNLD).
+    std::vector<uint32_t> lights;
+    // The part's switchable light sets, each a list of Scene::localLights
+    // indices (WMO MLSS/MLSP windows into the group's MOLS/MOLP; set k pairs
+    // the k-th window of each, inferred from their parallel layout).
+    std::vector<std::vector<uint32_t>> lightSets;
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space

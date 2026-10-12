@@ -187,7 +187,7 @@ canon::LocalLight buildNewLight(const WmoInputs& in, uint32_t index) {
     }
     out.castsShadows = (l.flags & kNewLightCastsShadows) != 0;
     out.shadowScale = l.scale;
-    if (l.cookieFileDataId != 0) out.cookie = fileRef(in, l.cookieFileDataId);
+    if (l.cookieFileDataId != 0) out.cookie = textureById(in.textures, l.cookieFileDataId);
     out.placementSet = ownedSetRef(in, static_cast<uint32_t>(l.doodadSet));
     out.sourceFlags = static_cast<uint32_t>(l.flags);
     return out;
@@ -489,16 +489,130 @@ bool isFinite(const wmo::LegacyLight& l) {
                      l.rotation[2], l.rotation[3], l.attenuationStart, l.attenuationEnd);
 }
 
-canon::Scene buildScene(const WmoInputs& in) {
+bool isFinite(const wmo::GroupSpotLight& l) {
+    return allFinite(l.position[0], l.position[1], l.position[2], l.attenuationStart, l.attenuationEnd, l.intensity,
+                     l.rotation[0], l.rotation[1], l.rotation[2], l.innerAngle, l.outerAngle);
+}
+
+bool isFinite(const wmo::GroupPointLight& l) {
+    return allFinite(l.position[0], l.position[1], l.position[2], l.intensity, l.attenuationStart, l.attenuationEnd);
+}
+
+canon::UnresolvedField unresolvedScalar(const char* field, float value) {
+    return {field, canon::UnresolvedField::Kind::Scalar, static_cast<double>(value), std::nullopt};
+}
+
+canon::UnresolvedField unresolvedId(const char* field, uint32_t value) {
+    return {field, canon::UnresolvedField::Kind::Id, static_cast<double>(value), std::nullopt};
+}
+
+canon::LocalLight buildGroupSpotLight(uint32_t part, uint32_t index, const wmo::GroupSpotLight& l) {
+    canon::LocalLight out;
+    out.origin = {"MOLS", index};
+    out.part = part;
+    out.kind = canon::LocalLight::Kind::Spot;
+    out.position = toCanon(l.position);
+    out.eulerRotation = toCanon(l.rotation);
+    out.color = colorOf(l.color);
+    out.intensity = l.intensity;
+    out.attenuationStart = l.attenuationStart;
+    out.attenuationEnd = l.attenuationEnd;
+    out.cone = canon::LocalLight::Cone{std::nullopt, l.innerAngle, l.outerAngle};
+    // Its meaning is unknown: 30 distinct small values across the corpus.
+    out.unresolved.push_back(unresolvedId("lightIndex", l.lightIndex));
+    if (l.unknown != 1.0f) out.unresolved.push_back(unresolvedScalar("unknown_2c", l.unknown));
+    return out;
+}
+
+canon::LocalLight buildGroupPointLight(uint32_t part, uint32_t index, const wmo::GroupPointLight& l) {
+    canon::LocalLight out;
+    out.origin = {"MOLP", index};
+    out.part = part;
+    out.kind = canon::LocalLight::Kind::Point;
+    out.position = toCanon(l.position);
+    out.color = colorOf(l.color);
+    out.intensity = l.intensity;
+    out.attenuationStart = l.attenuationStart;
+    out.attenuationEnd = l.attenuationEnd;
+    // Kept where they differ from the corpus-wide defaults (0, 0, -0.0, -1.0).
+    if (l.unknown0 != 0) out.unresolved.push_back(unresolvedId("unknown_00", l.unknown0));
+    if (l.unknown20 != 0.0f) out.unresolved.push_back(unresolvedScalar("unknown_20", l.unknown20));
+    if (!(l.unknown24 == 0.0f && std::signbit(l.unknown24))) {
+        out.unresolved.push_back(unresolvedScalar("unknown_24", l.unknown24));
+    }
+    if (l.unknown28 != -1.0f) out.unresolved.push_back(unresolvedScalar("unknown_28", l.unknown28));
+    return out;
+}
+
+// The model-wide lights, and which of them each MNLD/MOLT record became (a
+// non-finite record is left out, so later ones shift).
+struct SceneLights {
     canon::Scene scene;
+    std::vector<std::optional<uint32_t>> fromNewLight;
+    std::vector<std::optional<uint32_t>> fromLegacyLight;
+};
+
+SceneLights buildSceneLights(const WmoInputs& in) {
+    SceneLights out;
+    auto add = [&](canon::LocalLight light) {
+        out.scene.localLights.push_back(std::move(light));
+        return static_cast<uint32_t>(out.scene.localLights.size() - 1);
+    };
     for (uint32_t i = 0; i < in.root->newLights.size(); ++i) {
-        if (isFinite(in.root->newLights[i])) scene.localLights.push_back(buildNewLight(in, i));
+        out.fromNewLight.push_back(isFinite(in.root->newLights[i]) ? std::optional(add(buildNewLight(in, i))) : std::nullopt);
     }
     for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) {
-        if (isFinite(in.root->legacyLights[i])) scene.localLights.push_back(buildLegacyLight(in, i));
+        out.fromLegacyLight.push_back(isFinite(in.root->legacyLights[i]) ? std::optional(add(buildLegacyLight(in, i)))
+                                                                           : std::nullopt);
     }
-    nameByPosition(scene.localLights, "light");
-    return scene;
+    return out;
+}
+
+// IN, critical: a group's MOLR/MNLR entry names a root light by index.
+void appendLightRefs(uint32_t part, const char* tag, const std::vector<uint16_t>& refs,
+                     const std::vector<std::optional<uint32_t>>& lights, std::vector<uint32_t>& out) {
+    for (uint16_t r : refs) {
+        if (r >= lights.size()) {
+            throw std::runtime_error("WMO group " + std::to_string(part) + "'s " + tag + ": expected refs < " +
+                                     std::to_string(lights.size()) + " root lights, got " + std::to_string(r));
+        }
+        if (lights[r]) out.push_back(*lights[r]);
+    }
+}
+
+// The group's own light-set lights, appended to the scene, and its sets.
+void appendGroupLights(uint32_t part, const wmo::GroupFile& g, canon::Scene& scene, canon::MeshPart& meshPart) {
+    std::vector<std::optional<uint32_t>> spots;
+    for (uint32_t i = 0; i < g.spotLights.size(); ++i) {
+        if (!isFinite(g.spotLights[i])) {
+            spots.push_back(std::nullopt);
+            continue;
+        }
+        scene.localLights.push_back(buildGroupSpotLight(part, i, g.spotLights[i]));
+        spots.push_back(static_cast<uint32_t>(scene.localLights.size() - 1));
+    }
+    std::vector<std::optional<uint32_t>> points;
+    for (uint32_t i = 0; i < g.pointLights.size(); ++i) {
+        if (!isFinite(g.pointLights[i])) {
+            points.push_back(std::nullopt);
+            continue;
+        }
+        scene.localLights.push_back(buildGroupPointLight(part, i, g.pointLights[i]));
+        points.push_back(static_cast<uint32_t>(scene.localLights.size() - 1));
+    }
+    size_t setCount = std::max(g.spotLightSets.size(), g.pointLightSets.size());
+    for (size_t k = 0; k < setCount; ++k) {
+        std::vector<uint32_t> set;
+        auto take = [&](const std::vector<wmo::LightSetWindow>& windows, const std::vector<std::optional<uint32_t>>& lights) {
+            if (k >= windows.size()) return;
+            for (uint32_t i = windows[k].offset; i < windows[k].offset + windows[k].count; ++i) {
+                if (lights[i]) set.push_back(*lights[i]);
+            }
+        };
+        take(g.spotLightSets, spots);
+        take(g.pointLightSets, points);
+        meshPart.lightSets.push_back(std::move(set));
+    }
 }
 
 // WMO.md MLIQ "how to determine LiquidTypeRec to use", transcribed.
@@ -764,6 +878,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
 
     std::vector<canon::Model::OwnedSet> sets = buildPlacementSets(in);
     EffectPlacer placer{sets, static_cast<uint32_t>(root.doodads.size())};
+    SceneLights lights = buildSceneLights(in);
     std::vector<std::optional<canon::InstanceRef>> fogs = placeFogs(in, placer);
     AmbientRefs ambient = placeAmbient(in, placer);
     std::vector<canon::InstanceRef> particulate = placeParticulate(in, placer);
@@ -787,6 +902,9 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
             appendRefs(part, "MPVR", g.particulateVolumeRefs, particulate, meshPart.particulateVolumes);
             appendRefs(part, "MAVR", g.ambientVolumeRefs, ambient.points, meshPart.ambientVolumes);
             appendRefs(part, "MBVR", g.ambientBoxRefs, ambient.boxes, meshPart.ambientVolumes);
+            appendLightRefs(part, "MOLR", g.legacyLightRefs, lights.fromLegacyLight, meshPart.lights);
+            appendLightRefs(part, "MNLR", g.newLightRefs, lights.fromNewLight, meshPart.lights);
+            appendGroupLights(part, g, lights.scene, meshPart);
             // A group without portals may store start 0xFFFF with count 0.
             if (g.portalCount != 0 && g.portalStart + g.portalCount > root.portalRefs.size()) {
                 throw std::runtime_error("WMO group " + std::to_string(part) + ": expected MOPR refs [" +
@@ -831,22 +949,35 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
 
     std::vector<canon::Material> materials;
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
+    nameByPosition(lights.scene.localLights, "light");
 
     canon::Model model =
         canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials), {},
-                             buildScene(in), std::move(sets), std::move(liquids), {},
+                             std::move(lights.scene), std::move(sets), std::move(liquids), {},
                              fogs.empty() ? std::nullopt : fogs[0]);
     model.liquidTypes = std::move(liquidTypes);
     return model;
 }
 
-std::vector<canon::SourceRecord> droppedLights(const wmo::RootFile& root) {
+std::vector<canon::SourceRecord> droppedLights(const WmoInputs& in) {
+    const wmo::RootFile& root = *in.root;
     std::vector<canon::SourceRecord> out;
     for (uint32_t i = 0; i < root.newLights.size(); ++i) {
         if (!isFinite(root.newLights[i])) out.push_back({"MNLD", i});
     }
     for (uint32_t i = 0; i < root.legacyLights.size(); ++i) {
         if (!isFinite(root.legacyLights[i])) out.push_back({"MOLT", i});
+    }
+    for (size_t part = 0; part < in.groups.size(); ++part) {
+        if (!in.groups[part]) continue;
+        const wmo::GroupFile& g = *in.groups[part];
+        std::string group = " (group " + std::to_string(part) + ")";
+        for (uint32_t i = 0; i < g.spotLights.size(); ++i) {
+            if (!isFinite(g.spotLights[i])) out.push_back({"MOLS" + group, i});
+        }
+        for (uint32_t i = 0; i < g.pointLights.size(); ++i) {
+            if (!isFinite(g.pointLights[i])) out.push_back({"MOLP" + group, i});
+        }
     }
     return out;
 }

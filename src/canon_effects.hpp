@@ -12,6 +12,7 @@
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
 #include "canon_scene.hpp"  // ParticleSystem, RibbonSystem
+#include "canon_unresolved.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // REFACTOR/EFFECTS.md: an effect is a behaviour defined once, in an effect
@@ -118,15 +119,6 @@ struct SourceStyle {
     std::string source;
     std::vector<StyleBlock> blocks;
     bool perElement = false;
-};
-
-struct UnresolvedField {
-    enum class Kind { Scalar, Scalars, Bits, Color, Count, Id, Angle, UnitVector, Words };
-    std::string field;  // in the source's own terms
-    Kind kind = Kind::Scalar;
-    // uint32_t: Bits; vector<uint32_t>: Words.
-    std::variant<double, std::vector<double>, uint32_t, std::vector<uint32_t>> value;
-    std::optional<std::string> candidateRole;
 };
 
 // What makes a placement-set instance an effect instance. The instance's

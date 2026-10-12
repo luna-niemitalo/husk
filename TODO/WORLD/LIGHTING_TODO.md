@@ -13,15 +13,22 @@ covers the rest).
 `schema/model.schema.json`). An `MNLD` light carries its doodad set as
 `placement_set` and switches with it. Checked on 30,044 real `MNLD` records:
 every gap/unused field zero, `lightIndex` = own index, attenuation start <=
-end, `doodadSet` always a valid `MODS` index (13% non-zero). Open, in order:
-1. Group refs `MNLR`/`MOLR` (which groups a light reaches) are not read.
-2. `MNLD.rotation`'s Euler axis order, and whether cone angles are whole
-   or half angles (real outer angles reach 2.2 rad), are unverified; both
-   are carried raw.
-3. Cookie textures are identity only (listfile-named), not resolved or
-   written; point-light cookies are cube maps.
-4. The lightset system (item 2) and the glTF `KHR_lights_punctual`
-   projection are not started.
+end, `doodadSet` always a valid `MODS` index (13% non-zero).
+
+**Update 2026-10-12**: group refs `MOLR`/`MNLR` are each part's `lights`;
+the lightset system's `MOLS` spot and `MOLP` point lights join
+`static_lights` with their owning `part`, and `MLSS`/`MLSP` windows are
+each part's `light_sets` (the k-th windows paired, inferred). Cookies are
+texture-table entries. Checked on `8du_robodrome_arena01.wmo` (442 lights,
+15 parts with sets) and `9du_plaguefalldungeon_sanctum01.wmo`. Open, in
+order:
+1. `MNLD.rotation`'s and `MOLS.rotation`'s Euler axis order, and whether
+   cone angles are whole or half angles (`MNLD` outer angles reach 2.2 rad,
+   `MOLS` cap near π/4), are unverified; carried raw.
+2. No real cookie has been through the export yet (both checked files
+   have none); point-light cookies are cube maps.
+3. `MOLS.lightIndex` and `MOLP`'s unknowns are carried as `unresolved`.
+4. Which light set is active is runtime state; nothing in the files says.
 
 Scope: `../../WORLD_COMPLETENESS.md`'s **Lighting** section — WMO point lights
 (`MOLT` + group-level `MOLR` refs), the BfA+ lightset system

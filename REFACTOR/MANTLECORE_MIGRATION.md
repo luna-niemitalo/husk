@@ -49,6 +49,13 @@ UV maps (2026-10-12): `geometry.mesh.uv0`/`uv1`/`uv2` are now
 that sample alike share an entry. M2 layers past the first now carry
 their own texture unit's transform (they had none).
 
+Lights (2026-10-12): a static light's `cookie` is a `resources.textures`
+index (it was a ref). Mesh parts carry `lights` (the static lights reaching
+the part) and `light_sets` (switchable sets of static lights; light one at
+a time). WMO light-set lights (`MOLS` spot, `MOLP` point) are static
+lights with their owning `part`; a spot light's cone may lack
+`falloff_exponent`.
+
 Every document is one of five kinds. A **material** (REFACTOR/MATERIALS.md)
 describes a surface as layers over textures and inputs; a character
 model's skin, hair and eyes are composite materials its customization

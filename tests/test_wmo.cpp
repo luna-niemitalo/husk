@@ -694,3 +694,64 @@ TEST_CASE("wmo: real 10xt_exterior_tunnel01 -- the corpus's one two-emitter MPVD
     CHECK(v.emitters[0].tilesX * v.emitters[0].tilesY == v.emitters[0].frames);
     CHECK(v.emitters[1].tilesX * v.emitters[1].tilesY == v.emitters[1].frames);
 }
+
+namespace {
+
+std::vector<uint8_t> u32s(std::initializer_list<uint32_t> values) {
+    std::vector<uint8_t> out;
+    for (uint32_t v : values) put(out, out.size(), v);
+    return out;
+}
+
+// One MOLS record: index 7, BGRA red, at (1, 2, 3), attenuation 4..10,
+// intensity 0.5, rotation (0.1, 0.2, 0.3), unknown 1.0, cone 0.25..0.75.
+std::vector<uint8_t> mols() {
+    std::vector<uint8_t> out = u32s({7, 0xFFFF0000u});
+    for (float v : {1.0f, 2.0f, 3.0f, 4.0f, 10.0f, 0.5f, 0.1f, 0.2f, 0.3f, 1.0f, 0.25f, 0.75f}) put(out, out.size(), v);
+    return out;
+}
+
+// One MOLP record: end 9 at +0x18, start 3 at +0x1C (the wiki's labels swapped).
+std::vector<uint8_t> molp() {
+    std::vector<uint8_t> out = u32s({0, 0xFF00FF00u});
+    for (float v : {5.0f, 6.0f, 7.0f, 2.0f, 9.0f, 3.0f, 0.0f, -0.0f, -1.0f}) put(out, out.size(), v);
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("wmo::parseGroup: light refs, light-set lights at their corpus-verified offsets, and set windows") {
+    std::vector<uint8_t> molsTwo = mols();
+    std::vector<uint8_t> second = mols();
+    molsTwo.insert(molsTwo.end(), second.begin(), second.end());
+    std::vector<uint8_t> file = groupFile({{"MOLR", u16s({2, 0})},
+                                           {"MNLR", u16s({5})},
+                                           {"MOLS", molsTwo},
+                                           {"MOLP", molp()},
+                                           {"MLSS", u32s({0, 2})},
+                                           {"MLSP", u32s({0, 1})}});
+
+    wmo::GroupFile g = wmo::parseGroup(file);
+
+    CHECK(g.legacyLightRefs == std::vector<uint16_t>{2, 0});
+    CHECK(g.newLightRefs == std::vector<uint16_t>{5});
+    REQUIRE(g.spotLights.size() == 2);
+    CHECK(g.spotLights[0].lightIndex == 7);
+    CHECK(g.spotLights[0].position[2] == 3.0f);
+    CHECK(g.spotLights[0].attenuationEnd == 10.0f);
+    CHECK(g.spotLights[0].rotation[1] == 0.2f);
+    CHECK(g.spotLights[0].outerAngle == 0.75f);
+    REQUIRE(g.pointLights.size() == 1);
+    CHECK(g.pointLights[0].intensity == 2.0f);
+    CHECK(g.pointLights[0].attenuationStart == 3.0f);
+    CHECK(g.pointLights[0].attenuationEnd == 9.0f);
+    CHECK(g.pointLights[0].unknown28 == -1.0f);
+    REQUIRE(g.spotLightSets.size() == 1);
+    CHECK(g.spotLightSets[0].count == 2);
+}
+
+TEST_CASE("wmo::parseGroup: a light-set window past its records throws with both ranges") {
+    std::vector<uint8_t> file = groupFile({{"MOLP", molp()}, {"MLSP", u32s({0, 2})}});
+    CHECK_THROWS_WITH_AS(wmo::parseGroup(file), doctest::Contains("expected a window within 1 MOLP records, got offset 0 count 2"),
+                         wmo::ParseError);
+}

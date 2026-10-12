@@ -582,7 +582,9 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     spot.cone = canon::LocalLight::Cone{5, 0.5f, 1.5f};
     spot.flicker = canon::LocalLight::Flicker{2, 0.25f, 3};
     spot.castsShadows = true;
-    spot.cookie = canon::Ref{canon::FileDataId{9001}, "cookie_window", canon::NameSource::Listfile};
+    spot.cookie.emplace();
+    spot.cookie->state = canon::TextureRef::State::KnownUnresolved;
+    spot.cookie->resolved = canon::Ref{canon::FileDataId{9001}, "cookie_window", canon::NameSource::Listfile};
     spot.placementSet = canon::Ref{canon::RecordIndex{1}, "Set_B", canon::NameSource::WmoEmbedded};
     spot.sourceFlags = 0x3;
     canon::LocalLight omni;
@@ -607,7 +609,7 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     CHECK(s["cone"]["outer_angle"] == 1.5);
     CHECK(s["flicker"]["mode"] == 2);
     CHECK(s["casts_shadows"] == true);
-    CHECK(s["cookie"]["id"]["value"] == 9001);
+    CHECK(manifest["resources"]["textures"][s["cookie"].get<size_t>()]["identity"]["id"]["value"] == 9001);
     CHECK(s["placement_set"] == 1);
     CHECK(s["source"]["flags"] == "0x3");
     CHECK(s["source"]["record"]["table"] == "MNLD");

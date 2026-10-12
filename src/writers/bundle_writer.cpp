@@ -222,6 +222,22 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
             for (const canon::InstanceRef& ref : *refs) writeInstanceRef(w, ref);
             w.endArray();
         }
+        if (!part.lights.empty()) {
+            w.key("lights");
+            w.beginArray();
+            for (uint32_t light : part.lights) w.value(static_cast<int64_t>(light));
+            w.endArray();
+        }
+        if (!part.lightSets.empty()) {
+            w.key("light_sets");
+            w.beginArray();
+            for (const std::vector<uint32_t>& set : part.lightSets) {
+                w.beginArray();
+                for (uint32_t light : set) w.value(static_cast<int64_t>(light));
+                w.endArray();
+            }
+            w.endArray();
+        }
         if (!part.portals.empty()) {
             w.key("portals");
             w.beginArray();
@@ -838,7 +854,7 @@ void writeSourceBlock(json::Writer& w, uint32_t flags, const canon::SourceRecord
     w.endObject();
 }
 
-void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lights) {
+void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lights, TextureTable& textures) {
     w.beginArray();
     for (const canon::LocalLight& l : lights) {
         w.beginObject();
@@ -875,7 +891,7 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
         if (l.cone) {
             w.key("cone");
             w.beginObject();
-            writeFloatField(w, "falloff_exponent", l.cone->falloffExponent);
+            if (l.cone->falloffExponent) writeFloatField(w, "falloff_exponent", *l.cone->falloffExponent);
             writeFloatField(w, "inner_angle", l.cone->innerAngle);
             writeFloatField(w, "outer_angle", l.cone->outerAngle);
             w.endObject();
@@ -893,9 +909,14 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
         writeFloatField(w, "shadow_scale", l.shadowScale);
         if (l.cookie) {
             w.key("cookie");
-            writeRef(w, *l.cookie);
+            w.value(static_cast<int64_t>(textures.add(*l.cookie)));
         }
         if (l.placementSet) writeIntField(w, "placement_set", placementSetIndex(*l.placementSet));
+        if (l.part) writeIntField(w, "part", *l.part);
+        if (!l.unresolved.empty()) {
+            w.key("unresolved");
+            writeUnresolved(w, l.unresolved);
+        }
         writeSourceBlock(w, l.sourceFlags, l.origin);
         w.endObject();
     }
@@ -1042,7 +1063,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("animated_lights");
     writeLights(w, model.scene.lights);
     w.key("static_lights");
-    writeLocalLights(w, model.scene.localLights);
+    writeLocalLights(w, model.scene.localLights, textures);
     if (model.defaultFog) {
         w.key("default_fog");
         writeInstanceRef(w, *model.defaultFog);
