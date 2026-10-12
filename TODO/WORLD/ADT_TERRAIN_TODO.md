@@ -20,21 +20,18 @@ after 13+ minutes with no output on the corpus storage (disk-wait bound). Use
 a seeded random sample for anything that reads whole tile bodies; keep
 full-corpus passes to existence checks.
 
-## 1. Ground-cover scatter places nothing on plainly grassy quads
+## 1. Ground cover missing where layers name absent effect rows
 
-A Blender probe (`tests/terrain_bundle_import_check.py`) scattering
-`ground_effects` over Crystal Lake (`azeroth_32_49`) placed ~25k points, but
-none near the close-up camera on plain grass. The doodad models themselves
-are fine (8-vertex crossed cards, 0.4–1.6 yd). Suspects, all unverified:
-
-- `dominant_layer` unpacking: 2 bits per quad, LSB-first, row-major is
-  assumed (`adtinput::unpackDominantLayer`);
-- `ground_effect_suppressed_rows` (`MCNK.noEffectDoodad`) orientation;
-- the density unit (treated as per quad).
-
-Abandoned after three attempts on the time box. The next step is a byte
-dump of one grassy chunk's `predominantTexture`/`noEffectDoodad` next to its
-alpha maps, to see which unpacking agrees with where the grass layer is.
+The Crystal Lake probe (`tests/terrain_bundle_import_check.py`) placed no
+ground cover on much of the plainly grassy ground. Settled (2026-10-12,
+`../../WIKI_FINDINGS/ADT.md`): the `dominant_layer` unpacking is right, and
+only 654 of 16,384 quads are suppressed. About 45% of the tile's quads are
+dominated by layers whose ground-effect ids (1106, 993, 764, 116293) have no
+`GroundEffectTexture` row in 12.1.0, so husk exports them with no doodads.
+Open: whether the client draws nothing there too, or gets those rows from
+elsewhere (hotfixes in `DBCache.bin`, which husk doesn't read). An in-game
+look at Crystal Lake decides it. The density unit (per quad) and the
+`noEffectDoodad` orientation are still unverified.
 
 ## 2. Tile-edge seams: source data or husk?
 

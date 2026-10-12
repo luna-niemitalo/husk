@@ -118,6 +118,8 @@ blend.
 | `MH2O` exists bitmap is LSB-first, row-major | clean river/lake edges; 74–98% of liquid quads over lower terrain |
 | Alpha maps are row-major, rows stepping −X like vertices | mean \|Δalpha\| across chunk borders 0.068 as decoded vs 0.265 transposed (Crystal Lake) |
 | Layer weights partition exactly (`base = 1 − Σ alpha`) | splat weight sum min/mean/max 1.000/1.000/1.000 over a whole tile |
+| `MCNK` `predominantTexture` (uint2_t[8][8]) is LSB-first, row-major, like the `MH2O` bitmap | on every quad of Crystal Lake where one layer covers ≥60% (11,483), it names that layer 100% of the time; MSB-first or column-major: 64–73% |
+| Ground-effect ids on layers can name `GroundEffectTexture` rows the 12.1.0 table lacks | Crystal Lake: 1106, 993, 764, 116293 (≈45% of its quads' dominant layers) are absent from the 2,750-row table, which casc-tool lists as complete (not partly encrypted) |
 | Elwynn: `MPHD` 0x3ca (8-bit alpha), layers flagged `0x300` (RLE), `MCNK` 0x8000 everywhere, no `MTXP` | byte dump; renders match expectation |
 | Modern tiles carry `MDID`/`MHID`, no `MTEX`; `MHID` ids are 0 on Elwynn | byte dump |
 | Splat layers per chunk range 0–8: on all 341,760 `azeroth` chunks, 9% none, 82% 1–4, 4% 5–8 | MantleCore's map index, 2026-10-09 |
