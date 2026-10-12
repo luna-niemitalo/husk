@@ -185,6 +185,8 @@ add_library(husk-lib STATIC
   src/liquid_db2.cpp
   src/light_db2.cpp
   src/liquid_canon_input.cpp
+  src/surface_db2.cpp
+  src/surface_input.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
   src/cmd_db2.cpp
@@ -265,6 +267,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_wmo.cpp
     tests/test_wmo_canon_input.cpp
     tests/test_world_shared.cpp
+    tests/test_surface_db2.cpp
     tests/test_wdt_volumes.cpp
     tests/test_map_scene_input.cpp
   tests/test_bundle_schema.cpp

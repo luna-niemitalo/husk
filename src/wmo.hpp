@@ -333,6 +333,9 @@ struct Batch {
     uint32_t material = 0;  // index into RootFile::materials (material_id or material_id_large, per the flag)
 };
 
+// MPY2 flag: the face's ground type is its MOQG entry, not its material's.
+inline constexpr uint16_t kFaceUsesQueryGroundType = 0x100;
+
 // MOPY (2 bytes) or MPY2 (4 bytes) per triangle.
 struct TriangleInfo {
     uint16_t flags = 0;
@@ -386,6 +389,12 @@ struct GroupFile {
     std::vector<std::vector<Vec2>> uvSets;            // every MOTV, in file order
     std::vector<std::vector<uint32_t>> colorSets;     // every MOCV (BGRA, raw), in file order
     std::vector<Batch> batches;
+    // Per-face ground types (DF+): MOQG[i] is the TerrainType row of the
+    // face queryFaceStart + i (MOGX's first word), used where that face's
+    // MPY2 flags have 0x100 (wowdev.wiki WMO#MOQG; checked on 278 sampled
+    // groups: the flagged faces span exactly that window).
+    uint32_t queryFaceStart = 0;
+    std::vector<uint32_t> queryFaceGroundTypes;
     std::optional<Liquid> liquid;  // MLIQ
     // The root volumes this group uses (8.3+/9.0+): MPVR into MPVD, MAVR
     // into MAVD, MBVR into MBVD, MFVR into MFOG. Empty when absent.

@@ -19,7 +19,7 @@ uint32_t requireValue(const std::optional<uint32_t>& v, const char* column, size
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::string texturePath = (std::filesystem::path(db2Dir) / "groundeffecttexture.db2").string();
     std::string doodadPath = (std::filesystem::path(db2Dir) / "groundeffectdoodad.db2").string();
-    auto textures = db2table::readNamedColumns(texturePath, dbdDir, {"ID", "Density"}, err);
+    auto textures = db2table::readNamedColumns(texturePath, dbdDir, {"ID", "Density", "Sound"}, err);
     auto textureArrays = db2table::readNamedArrayColumns(texturePath, dbdDir, {"DoodadID", "DoodadWeight"}, err);
     auto doodads = db2table::readNamedColumns(doodadPath, dbdDir, {"ID", "ModelFileID", "Flags"}, err);
     if (!textures || !textureArrays || !doodads) return std::nullopt;
@@ -38,6 +38,7 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
         TextureRow row;
         row.id = requireValue((*textures)[r][0], "GroundEffectTexture.ID", r);
         row.density = (*textures)[r][1];
+        row.terrainType = (*textures)[r][2];
         const auto& ids = (*textureArrays)[r][0];
         const auto& weights = (*textureArrays)[r][1];
         if (!ids || !weights || ids->size() != weights->size()) {

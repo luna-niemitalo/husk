@@ -22,6 +22,7 @@ struct Inputs {
     adtinput::TextureResolutions textures;
     adtinput::GroundEffectDefinitions groundEffects;
     adtinput::GamePathResolutions gamePaths;
+    const husk::surfacedb::Data* surfaces = nullptr;
 };
 
 canon::Terrain build(const RootSpec& rootSpec, const std::optional<ObjSpec>& objSpec = std::nullopt,
@@ -33,7 +34,7 @@ canon::Terrain build(const RootSpec& rootSpec, const std::optional<ObjSpec>& obj
     std::optional<adt::TexFile> tex;
     if (texSpec) tex = adt::parseTex(texFile(*texSpec));
     adtinput::TileSources sources{root, obj, tex, wdtFlags, "azeroth", rootSpec.tileX, rootSpec.tileY};
-    return adtinput::buildCanonTerrain(sources, {inputs.textures, inputs.groundEffects, inputs.gamePaths});
+    return adtinput::buildCanonTerrain(sources, {inputs.textures, inputs.groundEffects, inputs.gamePaths, nullptr, inputs.surfaces});
 }
 
 canon::Vec3 rotate(const canon::Quat& q, const canon::Vec3& v) {
@@ -425,7 +426,11 @@ TEST_CASE("adtinput: layers carry texture index, alpha, flags, and deduplicated 
     canon::GroundEffect grass;
     grass.ref = canon::Ref{canon::Db2Row{"GroundEffectTexture", 77}, "", canon::NameSource::None};
     grass.density = 12;
+    grass.terrainType = 5;
     inputs.groundEffects = {{77, grass}};
+    husk::surfacedb::Data surfaces;
+    surfaces.types[5] = {5, "Grass", 0, 0, 6, "Grass", 0};
+    inputs.surfaces = &surfaces;
     canon::Terrain t = build(root, std::nullopt, tex, inputs);
 
     const canon::TerrainChunk& c = t.chunks[4];
@@ -448,6 +453,15 @@ TEST_CASE("adtinput: layers carry texture index, alpha, flags, and deduplicated 
     const canon::GroundEffect& bare = t.groundEffects[*c.layers[2].groundEffectIndex];
     CHECK(std::get<canon::Db2Row>(bare.ref.id).row == 88);
     CHECK_FALSE(bare.density.has_value());
+
+    // Effect 77's surface is TerrainType 5; 88 has no row, so no surface.
+    REQUIRE(t.surfaceTypes.size() == 1);
+    CHECK(t.groundEffects[*c.layers[0].groundEffectIndex].surfaceType == 0u);
+    CHECK_FALSE(bare.surfaceType.has_value());
+    CHECK(t.surfaceTypes[0].ref.name == "Grass");
+    REQUIRE(t.surfaceTypes[0].soundClass);
+    CHECK(std::get<canon::Db2Row>(t.surfaceTypes[0].soundClass->id).row == 6);
+    CHECK_FALSE(t.surfaceTypes[0].footstepSprayRun);
 
     CHECK(c.dominantLayer[0] == 0);
     CHECK(c.dominantLayer[1] == 1);
@@ -517,12 +531,13 @@ TEST_CASE("adtinput: textureFileDataIds and gamePaths list what a caller must re
 
 TEST_CASE("adtinput::groundEffectDefinitions joins texture rows to doodad models") {
     husk::groundeffect::Data data;
-    data.textures.push_back({77, 20u, {{1, 3}, {2, 1}}});
+    data.textures.push_back({77, 20u, 5u, {{1, 3}, {2, 1}}});
     data.doodads[1] = {12345, 0x4};
     auto defs = adtinput::groundEffectDefinitions(data);
     REQUIRE(defs.count(77) == 1);
     const canon::GroundEffect& e = defs.at(77);
     CHECK(e.density == 20u);
+    CHECK(e.terrainType == 5u);
     REQUIRE(e.doodads.size() == 2);
     CHECK(std::get<canon::FileDataId>(e.doodads[0].model.id).value == 12345);
     CHECK(e.doodads[0].weight == 3);

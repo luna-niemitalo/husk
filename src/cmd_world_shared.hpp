@@ -16,6 +16,7 @@
 #include "creature_display_db2.hpp"
 #include "light_db2.hpp"
 #include "liquid_db2.hpp"
+#include "surface_db2.hpp"
 #include "listfile_index.hpp"
 #include "writers/bundle_common.hpp"
 
@@ -87,6 +88,7 @@ std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::st
 std::optional<creaturedisplay::Data> loadCreatures(const std::string& db2Dir, const std::string& dbdDir,
                                                    std::string& note);
 std::optional<liquiddb::Data> loadLiquids(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
+std::optional<surfacedb::Data> loadSurfaces(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
 
 std::set<uint32_t> referencedModels(const canon::Terrain& terrain);
 std::set<uint32_t> referencedAssets(const canon::Terrain& terrain);
@@ -95,6 +97,7 @@ std::string modelBundleName(uint32_t fdid);
 
 canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<uint32_t> fileDataId,
                           const ListfileIndex* listfile, const std::string& listfileRoot, const liquiddb::Data* liquids,
+                          const surfacedb::Data* surfaces,
                           const std::function<void(const std::string&)>& warn);
 std::set<uint32_t> placedAssets(const canon::Model& model);
 // A placement can select a doodad set its WMO doesn't have (azeroth_39_16,
@@ -105,9 +108,9 @@ std::set<uint32_t> placedAssets(const canon::Model& model);
 void dropMissingDoodadSets(canon::PlacementSet& set, const std::unordered_map<uint32_t, size_t>& setCounts,
                            const std::function<void(const std::string&)>& warn);
 
-writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids);
+writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids, bool haveSurfaces);
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,
-                                      const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids);
+                                      const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids, bool haveSurfaces);
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
                                     const std::string& listfilePath, bool haveLights);
 

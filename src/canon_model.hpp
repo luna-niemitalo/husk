@@ -13,6 +13,7 @@
 #include "canon_material.hpp"   // Material
 #include "canon_mesh.hpp"       // Mesh
 #include "canon_placement.hpp"  // PlacementSet
+#include "canon_surface.hpp"
 #include "canon_ref.hpp"        // Identity
 #include "canon_scene.hpp"      // Scene
 #include "canon_skeleton.hpp"   // Skeleton
@@ -106,6 +107,10 @@ struct Model {
     std::optional<InstanceRef> defaultFog;
     std::vector<LiquidGrid> liquids;
     std::vector<LiquidType> liquidTypes;  // each type `liquids` name, once, first-seen order
+    // What the materials' and faces' surfaces are, each once (WMO only;
+    // canon_surface.hpp). A per-face override is the mesh attribute channel
+    // "surface_type".
+    std::vector<SurfaceType> surfaceTypes;
     CollisionMesh collision;  // empty = the model has none (M2 only)
     // Options (canon_options.hpp): replaceable textures material layers
     // read (MaterialLayer::slot) with what each may hold, particle colour

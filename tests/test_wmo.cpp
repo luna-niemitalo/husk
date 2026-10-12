@@ -534,6 +534,34 @@ TEST_CASE("wmo::parseGroup: a MOBA count past 65,535 is unwrapped from where the
     CHECK(g.batches[1].indexCount == kSecond);  // grown over its own faces, not the collision tail
 }
 
+TEST_CASE("wmo::parseGroup: MOGX starts MOQG's window; a flagged face outside it throws") {
+    std::vector<uint8_t> mogx(256, 0);
+    put<uint32_t>(mogx, 0, 1);
+    std::vector<uint8_t> moqg;
+    put<uint32_t>(moqg, 0, 5);
+    auto mpy2 = [](uint16_t face0, uint16_t face1) {
+        std::vector<uint8_t> out;
+        for (uint16_t flags : {face0, face1}) {
+            put<uint16_t>(out, out.size(), flags);
+            put<uint16_t>(out, out.size(), 0);
+        }
+        return out;
+    };
+    auto file = [&](std::vector<uint8_t> faces) {
+        return groupFile({{"MPY2", faces},
+                          {"MOVI", u16s({0, 1, 2, 0, 1, 2})},
+                          {"MOVT", floats({0, 0, 0, 1, 0, 0, 0, 1, 0})},
+                          {"MOGX", mogx},
+                          {"MOQG", moqg}});
+    };
+
+    wmo::GroupFile g = wmo::parseGroup(file(mpy2(0x20, 0x20 | wmo::kFaceUsesQueryGroundType)));
+    CHECK(g.queryFaceStart == 1);
+    CHECK(g.queryFaceGroundTypes == std::vector<uint32_t>{5});
+    CHECK_THROWS_WITH_AS(wmo::parseGroup(file(mpy2(wmo::kFaceUsesQueryGroundType, 0x20))),
+                         doctest::Contains("expected it within MOQG's faces [1, 2)"), wmo::ParseError);
+}
+
 TEST_CASE("wmo::parseGroup: a short last batch before faces of another material keeps its count") {
     std::vector<uint8_t> movi = u16s({0, 1, 2, 0, 1, 2});
     std::vector<uint8_t> file = groupFile({{"MOPY", {0x20, 1, 0x20, 2}},

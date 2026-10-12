@@ -241,6 +241,10 @@ int exportWorld(int argc, char** args) {
         const std::optional<liquiddb::Data> liquids =
             loadLiquids(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), liquidNote);
         std::cout << liquidNote << std::endl;
+        std::string surfaceNote;
+        const std::optional<surfacedb::Data> surfaces =
+            loadSurfaces(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), surfaceNote);
+        std::cout << surfaceNote << std::endl;
         std::string lightNote;
         const std::optional<lightdb::Data> lights = loadLights(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), lightNote);
         std::cout << lightNote << std::endl;
@@ -432,7 +436,8 @@ int exportWorld(int argc, char** args) {
                         inputs::Scope scope(&inputLog, outputName(bundle));
                         auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
                         canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot,
-                                                          liquids ? &*liquids : nullptr, warn);
+                                                          liquids ? &*liquids : nullptr,
+                                                          surfaces ? &*surfaces : nullptr, warn);
                         writers::AssetUris doodadUris;
                         for (uint32_t doodad : placedAssets(model)) {
                             if (exportedModels.count(doodad)) {
@@ -441,7 +446,7 @@ int exportWorld(int argc, char** args) {
                         }
                         writers::AssetUris textureUris;
                         writers::externalizeTextures(model, textureStore, modelTextures.uriToStore, textureUris);
-                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value()),
+                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value(), surfaces.has_value()),
                                              doodadUris, textureUris);
                     }
                 } catch (...) {
@@ -501,7 +506,7 @@ int exportWorld(int argc, char** args) {
                     }
                     adtinput::TileSources sources{root, obj, tex, flags, name.map, name.x, name.y};
                     canon::Terrain terrain = adtinput::buildCanonTerrain(
-                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr});
+                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
                     nameModelRefs(terrain, *listfile);
                     dropMissingDoodadSets(terrain.mapObjects, wmoSetCounts,
                                           [&](const std::string& w) { errors.add("placement", t.root.string(), w); });
@@ -516,7 +521,7 @@ int exportWorld(int argc, char** args) {
                     writers::writeTerrainBundle(terrain, bundle,
                                                 terrainProvenance(obj.has_value(), tex.has_value(), flags.has_value(),
                                                                   listfile.get(), opts.listfile, !groundEffects.empty(),
-                                                                  liquids.has_value()),
+                                                                  liquids.has_value(), surfaces.has_value()),
                                                 modelUris, textureUris);
                 }
             } catch (...) {

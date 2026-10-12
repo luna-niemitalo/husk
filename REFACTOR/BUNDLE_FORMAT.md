@@ -252,6 +252,23 @@ replaced a separate WMO collision mesh (a consumer selects collidable
 faces by flag). `resources.geometry.collision` remains for M2, whose collision
 vertices are separate data.
 
+One channel is resolved rather than raw, so it has no source prefix:
+`surface_type` (face, u16), each face's index into
+`resources.surface_types` (0xFFFF: none). It is written for a WMO with
+per-face ground types (`MOQG`); otherwise a face's surface is its
+material's `surface_type`.
+
+## Surface types — what the ground is made of
+
+**Current** (2026-10-13): a document lists each surface it names once in
+`resources.surface_types`: a TerrainType row (`Dirt`, `Grass`, `Stone`,
+`Snow`...) with its footstep sound class and sprays. Terrain ground
+effects (`GroundEffectTexture.Sound`) and WMO materials (`MOMT`
+ground_type) index it; WMO faces override per face (above). Coverage
+caveat, measured on 2,000 seeded tiles of 12.1.0: 63% of quads' dominant
+layer names a GroundEffectTexture row the build's file lacks, and 30%
+have no layers, so most terrain has no surface type.
+
 ## Textures — one table per document
 
 **Current** (2026-10-11, Luna's call): every document that uses textures

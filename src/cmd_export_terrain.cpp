@@ -169,6 +169,12 @@ int exportTerrain(int argc, char** args) {
             groundEffects = loadGroundEffects(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
             announce(note);
         }
+        std::optional<surfacedb::Data> surfaces;
+        if (tex) {
+            std::string note;
+            surfaces = loadSurfaces(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
+            announce(note);
+        }
         std::optional<liquiddb::Data> liquids;
         if (root.liquid) {
             std::string note;
@@ -183,7 +189,7 @@ int exportTerrain(int argc, char** args) {
 
         adtinput::TileSources sources{root, obj, tex, wdtFlags, tile.map, tile.x, tile.y};
         canon::Terrain terrain = adtinput::buildCanonTerrain(
-            sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr});
+            sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
         if (listfile) nameModelRefs(terrain, *listfile);
 
         if (opts.listModels) {
@@ -210,7 +216,7 @@ int exportTerrain(int argc, char** args) {
         writers::writeTerrainBundle(terrain, opts.output,
                                     terrainProvenance(obj.has_value(), tex.has_value(), wdtFlags.has_value(),
                                                       listfile.get(), listfilePath, !groundEffects.empty(),
-                                                      liquids.has_value()),
+                                                      liquids.has_value(), surfaces.has_value()),
                                     modelUris);
         std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, " << terrain.textures.size()
                   << " textures, " << terrain.groundEffects.size() << " ground effects, " << terrain.liquids.size()
@@ -249,8 +255,11 @@ int exportWmo(int argc, char** args) {
         std::string liquidNote;
         std::optional<liquiddb::Data> liquids = loadLiquids(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), liquidNote);
         announce(liquidNote);
-        canon::Model model =
-            loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot, liquids ? &*liquids : nullptr, warn);
+        std::string surfaceNote;
+        std::optional<surfacedb::Data> surfaces = loadSurfaces(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), surfaceNote);
+        announce(surfaceNote);
+        canon::Model model = loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot,
+                                          liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr, warn);
 
         writers::AssetUris modelUris;
         if (!opts.modelsDir.empty()) {
@@ -263,7 +272,7 @@ int exportWmo(int argc, char** args) {
                 }
             }
         }
-        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath, liquids.has_value()), modelUris);
+        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath, liquids.has_value(), surfaces.has_value()), modelUris);
         size_t instances = 0;
         for (const auto& owned : model.placementSets) instances += owned.set.instances.size();
         std::cout << "wrote " << opts.output << ": " << model.mesh.parts.size() << " parts, "

@@ -2599,6 +2599,53 @@
         "blend_add"
       ],
       "description": "How the drawn colour (src) combines with the framebuffer (dst), per the client's EGxBlend states (wowdev.wiki Rendering, EGxBlend table; its authors checked it against several clients, husk has not verified it independently). opaque: rgb = src.rgb, a = src.a, no blending. alpha_key: as opaque, after discarding pixels with alpha below 128/255. alpha: rgb = src.rgb*src.a + dst.rgb*(1-src.a), a = src.a + dst.a*(1-src.a). no_alpha_add: rgb = src.rgb + dst.rgb, a = dst.a. add: rgb = src.rgb*src.a + dst.rgb, a = dst.a. mod: rgb = src.rgb*dst.rgb, a = src.a*dst.a. mod2x: rgb = 2*src.rgb*dst.rgb, a = 2*src.a*dst.a. mod_add: rgb = src.rgb*dst.rgb + dst.rgb, a = src.a*dst.a + dst.a. blend_add: rgb = src.rgb + dst.rgb*(1-src.a), a = src.a + dst.a*(1-src.a) (premultiplied). Every mode but opaque and alpha_key discards alpha below 1/255 (WIKI_FINDINGS/M2/rendering.md)."
+    },
+    "surface_type": {
+      "type": "object",
+      "description": "What a surface is made of (a TerrainType row: Dirt, Grass, Stone, Snow...). The client picks footstep sounds and sprays by it; a renderer or weather system can ask the same question.",
+      "properties": {
+        "ref": {
+          "$ref": "#/definitions/ref",
+          "description": "The TerrainType row; its name is the row's TerrainDesc."
+        },
+        "sound_class": {
+          "$ref": "#/definitions/ref",
+          "description": "The TerrainTypeSounds row footsteps play. Absent when the build has no TerrainType row for ref."
+        },
+        "footstep_spray_run": {
+          "$ref": "#/definitions/ref",
+          "description": "SpellVisualEffectName row shown when running."
+        },
+        "footstep_spray_walk": {
+          "$ref": "#/definitions/ref",
+          "description": "SpellVisualEffectName row shown when walking."
+        },
+        "source": {
+          "type": "object",
+          "description": "Raw source values.",
+          "properties": {
+            "flags": {
+              "$ref": "#/definitions/flags",
+              "description": "TerrainType Flags (wowdev.wiki DB/TerrainType: 0x1 footprints)."
+            }
+          },
+          "required": [
+            "flags"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ref",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "surface_type_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "A surface: index into the document's resources.surface_types, where each is listed once.",
+      "x-index-into": "/resources/surface_types"
     }
   }
 }

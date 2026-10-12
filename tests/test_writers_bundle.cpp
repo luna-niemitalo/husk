@@ -1026,6 +1026,33 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     CHECK(fs::exists(dir / "effects" / "classic_zone_light_global.json"));
 }
 
+TEST_CASE("writeBundle: surface types, materials' surface_type and the per-face channel") {
+    canon::Model model = buildSyntheticModel();
+    canon::SurfaceType stone;
+    stone.ref = canon::Ref{canon::Db2Row{"TerrainType", 2}, "Stone", canon::NameSource::Db2};
+    stone.soundClass = canon::Ref{canon::Db2Row{"TerrainTypeSounds", 3}, "Stone", canon::NameSource::Db2};
+    canon::SurfaceType unknown;
+    unknown.ref = canon::Ref{canon::Db2Row{"TerrainType", 99}, "", canon::NameSource::None};
+    model.surfaceTypes = {stone, unknown};
+    model.materials[0].surfaceType = 0;
+    model.mesh.attributes.push_back({"surface_type", canon::AttributeDomain::Face, 1,
+                                     std::vector<uint16_t>(model.mesh.indices.size() / 3, 1)});
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-surfaces";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, writers::Provenance{"husk test", "wmo", {}});
+    nlohmann::json manifest = parseManifest(dir);
+
+    const auto& surfaces = manifest["resources"]["surface_types"];
+    REQUIRE(surfaces.size() == 2);
+    CHECK(surfaces[0]["ref"]["name"] == "Stone");
+    CHECK(surfaces[0]["sound_class"]["id"]["row"] == 3);
+    CHECK_FALSE(surfaces[1].contains("sound_class"));
+    CHECK(manifest["resources"]["materials"][0]["surface_type"] == 0);
+    const auto& channels = manifest["resources"]["geometry"]["mesh"]["attributes"];
+    CHECK(std::any_of(channels.begin(), channels.end(), [](const nlohmann::json& c) { return c["name"] == "surface_type"; }));
+}
+
 TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
     canon::Model model = buildSyntheticModel();
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0x8, {}, {}});

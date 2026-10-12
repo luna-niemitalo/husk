@@ -46,6 +46,12 @@ preliminary feedback:
   that exist; each dropped one is an `errors.log`/`missing.tsv` row
   (phase `placement`). What the client shows for such a placement is not
   known.
+- Surface types (`BUNDLE_FORMAT.md` "Surface types"):
+  `resources.surface_types` lists TerrainType rows (name, footstep sound
+  class, sprays). Terrain `ground_effects[].surface_type`, WMO
+  `materials[].surface_type`, and a WMO's face channel `surface_type`
+  (when it has per-face overrides) index it. Most terrain has none: 63%
+  of quads' ground effects are absent from the build's DB2.
 
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so

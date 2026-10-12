@@ -733,6 +733,10 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
             w.key("framebuffer_blend");
             w.value(framebufferBlendName(*material.framebufferBlend));
         }
+        if (material.surfaceType) {
+            w.key("surface_type");
+            w.value(static_cast<int64_t>(*material.surfaceType));
+        }
         if (material.diffuseLayer) {
             w.key("diffuse_layer");
             writeRef(w, *material.diffuseLayer);
@@ -1070,6 +1074,10 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     }
     w.endObject();
 
+    if (!model.surfaceTypes.empty()) {
+        w.key("surface_types");
+        writeSurfaceTypes(w, model.surfaceTypes);
+    }
     if (!model.liquidTypes.empty()) {
         w.key("liquid_types");
         writeLiquidTypes(w, model.liquidTypes, [&](const canon::TextureRef& frame) {

@@ -30,6 +30,10 @@ struct DoodadSlot {
 struct TextureRow {
     uint32_t id = 0;
     std::optional<uint32_t> density;
+    // The `Sound` column: a TerrainType row, the surface the client plays
+    // footsteps for (wowdev.wiki DB/GroundEffectTexture; its 12.1.0 values
+    // are all TerrainType ids).
+    std::optional<uint32_t> terrainType;
     std::vector<DoodadSlot> doodads;
 };
 

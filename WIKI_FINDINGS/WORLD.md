@@ -82,6 +82,26 @@ including the planning-pass ones that used to live here.
   counts always equal `MOVI / 3`.
 - `MOBA`'s `material_id_large` flag (0x02 at 0x16) must decide which field
   is the batch's material: flagged batches leave `material_id` at 0.
+- `MOBA.count` is a `uint16_t`, and a batch of 65,536 or more indices
+  stores it wrapped: `egglayeradd_000.wmo`, `riplash_center_000.wmo` and
+  `westrift_north_000.wmo` each have one batch over all 69,072 / 76,440 /
+  107,553 indices with counts 3,536 / 10,904 / 42,017 (each the total
+  minus 65,536). The wiki shows no high bits. Batches are contiguous: in
+  a seeded 4,000-group sample every non-last batch (25,201) ends at the
+  next batch's start; the last ends at `MOVI`'s end in 2,504 groups and
+  before it in 1,386 (faces outside any batch). (2026-10-13)
+- `MOQG`/`MOGX` (DF+): checked on all 278 groups with `MOQG` in a seeded
+  8,000-group sample. `MOGX`'s first word is the first face `MOQG`
+  covers, and the `MPY2` faces flagged 0x100 span exactly
+  `[MOGX, MOGX + len(MOQG))`. Every `MOQG` value is a `TerrainType` ID.
+  (2026-10-13)
+- `MOMT.ground_type` values in a seeded 750-root sample: 10 (Default) on
+  37% of materials, then 2 Stone, 1 Metallic, 0 Dirt, 4 Wood. Whether 0
+  means Dirt or unset is not known. (2026-10-13)
+- `MOMT.blendMode` over all 12,924 roots: 0–5 and 6. Mode 6
+  (`GxBlend_ModAdd`) is used by exactly five materials, all in Broken
+  Shore moonwell and shrine WMOs (`7bs_nightelf_moonwell_*`,
+  `7ne_nightelf_malorne_shrine_damaged`). (2026-10-13)
 
 ## WMO materials in the client shaders (12.1.0) — verified
 
@@ -460,7 +480,31 @@ The wiki's `DB/Light` describes the old DBC. In this build:
 - **`FogEnd` is 0 in 10,741 of 19,866 rows**, so newer rows state their
   fog through the density, height and curve columns instead.
 - **Params coverage.** `LightData` names 3,712 distinct `LightParamID`s;
-  `LightParams` has 1,674 rows.
+  `LightParams` has 1,674 rows. Of the 2,377 IDs `Light` uses, 1,196
+  have no `LightParams` row; the file has one section of 1,674 records,
+  so the rows are absent from it, not unread.
+- **Colours** are packed 0x00RRGGBB; under 2% of rows have a high byte
+  (1 on most colour columns, 3 on cloud colours, 0xFF on
+  `ShadowOpacity` and `CloudLayer2AmbientColor`), meaning unknown.
+  `ShadowOpacity` is grey on 19,526 of 19,866 rows. (2026-10-12)
+- **`LightParams.SunPolar`/`SunAzimuth`** hold 0, 90, 135, 225, one 6300
+  and −90..90: read as degrees, an inference. (2026-10-12)
+
+## Surface types: `TerrainType` and where surfaces name it (12.1.0, 2026-10-13)
+
+- `TerrainType` has 23 rows (Dirt 0, Metallic 1, Stone 2, Snow 3, Wood 4,
+  Grass 5, Leaves 6, Sand 7, Soggy 8, Dusty Grass 9, Default 10, Water
+  11, Sea Floor 12, ... Carpet 131), each naming a `TerrainTypeSounds`
+  row.
+- `GroundEffectTexture.Sound` is a `TerrainType` ID on all 2,750 rows.
+- Coverage for terrain is poor. Per quad, over 2,000 seeded tiles of the
+  f8c447c export: the dominant layer names a `GroundEffectTexture` row
+  the build's file lacks on 63.1% of quads; 30.1% of quads have no
+  layers; about 7% resolve to a surface (Dirt 2.0%, Grass 1.8%, Sand
+  1.1%, ...). The same file is in all three local builds that carry it,
+  so they don't show whether the missing rows ever existed.
+- `MCMT` names `TerrainMaterial` rows (shader and environment maps), not
+  surfaces.
 
 ## Collision & culling — verified
 
@@ -515,8 +559,8 @@ unimportant: `MDAL` (WMO ambient-color override — affects rendered
 lighting), `MCSE` (ADT sound-emitter placement — same shape as M2's own
 ribbon/particle anchor), `MCSH` (ADT baked shadow bitmap — real bimodal
 shadow-density signal), `MCMT` (ADT per-layer material-ID override). `MOQG`
-(WMO per-face ground type) was reconsidered under the same lens and
-confirmed to genuinely belong at n/a (audio-only, no visual consequence).
+(WMO per-face ground type) was first set at n/a as audio-only; it is now
+exported as surface types (above), which a weather system needs.
 
 ## PM4/PD4 — verified, structural negative
 

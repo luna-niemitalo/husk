@@ -4,12 +4,15 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <limits>
 #include <fstream>
 #include <iterator>
+#include <variant>
 
+#include "surface_db2.hpp"
 #include "test_data_paths.hpp"
 #include "wmo.hpp"
 #include "wmo_canon_input.hpp"
@@ -108,6 +111,49 @@ TEST_CASE("buildCanonWmo: groups become parts sharing one vertex buffer, batches
     CHECK(model.mesh.primitives[1].part == 1u);
     CHECK(model.mesh.indices[6] == 4);  // group 1's vertex 0, offset past group 0's 4 vertices
     CHECK(canon::resolveMaterialIndex(model, 0) == 1u);
+}
+
+TEST_CASE("buildCanonWmo: materials name their surface; MOQG overrides it per face") {
+    wmo::RootFile root = syntheticRoot();
+    root.materials[0].groundType = 2;  // Stone
+    root.materials[1].groundType = 10;
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    wmo::GroupFile hall = group(4, 1, 1, 2);
+    hall.triangles[1].flags |= wmo::kFaceUsesQueryGroundType;
+    hall.queryFaceStart = 1;
+    hall.queryFaceGroundTypes = {5};
+    wmo::GroupFile side = group(3, 1, 0, 1);
+    side.triangles[0].material = 0xFFFF;  // collision-only
+    in.groups = {hall, side};
+    surfacedb::Data surfaces;
+    surfaces.types[2] = {2, "Stone", 0, 0, 3, "Stone", 0};
+    in.surfaces = &surfaces;
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.surfaceTypes.size() == 3);
+    CHECK(model.surfaceTypes[0].ref.name == "Stone");
+    CHECK(std::get<canon::Db2Row>(model.surfaceTypes[1].ref.id).row == 10);
+    CHECK_FALSE(model.surfaceTypes[1].soundClass);  // no TerrainType row given for 10
+    CHECK(model.materials[0].surfaceType == 0u);
+    CHECK(model.materials[1].surfaceType == 1u);
+    auto channel = std::find_if(model.mesh.attributes.begin(), model.mesh.attributes.end(),
+                                [](const canon::AttributeChannel& c) { return c.name == "surface_type"; });
+    REQUIRE(channel != model.mesh.attributes.end());
+    // hall: face 0 its material's (1 -> 10), face 1 MOQG's 5; side: collision-only.
+    CHECK(std::get<std::vector<uint16_t>>(channel->values) == std::vector<uint16_t>{1, 2, 0xFFFF});
+}
+
+TEST_CASE("buildCanonWmo: without MOQG the materials carry the surface and no face channel is written") {
+    wmo::RootFile root = syntheticRoot();
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {group(4, 1, 1, 2), std::nullopt};
+    canon::Model model = wmoinput::buildCanonWmo(in);
+    CHECK(model.materials[1].surfaceType.has_value());
+    CHECK(std::none_of(model.mesh.attributes.begin(), model.mesh.attributes.end(),
+                       [](const canon::AttributeChannel& c) { return c.name == "surface_type"; }));
 }
 
 TEST_CASE("buildCanonWmo: EGxBlend 6 is mod_add (7bs_nightelf_moonwell_complete.wmo material 5)") {

@@ -703,6 +703,10 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
             g.colorSets.push_back(readArray<uint32_t>(c));
         } else if (c.tag == "MOBA") {
             g.batches = parseBatches(c);
+        } else if (c.tag == "MOGX") {
+            g.queryFaceStart = read<uint32_t>(c.data, c.size, 0, "MOGX");
+        } else if (c.tag == "MOQG") {
+            g.queryFaceGroundTypes = readArray<uint32_t>(c);
         } else if (c.tag == "MLIQ") {
             g.liquid = parseLiquid(c);
         } else if (c.tag == "MPVR") {
@@ -748,6 +752,15 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
         }
     }
     unwrapBatchCounts(g);
+    if (!g.queryFaceGroundTypes.empty()) {
+        size_t end = size_t{g.queryFaceStart} + g.queryFaceGroundTypes.size();
+        for (size_t f = 0; f < g.triangles.size(); ++f) {
+            if ((g.triangles[f].flags & kFaceUsesQueryGroundType) && (f < g.queryFaceStart || f >= end)) {
+                throw ParseError("MPY2 face " + std::to_string(f) + " flags 0x100: expected it within MOQG's faces [" +
+                                 std::to_string(g.queryFaceStart) + ", " + std::to_string(end) + ")");
+            }
+        }
+    }
     for (size_t i = 0; i < g.batches.size(); ++i) {
         const Batch& b = g.batches[i];
         if (b.startIndex > g.indices.size() || b.indexCount > g.indices.size() - b.startIndex) {

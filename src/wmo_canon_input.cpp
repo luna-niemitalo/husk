@@ -9,6 +9,7 @@
 #include <string>
 
 #include "liquid_canon_input.hpp"
+#include "surface_input.hpp"
 
 namespace husk::wmoinput {
 
@@ -706,6 +707,35 @@ std::vector<canon::AttributeChannel> buildFaceAttributes(const WmoInputs& in) {
             {"wmo.poly_material", canon::AttributeDomain::Face, 1, std::move(materials)}};
 }
 
+// Each face's surface (index into `surfaces`; kNoSurface for a face whose
+// material doesn't exist, e.g. collision-only 0xFF): its MOQG ground type
+// where flagged, else its material's. nullopt when no group has MOQG, so
+// the materials say it all.
+constexpr uint16_t kNoSurface = 0xFFFF;
+
+std::optional<canon::AttributeChannel> faceSurfaceTypes(const WmoInputs& in, const std::vector<canon::Material>& materials,
+                                                        surfaceinput::SurfaceTable& surfaces) {
+    bool overridden = std::any_of(in.groups.begin(), in.groups.end(), [](const std::optional<wmo::GroupFile>& g) {
+        return g && !g->queryFaceGroundTypes.empty();
+    });
+    if (!overridden) return std::nullopt;
+    std::vector<uint16_t> values;
+    for (const std::optional<wmo::GroupFile>& g : in.groups) {
+        if (!g) continue;
+        for (size_t f = 0; f < g->triangles.size(); ++f) {
+            const wmo::TriangleInfo& t = g->triangles[f];
+            if ((t.flags & wmo::kFaceUsesQueryGroundType) && !g->queryFaceGroundTypes.empty()) {
+                values.push_back(static_cast<uint16_t>(surfaces.add(g->queryFaceGroundTypes[f - g->queryFaceStart])));
+            } else if (t.material < materials.size()) {
+                values.push_back(static_cast<uint16_t>(*materials[t.material].surfaceType));
+            } else {
+                values.push_back(kNoSurface);
+            }
+        }
+    }
+    return canon::AttributeChannel{"surface_type", canon::AttributeDomain::Face, 1, std::move(values)};
+}
+
 // Appends one group's vertices and batches to `mesh`. UV and colour sets a
 // group lacks are zero-filled so every vertex has every set; the part's own
 // flags say which sets the group really has.
@@ -967,6 +997,11 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
 
     std::vector<canon::Material> materials;
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
+    surfaceinput::SurfaceTable surfaces(in.surfaces);
+    for (uint32_t i = 0; i < root.materials.size(); ++i) materials[i].surfaceType = surfaces.add(root.materials[i].groundType);
+    if (std::optional<canon::AttributeChannel> faces = faceSurfaceTypes(in, materials, surfaces)) {
+        mesh.attributes.push_back(std::move(*faces));
+    }
     nameByPosition(lights.scene.localLights, "light");
 
     canon::Model model =
@@ -974,6 +1009,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
                              std::move(lights.scene), std::move(sets), std::move(liquids), {},
                              fogs.empty() ? std::nullopt : fogs[0]);
     model.liquidTypes = std::move(liquidTypes);
+    model.surfaceTypes = surfaces.take();
     return model;
 }
 

@@ -10,6 +10,7 @@
 #include "canon_placement.hpp"
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
+#include "canon_surface.hpp"
 
 // husk::canon: terrain tile -- one ADT tile's heightfield, texture layers,
 // ground-cover rules, liquid and placements. Pure value types; built by
@@ -82,6 +83,8 @@ struct GroundEffect {
     Ref ref;  // Db2Row GroundEffectTexture
     std::optional<uint32_t> density;
     std::vector<GroundEffectDoodad> doodads;
+    std::optional<uint32_t> terrainType;  // the TerrainType row the GroundEffectTexture names (Sound)
+    std::optional<uint32_t> surfaceType;  // index into the owning Terrain's surfaceTypes
 };
 
 // One 33.33-yard cell: a regular heightfield of 9x9 corner vertices plus
@@ -144,6 +147,7 @@ struct Terrain {
     uint32_t tileY = 0;
     std::vector<TerrainTexture> textures;
     std::vector<GroundEffect> groundEffects;
+    std::vector<SurfaceType> surfaceTypes;  // what the ground effects' surfaces are, each once
     std::vector<TerrainChunk> chunks;  // index gridY * 16 + gridX
     std::vector<LiquidSurface> liquids;
     // Each LiquidType and LiquidObject the liquids name, once, in first-seen

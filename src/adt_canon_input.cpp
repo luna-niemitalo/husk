@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 #include "liquid_canon_input.hpp"
+#include "surface_input.hpp"
 
 namespace husk::adtinput {
 
@@ -377,6 +378,11 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
             out.chunks[ci].dominantLayer = unpackDominantLayer(root.chunks[ci].predominantTexture);
             out.chunks[ci].groundEffectSuppressedRows = root.chunks[ci].noEffectDoodad;
         }
+        surfaceinput::SurfaceTable surfaces(resolutions.surfaces);
+        for (canon::GroundEffect& e : out.groundEffects) {
+            if (e.terrainType) e.surfaceType = surfaces.add(*e.terrainType);
+        }
+        out.surfaceTypes = surfaces.take();
     }
 
     if (root.liquid) {
@@ -473,6 +479,7 @@ GroundEffectDefinitions groundEffectDefinitions(const groundeffect::Data& data) 
         canon::GroundEffect effect;
         effect.ref = canon::Ref{canon::Db2Row{"GroundEffectTexture", row.id}, "", canon::NameSource::None};
         effect.density = row.density;
+        effect.terrainType = row.terrainType;
         for (const groundeffect::DoodadSlot& slot : row.doodads) {
             canon::GroundEffectDoodad d;
             d.doodad = canon::Ref{canon::Db2Row{"GroundEffectDoodad", slot.doodadId}, "", canon::NameSource::None};

@@ -1375,6 +1375,10 @@
                 "required": [
                   "flags"
                 ]
+              },
+              "surface_type": {
+                "$ref": "common.schema.json#/definitions/surface_type_index",
+                "description": "What the surface is made of (WMO ground_type). A face's own, when it differs, is the mesh attribute channel surface_type."
               }
             },
             "additionalProperties": false,
@@ -1993,6 +1997,10 @@
                         "source"
                       ]
                     }
+                  },
+                  "surface_type": {
+                    "$ref": "common.schema.json#/definitions/surface_type_index",
+                    "description": "What ground under this effect's layers is made of (GroundEffectTexture Sound). Absent when the build has no row for the effect."
                   }
                 },
                 "additionalProperties": false,
@@ -2289,6 +2297,14 @@
           "items": {
             "$ref": "common.schema.json#/definitions/texture_entry",
             "description": "One texture."
+          }
+        },
+        "surface_types": {
+          "type": "array",
+          "description": "Every surface the materials, faces or ground effects name, each once.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/surface_type",
+            "description": "One surface."
           }
         }
       },

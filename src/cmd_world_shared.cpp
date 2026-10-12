@@ -152,6 +152,21 @@ std::optional<liquiddb::Data> loadLiquids(const std::string& db2Dir, const std::
     return data;
 }
 
+std::optional<surfacedb::Data> loadSurfaces(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "surface types: TerrainType ids only (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<surfacedb::Data> data = surfacedb::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "surface types: TerrainType ids only (surface DB2s unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "surface types: " + std::to_string(data->types.size()) + " TerrainType rows from " + db2Dir;
+    return data;
+}
+
 // M2s only: what `husk export --bundle-only` can export.
 std::set<uint32_t> referencedModels(const canon::Terrain& terrain) {
     std::set<uint32_t> out;
@@ -218,11 +233,12 @@ std::optional<std::filesystem::path> findWmoGroupFile(const std::filesystem::pat
 // that exists but doesn't parse fails the export.
 canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<uint32_t> fileDataId,
                           const ListfileIndex* listfile, const std::string& listfileRoot,
-                          const liquiddb::Data* liquids, const std::function<void(const std::string&)>& warn) {
+                          const liquiddb::Data* liquids, const surfacedb::Data* surfaces, const std::function<void(const std::string&)>& warn) {
     wmo::RootFile root = wmo::parseRoot(adt::readFile(rootPath));
     wmoinput::WmoInputs inputs;
     inputs.root = &root;
     inputs.liquids = liquids;
+    inputs.surfaces = surfaces;
     for (uint32_t g = 0; g < root.groups.size(); ++g) {
         std::optional<std::filesystem::path> path = findWmoGroupFile(rootPath, root, g, listfile, listfileRoot);
         if (!path) {
@@ -277,18 +293,21 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
     return model;
 }
 
-writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids) {
+writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids,
+                                  bool haveSurfaces) {
     writers::Provenance out{std::string("husk ") + husk::version(), "wmo", {}};
     out.sources.push_back({"listfile", "group files, textures and doodad names by FileDataID", listfile != nullptr,
                            listfile ? listfilePath : "not given"});
     out.sources.push_back({"liquid db2", "liquid type names, materials and textures", haveLiquids, ""});
+    out.sources.push_back({"surface db2", "surface type names, footstep sounds and sprays", haveSurfaces, ""});
     return out;
 }
 
 // What a tile was built from. A sidecar marked unavailable was missing, or
 // (tex0 without a readable WDT) unusable.
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,
-                                      const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids) {
+                                      const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids,
+                                      bool haveSurfaces) {
     writers::Provenance out{std::string("husk ") + husk::version(), "adt", {}};
     out.sources.push_back({"obj0", "doodad and map-object placements", haveObj, ""});
     out.sources.push_back({"tex0", "texture layers and alpha maps", haveTex, ""});
@@ -297,6 +316,7 @@ writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, 
                            listfile ? listfilePath : "not given"});
     out.sources.push_back({"groundeffect db2", "ground-cover rules", haveGroundEffects, ""});
     out.sources.push_back({"liquid db2", "liquid type names, materials, textures and objects", haveLiquids, ""});
+    out.sources.push_back({"surface db2", "surface type names, footstep sounds and sprays", haveSurfaces, ""});
     return out;
 }
 

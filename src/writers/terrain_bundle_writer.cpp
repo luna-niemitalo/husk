@@ -60,6 +60,10 @@ void writeGroundEffectsSection(json::Writer& w, const std::vector<canon::GroundE
             w.key("density");
             w.value(static_cast<int64_t>(*e.density));
         }
+        if (e.surfaceType) {
+            w.key("surface_type");
+            w.value(static_cast<int64_t>(*e.surfaceType));
+        }
         w.key("doodads");
         w.beginArray();
         for (const canon::GroundEffectDoodad& d : e.doodads) {
@@ -309,6 +313,10 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     for (const canon::LiquidSurface& l : terrain.liquids) writeLiquid(w, l, liquidBin);
     w.endArray();
     w.endObject();  // terrain
+    if (!terrain.surfaceTypes.empty()) {
+        w.key("surface_types");
+        writeSurfaceTypes(w, terrain.surfaceTypes);
+    }
     if (!terrain.liquidTypes.empty()) {
         w.key("liquid_types");
         writeLiquidTypes(w, terrain.liquidTypes, [&](const canon::TextureRef& frame) {

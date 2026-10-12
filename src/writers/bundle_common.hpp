@@ -14,6 +14,7 @@
 #include "canon_placement.hpp"
 #include "canon_scene.hpp"  // Animated, LifetimeCurve for the curve writers
 #include "canon_ref.hpp"
+#include "canon_surface.hpp"
 #include "json_writer.hpp"
 
 // husk::writers: manifest building blocks shared by every bundle writer
@@ -265,6 +266,9 @@ void writeLifetimeCurve(json::Writer& w, const char* key, const canon::LifetimeC
     }
     w.endArray();
 }
+
+// resources.surface_types: each entry a TerrainType (canon_surface.hpp).
+void writeSurfaceTypes(json::Writer& w, const std::vector<canon::SurfaceType>& types);
 
 // resources.liquid_types (schema/common.schema.json "liquid_type"), the
 // array only; `writeTexture` writes one frame's texture entry, so terrain

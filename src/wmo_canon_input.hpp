@@ -8,6 +8,7 @@
 
 #include "canon_model.hpp"
 #include "liquid_db2.hpp"
+#include "surface_db2.hpp"
 #include "wmo.hpp"
 
 // husk::wmoinput: WMO root + group files -> canon::Model. A WMO is an
@@ -33,6 +34,7 @@ struct WmoInputs {
     TextureResolutions textures;
     std::unordered_map<uint32_t, std::string> assetNames;  // listfile names for doodad and light-cookie FileDataIDs
     const liquiddb::Data* liquids = nullptr;  // nullptr: liquid types are identities only
+    const surfacedb::Data* surfaces = nullptr;  // nullptr: surface types are TerrainType ids only
 };
 
 // The lights buildCanonWmo leaves out (root MNLD/MOLT, group MOLS/MOLP): any

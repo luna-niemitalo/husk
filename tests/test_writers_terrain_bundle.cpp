@@ -132,6 +132,7 @@ canon::Terrain sampleTerrain() {
     canon::GroundEffect effect;
     effect.ref = canon::Ref{canon::Db2Row{"GroundEffectTexture", 77}, "", canon::NameSource::None};
     effect.density = 9;
+    effect.terrainType = 5;
     canon::GroundEffectDoodad doodad;
     doodad.doodad = canon::Ref{canon::Db2Row{"GroundEffectDoodad", 3}, "", canon::NameSource::None};
     doodad.model = canon::Ref{canon::FileDataId{888}, "flower", canon::NameSource::Listfile};
@@ -148,8 +149,13 @@ canon::Terrain sampleTerrain() {
         d.objects[100] = {5, 180.0f, 1.0f, 1, 0};
         return d;
     }();
+    static const husk::surfacedb::Data surfaces = [] {
+        husk::surfacedb::Data d;
+        d.types[5] = {5, "Grass", 12, 13, 6, "Grass", 0};
+        return d;
+    }();
     adtinput::TileSources sources{root, obj, tex, 0x4, "azeroth", 32, 48};
-    return adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths, &liquids});
+    return adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths, &liquids, &surfaces});
 }
 
 fs::path freshDir(const std::string& name) {
@@ -276,6 +282,11 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK(effect["doodads"][0]["model"]["id"]["value"] == 888);
     CHECK(effect["doodads"][0]["weight"] == 2);
     CHECK_FALSE(effect["doodads"][0]["model"].contains("uri"));
+    const nlohmann::json& surface = m["resources"]["surface_types"][effect["surface_type"].get<size_t>()];
+    CHECK(surface["ref"]["name"] == "Grass");
+    CHECK(surface["ref"]["id"]["table"] == "TerrainType");
+    CHECK(surface["sound_class"]["id"]["row"] == 6);
+    CHECK(surface["footstep_spray_run"]["id"]["row"] == 12);
 
     REQUIRE(t["liquids"].size() == 2);
     const nlohmann::json& river = t["liquids"][0];

@@ -209,6 +209,9 @@ struct Material {
     // doesn't resolve.
     std::optional<std::string> pixelShader;
     std::optional<std::string> vertexShader;
+    // What the surface is made of (WMO MOMT ground_type): index into the
+    // owning Model's surfaceTypes. nullopt for M2, which names none.
+    std::optional<uint32_t> surfaceType;
     // no normalLayer/roughnessLayer yet -- no real producer populates one; add when one actually exists, not speculatively.
 };
 

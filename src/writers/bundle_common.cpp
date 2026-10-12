@@ -882,6 +882,32 @@ void writeEffectDocument(const std::string& name, const std::filesystem::path& p
     writeFile(path, std::vector<uint8_t>(bytes.begin(), bytes.end()));
 }
 
+void writeSurfaceTypes(json::Writer& w, const std::vector<canon::SurfaceType>& types) {
+    w.beginArray();
+    for (const canon::SurfaceType& s : types) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, s.ref);
+        if (s.soundClass) {
+            w.key("sound_class");
+            writeRef(w, *s.soundClass);
+        }
+        for (auto [key, spray] : {std::pair{"footstep_spray_run", &s.footstepSprayRun},
+                                  std::pair{"footstep_spray_walk", &s.footstepSprayWalk}}) {
+            if (!*spray) continue;
+            w.key(key);
+            writeRef(w, **spray);
+        }
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(s.flags));
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeLiquidTypes(json::Writer& w, const std::vector<canon::LiquidType>& types,
                       const std::function<void(const canon::TextureRef&)>& writeTexture) {
     w.beginArray();

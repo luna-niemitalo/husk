@@ -21,7 +21,9 @@ using AttributeValues = std::variant<std::vector<uint8_t>, std::vector<uint16_t>
                                      std::vector<int32_t>, std::vector<float>>;
 
 struct AttributeChannel {
-    std::string name;  // "<source>.<field>", unique within the mesh, e.g. "wmo.poly_flags"
+    // "<source>.<field>", unique within the mesh, e.g. "wmo.poly_flags"; a
+    // resolved channel has no prefix ("surface_type", BUNDLE_FORMAT.md).
+    std::string name;
     AttributeDomain domain = AttributeDomain::Vertex;
     uint32_t components = 1;
     AttributeValues values;  // element-major: `components` values per element

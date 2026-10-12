@@ -9,6 +9,7 @@
 #include "canon_terrain.hpp"
 #include "groundeffect_db2.hpp"
 #include "liquid_db2.hpp"
+#include "surface_db2.hpp"
 
 // husk::adtinput: ADT -> canon::Terrain, the ADT counterpart of
 // m2_canon_input.hpp. Every on-disk convention is resolved here and nowhere
@@ -45,6 +46,7 @@ struct Resolutions {
     const GroundEffectDefinitions& groundEffects;
     const GamePathResolutions& gamePaths;
     const liquiddb::Data* liquids = nullptr;  // nullptr: liquid types and objects are identities only
+    const surfacedb::Data* surfaces = nullptr;  // nullptr: surface types are TerrainType ids only
 };
 
 canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& resolutions);
