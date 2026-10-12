@@ -8,6 +8,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -74,6 +75,10 @@ bool isRootWmoPath(std::string_view path) {
     return path.ends_with(".wmo") && !std::regex_search(path.begin(), path.end(), group);
 }
 
+struct SourceGone : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
 // Thread-safe append-only failure log: one "phase<TAB>item<TAB>message" line
 // per failure, so a rerun (which skips finished outputs) can be checked
 // against it.
@@ -89,8 +94,8 @@ public:
     void add(const std::string& phase, const std::string& item, const std::string& message) {
         std::error_code ec;
         if (!std::filesystem::is_directory(sourceRoot_, ec)) {
-            throw std::runtime_error("expected the source tree " + sourceRoot_.string() +
-                                     ", got none (unmounted?): stopping at " + phase + " " + item);
+            throw SourceGone("expected the source tree " + sourceRoot_.string() +
+                             ", got none (unmounted?): stopping at " + phase + " " + item);
         }
         std::lock_guard<std::mutex> lock(mutex_);
         out_ << phase << '\t' << item << '\t' << message << '\n';
@@ -588,6 +593,9 @@ int exportWorld(int argc, char** args) {
         std::cout << "done: " << tiles.size() << " tiles, " << worlds << " worlds, " << exportedModels.size()
                   << " model bundles, "
                   << errors.count() << " errors this run (" << (out / "errors.log").string() << ")" << std::endl;
+    } catch (const SourceGone& e) {
+        std::cerr << "husk: export-world: " << e.what() << "\n";
+        return kExitSourceGone;
     } catch (const std::exception& e) {
         std::cerr << "husk: export-world: " << e.what() << "\n";
         return 1;

@@ -531,7 +531,7 @@ TEST_CASE("husk export-world: a source tree that is gone stops the run instead o
                       " --map azeroth --skip-models --jobs 2";
     auto r = runHusk(cmd);
     INFO(r.output);
-    CHECK(r.exitCode == 1);
+    CHECK(r.exitCode == 3);  // kExitSourceGone: export-corpus waits and resumes on it
     CHECK(r.output.find("expected the source tree") != std::string::npos);
     CHECK(r.output.find("got none (unmounted?)") != std::string::npos);
 }

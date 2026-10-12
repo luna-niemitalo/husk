@@ -103,6 +103,9 @@ int validateBundle(int argc, char** args);
 // shared set of model bundles and terrain textures; parallel, resumable,
 // failures logged and skipped (cmd_export_terrain.cpp).
 int exportWorld(int argc, char** args);
+// export-world's exit code when its source tree vanished mid-run (an
+// unmounted store): nothing was logged for it, and a rerun resumes.
+inline constexpr int kExitSourceGone = 3;
 
 // `store-add` -- records an export tree as a build in the canonical store;
 // `mount` -- serves the store read-only over FUSE (cmd_store.cpp,

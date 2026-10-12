@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
@@ -15,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -86,6 +88,20 @@ void storeTree(const std::string& storeDir, const std::string& tree, const std::
 void printIndex(const corpus::IndexResult& index, const std::string& tree) {
     std::cout << "index: " << (fs::path(tree) / "index").string() << ", " << index.manifests << " model manifests, "
               << index.creatureDisplays << " creature displays, " << index.chrModels << " ChrModel links\n";
+}
+
+constexpr int kSourceResumes = 20;
+
+// Polls for `dir` every few seconds for up to an hour; true once it exists.
+bool waitForDirectory(const std::string& dir) {
+    std::cout << "waiting for " << dir << " to come back" << std::endl;
+    for (int i = 0; i < 720; ++i) {
+        std::error_code ec;
+        if (fs::is_directory(dir, ec)) return true;
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+    std::cerr << "husk: export-corpus: expected " << dir << " back within an hour, got none\n";
+    return false;
 }
 
 // --- mount ----------------------------------------------------------------
@@ -517,7 +533,15 @@ int exportCorpus(int argc, char** args) {
         }
         std::vector<char*> argv;
         for (std::string& a : worldArgs) argv.push_back(a.data());
-        if (int code = exportWorld(static_cast<int>(argv.size()), argv.data()); code != 0) return code;
+        // The source store can be remounted mid-run by its own tooling: wait
+        // for it to come back and resume (finished outputs are skipped).
+        int code = exportWorld(static_cast<int>(argv.size()), argv.data());
+        for (int resumes = 0; code == kExitSourceGone && resumes < kSourceResumes; ++resumes) {
+            if (!waitForDirectory(opts.listfileRoot)) break;
+            std::cout << "source back: resuming the export (" << resumes + 1 << ")" << std::endl;
+            code = exportWorld(static_cast<int>(argv.size()), argv.data());
+        }
+        if (code != 0) return code;
         printIndex(corpus::buildIndex(opts.output), opts.output);
         if (!storing) return 0;
         storeTree(opts.store, opts.output, run.game, opts.tags);
