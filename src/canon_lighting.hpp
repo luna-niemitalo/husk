@@ -67,7 +67,7 @@ struct LightKey {
     Vec3 oceanFarColor;
     Vec3 riverCloseColor;
     Vec3 riverFarColor;
-    Vec3 shadowOpacity;  // stored as a colour; grey on every row seen
+    Vec3 shadowOpacity;  // stored as a colour; grey on 19,526 of 19,866 12.1.0 rows
     // A 1024x32 lookup texture remapping the frame's colours (wowdev.wiki
     // DB/LightData); nullopt = none.
     std::optional<TextureRef> colorGrading;
@@ -98,7 +98,8 @@ struct LightSettings {
     float oceanDeepAlpha = 0;
     uint32_t flags = 0;  // raw; hide sun/moon/stars are bits 0x4/0x8/0x10
     uint32_t ssaoSettings = 0;  // SSAOSettings row; 0 = none
-    // Radians, from the degrees stored (90, 135, 225, -90; one 6300).
+    // Radians. Read as degrees on disk, an inference from the values (0,
+    // 90, 135, 225, -90; one 6300); no source states the unit.
     float sunPolar = 0;
     float sunAzimuth = 0;
     float sunAttenuationStart = 0;

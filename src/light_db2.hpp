@@ -51,7 +51,7 @@ struct Key {
     uint32_t oceanFarColor = 0;
     uint32_t riverCloseColor = 0;
     uint32_t riverFarColor = 0;
-    uint32_t shadowOpacity = 0;  // grey levels (0x4D4D4D) on every row seen
+    uint32_t shadowOpacity = 0;  // grey (e.g. 0x4D4D4D) on 19,526 of 19,866 rows
     uint32_t horizonAmbientColor = 0;
     uint32_t groundAmbientColor = 0;
     uint32_t endFogColor = 0;
@@ -104,8 +104,8 @@ struct Params {
     float oceanDeepAlpha = 0;
     uint32_t flags = 0;
     uint32_t ssaoSettingsId = 0;
-    float sunPolar = 0;    // degrees as observed (0, 90, 135, 225; one 6300)
-    float sunAzimuth = 0;  // degrees, -90..90
+    float sunPolar = 0;    // as stored: 0, 90, 135, 225, one 6300 (read as degrees, unconfirmed)
+    float sunAzimuth = 0;  // as stored: -90..90
     float sunAttenuationStart = 0;
     float sunAttenuationEnd = 0;
     // Field_12_0_0_63534_016 .. _029 and Field_12_0_1_65617_030 .. _031, as

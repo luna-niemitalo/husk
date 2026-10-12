@@ -274,9 +274,9 @@ Store::Put Store::putFile(const fs::path& source) const {
     fs::path staged = root_ / "tmp" / (std::to_string(::getpid()) + "-" + std::to_string(stagingCounter++));
     fs::create_directories(staged.parent_path());
     Md5 written = copyHashing(source, staged);
-    // A mismatch is either a file still being written or a bad read (this
-    // machine returned wrong bytes for an unchanged file once, 2026-10-12):
-    // a third read that agrees with one of the two settles which.
+    // A mismatch is a file still being written or a read that went wrong
+    // (one unchanged file hashed two ways on 2026-10-12, cause unknown): a
+    // third read that agrees with one of the two settles which.
     if (written != key) {
         Md5 third = md5File(source);
         std::cerr << "husk: warning: " << source.string() << ": hashed " << hex(key) << ", copied " << hex(written)

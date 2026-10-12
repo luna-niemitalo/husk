@@ -2249,7 +2249,7 @@
         },
         "shadow_opacity": {
           "$ref": "#/definitions/rgb",
-          "description": "Shadow opacity, stored as a colour: grey on every row seen.",
+          "description": "Shadow opacity, stored as a colour: grey on 19,526 of 12.1.0's 19,866 rows.",
           "x-unit": "1"
         },
         "sky": {
@@ -2485,12 +2485,12 @@
           "properties": {
             "polar": {
               "type": "number",
-              "description": "SunPolar, converted from the degrees stored.",
+              "description": "SunPolar, converted as if stored in degrees (an inference from the values; unconfirmed).",
               "x-unit": "radian"
             },
             "azimuth": {
               "type": "number",
-              "description": "SunAzimuth, converted from the degrees stored.",
+              "description": "SunAzimuth, converted as if stored in degrees (an inference from the values; unconfirmed).",
               "x-unit": "radian"
             },
             "attenuation_start": {
