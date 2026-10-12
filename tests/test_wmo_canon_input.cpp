@@ -381,11 +381,32 @@ TEST_CASE("buildCanonWmo: liquid type follows WMO.md's rules, with and without t
     CHECK(resolvedType(0x4, 4) == 20);            // slime
     CHECK(resolvedType(0x4, 1206) == 1206);       // non-basic: the LiquidType row itself
     CHECK(resolvedType(0x4, 0) == 0);             // to_wmo_liquid(-1): undecided
-    // Without it: to_wmo_liquid(groupLiquid), non-basic + 1, green lava undecided.
+    // Without it: to_wmo_liquid(groupLiquid), non-basic + 1, green lava by its tiles.
     CHECK(resolvedType(0, 0) == 13);
     CHECK(resolvedType(0, 2) == 19);
     CHECK(resolvedType(0, 40) == 41);
-    CHECK(resolvedType(0, 15) == 0);
+    CHECK(resolvedType(0, 15) == 13);  // the fixture's one liquid tile has nibble 4: WMO water
+}
+
+TEST_CASE("buildCanonWmo: legacy green lava takes the type its tiles agree on, else none") {
+    auto greenLava = [](std::vector<uint8_t> tiles) {
+        wmo::RootFile root = syntheticRoot();
+        wmo::GroupFile g = group(3, 1, 0, 1);
+        g.liquidType = 15;
+        g.liquid = liquid2x2(1);
+        g.liquid->tiles = std::move(tiles);
+        wmoinput::WmoInputs in;
+        in.root = &root;
+        in.groups = {g, std::nullopt};
+        canon::Model model = wmoinput::buildCanonWmo(in);
+        const auto* row = std::get_if<canon::Db2Row>(&model.liquids[0].liquidType.id);
+        return row ? row->row : 0u;
+    };
+    CHECK(greenLava({0x42, 0x02}) == 19);  // magma
+    CHECK(greenLava({0x01, 0x0F}) == 14);  // ocean
+    CHECK(greenLava({0x03, 0x03}) == 20);  // slime
+    CHECK(greenLava({0x02, 0x04}) == 0);   // the tiles disagree
+    CHECK(greenLava({0x0F, 0x0F}) == 0);   // no liquid tile
 }
 
 TEST_CASE("buildCanonWmo: MPVD records become particulate effect instances with resolved emitter textures") {

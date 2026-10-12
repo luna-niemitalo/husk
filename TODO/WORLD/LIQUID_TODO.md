@@ -53,9 +53,10 @@ the WMO bundle's `resources.geometry.liquids` (`canon::LiquidGrid`, schema in
 `../../WIKI_FINDINGS/WORLD.md`. 154 of 4,000 sampled group files carry it.
 Open:
 
-- **Legacy green lava** (`MOGP.groupLiquid` 15 in a root without MOHD flag
-  0x4) has no `liquid_type`: the client picks per tile by a rule the wiki
-  marks unverified. 34 of 602 liquids in a 120-root sample.
+- **Legacy green lava** (`MOGP.groupLiquid` 15 without MOHD flag 0x4)
+  takes the type its tiles' nibbles name (WIKI_FINDINGS/WORLD.md, checked
+  on only 4 liquids); one whose tiles disagree stays without a
+  `liquid_type`. None disagreed in the sample.
 - Whether `vertex_data` is water flow or magma UV depends on the liquid
   type's material (`LiquidType` -> `LiquidMaterial`), not resolved.
 - The implicit whole-group liquid (flag 0x1000 with no `MLIQ`) is not

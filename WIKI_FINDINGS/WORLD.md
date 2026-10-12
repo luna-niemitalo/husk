@@ -195,6 +195,7 @@ set; `MAVG`/`MBVD` never do).
 | Tile low nibble `0xF` = no liquid (MCLQ's convention) | ~47% of tiles; the bounds check above counts only the others |
 | Group flag `0x1000` and `MLIQ` always occur together; the "implicit whole-group liquid" case never appears | 154/154, 3,845 with neither |
 | The wiki's LiquidType rules hold | 568 resolved liquids in 120 roots: every id is a real `LiquidType.db2` row, and no water type sits on a lava/slime-textured material |
+| Legacy green lava (`groupLiquid` 15, no MOHD flag `0x4`) takes its type from the tiles' low nibble (1 ocean, 2 WMO magma, 3 slime, ≥4 water), the wiki's prose rule; every liquid tile of one liquid agrees | 4 green-lava liquids in 223 old-world roots (2026-10-12): Ragefire Chasm's 3 all nibble 2 (lava), the classical elf ruins' all 4 (water). **Small sample** |
 
 `MH2O` covers 67.1% of real ADT tiles (vs. WMO's own `MLIQ` at 2.1%) — clear
 implementation priority. Legacy `MCLQ` confirmed genuinely absent (0/4,000).

@@ -631,16 +631,33 @@ uint32_t toWmoLiquid(uint32_t basic, uint32_t groupFlags) {
     }
 }
 
-// nullopt where the wiki's rules don't decide: groupLiquid 0 under the DBC
-// flag (to_wmo_liquid(-1)), and legacy green lava, which the client
-// resolves per tile by a rule the wiki marks unverified.
+// Legacy green lava's type, from its tiles' legacyLiquidType nibble by
+// wowdev.wiki WMO "MLIQ" (1 ocean, 2 WMO magma, 3 WMO slime, >= 4 WMO
+// water). The wiki also calls it unverified in its decompiled snippet; the
+// corpus agrees with it on every case found (Ragefire Chasm's lava all 2,
+// elf ruins' water all 4; WIKI_FINDINGS/WORLD.md). nullopt when the tiles
+// disagree or none holds liquid.
+std::optional<uint32_t> greenLavaType(const wmo::Liquid& l) {
+    std::optional<uint32_t> type;
+    for (uint8_t tile : l.tiles) {
+        uint32_t nibble = tile & 0x0F;
+        if (nibble == 0x0F) continue;
+        uint32_t id = nibble == 1 ? 14 : nibble == 2 ? 19 : nibble == 3 ? 20 : 13;
+        if (type && *type != id) return std::nullopt;
+        type = id;
+    }
+    return type;
+}
+
+// nullopt where the rules don't decide: groupLiquid 0 under the DBC flag
+// (to_wmo_liquid(-1)), and green lava whose tiles disagree.
 std::optional<uint32_t> liquidTypeId(uint16_t rootFlags, const wmo::GroupFile& g) {
     uint32_t groupLiquid = g.liquidType;
     if (rootFlags & kRootUsesLiquidTypeDbcId) {
         if (groupLiquid == 0) return std::nullopt;
         return groupLiquid < kLiquidFirstNonBasic ? toWmoLiquid(groupLiquid - 1, g.flags) : groupLiquid;
     }
-    if (groupLiquid == kLiquidGreenLava) return std::nullopt;
+    if (groupLiquid == kLiquidGreenLava) return g.liquid ? greenLavaType(*g.liquid) : std::nullopt;
     return groupLiquid < kLiquidEndBasic ? toWmoLiquid(groupLiquid, g.flags) : groupLiquid + 1;
 }
 
