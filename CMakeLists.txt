@@ -214,6 +214,7 @@ add_library(husk-lib STATIC
   src/dump_chunks_misc.cpp
   src/cmd_dump.cpp
   src/cli_args.cpp
+  src/text_encoding.cpp
   src/corpus_store.cpp
   src/input_log.cpp
   src/corpus_index.cpp
@@ -267,6 +268,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_map_scene_input.cpp
   tests/test_bundle_schema.cpp
   tests/test_corpus_store.cpp
+  tests/test_text_encoding.cpp
     tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp

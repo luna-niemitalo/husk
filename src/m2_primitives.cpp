@@ -7,6 +7,7 @@
 
 #include "chunk.hpp"
 #include "m2_header.hpp"
+#include "text_encoding.hpp"
 
 namespace husk::m2 {
 
@@ -85,7 +86,7 @@ std::string readName(const uint8_t* blob, size_t blobSize, Array nameArray) {
     while (!s.empty() && s.back() == '\0') {
         s.pop_back();
     }
-    return s;
+    return text::fromGameText(s);
 }
 
 namespace {

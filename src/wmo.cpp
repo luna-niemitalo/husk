@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "chunk.hpp"
+#include "text_encoding.hpp"
 
 namespace husk::wmo {
 
@@ -155,7 +156,7 @@ std::vector<DoodadSet> parseDoodadSets(const Chunk& c) {
     for (size_t i = 0; i < out.size(); ++i) {
         size_t o = i * kModsSize;
         const char* name = reinterpret_cast<const char*>(c.data + o);
-        out[i].name.assign(name, strnlen(name, 0x14));
+        out[i].name = text::fromGameText(std::string_view(name, strnlen(name, 0x14)));
         out[i].startIndex = read<uint32_t>(c.data, c.size, o + 0x14, "MODS");
         out[i].count = read<uint32_t>(c.data, c.size, o + 0x18, "MODS");
     }
@@ -737,7 +738,7 @@ std::string stringAt(const std::string& blob, uint32_t offset) {
         throw ParseError("string offset: expected < " + std::to_string(blob.size()) + " (blob size), got " +
                          std::to_string(offset));
     }
-    return std::string(blob.c_str() + offset);
+    return text::fromGameText(blob.c_str() + offset);
 }
 
 }  // namespace husk::wmo

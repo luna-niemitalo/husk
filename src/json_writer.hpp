@@ -5,8 +5,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "text_encoding.hpp"
 
 // A minimal, purpose-built streaming JSON writer -- no DOM, no external
 // dependency. Written for husk's own "dump chunk data to a readable
@@ -132,7 +135,11 @@ private:
     void indent() {
         for (size_t i = 0; i < firstInScope_.size(); ++i) out_ << "  ";
     }
+    // The interior hands this UTF-8 only; game text is converted where it
+    // is read (text_encoding.hpp). Anything else is a bug: stop, don't
+    // write a document strict readers reject.
     static std::string escape(const std::string& s) {
+        if (!text::isUtf8(s)) throw std::logic_error("json::Writer: expected UTF-8 text, got bytes that aren't: \"" + s + "\"");
         std::string out;
         out.reserve(s.size());
         for (char c : s) {
