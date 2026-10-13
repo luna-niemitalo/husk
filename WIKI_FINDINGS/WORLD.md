@@ -463,6 +463,27 @@ Three more facts (all 619 groups, 2026-10-11):
   emitter entries set it (194 in slot 0, 31 in slot 1, 2 in slot 2).
   `PVMI`'s +0x04 is nonzero in all 619 records, against 2 of 193 in WMOs.
 
+## Map volumes keyed by id in DB2 (12.1.0, 2026-10-13)
+
+- `Particulate.ID` is a `_mpv.wdt` volume id (`PVMI` +0x10C8): 69 of 79
+  rows match one of the 619 volumes, each on the map its `MapID` names.
+  22 rows carry a `PlayerConditionID`.
+- `ParticulateSound.ParticulateID` names a volume in 613 of 656 rows; all
+  four sound columns are 0 in every row.
+- `VolumeFogCondition.VFOG_uID` is a `_fogs.wdt` fog id: 64 of 65 rows
+  match (one has none); 63 carry a `PlayerConditionID`. `WhenFalse`
+  equals `WhenTrue` in every row (0.5, 1, 5, ...); what they scale is not
+  known.
+- `WeatherXParticulate` maps a weather row to FileDataIDs; not traced to
+  volumes.
+- The particulate-volume emitter's 32 leading floats, profiled over all
+  1,040 emitters (846 map, 194 WMO): +0x3C and +0x6C hold integers
+  {0, 1, 2}, not floats; [2] <= [3] in all 996 emitters setting both, and
+  [13] <= [14] in all 990, so each reads as a (min, max) pair; [16]
+  (30..1,000) is >= every other slot it was compared with. Which shader
+  constants they feed (`SHADER_FINDINGS/notes/particulate_volumes.md`) is
+  not established by these statistics.
+
 ## Zone lights: `Light.db2` and `LightData.db2` (12.1.0, 2026-10-11)
 
 The wiki's `DB/Light` describes the old DBC. In this build:

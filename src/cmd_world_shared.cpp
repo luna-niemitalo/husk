@@ -120,6 +120,22 @@ std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::st
     return data;
 }
 
+std::optional<volumecond::Data> loadVolumeConditions(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "volume conditions: none (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<volumecond::Data> data = volumecond::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "volume conditions: none (Particulate/VolumeFogCondition unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "volume conditions: " + std::to_string(data->particulateConditions.size()) + " particulate, " +
+           std::to_string(data->fogConditions.size()) + " fog rows from " + db2Dir;
+    return data;
+}
+
 std::optional<creaturedisplay::Data> loadCreatures(const std::string& db2Dir, const std::string& dbdDir,
                                                   std::string& note) {
     if (db2Dir.empty() || dbdDir.empty()) {
@@ -363,7 +379,8 @@ void printPlaceholderEffects(const std::vector<canon::PlacementSet>& sets, const
 // map, as world placement sets of effect instances; none when the map has
 // none of them. A file that exists but doesn't parse fails the export.
 std::vector<canon::PlacementSet> loadMapEffects(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
-                                                const std::string& listfileRoot, const lightdb::Data* lights) {
+                                                const std::string& listfileRoot, const lightdb::Data* lights,
+                                                const volumecond::Data* conditions) {
     std::string map = mapDir.filename().string();
     std::filesystem::path fogsPath = mapDir / (map + "_fogs.wdt");
     std::filesystem::path mpvPath = mapDir / (map + "_mpv.wdt");
@@ -380,6 +397,7 @@ std::vector<canon::PlacementSet> loadMapEffects(const std::filesystem::path& map
     inputs.fogs = fogs ? &*fogs : nullptr;
     inputs.mpv = mpv ? &*mpv : nullptr;
     inputs.lights = lights;
+    inputs.conditions = conditions;
     if (listfile) {
         if (mpv) {
             for (const wdt::MapParticulateVolume& v : mpv->volumes) {
@@ -490,7 +508,7 @@ std::pair<canon::Vec3, canon::Vec3> terrainBounds(const canon::Terrain& terrain)
 // empty.
 canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& wdt, const std::vector<WorldTile>& tiles,
                        const ListfileIndex* listfile, const std::string& listfileRoot, const lightdb::Data* lights,
-                       unsigned jobs) {
+                       const volumecond::Data* conditions, unsigned jobs) {
     std::string map = mapDir.filename().string();
     std::filesystem::path wdtPath = mapDir / (map + ".wdt");
     std::vector<std::filesystem::path> named{wdtPath};
@@ -539,12 +557,12 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& 
         }
     });
     if (failure) std::rethrow_exception(failure);
-    for (canon::PlacementSet& set : loadMapEffects(mapDir, listfile, listfileRoot, lights)) world.placements.push_back(std::move(set));
+    for (canon::PlacementSet& set : loadMapEffects(mapDir, listfile, listfileRoot, lights, conditions)) world.placements.push_back(std::move(set));
     return world;
 }
 
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
-                                    const std::string& listfilePath, bool haveLights) {
+                                    const std::string& listfilePath, bool haveLights, bool haveConditions) {
     std::string map = mapDir.filename().string();
     writers::Provenance out{std::string("husk ") + husk::version(), "wdt", {}};
     out.sources.push_back({"root adt", "the tile grid and each tile's bounds", true, ""});
@@ -554,6 +572,8 @@ writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const L
     out.sources.push_back({"listfile", "tile and map FileDataIDs, particle textures, fog shape models",
                            listfile != nullptr, listfile ? listfilePath : "not given"});
     out.sources.push_back({"light db2", "the map's zone lights and their fog by time of day", haveLights, ""});
+    out.sources.push_back({"volume condition db2", "the map volumes' PlayerConditions (Particulate, VolumeFogCondition)",
+                           haveConditions, ""});
     return out;
 }
 

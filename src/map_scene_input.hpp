@@ -8,6 +8,7 @@
 
 #include "canon_placement.hpp"
 #include "light_db2.hpp"
+#include "volume_condition_db2.hpp"
 #include "wdt_volumes.hpp"
 #include "wmo_canon_input.hpp"  // TextureResolutions
 
@@ -28,6 +29,8 @@ struct MapSceneInputs {
     // Listfile names for fog and skybox models.
     std::unordered_map<uint32_t, std::string> assetNames;
     const lightdb::Data* lights = nullptr;  // nullptr: no zone lights
+    // nullptr: the volumes' PlayerConditions are not looked up.
+    const volumecond::Data* conditions = nullptr;
 };
 
 // What the map's zone lights use by FileDataID, for the caller to resolve

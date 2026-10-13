@@ -324,6 +324,7 @@ fade:
 | `enabled` | `VFEX` enable (3 of 1,542 are 0; written `false`, kept) |
 | `animation` | the carrying instance's active animation (M2 emitter tracks are per animation) |
 | time of day, weather, season | zone light by `LightData.Time`; the rest first producer |
+| condition (candidate) | `Particulate` / `VolumeFogCondition` `PlayerConditionID`, carried as `unresolved` with `candidate_role` `gate.condition` until a gate is built |
 
 Two inputs are kept out of the gate:
 - **Viewer conditions** ("camera underwater"): the world can't depend on

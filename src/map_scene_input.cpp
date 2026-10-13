@@ -73,6 +73,19 @@ canon::PlacedInstance fogInstance(const MapSceneInputs& in, const wdt::Fog& f, u
     scalars(u, "VFOG radius", f.radius);
     scalars(u, "VFOG animation periods", f.animationPeriods);
     if (f.flags != 0) u.push_back({"VFOG flags", canon::UnresolvedField::Kind::Bits, f.flags, std::nullopt});
+    if (in.conditions) {
+        auto cond = in.conditions->fogConditions.find(f.id);
+        if (cond != in.conditions->fogConditions.end()) {
+            if (cond->second.playerCondition != 0) {
+                u.push_back({"VolumeFogCondition PlayerConditionID", canon::UnresolvedField::Kind::Id,
+                             double(cond->second.playerCondition), "gate.condition"});
+            }
+            u.push_back({"VolumeFogCondition WhenFalse", canon::UnresolvedField::Kind::Scalar,
+                         double{cond->second.whenFalse}, std::nullopt});
+            u.push_back({"VolumeFogCondition WhenTrue", canon::UnresolvedField::Kind::Scalar,
+                         double{cond->second.whenTrue}, std::nullopt});
+        }
+    }
     if (f.extraFields) {
         const wdt::Fog::Extra& x = *f.extraFields;
         // 0 in 3 of 1,542 records: reads as an enable switch.
@@ -114,6 +127,13 @@ canon::PlacedInstance particulateInstance(const MapSceneInputs& in, const wdt::M
     canon::PlacedInstance instance = wmoinput::particulateInstance(v.volume, in.textures, {"PVMI", index});
     instance.id = v.id;
     instance.asset = canon::Ref{canon::None{}, "classic_map_particulate_volume", canon::NameSource::Synthesized};
+    if (in.conditions) {
+        auto cond = in.conditions->particulateConditions.find(v.id);
+        if (cond != in.conditions->particulateConditions.end() && cond->second != 0) {
+            instance.effect->unresolved.push_back({"Particulate PlayerConditionID", canon::UnresolvedField::Kind::Id,
+                                                   double(cond->second), "gate.condition"});
+        }
+    }
     canon::Vec3 origin = instance.translation;
     canon::Vec3 boundsMin = toCanon(v.boundsMin);
     canon::Vec3 boundsMax = toCanon(v.boundsMax);

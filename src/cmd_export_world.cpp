@@ -52,7 +52,8 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
         ->required()
         ->group("Resolution");
     app.add_option("--db2-dir", opts.db2Dir,
-                   "DB2 directory for GroundEffectTexture/GroundEffectDoodad (ground cover), or 'none'")
+                   "DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions and creature "
+                   "options, or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
@@ -248,6 +249,10 @@ int exportWorld(int argc, char** args) {
         std::string lightNote;
         const std::optional<lightdb::Data> lights = loadLights(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), lightNote);
         std::cout << lightNote << std::endl;
+        std::string conditionNote;
+        const std::optional<volumecond::Data> conditions =
+            loadVolumeConditions(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), conditionNote);
+        std::cout << conditionNote << std::endl;
         std::string creatureNote;
         const std::optional<creaturedisplay::Data> creatures =
             loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
@@ -565,7 +570,7 @@ int exportWorld(int argc, char** args) {
                         }
                         canon::World world =
                             loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot,
-                                      lights ? &*lights : nullptr, jobs);
+                                      lights ? &*lights : nullptr, conditions ? &*conditions : nullptr, jobs);
                         for (canon::PlacementSet& set : world.placements) {
                             dropMissingDoodadSets(set, wmoSetCounts,
                                                   [&](const std::string& w) { errors.add("placement", mapDir.string(), w); });
@@ -587,7 +592,7 @@ int exportWorld(int argc, char** args) {
                                 }
                             }
                         }
-                        writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value()),
+                        writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value(), conditions.has_value()),
                                                   tileUris, assetUris);
                     }
                     ++worlds;

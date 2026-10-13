@@ -998,7 +998,7 @@ bundle as its raw name (`name_source: adt_embedded`).
 | `--wdt` | -- | map WDT, whose MPHD flags pick the alpha-map format: 'auto' (<map>.wdt beside the tile) or a path. No 'none': without a WDT, texture layers can't be read -- use --tex none | `auto` |
 | `--listfile` | -- | community listfile CSV, or 'none': finds texture files by FileDataID, resolves name-table (MMDX/MWMO/MTEX) paths to FileDataIDs, and names placed models | unset |
 | `--listfile-root` | -- | directory the listfile's paths are relative to, or 'none' | unset |
-| `--db2-dir` | -- | DB2 directory for GroundEffectTexture/GroundEffectDoodad (ground cover), or 'none' | unset |
+| `--db2-dir` | -- | DB2 directory for ground cover and surfaces (GroundEffect*, TerrainType*) and liquids, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
 | `--models-dir` | -- | set placement/ground-effect uris to <dir>/<fdid>.canon.bundle where that bundle exists | unset |
 | `--list-models` | -- | print '<fdid>\t<listfile path>' for every model the tile references, then exit | unset |
@@ -1040,7 +1040,7 @@ already exists (each writer writes it last) and retries the failures.
 | `--map` | -- | only these map directories (repeatable); default every map | unset |
 | `--listfile` | -- | community listfile CSV: finds texture and model files by FileDataID, resolves name-table (MMDX/MWMO/MTEX) paths to FileDataIDs | -- (required) |
 | `--listfile-root` | -- | directory the listfile's paths are relative to | -- (required) |
-| `--db2-dir` | -- | DB2 directory for GroundEffectTexture/GroundEffectDoodad (ground cover), or 'none' | unset |
+| `--db2-dir` | -- | DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions and creature options, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--skip-models` | -- | don't export model bundles (pass 2); placements link only to bundles already under <output>/models/ | unset |

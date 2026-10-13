@@ -17,6 +17,7 @@
 #include "light_db2.hpp"
 #include "liquid_db2.hpp"
 #include "surface_db2.hpp"
+#include "volume_condition_db2.hpp"
 #include "listfile_index.hpp"
 #include "writers/bundle_common.hpp"
 
@@ -85,6 +86,7 @@ canon::TextureRef resolveTexture(uint32_t fdid, const ListfileIndex& listfile, c
 adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, const std::string& dbdDir,
                                                     std::string& note);
 std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
+std::optional<volumecond::Data> loadVolumeConditions(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
 std::optional<creaturedisplay::Data> loadCreatures(const std::string& db2Dir, const std::string& dbdDir,
                                                    std::string& note);
 std::optional<liquiddb::Data> loadLiquids(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
@@ -112,7 +114,7 @@ writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::stri
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,
                                       const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids, bool haveSurfaces);
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
-                                    const std::string& listfilePath, bool haveLights);
+                                    const std::string& listfilePath, bool haveLights, bool haveConditions);
 
 std::unordered_map<std::string, uint32_t> tileFileDataIds(const ListfileIndex& listfile, const std::string& listfileRoot,
                                                           const std::vector<std::filesystem::path>& roots);
@@ -130,6 +132,6 @@ struct WorldTile {
 std::vector<WorldTile> findTiles(const std::filesystem::path& mapsRoot, const std::vector<std::string>& onlyMaps);
 canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& wdt, const std::vector<WorldTile>& tiles,
                        const ListfileIndex* listfile, const std::string& listfileRoot, const lightdb::Data* lights,
-                       unsigned jobs);
+                       const volumecond::Data* conditions, unsigned jobs);
 
 }  // namespace husk::commands::world

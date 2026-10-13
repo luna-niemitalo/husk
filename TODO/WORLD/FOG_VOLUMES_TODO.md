@@ -231,9 +231,12 @@ in the world document's `fogs` set (`mapinput::buildMapEffects`;
 fallback for model 0, the 0 kept), colour and quality level as style,
 everything else unresolved, `VFEX`'s flag with the candidate role
 `gate.enabled`. All 763 maps with a sidecar export and validate (1,542
-fogs). Open: `VFEX` and `VFE2` scalar semantics, `intensity`, `radius`
-and the animation periods; fog model shapes are identity only (938/1,542
-use the errorcube fallback).
+fogs). A fog with a `VolumeFogCondition` row carries its
+`PlayerConditionID` (candidate `gate.condition`) and `WhenFalse`/`WhenTrue`
+as unresolved (2026-10-13). Open: `VFEX` and `VFE2` scalar semantics,
+`intensity`, `radius` and the animation periods; what `WhenFalse`/`WhenTrue`
+scale; fog model shapes are identity only (938/1,542 use the errorcube
+fallback).
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WDT.md`, `# \_fogs`
 (585–646): `## MVER`, `## VFOG`, `## VFEX`.
@@ -395,10 +398,14 @@ box, all 619) in the instance's frame as the region, the emitters as for
 `MPVD`, `PVPD` unresolved. All 619 groups in 48 maps export and validate,
 846/846 emitter textures resolved. Real data overturned the wiki's `PVBD`
 hedge: its index words name child boxes in the same group's `PVBD`, not
-`PVPD` points (see `../../WIKI_FINDINGS/WORLD.md`). Open: what `PVPD`
-encodes (unit 2D vector + a world-sized float; not vertical half-planes
-bounding the boxes, tested); what `complete` = 0 means beyond "sub-boxes
-share leaves"; the emitter tails 227 map emitters set.
+`PVPD` points (see `../../WIKI_FINDINGS/WORLD.md`). A volume with a
+`Particulate` row carries its `PlayerConditionID` (candidate
+`gate.condition`, 2026-10-13). Open: what `PVPD` encodes (unit 2D vector +
+a world-sized float; not vertical half-planes bounding the boxes, tested);
+what `complete` = 0 means beyond "sub-boxes share leaves"; the emitter
+tails 227 map emitters set; which shader constants the emitter floats feed
+(statistics give two (min, max) pairs and nothing more; the record-to-CB
+fill is CPU code).
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WDT.md`, `# \_mpv`
 (648–703): `## MVER`, `## PVPD`, `## PVMI`, `## PVBD`.

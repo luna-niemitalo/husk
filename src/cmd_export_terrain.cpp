@@ -48,7 +48,7 @@ void addExportTerrainOptions(CLI::App& app, ExportTerrainOptions& opts) {
                    "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
     app.add_option("--db2-dir", opts.db2Dir,
-                   "DB2 directory for GroundEffectTexture/GroundEffectDoodad (ground cover), or 'none'")
+                   "DB2 directory for ground cover and surfaces (GroundEffect*, TerrainType*) and liquids, or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
     app.add_option("--models-dir", opts.modelsDir,
@@ -69,7 +69,8 @@ void addExportMapOptions(CLI::App& app, ExportMapOptions& opts) {
         ->group("Resolution");
     app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
-    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the zone lights (Light, LightData, LightParams, LightSkybox, Map), or 'none'")
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the zone lights (Light, LightData, LightParams, LightSkybox, Map) and volume conditions "
+                   "(Particulate, VolumeFogCondition), or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
 }
@@ -84,7 +85,7 @@ void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts) {
         ->group("Resolution");
     app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
-    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the liquid tables (liquid type names, textures), or 'none'")
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the liquid tables (liquid type names, textures) and surfaces (TerrainType*), or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
     app.add_option("--models-dir", opts.modelsDir,
@@ -346,13 +347,18 @@ int exportMap(int argc, char** args) {
         std::string lightNote;
         std::optional<lightdb::Data> lights = loadLights(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), lightNote);
         std::cerr << "husk: note: " << lightNote << "\n";
+        std::string conditionNote;
+        std::optional<volumecond::Data> conditions =
+            loadVolumeConditions(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), conditionNote);
+        std::cerr << "husk: note: " << conditionNote << "\n";
         canon::World world = loadWorld(mapDir, wdt, tiles, listfile.get(), unlessNone(opts.listfileRoot),
-                                       lights ? &*lights : nullptr, std::max(1u, std::thread::hardware_concurrency()));
+                                       lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
+                                       std::max(1u, std::thread::hardware_concurrency()));
         if (world.cells.empty() && !placesModels(world.placements)) {
             throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() +
                                      " or a map-wide WMO in " + map + ".wdt, found neither");
         }
-        writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath, lights.has_value()),
+        writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath, lights.has_value(), conditions.has_value()),
                                   std::vector<std::string>(world.cells.size()));
         std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles, " << world.placements.size()
                   << " off-grid placement sets\n";
