@@ -1,12 +1,12 @@
 {
   "definition": {
     "family": "wmo_shader",
-    "status": "partial",
-    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "status": "verified",
+    "evidence": "example_exports/gls_exported/pixel/dx_5_0/uber (12.1.0 client, all 26 variants): the switch on cb2[4].x that sets diffuse and emissive, and the alpha-test switch that sets alpha",
     "shader_id": 14,
     "inputs": {},
     "outputs": {},
-    "notes": "No output: drawn by FFXSubmarineWindow, as the wiki says."
+    "notes": "No output: drawn by FFXSubmarineWindow, as the wiki says (the uber shader writes 0)."
   },
   "selection": {},
   "references": []

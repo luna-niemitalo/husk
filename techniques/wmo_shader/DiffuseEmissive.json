@@ -1,19 +1,19 @@
 {
   "definition": {
     "family": "wmo_shader",
-    "status": "partial",
-    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "status": "verified",
+    "evidence": "example_exports/gls_exported/pixel/dx_5_0/uber (12.1.0 client, all 26 variants): the switch on cb2[4].x that sets diffuse and emissive, and the alpha-test switch that sets alpha",
     "shader_id": 9,
     "inputs": {
       "t0": {
         "kind": "texture_slot",
         "unit": 0,
-        "description": "The material's texture 1, at the uv the shader generates for it."
+        "description": "The material's texture 1, sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       },
       "t1": {
         "kind": "texture_slot",
         "unit": 1,
-        "description": "The material's texture 2, at the uv the shader generates for it."
+        "description": "The material's texture 2, sampled at uv1 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       },
       "v3w": {
         "kind": "vertex_value",
@@ -22,7 +22,8 @@
     },
     "outputs": {
       "diffuse": {
-        "input": "t0"
+        "input": "t0",
+        "channels": "rgb"
       },
       "emissive": {
         "op": "mul",
@@ -44,9 +45,13 @@
             "input": "v3w"
           }
         ]
+      },
+      "alpha": {
+        "input": "t0",
+        "channels": "a"
       }
     },
-    "notes": "Alpha is not stated."
+    "notes": "Alpha is what the shader alpha-tests (128/255, per MSAA sample)."
   },
   "selection": {},
   "references": []

@@ -277,7 +277,8 @@ carries each one it uses under `techniques/`, plus those they reference
 (a pixel shader references `m2_pipeline/pipeline`), so a bundle is
 self-contained, and the content-addressed store keeps identical files
 once. 72 documents: 37 M2 pixel shaders, the M2 pipeline, 9 framebuffer
-blends, 25 WMO shaders (19 only partially stated by the findings).
+blends, 25 WMO shaders (from the client's `uber` shader; 2, Parallax and
+`UnkDFShader`, partial, their steps in notes).
 
 ## Surface types — what the ground is made of
 

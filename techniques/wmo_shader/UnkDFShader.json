@@ -2,11 +2,11 @@
   "definition": {
     "family": "wmo_shader",
     "status": "partial",
-    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "evidence": "example_exports/gls_exported/pixel/dx_5_0/uber (12.1.0 client, all 26 variants): the switch on cb2[4].x that sets diffuse and emissive, and the alpha-test switch that sets alpha",
     "shader_id": 23,
     "inputs": {},
     "outputs": {},
-    "notes": "DF+: a 4-layer height blend like terrain's, layers t1..t4, heights t17..t20; sphere-mapped t0 emissive."
+    "notes": "Not expressible here: a 4-layer height blend like terrain's (layers t1..t4 at uv0, uv1, uv2, uv3; heights t17..t20 .a floored at 0.004, weighted by the vertex value v9.xyz and 1 minus their sum), diffuse = lerp(blend.rgb, a per-draw colour cb2[5].rgb, v9.w), emissive = t0.rgb (sphere-mapped coordinates) * blend.rgb * blend.a. Alpha 1."
   },
   "selection": {},
   "references": []

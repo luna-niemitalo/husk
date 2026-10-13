@@ -146,6 +146,25 @@ shader table (`uv0`/`uv1`/`uv2` are the vertex shader's generated UVs,
 | 23 | (DF+) | 4-layer height blend like terrain's: layers `t1`–`t4`, heights `t17`–`t20`; sphere-mapped `t0` emissive |
 | 24 | **not on the wiki** | EnvMetal (5) with a separate opacity texture: alpha and alpha test from `t2.a` |
 
+Exact per-ID formulas (diffuse, emissive, alpha) are the technique
+documents `techniques/wmo_shader/` (2026-10-13), read from the decompiled
+GLSL of all 26 `uber` variants (`example_exports/gls_exported/pixel/dx_5_0/uber`).
+What that reading adds to the table above:
+- **Alpha** is what the shader alpha-tests (128/255 per MSAA sample), the
+  same in all 26 variants: `t0.a` for IDs 0, 6, 8, 9, 15, 16, 18–21;
+  `t2.a` (first uv) for 24; 1 for the rest.
+- **6** is `lerp(lerp(t0, t1, t1.a), t0, v3.w)`; **11**
+  `lerp(lerp(2·t0·t1, t2, saturate(t2.a·v3.w)), t0, t0.a)`; **15**
+  `lerp((1 − t1.a)·t1, t0, v3.w)` with emissive `t1·t1.a·(1 − v3.w)`;
+  **17** `lerp(2·t0·t1 + t2·saturate(t2.a·v3.w), t0, t0.a)`; **20**
+  `2·t2·lerp(lerp(t0, t1, t1.a), t0, t2.a)`.
+- **21 (Lod)** samples `t1` and `t2` at the *first* uv, not their own.
+- Every other ID's baked vertex light is `v3.rgb` times a per-draw scale
+  (`cb8[8].w`); a per-draw flag (`cb0[5].y` = 1 or 2) replaces the first
+  or second uv with sphere-mapped coordinates.
+- A per-case flag (`r8.x`) is set for 3, 5, 7, 22, 23, 24; its role is not
+  traced.
+
 Against `WMO.md` / `WMO/Rendering.md`:
 
 - `QueryLighting` doubles `MOCV` rgb ("not sure why?"): the vertex shader
