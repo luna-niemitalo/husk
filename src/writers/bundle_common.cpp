@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <variant>
 
+#include <nlohmann/json.hpp>
+
 #include "bundle_schema_embedded.hpp"
 
 namespace husk::writers {
@@ -880,6 +882,63 @@ void writeEffectDocument(const std::string& name, const std::filesystem::path& p
     w.endObject();
     std::string bytes = text.str();
     writeFile(path, std::vector<uint8_t>(bytes.begin(), bytes.end()));
+}
+
+namespace {
+
+const bundle_schema::EmbeddedSchema* embeddedTechnique(const std::string& name) {
+    const auto& techniques = bundle_schema::embeddedTechniques();
+    auto it = std::find_if(techniques.begin(), techniques.end(), [&](const auto& t) { return t.name == name; });
+    return it == techniques.end() ? nullptr : &*it;
+}
+
+}  // namespace
+
+std::string techniqueUri(const std::string& name) { return "techniques/" + name + ".json"; }
+
+std::vector<std::string> materialTechniques(const canon::Material& material) {
+    std::vector<std::string> candidates;
+    if (material.pixelShader) {
+        candidates.push_back("m2_pixel_shader/" + *material.pixelShader);
+    } else if (material.shader) {
+        const auto* id = std::get_if<canon::RecordIndex>(&material.shader->id);
+        std::string name = !material.shader->name.empty() ? material.shader->name
+                           : id                           ? "shader_" + std::to_string(id->value)
+                                                          : "";
+        if (!name.empty()) candidates.push_back("wmo_shader/" + name);
+    }
+    if (material.framebufferBlend) candidates.push_back("framebuffer_blend/" + framebufferBlendName(*material.framebufferBlend));
+    std::vector<std::string> out;
+    for (const std::string& name : candidates) {
+        if (embeddedTechnique(name)) out.push_back(name);
+    }
+    return out;
+}
+
+void writeTechniqueDocuments(const std::vector<std::string>& names, const std::filesystem::path& bundleDir,
+                             const Provenance& provenance) {
+    std::set<std::string> written;
+    std::vector<std::string> pending(names.begin(), names.end());
+    while (!pending.empty()) {
+        std::string name = pending.back();
+        pending.pop_back();
+        if (!written.insert(name).second) continue;
+        const bundle_schema::EmbeddedSchema* body = embeddedTechnique(name);
+        if (!body) throw std::runtime_error("bundle writer: no technique document '" + name + "' in techniques/");
+        for (const nlohmann::json& ref : nlohmann::json::parse(body->text)["references"]) {
+            if (ref["kind"] == "technique") pending.push_back(ref["asset"]["name"]);
+        }
+        std::ostringstream text;
+        json::Writer w(text);
+        w.beginObject();
+        writeContractHeader(w, "technique", canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, provenance);
+        w.rawMembers(std::string(body->text));
+        w.endObject();
+        std::filesystem::path path = bundleDir / techniqueUri(name);
+        std::filesystem::create_directories(path.parent_path());
+        std::string bytes = text.str();
+        writeFile(path, std::vector<uint8_t>(bytes.begin(), bytes.end()));
+    }
 }
 
 void writeSurfaceTypes(json::Writer& w, const std::vector<canon::SurfaceType>& types) {

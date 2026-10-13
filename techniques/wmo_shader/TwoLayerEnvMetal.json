@@ -1,0 +1,43 @@
+{
+  "definition": {
+    "family": "wmo_shader",
+    "status": "partial",
+    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "shader_id": 7,
+    "inputs": {
+      "t0": {
+        "kind": "texture_slot",
+        "unit": 0,
+        "description": "The material's texture 1, at the uv the shader generates for it."
+      },
+      "t1": {
+        "kind": "texture_slot",
+        "unit": 1,
+        "description": "The material's texture 2, at the uv the shader generates for it."
+      },
+      "v3w": {
+        "kind": "vertex_value",
+        "description": "The second vertex colour's alpha (v3.w)."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "op": "lerp",
+        "args": [
+          {
+            "input": "t1"
+          },
+          {
+            "input": "t0"
+          },
+          {
+            "input": "v3w"
+          }
+        ]
+      }
+    },
+    "notes": "Emissive mix.rgb*mix.a*t2 (t2 at uv2), where mix is the diffuse result. Alpha is not stated."
+  },
+  "selection": {},
+  "references": []
+}

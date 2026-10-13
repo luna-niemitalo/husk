@@ -1,0 +1,31 @@
+{
+  "definition": {
+    "family": "wmo_shader",
+    "status": "partial",
+    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "shader_id": 21,
+    "inputs": {
+      "t0": {
+        "kind": "texture_slot",
+        "unit": 0,
+        "description": "The material's texture 1, at the uv the shader generates for it."
+      },
+      "t2": {
+        "kind": "texture_slot",
+        "unit": 2,
+        "description": "The material's texture 3, at the uv the shader generates for it."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "input": "t0"
+      },
+      "emissive": {
+        "input": "t2"
+      }
+    },
+    "notes": "2*t1 replaces the baked vertex light. Alpha is not stated."
+  },
+  "selection": {},
+  "references": []
+}

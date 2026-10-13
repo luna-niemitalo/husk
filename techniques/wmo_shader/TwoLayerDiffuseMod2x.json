@@ -1,0 +1,13 @@
+{
+  "definition": {
+    "family": "wmo_shader",
+    "status": "partial",
+    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "shader_id": 18,
+    "inputs": {},
+    "outputs": {},
+    "notes": "As TwoLayerDiffuse, then times t2 (uv2) times 2."
+  },
+  "selection": {},
+  "references": []
+}

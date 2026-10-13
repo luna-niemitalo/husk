@@ -1,0 +1,50 @@
+{
+  "definition": {
+    "family": "m2_pixel_shader",
+    "status": "verified",
+    "evidence": "WIKI_FINDINGS/M2/rendering.md (the 12.1.0 client's compiled combiner shaders)",
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "description": "The layer whose texture_unit is 0, sampled at its own uv."
+      },
+      "edge_fade": {
+        "kind": "vertex_term",
+        "status": "described",
+        "description": "The squared edge fade: the vertex shader's pow(saturate((|N.V| - lo)/(hi - lo)), power) times a per-draw factor (cb0[5].x)."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "input": "t0"
+      },
+      "alpha": {
+        "op": "mul",
+        "args": [
+          {
+            "input": "t0",
+            "channels": "a"
+          },
+          {
+            "input": "edge_fade"
+          }
+        ]
+      }
+    }
+  },
+  "selection": {},
+  "references": [
+    {
+      "kind": "technique",
+      "asset": {
+        "id": {
+          "kind": "none"
+        },
+        "name": "m2_pipeline/pipeline",
+        "name_source": "synthesized",
+        "uri": "../m2_pipeline/pipeline.json"
+      }
+    }
+  ]
+}

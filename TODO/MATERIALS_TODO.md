@@ -13,9 +13,10 @@ compositing".
 3. **Texel sizes**: the compositor copies texel for texel, unscaled; how
    a choice texture whose size differs from its section is drawn (a mip,
    a scale) is unknown.
-4. **WMO shader formulas**: WMO materials name their shader (`shader`)
-   but the schema states no formula for it, as `m2_pixel_shader` does for
-   M2. Read them from the client's `mapobj` shaders.
+4. **WMO shader formulas**: `techniques/wmo_shader/` states 6 of 25
+   in full; the rest are `partial` (notes from `WIKI_FINDINGS/WORLD.md`,
+   whose table doesn't give alpha or the exact blend steps). Read them from
+   the client's `uber` shader to complete them.
 5. **Mesh colour alpha**: a batch whose colour alpha and texture weight
    both animate keeps only the colour's in `alpha_fade`; the shaders
    multiply by both.
@@ -29,8 +30,9 @@ compositing".
    `Diffuse_T1_Env` while its texture-coordinate combo gives set 0 for
    unit 1. Which one the client honours is inferred only
    (`WIKI_FINDINGS/M2/rendering.md`, `cb0[5].y`).
-9. **M2 materials as documents**: the shader formulas as material
-   documents (the combine vocabulary); inline until then.
+9. **Effect styles as techniques**: the classic effect styles (particle
+   and ribbon draws, fog) still carry their parameters inline; whether
+   they move onto technique documents is open.
 10. **NPC bakes and composites**: a bake replaces the whole skin canvas
    (a slot option); nothing says which composite a preset uses vs its
    bake beyond the preset's slot choice.

@@ -1,0 +1,71 @@
+{
+  "definition": {
+    "family": "m2_pipeline",
+    "status": "verified",
+    "evidence": "WIKI_FINDINGS/M2/rendering.md (the 12.1.0 client's compiled combiner shaders)",
+    "inputs": {
+      "diffuse": {
+        "kind": "technique_output",
+        "description": "The pixel shader's diffuse."
+      },
+      "emissive": {
+        "kind": "technique_output",
+        "description": "The pixel shader's emissive; 0 when it states none."
+      },
+      "alpha": {
+        "kind": "technique_output",
+        "description": "The pixel shader's alpha."
+      },
+      "mesh_color": {
+        "kind": "material_value",
+        "description": "The first layer's tint (rgb) and alpha_fade (a); white and opaque when absent."
+      },
+      "lit": {
+        "kind": "renderer_value",
+        "description": "The renderer's lighting applied to a colour; identity when the material is unlit."
+      }
+    },
+    "outputs": {
+      "color": {
+        "op": "add",
+        "args": [
+          {
+            "op": "lit",
+            "args": [
+              {
+                "op": "mul",
+                "args": [
+                  {
+                    "input": "diffuse"
+                  },
+                  {
+                    "input": "mesh_color",
+                    "channels": "rgb"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "input": "emissive"
+          }
+        ]
+      },
+      "alpha": {
+        "op": "mul",
+        "args": [
+          {
+            "input": "alpha"
+          },
+          {
+            "input": "mesh_color",
+            "channels": "a"
+          }
+        ]
+      }
+    },
+    "notes": "The result is then alpha-tested and blended per the material's framebuffer_blend technique."
+  },
+  "selection": {},
+  "references": []
+}

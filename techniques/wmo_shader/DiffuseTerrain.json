@@ -1,0 +1,26 @@
+{
+  "definition": {
+    "family": "wmo_shader",
+    "status": "verified",
+    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "shader_id": 16,
+    "inputs": {
+      "t0": {
+        "kind": "texture_slot",
+        "unit": 0,
+        "description": "The material's texture 1, at the uv the shader generates for it."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "input": "t0"
+      },
+      "alpha": {
+        "input": "t0",
+        "channels": "a"
+      }
+    }
+  },
+  "selection": {},
+  "references": []
+}

@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/technique.schema.json",
+  "title": "technique",
+  "description": "How a source game computes one drawing step (a pixel shader, a framebuffer blend), as data: inputs, outputs as expressions over them, and the evidence they rest on. Materials name the techniques they are drawn with; the math lives here once.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "technique",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.2.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The technique: its family and name, e.g. m2_pixel_shader/Combiners_Mod_Add.",
+      "x-layer": "contract"
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, when, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "The technique.",
+      "properties": {
+        "family": {
+          "enum": [
+            "m2_pixel_shader",
+            "m2_pipeline",
+            "framebuffer_blend",
+            "wmo_shader"
+          ],
+          "description": "What kind of step it is."
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "inferred",
+            "partial",
+            "wiki"
+          ],
+          "description": "verified: read from the client's shaders; inferred: an input's meaning is inferred; partial: some outputs are only described in notes; wiki: from wowdev.wiki, not checked by husk."
+        },
+        "evidence": {
+          "type": "string",
+          "description": "Where the formula was established."
+        },
+        "shader_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "wmo_shader: the MOMT shader ID it is."
+        },
+        "inputs": {
+          "type": "object",
+          "description": "What the expressions read, by name.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One input.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "texture_unit",
+                  "texture_slot",
+                  "per_draw_constant",
+                  "vertex_term",
+                  "vertex_value",
+                  "material_value",
+                  "renderer_value",
+                  "technique_output",
+                  "draw_output",
+                  "framebuffer"
+                ],
+                "description": "Where the value comes from."
+              },
+              "unit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "texture_unit/texture_slot: which."
+              },
+              "status": {
+                "enum": [
+                  "identified",
+                  "inferred",
+                  "unidentified",
+                  "described"
+                ],
+                "description": "How well its source is known; absent: identified."
+              },
+              "description": {
+                "type": "string",
+                "description": "What it is."
+              }
+            },
+            "required": [
+              "kind",
+              "description"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "terms": {
+          "type": "object",
+          "description": "Named intermediate values the outputs use.",
+          "additionalProperties": {
+            "$ref": "#/definitions/expression",
+            "description": "One term."
+          }
+        },
+        "outputs": {
+          "type": "object",
+          "description": "What the technique yields, by name (diffuse, emissive, alpha, color...). An output it doesn't state is absent.",
+          "additionalProperties": {
+            "$ref": "#/definitions/expression",
+            "description": "One output."
+          }
+        },
+        "notes": {
+          "type": "string",
+          "description": "What the expressions don't capture."
+        }
+      },
+      "required": [
+        "family",
+        "status",
+        "evidence",
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false,
+      "x-layer": "definition"
+    },
+    "selection": {
+      "type": "object",
+      "description": "A technique selects nothing.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection"
+    },
+    "references": {
+      "type": "array",
+      "description": "Techniques this one feeds or builds on.",
+      "items": {
+        "$ref": "common.schema.json#/definitions/reference",
+        "description": "One dependency."
+      },
+      "x-layer": "contract"
+    }
+  },
+  "required": [
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "expression": {
+      "type": "object",
+      "description": "An expression over the technique's inputs and terms. Values are colours or scalars; operations act per channel, and a scalar combines with every channel of a colour. Operations: add, sub, mul (n-ary for mul and add); lerp(a, b, t) = a + (b - a)*t; saturate(x) clamps to 0..1; luma(x) = 0.30*x.r + 0.59*x.g + 0.11*x.b; channels(x) selects `channels` of x; lit(x) is the renderer's lighting applied to x. A node is exactly one of: {input, channels?}, {term}, {const}, {op, args, channels?}.",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "An input's name in definition.inputs."
+        },
+        "term": {
+          "type": "string",
+          "description": "A term's name in definition.terms."
+        },
+        "const": {
+          "type": "number",
+          "description": "A constant.",
+          "x-unit": "1"
+        },
+        "op": {
+          "enum": [
+            "add",
+            "sub",
+            "mul",
+            "lerp",
+            "saturate",
+            "luma",
+            "channels",
+            "lit"
+          ],
+          "description": "An operation."
+        },
+        "args": {
+          "type": "array",
+          "description": "The operation's operands.",
+          "items": {
+            "$ref": "#/definitions/expression",
+            "description": "One operand."
+          }
+        },
+        "channels": {
+          "type": "string",
+          "pattern": "^[rgbaxyz]+$",
+          "description": "With input or op channels: the channels to take, e.g. rgb, a."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

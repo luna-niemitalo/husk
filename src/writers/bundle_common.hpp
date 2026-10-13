@@ -148,6 +148,21 @@ std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEn
 // no effect of that name.
 void writeEffectDocument(const std::string& name, const std::filesystem::path& path, const Provenance& provenance);
 
+// The technique documents (schema/technique.schema.json, techniques/) a
+// material is drawn with, as "<family>/<name>": its M2 pixel shader or WMO
+// shader, then its framebuffer blend. A name husk has no document for is
+// left out.
+std::vector<std::string> materialTechniques(const canon::Material& material);
+
+// Writes each named technique, and every technique those reference, to
+// `bundleDir`/techniques/<family>/<name>.json. Throws when husk embeds no
+// technique of a name.
+void writeTechniqueDocuments(const std::vector<std::string>& names, const std::filesystem::path& bundleDir,
+                             const Provenance& provenance);
+
+// A technique's path in a bundle, relative to the bundle's manifest.
+std::string techniqueUri(const std::string& name);
+
 // The parts of a document that link it to the sets it owns, set i being
 // reference i: `writeOwnedSetDefinitions` writes the "placement_sets" key
 // inside an open definition object; `writeOwnedSetSelectionAndReferences`

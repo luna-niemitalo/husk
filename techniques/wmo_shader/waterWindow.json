@@ -1,0 +1,13 @@
+{
+  "definition": {
+    "family": "wmo_shader",
+    "status": "partial",
+    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "shader_id": 10,
+    "inputs": {},
+    "outputs": {},
+    "notes": "No output: drawn by FFXWaterWindow, as the wiki says."
+  },
+  "selection": {},
+  "references": []
+}

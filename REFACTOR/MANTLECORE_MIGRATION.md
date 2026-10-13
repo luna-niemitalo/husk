@@ -48,6 +48,14 @@ preliminary feedback:
   known. The f3ab7d8 build drops 2,698 (16 on azeroth); 2,586 come from
   `MWDS` set lists, whose reading as `MODS` indices is now in doubt
   (`WIKI_FINDINGS/WORLD.md`).
+- Techniques (`BUNDLE_FORMAT.md` "Techniques"): each material's
+  `techniques` lists reference indices to `technique` documents in the
+  bundle's `techniques/` (its M2 pixel shader or WMO shader, then its
+  framebuffer blend). Read the math there: `outputs` are expression trees
+  over the declared `inputs`. An M2 pixel shader references
+  `m2_pipeline/pipeline`, which states how its diffuse, emissive and alpha
+  meet lighting and the mesh colour. The schema descriptions no longer
+  carry the formulas.
 - Surface types (`BUNDLE_FORMAT.md` "Surface types"):
   `resources.surface_types` lists TerrainType rows (name, footstep sound
   class, sprays). Terrain `ground_effects[].surface_type`, WMO
@@ -60,9 +68,8 @@ derived from the M2 framebuffer blend mode, not the texture combiner, so
 it never said how layers combine. An M2 material now names its
 `pixel_shader` (and `vertex_shader`), each layer says which shader texture
 it is (`texture_unit`: t0..t3), and `model.schema.json`'s
-`definitions.m2_pixel_shader` gives every pixel shader's diffuse,
-emissive and alpha formula, from the client's compiled shaders. WMO
-materials name their `shader` but have no formula yet.
+`definitions.m2_pixel_shader` gave every pixel shader's formula; in v0.2
+the formulas are technique documents instead (below).
 
 UV maps (2026-10-12): `geometry.mesh.uv0`/`uv1`/`uv2` are now
 `geometry.mesh.uv_sets` (a list, set 0 first). A layer's `uv`,

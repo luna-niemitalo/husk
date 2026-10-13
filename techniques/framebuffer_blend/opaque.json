@@ -1,0 +1,29 @@
+{
+  "definition": {
+    "family": "framebuffer_blend",
+    "status": "wiki",
+    "evidence": "wowdev.wiki Rendering, EGxBlend table (its authors checked it against several clients; not verified by husk)",
+    "inputs": {
+      "src": {
+        "kind": "draw_output",
+        "description": "The colour and alpha being drawn."
+      },
+      "dst": {
+        "kind": "framebuffer",
+        "description": "What is already in the framebuffer."
+      }
+    },
+    "outputs": {
+      "color": {
+        "input": "src",
+        "channels": "rgb"
+      },
+      "alpha": {
+        "input": "src",
+        "channels": "a"
+      }
+    }
+  },
+  "selection": {},
+  "references": []
+}

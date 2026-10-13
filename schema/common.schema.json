@@ -389,7 +389,8 @@
             "placement_set",
             "world",
             "effect",
-            "material"
+            "material",
+            "technique"
           ],
           "description": "Kind of the referenced document."
         },
@@ -2598,7 +2599,7 @@
         "mod_add",
         "blend_add"
       ],
-      "description": "How the drawn colour (src) combines with the framebuffer (dst), per the client's EGxBlend states (wowdev.wiki Rendering, EGxBlend table; its authors checked it against several clients, husk has not verified it independently). opaque: rgb = src.rgb, a = src.a, no blending. alpha_key: as opaque, after discarding pixels with alpha below 128/255. alpha: rgb = src.rgb*src.a + dst.rgb*(1-src.a), a = src.a + dst.a*(1-src.a). no_alpha_add: rgb = src.rgb + dst.rgb, a = dst.a. add: rgb = src.rgb*src.a + dst.rgb, a = dst.a. mod: rgb = src.rgb*dst.rgb, a = src.a*dst.a. mod2x: rgb = 2*src.rgb*dst.rgb, a = 2*src.a*dst.a. mod_add: rgb = src.rgb*dst.rgb + dst.rgb, a = src.a*dst.a + dst.a. blend_add: rgb = src.rgb + dst.rgb*(1-src.a), a = src.a + dst.a*(1-src.a) (premultiplied). Every mode but opaque and alpha_key discards alpha below 1/255 (WIKI_FINDINGS/M2/rendering.md)."
+      "description": "How the drawn colour combines with the framebuffer, per the client's EGxBlend states. Each value's formula is the technique document framebuffer_blend/<value> the material references."
     },
     "surface_type": {
       "type": "object",

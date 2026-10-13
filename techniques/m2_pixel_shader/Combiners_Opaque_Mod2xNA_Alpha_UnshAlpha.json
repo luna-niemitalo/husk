@@ -1,0 +1,125 @@
+{
+  "definition": {
+    "family": "m2_pixel_shader",
+    "status": "verified",
+    "evidence": "WIKI_FINDINGS/M2/rendering.md (the 12.1.0 client's compiled combiner shaders)",
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "description": "The layer whose texture_unit is 0, sampled at its own uv."
+      },
+      "t1": {
+        "kind": "texture_unit",
+        "unit": 1,
+        "description": "The layer whose texture_unit is 1, sampled at its own uv."
+      },
+      "t2": {
+        "kind": "texture_unit",
+        "unit": 2,
+        "description": "The layer whose texture_unit is 2, sampled at its own uv."
+      },
+      "c": {
+        "kind": "per_draw_constant",
+        "status": "unidentified",
+        "description": "A per-draw constant the client sets (cb0[6].z); its source is not identified."
+      }
+    },
+    "terms": {
+      "unshaded": {
+        "op": "saturate",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "t2",
+                "channels": "a"
+              },
+              {
+                "input": "c"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "op": "mul",
+        "args": [
+          {
+            "op": "sub",
+            "args": [
+              {
+                "const": 1
+              },
+              {
+                "term": "unshaded"
+              }
+            ]
+          },
+          {
+            "op": "lerp",
+            "args": [
+              {
+                "op": "mul",
+                "args": [
+                  {
+                    "op": "mul",
+                    "args": [
+                      {
+                        "const": 2
+                      },
+                      {
+                        "input": "t0"
+                      }
+                    ]
+                  },
+                  {
+                    "input": "t1"
+                  }
+                ]
+              },
+              {
+                "input": "t0"
+              },
+              {
+                "input": "t0",
+                "channels": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "emissive": {
+        "op": "mul",
+        "args": [
+          {
+            "term": "unshaded"
+          },
+          {
+            "input": "t2"
+          }
+        ]
+      },
+      "alpha": {
+        "const": 1
+      }
+    }
+  },
+  "selection": {},
+  "references": [
+    {
+      "kind": "technique",
+      "asset": {
+        "id": {
+          "kind": "none"
+        },
+        "name": "m2_pipeline/pipeline",
+        "name_source": "synthesized",
+        "uri": "../m2_pipeline/pipeline.json"
+      }
+    }
+  ]
+}

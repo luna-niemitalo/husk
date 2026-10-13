@@ -1,0 +1,13 @@
+{
+  "definition": {
+    "family": "wmo_shader",
+    "status": "partial",
+    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "shader_id": 22,
+    "inputs": {},
+    "outputs": {},
+    "notes": "Height t17, a screen-derivative tangent frame, parallax-offset t3/t4, blended with t2, and with t0 by v3.w."
+  },
+  "selection": {},
+  "references": []
+}

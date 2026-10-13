@@ -1,0 +1,13 @@
+{
+  "definition": {
+    "family": "wmo_shader",
+    "status": "partial",
+    "evidence": "WIKI_FINDINGS/WORLD.md, WMO materials in the client shaders (pixel/dx_5_0/uber, 12.1.0)",
+    "shader_id": 11,
+    "inputs": {},
+    "outputs": {},
+    "notes": "2*t0*t1 toward t2 by saturate(t2.a*v3.w), then by t0.a; the order of the two steps is not stated exactly."
+  },
+  "selection": {},
+  "references": []
+}

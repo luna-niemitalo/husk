@@ -31,10 +31,11 @@ __pycache__/
 *.txt
 *.old*
 *.json
-# schema/ is the bundle format's definition, and effects/ the effect
-# documents husk writes; neither is generated output.
+# schema/ is the bundle format's definition, and effects/ and techniques/
+# the effect and technique documents husk writes; none is generated output.
 !/schema/*.schema.json
 !/effects/*.json
+!/techniques/*/*.json
 *.jsonl
 *.csv
 *.log

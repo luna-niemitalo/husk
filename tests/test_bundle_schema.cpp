@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "bundle_schema.hpp"
+#include "bundle_schema_embedded.hpp"
 #include "writers/bundle_common.hpp"
 
 using namespace husk;
@@ -98,7 +99,7 @@ std::string describe(const std::vector<bundle_schema::Problem>& problems) {
 }  // namespace
 
 TEST_CASE("bundle_schema: the embedded schema defines effect, material, model, placement_set and world, and passes its own lint") {
-    CHECK(bundle_schema::kinds() == std::vector<std::string>{"effect", "material", "model", "placement_set", "world"});
+    CHECK(bundle_schema::kinds() == std::vector<std::string>{"effect", "material", "model", "placement_set", "technique", "world"});
     std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemas();
     INFO(describe(problems));
     CHECK(problems.empty());
@@ -159,6 +160,36 @@ TEST_CASE("bundle_schema: every effect husk writes validates") {
         INFO(describe(problems));
         CHECK(problems.empty());
     }
+}
+
+TEST_CASE("bundle_schema: every technique husk carries validates, with its references") {
+    fs::path dir = fs::temp_directory_path() / "husk-schema-techniques";
+    fs::remove_all(dir);
+    std::vector<std::string> names;
+    for (const auto& t : bundle_schema::embeddedTechniques()) names.emplace_back(t.name);
+    CHECK(names.size() == 72);
+    writers::writeTechniqueDocuments(names, dir, writers::Provenance{"husk test", "test", {}});
+    for (const std::string& name : names) {
+        CAPTURE(name);
+        std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir / writers::techniqueUri(name));
+        INFO(describe(problems));
+        CHECK(problems.empty());
+    }
+}
+
+TEST_CASE("bundle_schema: a technique's expressions are one node kind each and name declared inputs") {
+    fs::path file = fs::temp_directory_path() / "husk-schema-technique-bad" / "t.json";
+    fs::remove_all(file.parent_path());
+    writeText(file, std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+        "definition": {"family": "m2_pixel_shader", "status": "verified", "evidence": "test",
+                       "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x"}},
+                       "outputs": {"diffuse": {"op": "lerp", "args": [{"input": "t0"}, {"input": "t9"}]},
+                                   "alpha": {"input": "t0", "const": 1}}},
+        "selection": {}, "references": []})");
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(file);
+    CHECK(mentions(problems, "expected 3 operands for lerp, got 2"));
+    CHECK(mentions(problems, "expected an input definition.inputs declares, got 't9'"));
+    CHECK(mentions(problems, "expected exactly one of input, term, const, op, got 2"));
 }
 
 TEST_CASE("bundle_schema: an inline effect's instance is checked against the inputs it declares") {

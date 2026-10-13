@@ -10,13 +10,14 @@ operations are the client compositor's (`texturecompositing.bls`,
 `WIKI_FINDINGS/M2/rendering.md`); the source mode → operation mapping is
 marked `blend_mapping: unverified`. Open: `TODO/MATERIALS_TODO.md`.
 Inline model materials (`resources.materials`) name, for M2, the pixel
-shader the batch's shader ID selects (`pixel_shader`, 37 names), and the
-schema states each one's formula over the layers' texture units
-(`model.schema.json` `definitions.m2_pixel_shader`, from the client
-shaders: `WIKI_FINDINGS/M2/rendering.md`). They don't carry a per-layer
+shader the batch's shader ID selects (`pixel_shader`, 37 names), and each
+one's formula over the layers' texture units is a technique document the
+material references (`techniques/m2_pixel_shader/`, from the client
+shaders: `WIKI_FINDINGS/M2/rendering.md`; `BUNDLE_FORMAT.md` "Techniques"). They don't carry a per-layer
 combine: the one they did was derived from the framebuffer blend mode,
-not the combiner. WMO materials name their shader (`shader`) without a
-formula yet. This file proposes a fifth document kind so a renderer can draw
+not the combiner. WMO materials name their shader (`shader`) and reference
+its technique (`techniques/wmo_shader/`), stated in full where the
+findings state it. This file proposes a fifth document kind so a renderer can draw
 any material on its own — a flat texture, a lit preview — from the
 document alone, and so texture overlays (a face choice on the skin atlas)
 can be checked for being in the right place.

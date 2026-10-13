@@ -1,0 +1,82 @@
+{
+  "definition": {
+    "family": "framebuffer_blend",
+    "status": "wiki",
+    "evidence": "wowdev.wiki Rendering, EGxBlend table (its authors checked it against several clients; not verified by husk)",
+    "inputs": {
+      "src": {
+        "kind": "draw_output",
+        "description": "The colour and alpha being drawn."
+      },
+      "dst": {
+        "kind": "framebuffer",
+        "description": "What is already in the framebuffer."
+      }
+    },
+    "outputs": {
+      "color": {
+        "op": "add",
+        "args": [
+          {
+            "input": "src",
+            "channels": "rgb"
+          },
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "dst",
+                "channels": "rgb"
+              },
+              {
+                "op": "sub",
+                "args": [
+                  {
+                    "const": 1
+                  },
+                  {
+                    "input": "src",
+                    "channels": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "alpha": {
+        "op": "add",
+        "args": [
+          {
+            "input": "src",
+            "channels": "a"
+          },
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "dst",
+                "channels": "a"
+              },
+              {
+                "op": "sub",
+                "args": [
+                  {
+                    "const": 1
+                  },
+                  {
+                    "input": "src",
+                    "channels": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "notes": "Premultiplied. Pixels with alpha below 1/255 are discarded first (WIKI_FINDINGS/M2/rendering.md)."
+  },
+  "selection": {},
+  "references": []
+}

@@ -1,0 +1,38 @@
+{
+  "definition": {
+    "family": "m2_pixel_shader",
+    "status": "partial",
+    "evidence": "WIKI_FINDINGS/M2/rendering.md (the 12.1.0 client's compiled combiner shaders)",
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "description": "The layer whose texture_unit is 0, sampled at its own uv."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "input": "t0"
+      },
+      "alpha": {
+        "input": "t0",
+        "channels": "a"
+      }
+    },
+    "notes": "Plus a specular term added after lighting: n = 64*t1.x, spec = pow(saturate(N.H), n)*(n + 2)/8, F = t1.y + (1 - t1.y)*(1 - saturate(L.H))^5, colour += spec*F*specular colour*saturate(N.L)*0.8*distance falloff. Diffuse lighting is half-Lambert (saturate(0.5*N.L + 0.5)*0.8). No 12.1.0 content uses it."
+  },
+  "selection": {},
+  "references": [
+    {
+      "kind": "technique",
+      "asset": {
+        "id": {
+          "kind": "none"
+        },
+        "name": "m2_pipeline/pipeline",
+        "name_source": "synthesized",
+        "uri": "../m2_pipeline/pipeline.json"
+      }
+    }
+  ]
+}

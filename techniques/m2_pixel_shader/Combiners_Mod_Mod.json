@@ -1,0 +1,59 @@
+{
+  "definition": {
+    "family": "m2_pixel_shader",
+    "status": "verified",
+    "evidence": "WIKI_FINDINGS/M2/rendering.md (the 12.1.0 client's compiled combiner shaders)",
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "description": "The layer whose texture_unit is 0, sampled at its own uv."
+      },
+      "t1": {
+        "kind": "texture_unit",
+        "unit": 1,
+        "description": "The layer whose texture_unit is 1, sampled at its own uv."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "op": "mul",
+        "args": [
+          {
+            "input": "t0"
+          },
+          {
+            "input": "t1"
+          }
+        ]
+      },
+      "alpha": {
+        "op": "mul",
+        "args": [
+          {
+            "input": "t0",
+            "channels": "a"
+          },
+          {
+            "input": "t1",
+            "channels": "a"
+          }
+        ]
+      }
+    }
+  },
+  "selection": {},
+  "references": [
+    {
+      "kind": "technique",
+      "asset": {
+        "id": {
+          "kind": "none"
+        },
+        "name": "m2_pipeline/pipeline",
+        "name_source": "synthesized",
+        "uri": "../m2_pipeline/pipeline.json"
+      }
+    }
+  ]
+}

@@ -480,6 +480,48 @@ void collectBindings(const json& node, const std::string& pointer, std::vector<s
     }
 }
 
+// What a schema can't say about a technique document: each expression
+// node is exactly one of input, term, const or op; an op has the operand
+// count it takes; and every input and term it names is declared.
+void checkExpression(const json& node, const json& definition, const std::string& pointer,
+                     const std::function<void(const std::string&, const std::string&)>& fail) {
+    int kinds = node.contains("input") + node.contains("term") + node.contains("const") + node.contains("op");
+    if (kinds != 1) {
+        fail(pointer, "expected exactly one of input, term, const, op, got " + std::to_string(kinds));
+        return;
+    }
+    if (node.contains("input") && !definition["inputs"].contains(node["input"].get<std::string>())) {
+        fail(pointer + "/input", "expected an input definition.inputs declares, got '" + node["input"].get<std::string>() + "'");
+    }
+    if (node.contains("term") && !definition.value("terms", json::object()).contains(node["term"].get<std::string>())) {
+        fail(pointer + "/term", "expected a term definition.terms declares, got '" + node["term"].get<std::string>() + "'");
+    }
+    if (node.contains("args") && !node.contains("op")) fail(pointer + "/args", "expected args only on an op");
+    if (node.contains("channels") && !node.contains("input") && node.value("op", "") != "channels") {
+        fail(pointer + "/channels", "expected channels only on an input or a channels op");
+    }
+    if (!node.contains("op")) return;
+    static const std::map<std::string, std::pair<size_t, size_t>> arity = {
+        {"add", {2, 99}}, {"sub", {2, 2}}, {"mul", {2, 99}}, {"lerp", {3, 3}},
+        {"saturate", {1, 1}}, {"luma", {1, 1}}, {"channels", {1, 1}}, {"lit", {1, 1}}};
+    std::string op = node["op"];
+    size_t n = node.contains("args") ? node["args"].size() : 0;
+    auto [lo, hi] = arity.at(op);
+    if (n < lo || n > hi) fail(pointer + "/args", "expected " + std::to_string(lo) + (hi == lo ? "" : "+") + " operands for " + op + ", got " + std::to_string(n));
+    if (op == "channels" && !node.contains("channels")) fail(pointer, "expected channels on a channels op");
+    for (size_t i = 0; i < n; ++i) checkExpression(node["args"][i], definition, pointer + "/args/" + std::to_string(i), fail);
+}
+
+void checkTechnique(const json& technique, const std::function<void(const std::string&, const std::string&)>& fail) {
+    const json& definition = technique["definition"];
+    for (const char* section : {"terms", "outputs"}) {
+        if (!definition.contains(section)) continue;
+        for (const auto& [name, expr] : definition[section].items()) {
+            checkExpression(expr, definition, std::string("/definition/") + section + "/" + name, fail);
+        }
+    }
+}
+
 // What a schema can't say about an effect document: input names, that
 // every binding names a declared input and every input is bound, and that
 // source ids and parents hold together.
@@ -586,6 +628,7 @@ struct Validation {
         std::vector<const json*> objects;
         checker.walk(document, &schemaFor(kind), kind, "", objects);
         if (kind == "effect") checkEffect(document, [&](const std::string& p, const std::string& m) { checker.fail(p, m); });
+        if (kind == "technique") checkTechnique(document, [&](const std::string& p, const std::string& m) { checker.fail(p, m); });
 
         if (kind == "material") checkMaterialInputs(document, checker);
         std::vector<const json*> referenced = references(document, path, prefix);
@@ -662,7 +705,7 @@ struct Validation {
         for (size_t i = 0; i < refs.size(); ++i) {
             const json& r = refs[i];
             std::string kind = r.value("kind", "");
-            if (kind != "placement_set" && kind != "effect" && kind != "material") {
+            if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique") {
                 out.push_back(nullptr);
                 continue;
             }

@@ -1379,6 +1379,16 @@
               "surface_type": {
                 "$ref": "common.schema.json#/definitions/surface_type_index",
                 "description": "What the surface is made of (WMO ground_type). A face's own, when it differs, is the mesh attribute channel surface_type."
+              },
+              "techniques": {
+                "type": "array",
+                "description": "The techniques the material is drawn with (its shader, its framebuffer blend), as references.",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "One technique.",
+                  "x-index-into": "/references"
+                }
               }
             },
             "additionalProperties": false,
@@ -2343,155 +2353,155 @@
   "additionalProperties": false,
   "definitions": {
     "m2_pixel_shader": {
-      "description": "The client pixel shader a M2 batch is drawn with, and its formula. t0..t3 are the material's layers whose texture_unit is 0..3, each sampled at its own uv; luma(x) = 0.30*x.r + 0.59*x.g + 0.11*x.b. Each shader yields diffuse, emissive and alpha: the colour is lighting applied to diffuse times the mesh colour, plus emissive (not lit, not multiplied by the mesh colour); the alpha is multiplied by the mesh alpha, then alpha-tested and blended per framebuffer_blend. The mesh colour is the first layer's tint (rgb) and alpha_fade (a), white and opaque when absent. Verified against the 12.1.0 client's compiled shaders (WIKI_FINDINGS/M2/rendering.md).",
+      "description": "The client pixel shader a M2 batch is drawn with. Its formula is the technique document m2_pixel_shader/<name> the material references (techniques/ in the bundle).",
       "oneOf": [
         {
           "const": "Combiners_Opaque",
-          "description": "diffuse t0; no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque."
         },
         {
           "const": "Combiners_Mod",
-          "description": "diffuse t0; no emissive; alpha t0.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod."
         },
         {
           "const": "Combiners_Opaque_Mod",
-          "description": "diffuse t0*t1; no emissive; alpha t1.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod."
         },
         {
           "const": "Combiners_Opaque_Mod2x",
-          "description": "diffuse 2*t0*t1; no emissive; alpha 2*t1.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod2x."
         },
         {
           "const": "Combiners_Opaque_Mod2xNA",
-          "description": "diffuse 2*t0*t1; no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod2xNA."
         },
         {
           "const": "Combiners_Opaque_Opaque",
-          "description": "diffuse t0*t1; no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Opaque."
         },
         {
           "const": "Combiners_Mod_Mod",
-          "description": "diffuse t0*t1; no emissive; alpha t0.a*t1.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Mod."
         },
         {
           "const": "Combiners_Mod_Mod2x",
-          "description": "diffuse 2*t0*t1; no emissive; alpha 2*t0.a*t1.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Mod2x."
         },
         {
           "const": "Combiners_Mod_Add",
-          "description": "diffuse t0; emissive t1; alpha t0.a + t1.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Add."
         },
         {
           "const": "Combiners_Mod_Mod2xNA",
-          "description": "diffuse 2*t0*t1; no emissive; alpha t0.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Mod2xNA."
         },
         {
           "const": "Combiners_Mod_AddNA",
-          "description": "diffuse t0; emissive t1; alpha t0.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_AddNA."
         },
         {
           "const": "Combiners_Mod_Opaque",
-          "description": "diffuse t0*t1; no emissive; alpha t0.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Opaque."
         },
         {
           "const": "Combiners_Opaque_Mod2xNA_Alpha",
-          "description": "diffuse lerp(2*t0*t1, t0, t0.a); no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod2xNA_Alpha."
         },
         {
           "const": "Combiners_Opaque_AddAlpha",
-          "description": "diffuse t0; emissive t1*t1.a; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_AddAlpha."
         },
         {
           "const": "Combiners_Opaque_AddAlpha_Alpha",
-          "description": "diffuse t0; emissive t1*t1.a*(1 - t0.a); alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_AddAlpha_Alpha."
         },
         {
           "const": "Combiners_Opaque_Mod2xNA_Alpha_Add",
-          "description": "diffuse lerp(2*t0*t1, t0, t0.a); emissive t2*t2.a*c; alpha 1. c = a per-draw constant the client sets (cb0[6].z); its source is not identified."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod2xNA_Alpha_Add."
         },
         {
           "const": "Combiners_Mod_AddAlpha",
-          "description": "diffuse t0; emissive t1*t1.a; alpha t0.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_AddAlpha."
         },
         {
           "const": "Combiners_Mod_AddAlpha_Alpha",
-          "description": "diffuse t0; emissive t1*t1.a*(1 - t0.a); alpha t0.a + t1.a*luma(t1)."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_AddAlpha_Alpha."
         },
         {
           "const": "Combiners_Opaque_Alpha_Alpha",
-          "description": "diffuse lerp(lerp(t0, t1, t1.a), t0, t0.a); no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Alpha_Alpha."
         },
         {
           "const": "Combiners_Opaque_Mod2xNA_Alpha_3s",
-          "description": "diffuse lerp(2*t0*t1, t2, t2.a); no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod2xNA_Alpha_3s."
         },
         {
           "const": "Combiners_Opaque_AddAlpha_Wgt",
-          "description": "diffuse t0; emissive t1*t1.a*w; alpha 1. w = this batch's texture weight, read by the shader as a per-draw constant (cb0[22]); that it is the texture weight is inferred."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_AddAlpha_Wgt."
         },
         {
           "const": "Combiners_Mod_Add_Alpha",
-          "description": "diffuse t0; emissive t1*(1 - t0.a); alpha t0.a + t1.a."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Add_Alpha."
         },
         {
           "const": "Combiners_Opaque_ModNA_Alpha",
-          "description": "diffuse lerp(t0*t1, t0, t0.a); no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_ModNA_Alpha."
         },
         {
           "const": "Combiners_Mod_AddAlpha_Wgt",
-          "description": "diffuse t0; emissive t1*t1.a*w; alpha t0.a. w = this batch's texture weight, read by the shader as a per-draw constant (cb0[22]); that it is the texture weight is inferred."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_AddAlpha_Wgt."
         },
         {
           "const": "Combiners_Opaque_Mod_Add_Wgt",
-          "description": "diffuse lerp(t0, t1, t1.a); emissive t0*t0.a*w; alpha 1. w = this batch's texture weight, read by the shader as a per-draw constant (cb0[22]); that it is the texture weight is inferred."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod_Add_Wgt."
         },
         {
           "const": "Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha",
-          "description": "k = saturate(t2.a*c); diffuse (1 - k)*lerp(2*t0*t1, t0, t0.a); emissive k*t2; alpha 1. c = a per-draw constant the client sets (cb0[6].z); its source is not identified."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha."
         },
         {
           "const": "Combiners_Mod_Dual_Crossfade",
-          "description": "rgba lerp(lerp(t0, t1, saturate(x)), t2, saturate(y)) gives diffuse and alpha; no emissive. x, y = per-draw crossfade constants (cb0[6].y, cb0[6].z); their source is not identified."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Dual_Crossfade."
         },
         {
           "const": "Combiners_Opaque_Mod2xNA_Alpha_Alpha",
-          "description": "diffuse lerp(lerp(2*t0*t1, t2, t2.a), t0, t0.a); no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Mod2xNA_Alpha_Alpha."
         },
         {
           "const": "Combiners_Mod_Masked_Dual_Crossfade",
-          "description": "as Combiners_Mod_Dual_Crossfade, the result multiplied by the mask t3 (sampled at the second uv)."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Masked_Dual_Crossfade."
         },
         {
           "const": "Combiners_Opaque_Alpha",
-          "description": "diffuse lerp(t0, t1, t1.a); no emissive; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Opaque_Alpha."
         },
         {
           "const": "Guild",
-          "description": "diffuse t0*lerp(b, t1*e, t1.a), then lerp toward t2*r by t2.a; no emissive; alpha t0.a. b, e, r = per-draw colours (cb0[10..12]); that they are the guild background, emblem and border colours is inferred."
+          "description": "Formula: technique m2_pixel_shader/Guild."
         },
         {
           "const": "Guild_NoBorder",
-          "description": "as Guild without the t2 step; alpha t0.a."
+          "description": "Formula: technique m2_pixel_shader/Guild_NoBorder."
         },
         {
           "const": "Guild_Opaque",
-          "description": "as Guild; alpha 1."
+          "description": "Formula: technique m2_pixel_shader/Guild_Opaque."
         },
         {
           "const": "Combiners_Mod_Depth",
-          "description": "diffuse t0; no emissive; alpha t0.a times the squared edge fade (the vertex shader's pow(saturate((|N.V| - lo)/(hi - lo)), power) times a per-draw factor, cb0[5].x)."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Depth."
         },
         {
           "const": "Illum",
-          "description": "diffuse t0; alpha t0.a; plus a specular term added after lighting: n = 64*t1.x, spec = pow(saturate(N.H), n)*(n + 2)/8, F = t1.y + (1 - t1.y)*(1 - saturate(L.H))^5, colour += spec*F*specular colour*saturate(N.L)*0.8*distance falloff. Diffuse lighting is half-Lambert (saturate(0.5*N.L + 0.5)*0.8). No 12.1.0 content uses it."
+          "description": "Formula: technique m2_pixel_shader/Illum."
         },
         {
           "const": "Combiners_Mod_Mod_Mod_Const",
-          "description": "rgba t0*t1*t2*k gives diffuse and alpha; no emissive. k = a per-draw colour (cb0[6]); its source is not identified."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Mod_Mod_Const."
         },
         {
           "const": "Combiners_Mod_Mod_Depth",
-          "description": "diffuse t0*t1; no emissive; alpha t0.a*t1.a times the squared edge fade, as Combiners_Mod_Depth. Not in the wiki's enum; the client ships combiners_mod_mod_depth."
+          "description": "Formula: technique m2_pixel_shader/Combiners_Mod_Mod_Depth."
         }
       ]
     }

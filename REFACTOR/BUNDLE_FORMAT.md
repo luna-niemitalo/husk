@@ -172,6 +172,7 @@ has to do, not by which WoW file it came from:
 | `placement_set` | No content of its own: instances of other documents, each with a transform and the selection that instance makes. | a WMO's doodad sets, a tile's doodads and buildings |
 | `world` | The root: nothing places it. Holds the tile grid, off-grid placements and the objects owned by the place as a whole. | a map |
 | `effect` | A behaviour with declared inputs, placed by placement-set instances that supply them (`EFFECTS.md`). | a WMO's fog spheres (`classic_local_fog`) |
+| `technique` | How the source game computes one drawing step, as data (below, "Techniques"). | `m2_pixel_shader/Combiners_Mod_Add`, `framebuffer_blend/alpha` |
 
 A character, an item, a WMO and a doodad are all models; they differ in
 content, not kind. A WMO's doodad sets are its definition (what furniture
@@ -257,6 +258,26 @@ One channel is resolved rather than raw, so it has no source prefix:
 `resources.surface_types` (0xFFFF: none). It is written for a WMO with
 per-face ground types (`MOQG`); otherwise a face's surface is its
 material's `surface_type`.
+
+## Techniques — the source game's math, once
+
+**Current** (2026-10-13, Luna's call): a `technique` document holds one
+drawing step of the source game (an M2 pixel shader, the M2 pipeline every
+pixel shader feeds, a framebuffer blend, a WMO shader) as data: its inputs
+(texture units, per-draw constants, vertex values), named `terms`, and
+`outputs` as expression trees (`input`, `term`, `const`, or `op` over
+`args`; ops add, sub, mul, lerp, saturate, luma, channels, lit). Each
+states its `status` (verified from the client's shaders, inferred,
+partial, or from the wiki) and its `evidence`, and what an expression
+can't capture goes in `notes`. The checked-in `techniques/<family>/<name>.json`
+are the source of truth; the schema's descriptions no longer hold
+formulas. A model material lists the techniques it is drawn with
+(`techniques`, reference indices: its shader, then its blend); the bundle
+carries each one it uses under `techniques/`, plus those they reference
+(a pixel shader references `m2_pipeline/pipeline`), so a bundle is
+self-contained, and the content-addressed store keeps identical files
+once. 72 documents: 37 M2 pixel shaders, the M2 pipeline, 9 framebuffer
+blends, 25 WMO shaders (19 only partially stated by the findings).
 
 ## Surface types — what the ground is made of
 

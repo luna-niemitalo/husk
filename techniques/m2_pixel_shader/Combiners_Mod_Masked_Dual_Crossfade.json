@@ -1,0 +1,154 @@
+{
+  "definition": {
+    "family": "m2_pixel_shader",
+    "status": "verified",
+    "evidence": "WIKI_FINDINGS/M2/rendering.md (the 12.1.0 client's compiled combiner shaders)",
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "description": "The layer whose texture_unit is 0, sampled at its own uv."
+      },
+      "t1": {
+        "kind": "texture_unit",
+        "unit": 1,
+        "description": "The layer whose texture_unit is 1, sampled at its own uv."
+      },
+      "t2": {
+        "kind": "texture_unit",
+        "unit": 2,
+        "description": "The layer whose texture_unit is 2, sampled at its own uv."
+      },
+      "t3": {
+        "kind": "texture_unit",
+        "unit": 3,
+        "description": "The layer whose texture_unit is 3, sampled at its own uv."
+      },
+      "x": {
+        "kind": "per_draw_constant",
+        "status": "unidentified",
+        "description": "Crossfade constant (cb0[6].y); its source is not identified."
+      },
+      "y": {
+        "kind": "per_draw_constant",
+        "status": "unidentified",
+        "description": "Crossfade constant (cb0[6].z); its source is not identified."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "op": "channels",
+        "channels": "rgb",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              {
+                "op": "lerp",
+                "args": [
+                  {
+                    "op": "lerp",
+                    "args": [
+                      {
+                        "input": "t0"
+                      },
+                      {
+                        "input": "t1"
+                      },
+                      {
+                        "op": "saturate",
+                        "args": [
+                          {
+                            "input": "x"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "input": "t2"
+                  },
+                  {
+                    "op": "saturate",
+                    "args": [
+                      {
+                        "input": "y"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "input": "t3"
+              }
+            ]
+          }
+        ]
+      },
+      "alpha": {
+        "op": "channels",
+        "channels": "a",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              {
+                "op": "lerp",
+                "args": [
+                  {
+                    "op": "lerp",
+                    "args": [
+                      {
+                        "input": "t0"
+                      },
+                      {
+                        "input": "t1"
+                      },
+                      {
+                        "op": "saturate",
+                        "args": [
+                          {
+                            "input": "x"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "input": "t2"
+                  },
+                  {
+                    "op": "saturate",
+                    "args": [
+                      {
+                        "input": "y"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "input": "t3"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "notes": "t3, the mask, is sampled at the second uv."
+  },
+  "selection": {},
+  "references": [
+    {
+      "kind": "technique",
+      "asset": {
+        "id": {
+          "kind": "none"
+        },
+        "name": "m2_pipeline/pipeline",
+        "name_source": "synthesized",
+        "uri": "../m2_pipeline/pipeline.json"
+      }
+    }
+  ]
+}

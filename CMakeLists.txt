@@ -88,7 +88,7 @@ target_compile_options(husk-md5 PRIVATE -w)
 # schema/ is the bundle format's definition and effects/ the effect
 # documents husk writes; both are embedded into the binary so `husk
 # validate-bundle`, the writers and the tests use the same files.
-set(HUSK_SCHEMAS common model placement_set world effect material)
+set(HUSK_SCHEMAS common model placement_set world effect material technique)
 set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend classic_ambient_global classic_ambient_point
                  classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume
                  classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon classic_zone_light_global
@@ -100,16 +100,28 @@ endforeach()
 foreach(name IN LISTS HUSK_EFFECTS)
   list(APPEND HUSK_SCHEMA_FILES ${CMAKE_SOURCE_DIR}/effects/${name}.json)
 endforeach()
+# techniques/<family>/<name>.json: too many to list by hand; a new file is
+# picked up at the next build.
+file(GLOB HUSK_TECHNIQUE_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/techniques/*/*.json)
+set(HUSK_TECHNIQUES)
+foreach(path IN LISTS HUSK_TECHNIQUE_FILES)
+  file(RELATIVE_PATH rel ${CMAKE_SOURCE_DIR}/techniques ${path})
+  string(REGEX REPLACE "\\.json$" "" rel ${rel})
+  list(APPEND HUSK_TECHNIQUES ${rel})
+  list(APPEND HUSK_SCHEMA_FILES ${path})
+endforeach()
 set(HUSK_EMBEDDED_SCHEMAS ${CMAKE_BINARY_DIR}/generated/bundle_schema_embedded.cpp)
 string(REPLACE ";" "," HUSK_SCHEMA_NAMES "${HUSK_SCHEMAS}")
 string(REPLACE ";" "," HUSK_EFFECT_NAMES "${HUSK_EFFECTS}")
+string(REPLACE ";" "," HUSK_TECHNIQUE_NAMES "${HUSK_TECHNIQUES}")
 add_custom_command(
   OUTPUT ${HUSK_EMBEDDED_SCHEMAS}
   COMMAND ${CMAKE_COMMAND} -DSCHEMA_DIR=${CMAKE_SOURCE_DIR}/schema -DEFFECT_DIR=${CMAKE_SOURCE_DIR}/effects
-          -DOUT=${HUSK_EMBEDDED_SCHEMAS} -DNAMES=${HUSK_SCHEMA_NAMES} -DEFFECTS=${HUSK_EFFECT_NAMES}
+          -DTECHNIQUE_DIR=${CMAKE_SOURCE_DIR}/techniques -DOUT=${HUSK_EMBEDDED_SCHEMAS} -DNAMES=${HUSK_SCHEMA_NAMES}
+          -DEFFECTS=${HUSK_EFFECT_NAMES} -DTECHNIQUES=${HUSK_TECHNIQUE_NAMES}
           -P ${CMAKE_SOURCE_DIR}/cmake/embed_schemas.cmake
   DEPENDS ${HUSK_SCHEMA_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_schemas.cmake
-  COMMENT "Embedding schema/ and effects/")
+  COMMENT "Embedding schema/, effects/ and techniques/")
 
 # Everything except main.cpp, as a library: lets the test binary link against
 # the exact same command/parsing code the real CLI runs, instead of

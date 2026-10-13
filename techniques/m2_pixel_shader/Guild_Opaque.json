@@ -1,0 +1,109 @@
+{
+  "definition": {
+    "family": "m2_pixel_shader",
+    "status": "inferred",
+    "evidence": "WIKI_FINDINGS/M2/rendering.md (the 12.1.0 client's compiled combiner shaders)",
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "description": "The layer whose texture_unit is 0, sampled at its own uv."
+      },
+      "t1": {
+        "kind": "texture_unit",
+        "unit": 1,
+        "description": "The layer whose texture_unit is 1, sampled at its own uv."
+      },
+      "t2": {
+        "kind": "texture_unit",
+        "unit": 2,
+        "description": "The layer whose texture_unit is 2, sampled at its own uv."
+      },
+      "b": {
+        "kind": "per_draw_constant",
+        "status": "inferred",
+        "description": "Per-draw colour (cb0[10]); that it is the guild background colour is inferred."
+      },
+      "e": {
+        "kind": "per_draw_constant",
+        "status": "inferred",
+        "description": "Per-draw colour (cb0[11]); that it is the guild emblem colour is inferred."
+      },
+      "r": {
+        "kind": "per_draw_constant",
+        "status": "inferred",
+        "description": "Per-draw colour (cb0[12]); that it is the guild border colour is inferred."
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "op": "lerp",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "t0"
+              },
+              {
+                "op": "lerp",
+                "args": [
+                  {
+                    "input": "b"
+                  },
+                  {
+                    "op": "mul",
+                    "args": [
+                      {
+                        "input": "t1"
+                      },
+                      {
+                        "input": "e"
+                      }
+                    ]
+                  },
+                  {
+                    "input": "t1",
+                    "channels": "a"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "t2"
+              },
+              {
+                "input": "r"
+              }
+            ]
+          },
+          {
+            "input": "t2",
+            "channels": "a"
+          }
+        ]
+      },
+      "alpha": {
+        "const": 1
+      }
+    }
+  },
+  "selection": {},
+  "references": [
+    {
+      "kind": "technique",
+      "asset": {
+        "id": {
+          "kind": "none"
+        },
+        "name": "m2_pipeline/pipeline",
+        "name_source": "synthesized",
+        "uri": "../m2_pipeline/pipeline.json"
+      }
+    }
+  ]
+}

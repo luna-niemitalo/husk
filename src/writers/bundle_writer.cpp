@@ -716,11 +716,19 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
     w.endObject();
 }
 
+// `techniques[i]`: material i's technique reference indices.
 void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials, TextureTable& textures,
-                           UvMapTable& uvMaps) {
+                           UvMapTable& uvMaps, const std::vector<std::vector<uint32_t>>& techniques) {
     w.beginArray();
-    for (const canon::Material& material : materials) {
+    for (size_t m = 0; m < materials.size(); ++m) {
+        const canon::Material& material = materials[m];
         w.beginObject();
+        if (!techniques[m].empty()) {
+            w.key("techniques");
+            w.beginArray();
+            for (uint32_t t : techniques[m]) w.value(static_cast<int64_t>(t));
+            w.endArray();
+        }
 
         w.key("layers");
         w.beginArray();
@@ -1016,6 +1024,20 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         writeMaterialDocument(model.materialDocuments[i], bundleDir / "materials" / (std::to_string(i) + ".json"), provenance,
                               bundleDir, "../", writtenTextures);
     }
+    // Techniques follow the material documents in the references.
+    std::vector<std::string> techniqueNames;
+    std::vector<std::vector<uint32_t>> materialTechniqueRefs;
+    uint32_t techniqueBase = materialBase + static_cast<uint32_t>(model.materialDocuments.size());
+    for (const canon::Material& material : model.materials) {
+        std::vector<uint32_t> refs;
+        for (const std::string& name : materialTechniques(material)) {
+            auto at = std::find(techniqueNames.begin(), techniqueNames.end(), name);
+            if (at == techniqueNames.end()) at = techniqueNames.insert(techniqueNames.end(), name);
+            refs.push_back(techniqueBase + static_cast<uint32_t>(at - techniqueNames.begin()));
+        }
+        materialTechniqueRefs.push_back(std::move(refs));
+    }
+    writeTechniqueDocuments(techniqueNames, bundleDir, provenance);
     writeOwnedSetSelectionAndReferences(
         w, sets, [&](json::Writer& sw) { writePresets(sw, model.presets); },
         [&](json::Writer& rw) {
@@ -1025,6 +1047,14 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
                 rw.value("material");
                 rw.key("asset");
                 writeRef(rw, model.materialDocuments[i].subject, "materials/" + std::to_string(i) + ".json");
+                rw.endObject();
+            }
+            for (const std::string& name : techniqueNames) {
+                rw.beginObject();
+                rw.key("kind");
+                rw.value("technique");
+                rw.key("asset");
+                writeRef(rw, canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, techniqueUri(name));
                 rw.endObject();
             }
         });
@@ -1055,7 +1085,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 
     UvMapTable uvMaps;
     w.key("materials");
-    writeMaterialsSection(w, model.materials, textures, uvMaps);
+    writeMaterialsSection(w, model.materials, textures, uvMaps, materialTechniqueRefs);
     uvMaps.write(w);
 
     w.key("scene");
