@@ -66,6 +66,15 @@ including the planning-pass ones that used to live here.
 - Shadowlands+ `MWDR`/`MWDS` doodad-set-activation indirection verified
   end-to-end against two real placements activating different multi-set
   combinations into the same `MODS` table.
+- **Contradicted at scale, open (2026-10-13):** read as `MODS` indices,
+  `MWDS` values exceed the WMO's set count often. In the full f3ab7d8
+  export, 2,698 selections name a set the WMO doesn't have; 2,586 of
+  them come from `MWDS`-flagged placements (e.g. `2162_30_26`: `MWDS`
+  [3, 7] for a WMO with 3 sets), 112 from plain `doodadSet` values (most
+  `doodadSet` 1 with flags 0xC on a one-set WMO). Most are on maps 2444
+  and 2637 (983 each), 2579 (304) and 2522 (213). Either `MWDS` indexes
+  something other than `MODS` in these placements, or the data is stale;
+  not settled.
 - `MPBV`/`MPBP`/`MPBI`/`MPBG` confirmed genuinely absent corpus-wide (0 of
   71,929 real group files) — the wiki's rarity claim holds at full scale.
 - `MOVT`/`MONR` are plain **(X, Y, Z), Z up**, the same frame as M2, despite

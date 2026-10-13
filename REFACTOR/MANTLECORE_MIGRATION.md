@@ -45,7 +45,9 @@ preliminary feedback:
 - A placement selecting a doodad set its WMO lacks keeps only the sets
   that exist; each dropped one is an `errors.log`/`missing.tsv` row
   (phase `placement`). What the client shows for such a placement is not
-  known.
+  known. The f3ab7d8 build drops 2,698 (16 on azeroth); 2,586 come from
+  `MWDS` set lists, whose reading as `MODS` indices is now in doubt
+  (`WIKI_FINDINGS/WORLD.md`).
 - Surface types (`BUNDLE_FORMAT.md` "Surface types"):
   `resources.surface_types` lists TerrainType rows (name, footstep sound
   class, sprays). Terrain `ground_effects[].surface_type`, WMO

@@ -111,6 +111,12 @@ export as linked model bundles (`export-world`); WMOs stay identity-only.
 
 ## WMO's own internal doodad set (`MODS`/`MODN`/`MODI`/`MODD`/`MDDI`, `MWDR`/`MWDS`)
 
+**Open (2026-10-13)**: `MWDS` values read as `MODS` indices exceed the
+WMO's set count in 2,586 selections of the full export (plus 112 plain
+`doodadSet` values); export-world drops them with a `placement` row in
+`errors.log`. Find what those values index (another WMO? a later MODS
+revision?) before trusting `MWDS` beyond the one verified tile below.
+
 **Current state**: `none`.
 
 **Wiki citation**: `WMO.md`, `## MODS chunk` (line 560), `## MODN chunk`
