@@ -1046,6 +1046,7 @@ already exists (each writer writes it last) and retries the failures.
 | `--skip-models` | -- | don't export model bundles (pass 2); placements link only to bundles already under <output>/models/ | unset |
 | `--all-assets` | -- | also export every M2 and root WMO the listfile names, placed or not (export-corpus) | unset |
 | `--sample` | -- | with --all-assets: only this many of them, a fixed seeded random choice (size and time projections) | unset |
+| `--link-store` | -- | store each finished output in this canonical store and replace it with a hardlink to the object (export-corpus), so the tree takes no space beyond new content | unset |
 
 <!-- END GENERATED FLAG TABLE: export-world -->
 
@@ -1071,7 +1072,9 @@ reconfigured build. The same build again is a no-op. The tree's
 `errors.log` and `inputs.log` become the build's `missing.tsv` and
 `inputs.tsv`. `store-add` and `index-tree` print progress as they go,
 and `store-add` journals what it stored to the tree's
-`store-journal.tsv`, so a rerun after a crash skips it. While `export-corpus` runs, the mount shows its tree as it
+`store-journal.tsv`, so a rerun after a crash skips it. `store-add --link`, and
+`export-corpus` always, turn the tree's files into hardlinks to their
+store objects, so a rebuild takes space only for changed content. While `export-corpus` runs, the mount shows its tree as it
 grows at `games/<game>/<husk>.partial/`. `export-corpus --sample N` exports a fixed seeded choice of
 the listfile's assets, for size and time projections. Unmount with
 `fusermount3 -u <mountpoint>`.
@@ -1088,7 +1091,7 @@ the listfile's assets, for size and time projections. Unmount with
 | `--db2-dir` | -- | DB2 directory, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
-| `--store` | -- | afterwards, record the tree as a build in this store, or 'none' | unset |
+| `--store` | -- | record the tree as a build in this store, or 'none'; each output is linked into the store as it is written, so only new content takes space | unset |
 | `--game` | -- | the game build the tree was exported from, e.g. 12.1.0.69933 | unset |
 | `--game-from` | -- | read the game build from a source mount's tag link instead, e.g. /media/luna/wow_export/live (default: --listfile-root) | unset |
 | `--tag` | -- | point this tag (live, ptr, ...) at the build; repeatable | unset |
@@ -1101,6 +1104,7 @@ the listfile's assets, for size and time projections. Unmount with
 | Flag | Short | Description | Default |
 |---|---|---|---|
 | `--store` | -- | the canonical store directory | -- (required) |
+| `--link` | -- | replace each stored file in the tree with a hardlink to its object, so the tree takes no space beyond what the store holds once (same filesystem only) | unset |
 | `--game` | -- | the game build the tree was exported from, e.g. 12.1.0.69933 | unset |
 | `--game-from` | -- | read the game build from a source mount's tag link instead, e.g. /media/luna/wow_export/live | unset |
 | `--tag` | -- | point this tag (live, ptr, ...) at the build; repeatable | unset |

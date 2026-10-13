@@ -285,6 +285,7 @@ struct ExportWorldOptions {
     bool skipModels = false;
     bool allAssets = false;
     size_t sample = 0;
+    std::string linkStore;  // empty: outputs stay ordinary files
 };
 void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts);
 
@@ -294,6 +295,7 @@ struct StoreAddOptions {
     std::string game;
     std::string gameFrom;
     std::vector<std::string> tags;
+    bool link = false;
 };
 void addStoreAddOptions(CLI::App& app, StoreAddOptions& opts);
 

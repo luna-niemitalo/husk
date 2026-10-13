@@ -140,6 +140,45 @@ TEST_CASE("corpus store: the same build again is a no-op, different files under 
                          doctest::Contains("already holds this build with other files"), std::runtime_error);
 }
 
+TEST_CASE("corpus store: a linked tree's files are its objects, so it takes no space of its own") {
+    fs::path dir = freshDir("link");
+    corpus::Store store(dir / "store");
+    fs::path tree = exportTree("link-tree", "husk e587735");
+    writeText(tree / "textures" / "9.dds", "DDS bytes");  // same content as 7.dds: one object
+
+    corpus::IngestResult r = corpus::ingestTree(store, tree, "12.1.0.69933", true);
+
+    CHECK(r.files == 4);
+    CHECK(r.addedObjects == 3);
+    fs::path texture = tree / "textures" / "7.dds";
+    fs::path object = store.objectPath(corpus::md5File(texture));
+    CHECK(fs::equivalent(texture, object));
+    CHECK(fs::equivalent(tree / "textures" / "9.dds", object));
+    CHECK(readText(texture) == "DDS bytes");
+    CHECK((fs::status(texture).permissions() & fs::perms::owner_write) == fs::perms::none);
+    CHECK_FALSE(fs::exists(tree / "textures" / "7.dds.link"));
+
+    // Storing the same tree again rehashes nothing: every file is journaled and linked.
+    corpus::IngestResult again = corpus::ingestTree(store, tree, "12.1.0.69933", true);
+    CHECK(again.alreadyStored);
+}
+
+TEST_CASE("corpus store: linkIntoStore links a finished output and journals it for store-add") {
+    fs::path dir = freshDir("link-live");
+    corpus::Store store(dir / "store");
+    fs::path tree = exportTree("link-live-tree", "husk e587735");
+    {
+        corpus::TreeJournal journal(store, tree);
+        corpus::linkIntoStore(store, journal, tree, tree / "models" / "1.canon.bundle");
+    }
+    fs::path manifest = tree / "models" / "1.canon.bundle" / "manifest.json";
+    CHECK(fs::equivalent(manifest, store.objectPath(corpus::md5File(manifest))));
+    CHECK(fs::hard_link_count(tree / "models" / "2.canon.bundle" / "manifest.json") == 1);  // not linked
+    corpus::TreeJournal reread(store, tree);
+    CHECK(reread.stored("models/1.canon.bundle/manifest.json").has_value());
+    CHECK_FALSE(reread.stored("models/2.canon.bundle/manifest.json").has_value());
+}
+
 TEST_CASE("corpus store: an interrupted ingest resumes from its journal while files are unchanged") {
     fs::path dir = freshDir("journal");
     corpus::Store store(dir / "store");

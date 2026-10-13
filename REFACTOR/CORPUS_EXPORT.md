@@ -146,7 +146,11 @@ built; block cloning is active on `tank/data`).
   file's size and mtime match and its object exists, so a crash costs
   no rehashing. A copy whose hash disagrees with the first read gets a
   third read that decides, with a warning. Progress prints every 500
-  files. The same build again is a no-op; other files under an
+  files. `--link` replaces each stored file in the tree with a hardlink to
+  its object (same filesystem; objects are published with a no-replace
+  hardlink, so an existing one is never swapped out), so a tree costs
+  only what the store didn't already hold; a journaled file is linked
+  without rehashing. The same build again is a no-op; other files under an
   existing build are refused. `--game-from /media/luna/wow_export/live`
   reads the game label from the source mount's tag link. Measured on the
   garrison export: 12,367 files share 2,821 contents; a second build with
@@ -184,7 +188,11 @@ built; block cloning is active on `tank/data`).
   `export-world` over `<listfile-root>/world/maps` with `--all-assets`
   (every listfile `.m2` and root `.wmo`, placed or not: 135,129 and
   14,140 in the 2026-10-08 listfile), then `index-tree`, then, unless
-  `--store none`, a `store-add`. The game label is resolved before the export,
+  `--store none`, a `store-add --link`. While storing, export-world links
+  each finished bundle into the store as it is written (`--link-store`;
+  only a bundle whose manifest exists, so a half-written one stays plain
+  files for the resumed run), so a rebuild takes space only for files
+  whose content changed, as casc-tool's builds do. The game label is resolved before the export,
   from `--listfile-root`'s tag link by default. `--map` and `--sample N`
   (a fixed seeded choice of the listfile assets) bound a projection run.
 - **`husk index-tree <tree>`**: rebuilds `index/` from the model

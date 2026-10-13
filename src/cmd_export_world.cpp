@@ -20,6 +20,7 @@
 #include "cli_args.hpp"
 #include "cmd_world_shared.hpp"
 #include "commands.hpp"
+#include "corpus_store.hpp"
 #include "input_log.hpp"
 #include "liquid_canon_input.hpp"
 #include "listfile_cache.hpp"
@@ -68,6 +69,10 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
                    "with --all-assets: only this many of them, a fixed seeded random choice (size and time "
                    "projections)")
         ->group("Selection");
+    app.add_option("--link-store", opts.linkStore,
+                   "store each finished output in this canonical store and replace it with a hardlink to the "
+                   "object (export-corpus), so the tree takes no space beyond new content")
+        ->group("Run");
 }
 
 namespace {
@@ -192,6 +197,24 @@ int exportWorld(int argc, char** args) {
         writers::TextureStore textureStore(texturesDir);
         const writers::StoreLink modelTextures{&textureStore, "../../textures/"};
         ErrorLog errors(out / "errors.log", opts.listfileRoot);
+        // --link-store: each finished output is stored and its files become
+        // hardlinks to their objects. Only a bundle whose manifest (written
+        // last) exists is linked: a half-written one stays plain files for
+        // the resumed run to rewrite. A failure is the output's, not the run's.
+        std::optional<corpus::Store> linkStore;
+        std::optional<corpus::TreeJournal> linkJournal;
+        if (!opts.linkStore.empty()) {
+            linkStore.emplace(opts.linkStore);
+            linkJournal.emplace(*linkStore, out);
+        }
+        auto linkOutput = [&](const std::filesystem::path& dir, bool bundle) {
+            if (!linkStore || !std::filesystem::exists(bundle ? dir / "manifest.json" : dir)) return;
+            try {
+                corpus::linkIntoStore(*linkStore, *linkJournal, out, dir);
+            } catch (...) {
+                errors.add("link", dir.string(), exceptionMessage(std::current_exception()));
+            }
+        };
         inputs::Log inputLog(out / "inputs.log", opts.listfileRoot);
         inputs::setRunLog(&inputLog);
         struct RunLogReset {
@@ -411,6 +434,7 @@ int exportWorld(int argc, char** args) {
                 } catch (...) {
                     errors.add("model", std::to_string(fdid), exceptionMessage(std::current_exception()));
                 }
+                linkOutput(bundle, true);
                 progress.tick();
             });
         }
@@ -457,6 +481,7 @@ int exportWorld(int argc, char** args) {
                 } catch (...) {
                     errors.add("wmo", std::to_string(fdid), exceptionMessage(std::current_exception()));
                 }
+                linkOutput(bundle, true);
                 progress.tick();
             });
             exportedModels = scanExportedModels();
@@ -532,6 +557,7 @@ int exportWorld(int argc, char** args) {
             } catch (...) {
                 errors.add("tile", t.root.string(), exceptionMessage(std::current_exception()));
             }
+            linkOutput(bundle, true);
             progress.tick();
         });
 
@@ -599,10 +625,13 @@ int exportWorld(int argc, char** args) {
                 } catch (...) {
                     errors.add("world", mapDir.string(), exceptionMessage(std::current_exception()));
                 }
+                linkOutput(bundle, true);
                 worldProgress.tick();
             }
         }
 
+        // Shared textures are written once each (TextureStore) and never rewritten.
+        linkOutput(texturesDir, false);
         std::cout << "done: " << tiles.size() << " tiles, " << worlds << " worlds, " << exportedModels.size()
                   << " model bundles, "
                   << errors.count() << " errors this run (" << (out / "errors.log").string() << ")" << std::endl;

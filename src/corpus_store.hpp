@@ -3,10 +3,13 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // The canonical export store (REFACTOR/CORPUS_EXPORT.md "The store"):
@@ -57,6 +60,13 @@ public:
     // re-hashed, and renamed into place only on a match, so no object can
     // hold bytes other than its name says.
     Put putFile(const std::filesystem::path& source) const;
+    // putFile, then `source` is replaced by a hardlink to its object (via a
+    // sibling and a rename, so the object is never written through it): a
+    // tree costs nothing beyond content the store didn't have. Objects are
+    // read-only, so a linked file is too.
+    Put putAndLink(const std::filesystem::path& source) const;
+    // Replaces `file` by a hardlink to the object `key` (already stored).
+    void linkTo(const std::filesystem::path& file, const Md5& key) const;
 
     // Complete builds only (files.tsv present), and the games having one
     // or an in-progress run.
@@ -104,6 +114,38 @@ struct IngestResult {
 // store-journal.tsv as it lands, so a rerun after a crash resumes instead
 // of rehashing. A build that exists with other files is refused; with the
 // same files it is a no-op.
-IngestResult ingestTree(const Store& store, const std::filesystem::path& tree, const std::string& game);
+// `link`: each stored file is replaced by a hardlink to its object
+// (Store::putAndLink).
+IngestResult ingestTree(const Store& store, const std::filesystem::path& tree, const std::string& game, bool link = false);
+
+// A tree's store-journal.tsv: which of its files are already objects, so a
+// file is hashed once whether export-world linked it as it was written or
+// store-add stored it. "path<TAB>size<TAB>mtime<TAB>md5" per file, appended
+// and flushed; a row counts only while the file keeps that size and mtime
+// and its object is still stored; a torn last row is dropped.
+class TreeJournal {
+public:
+    TreeJournal(const Store& store, std::filesystem::path tree);
+    // The object `relative` is stored as, when its row still holds.
+    std::optional<Md5> stored(const std::string& relative) const;
+    void record(const std::string& relative, const Md5& key);
+
+private:
+    struct Row {
+        uint64_t size = 0;
+        int64_t mtime = 0;
+        Md5 key{};
+    };
+    const Store& store_;
+    std::filesystem::path tree_;
+    std::unordered_map<std::string, Row> rows_;
+    std::ofstream out_;
+    std::mutex mutex_;
+};
+
+// Stores and links (putAndLink) every regular file under `dir`, a finished
+// output of the export writing `tree`, recording each in `journal`.
+void linkIntoStore(const Store& store, TreeJournal& journal, const std::filesystem::path& tree,
+                   const std::filesystem::path& dir);
 
 }  // namespace husk::corpus

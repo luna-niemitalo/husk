@@ -74,9 +74,9 @@ std::string resolveGameLabel(const std::string& game, const std::string& gameFro
 }
 
 void storeTree(const std::string& storeDir, const std::string& tree, const std::string& game,
-               const std::vector<std::string>& tags) {
+               const std::vector<std::string>& tags, bool link) {
     corpus::Store store(fs::absolute(storeDir));
-    corpus::IngestResult r = corpus::ingestTree(store, tree, game);
+    corpus::IngestResult r = corpus::ingestTree(store, tree, game, link);
     for (const std::string& tag : tags) store.setTag(tag, r.id);
     std::cout << (r.alreadyStored ? "already stored: " : "stored: ") << r.id.path() << " in " << store.root().string()
               << ", " << r.files << " files, " << r.bytes << " bytes, " << r.addedObjects << " new objects, "
@@ -446,6 +446,10 @@ void addStoreAddOptions(CLI::App& app, StoreAddOptions& opts) {
     addConfigOption(app);
     app.add_option("tree", opts.tree, "an export's output directory to record as a build")->required();
     app.add_option("--store", opts.store, "the canonical store directory")->required()->group("Store");
+    app.add_flag("--link", opts.link,
+                 "replace each stored file in the tree with a hardlink to its object, so the tree takes no space "
+                 "beyond what the store holds once (same filesystem only)")
+        ->group("Store");
     addBuildLabelOptions(app, opts.game, opts.gameFrom, opts.tags, "");
 }
 
@@ -456,7 +460,7 @@ int storeAdd(int argc, char** args) {
     if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     try {
         std::string game = resolveGameLabel(opts.game, opts.gameFrom);
-        storeTree(opts.store, opts.tree, game, opts.tags);
+        storeTree(opts.store, opts.tree, game, opts.tags, opts.link);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: store-add: " << e.what() << "\n";
@@ -485,7 +489,9 @@ void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts) {
     app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, or 'none'")->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
-    app.add_option("--store", opts.store, "afterwards, record the tree as a build in this store, or 'none'")
+    app.add_option("--store", opts.store,
+                   "record the tree as a build in this store, or 'none'; each output is linked into the store as it "
+                   "is written, so only new content takes space")
         ->group("Store");
     addBuildLabelOptions(app, opts.game, opts.gameFrom, opts.tags, " (default: --listfile-root)");
 }
@@ -531,6 +537,10 @@ int exportCorpus(int argc, char** args) {
             worldArgs.push_back("--sample");
             worldArgs.push_back(std::to_string(opts.sample));
         }
+        if (storing) {
+            worldArgs.push_back("--link-store");
+            worldArgs.push_back(fs::absolute(opts.store).string());
+        }
         std::vector<char*> argv;
         for (std::string& a : worldArgs) argv.push_back(a.data());
         // The source store can be remounted mid-run by its own tooling: wait
@@ -544,7 +554,7 @@ int exportCorpus(int argc, char** args) {
         if (code != 0) return code;
         printIndex(corpus::buildIndex(opts.output), opts.output);
         if (!storing) return 0;
-        storeTree(opts.store, opts.output, run.game, opts.tags);
+        storeTree(opts.store, opts.output, run.game, opts.tags, true);
         corpus::Store(fs::absolute(opts.store)).endRun(run);
         return 0;
     } catch (const std::exception& e) {

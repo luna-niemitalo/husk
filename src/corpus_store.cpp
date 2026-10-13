@@ -148,38 +148,9 @@ std::string inputsTsv(const fs::path& path, const std::set<std::string>& outputs
     return out.str();
 }
 
-// What an interrupted store-add already stored, so a rerun doesn't rehash
-// it: "path<TAB>size<TAB>mtime<TAB>md5" per file, appended and flushed as
-// each object lands. A row counts only while the file keeps that size and
-// mtime and its object is still stored; a torn last row is dropped.
 const std::string kStoreJournal = "store-journal.tsv";
 
-struct JournalRow {
-    uint64_t size = 0;
-    int64_t mtime = 0;
-    Md5 key{};
-};
-
 int64_t mtimeOf(const fs::path& path) { return fs::last_write_time(path).time_since_epoch().count(); }
-
-std::unordered_map<std::string, JournalRow> readJournal(const fs::path& path) {
-    std::unordered_map<std::string, JournalRow> rows;
-    std::ifstream in(path);
-    std::string line;
-    while (std::getline(in, line)) {
-        std::istringstream fields(line);
-        std::string file;
-        std::string md5;
-        JournalRow row;
-        if (!std::getline(fields, file, '\t') || !(fields >> row.size >> row.mtime >> md5)) continue;
-        std::optional<Md5> key = parseHex(md5);
-        if (!key) continue;
-        row.key = *key;
-        rows[file] = row;
-    }
-    return rows;
-}
-
 
 }  // namespace
 
@@ -297,8 +268,86 @@ Store::Put Store::putFile(const fs::path& source) const {
     // Read-only: a reflinked or hardlinked view writing into an object would
     // change it for every build.
     fs::permissions(staged, fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read);
-    fs::rename(staged, target);
-    return {key, true};
+    // A hardlink, not a rename: it fails if another thread stored the same
+    // content first, so an existing object is never replaced (a file linked
+    // to it would be left on an orphaned copy).
+    std::error_code ec;
+    fs::create_hard_link(staged, target, ec);
+    fs::remove(staged);
+    if (!ec) return {key, true};
+    if (fs::exists(target)) return {key, false};
+    throw std::runtime_error("cannot store " + source.string() + " as " + target.string() + ": " + ec.message());
+}
+
+Store::Put Store::putAndLink(const fs::path& source) const {
+    Put put = putFile(source);
+    linkTo(source, put.key);
+    return put;
+}
+
+void Store::linkTo(const fs::path& file, const Md5& key) const {
+    fs::path object = objectPath(key);
+    if (fs::equivalent(file, object)) return;
+    fs::path staged = file.string() + ".link";
+    fs::remove(staged);
+    fs::create_hard_link(object, staged);
+    fs::rename(staged, file);
+}
+
+TreeJournal::TreeJournal(const Store& store, fs::path tree) : store_(store), tree_(std::move(tree)) {
+    fs::path path = tree_ / kStoreJournal;
+    std::ifstream in(path);
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream fields(line);
+        std::string file;
+        std::string md5;
+        Row row;
+        if (!std::getline(fields, file, '\t') || !(fields >> row.size >> row.mtime >> md5)) continue;
+        std::optional<Md5> key = parseHex(md5);
+        if (!key) continue;
+        row.key = *key;
+        rows_[file] = row;
+    }
+    bool torn = false;
+    if (std::ifstream last(path, std::ios::binary | std::ios::ate); last && last.tellg() > 0) {
+        last.seekg(-1, std::ios::end);
+        torn = last.get() != '\n';
+    }
+    out_.open(path, std::ios::app);
+    if (!out_) throw std::runtime_error("cannot open " + path.string());
+    if (torn) out_ << '\n';
+}
+
+std::optional<Md5> TreeJournal::stored(const std::string& relative) const {
+    auto row = rows_.find(relative);
+    if (row == rows_.end()) return std::nullopt;
+    fs::path file = tree_ / relative;
+    std::error_code ec;
+    uint64_t size = fs::file_size(file, ec);
+    if (ec || size != row->second.size || mtimeOf(file) != row->second.mtime) return std::nullopt;
+    if (!fs::exists(store_.objectPath(row->second.key))) return std::nullopt;
+    return row->second.key;
+}
+
+void TreeJournal::record(const std::string& relative, const Md5& key) {
+    fs::path file = tree_ / relative;
+    uint64_t size = fs::file_size(file);
+    int64_t mtime = mtimeOf(file);
+    std::lock_guard<std::mutex> lock(mutex_);
+    out_ << relative << '\t' << size << '\t' << mtime << '\t' << hex(key) << '\n';
+    out_.flush();
+}
+
+void linkIntoStore(const Store& store, TreeJournal& journal, const fs::path& tree, const fs::path& dir) {
+    for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+        if (!entry.is_regular_file() || entry.path().extension() == ".partial" || entry.path().extension() == ".link") continue;
+        std::string relative = entry.path().lexically_relative(tree).generic_string();
+        if (std::optional<Md5> key = journal.stored(relative); key && fs::equivalent(entry.path(), store.objectPath(*key))) {
+            continue;
+        }
+        journal.record(relative, store.putAndLink(entry.path()).key);
+    }
 }
 
 std::vector<std::string> Store::games() const {
@@ -392,7 +441,7 @@ void Store::setTag(const std::string& name, const BuildId& id) const {
     writeTextAtomic(root_ / "tags" / name, id.path() + "\n");
 }
 
-IngestResult ingestTree(const Store& store, const fs::path& tree, const std::string& game) {
+IngestResult ingestTree(const Store& store, const fs::path& tree, const std::string& game, bool link) {
     if (!validLabel(game)) throw std::runtime_error("game build label: expected one path component, got \"" + game + "\"");
     if (!fs::is_directory(tree)) throw std::runtime_error("expected an export tree directory, got " + tree.string());
 
@@ -402,7 +451,7 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
         fs::path relative = entry.path().lexically_relative(tree);
         if (relative == kErrorLog || relative == kInputLog || relative == kStoreJournal) continue;
         // Interrupted writes of the exporters (TextureStore, writeTextAtomic).
-        if (relative.extension() == ".partial") continue;
+        if (relative.extension() == ".partial" || relative.extension() == ".link") continue;
         files.push_back(relative);
     }
     std::sort(files.begin(), files.end());
@@ -415,38 +464,27 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
         std::optional<DocumentHeader> header;
     };
     std::vector<Row> rows(files.size());
-    std::unordered_map<std::string, JournalRow> journaled = readJournal(tree / kStoreJournal);
-    bool torn = false;
-    if (std::ifstream last(tree / kStoreJournal, std::ios::binary | std::ios::ate); last && last.tellg() > 0) {
-        last.seekg(-1, std::ios::end);
-        torn = last.get() != '\n';
-    }
-    std::ofstream journal(tree / kStoreJournal, std::ios::app);
-    if (!journal) throw std::runtime_error("cannot open " + (tree / kStoreJournal).string());
-    if (torn) journal << '\n';
-    std::mutex journalMutex;
+    TreeJournal journal(store, tree);
     std::atomic<size_t> resumed{0};
     Progress progress("store", files.size());
     parallelFor(files.size(), 0, [&](size_t i) {
         fs::path source = tree / files[i];
         std::string name = files[i].generic_string();
         uint64_t size = fs::file_size(source);
-        int64_t mtime = mtimeOf(source);
-        auto done = journaled.find(name);
-        if (done != journaled.end() && done->second.size == size && done->second.mtime == mtime &&
-            fs::exists(store.objectPath(done->second.key))) {
-            rows[i] = {done->second.key, size, false, readHeader(source)};
+        std::optional<Md5> done = journal.stored(name);
+        if (done) {
+            if (link && !fs::equivalent(source, store.objectPath(*done))) {
+                store.linkTo(source, *done);
+                journal.record(name, *done);
+            }
+            rows[i] = {*done, size, false, readHeader(source)};
             ++resumed;
             progress.tick();
             return;
         }
-        Store::Put put = store.putFile(source);
+        Store::Put put = link ? store.putAndLink(source) : store.putFile(source);
         rows[i] = {put.key, size, put.added, readHeader(source)};
-        {
-            std::lock_guard<std::mutex> lock(journalMutex);
-            journal << name << '\t' << size << '\t' << mtime << '\t' << hex(put.key) << '\n';
-            journal.flush();
-        }
+        journal.record(name, put.key);
         progress.tick();
     });
     if (resumed > 0) std::cout << "store: " << resumed << " files resumed from " << kStoreJournal << std::endl;
