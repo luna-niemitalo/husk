@@ -37,6 +37,13 @@ The runtime decides, each step, what everyone does next.
   LLM), carried out by a behaviour tree or a second model.
 - **Temperature matters**: cold makes creatures shiver and seek shelter,
   fires, interiors; openings like windows and doors leak heat.
+- **Scale: a million and more** persistent individuals is the engine's
+  design target, not a ceiling to verify against today's content.
+- **Habitable cities and towns**: the world will be revamped so
+  settlements house the populations they stand for (Goldshire, two
+  houses, an inn and a forge today, becomes the small town it is supposed
+  to be). Population is planned for the world as revamped, not limited
+  by the buildings the client ships.
 
 ## 1. Invariants
 
@@ -233,7 +240,11 @@ Named regions over the world: a type (home, inn, smithy, market, field,
 den, nest), a boundary (WMO groups, a volume, or a navmesh region), its
 affordances, capacity, and owner or occupants. Seeds come from source
 (WMO group names, AreaTable, interiors); the rest is authored or
-generated.
+generated. A place may belong to a building the source doesn't have: new
+homes and districts are authored placement sets layered over the
+source world, and their places, affordances and navmesh tiles are built
+from them like any other (the navmesh builder takes source and authored
+placements alike).
 
 A place lists its **stationary spots**: where an occupant stands, sits
 or sleeps while there (the reference's "building map" that anchors
@@ -304,7 +315,10 @@ computes its cumulative distribution once, and draws locations by
 inverse transform sampling. Here the density comes from place
 capacities (§6.1) and, for creatures, habitat scores times species
 density (§5.4): one grid per map and kind of population, derived and
-stored with the population.
+stored with the population. Capacities are the intended populations of
+the revamped settlements (authored), so a settlement whose buildings
+aren't built yet can still carry its population target; the gap between
+target and homes is a to-do list for the revamp, not a cap.
 
 ### 7.3 Planner and executor
 
@@ -351,8 +365,10 @@ Format-agnostic.
    decision-making (its NPCs follow fixed home/work schedules).
 5. **Climate source**: authored per zone, or derived from zone names,
    skyboxes and weather data where some exists (unchecked).
-6. **Coarse tier placement**: on the GPU as in the reference, or on the CPU
-   (a WoW world's population is likely far below a million; unchecked).
+6. **Coarse tier placement**: the target is a million and more (Luna), so
+   the coarse tier's record layout should fit a GPU grid as in the
+   reference (fixed-size records, normalized position, phase), whichever
+   processor runs it.
 
 ## 10. First steps
 
