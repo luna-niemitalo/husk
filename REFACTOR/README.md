@@ -248,6 +248,7 @@ drifting implementations into one exposes *why* things look wrong today.
 | `CORPUS_EXPORT.md` | A full canonical export of a game build: the tree, a content-addressed store versioned like casc-tool's (`/media/luna/work/canonical_storage`), mounted by `husk mount` at `/media/luna/canonical_export` | Built; first full run in progress |
 | `MATERIALS.md` | Material documents: surface layers and composite textures with named blend functions; character skin composites first | Slice 1 built |
 | `MANTLECORE_MIGRATION.md` | What MantleCore must change to read the current format | Scratch; delete once MantleCore has migrated |
+| `SIMULATION.md` | Living creatures and NPCs: navmeshes per body type, affordances, temperature, species, individuals, the decision layer | Proposal; agent side waits for Luna's NPC reference |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
 
