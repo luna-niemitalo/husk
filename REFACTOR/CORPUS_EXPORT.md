@@ -195,6 +195,19 @@ built; block cloning is active on `tank/data`).
   whose content changed, as casc-tool's builds do. The game label is resolved before the export,
   from `--listfile-root`'s tag link by default. `--map` and `--sample N`
   (a fixed seeded choice of the listfile assets) bound a projection run.
+- **`husk snapshot`** (2026-10-14): casc-tool's `snapshot`, for husk's
+  output. Reads the game build the source mount's tag link names
+  (`--listfile-root`, the config's `/media/luna/wow_export/live`), pins it
+  (maps and DB2s are read from `builds/<game>/`, so a tag moving mid-run
+  changes nothing), and if the store has no build of that game at this
+  husk version, runs `export-corpus` into `<store>/views/<game>/<husk>/`
+  (a view: its files are links to objects). Then `--tag` (`live`) names
+  the new build and the build it replaced keeps `--previous-tag`
+  (`previous`). Run again on an unchanged source, it only re-points the
+  tag. A new patch costs disk only for outputs whose bytes changed; it
+  still costs a full export's time (most outputs read DB2 tables a patch
+  changes, so skipping by unchanged inputs would need per-row DB2
+  dependencies; "Incremental export" below).
 - **`husk index-tree <tree>`**: rebuilds `index/` from the model
   manifests, parsing only `selection` and `definition`
   (`humanmale_hd`: 1.5 s, 66 MB, ChrModels 1 and 45, 6,381 displays).

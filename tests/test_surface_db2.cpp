@@ -13,7 +13,7 @@ using namespace husk;
 
 namespace {
 
-constexpr const char* kMountDb2Dir = "/media/luna/wow_export/live/dbfilesclient";
+constexpr const char* kMountDb2Dir = "/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient";
 
 bool haveRealSurfaceTables() {
     return std::filesystem::exists(std::filesystem::path(kMountDb2Dir) / "terraintype.db2") && !test::testDbdDir().empty();

@@ -563,6 +563,78 @@ int exportCorpus(int argc, char** args) {
     }
 }
 
+void addSnapshotOptions(CLI::App& app, SnapshotOptions& opts) {
+    addConfigOption(app);
+    // The config's listfile-root is the source mount's tag link, which is
+    // what a snapshot starts from.
+    app.add_option("--listfile-root", opts.source,
+                   "the source mount's tag link to snapshot, e.g. /media/luna/wow_export/live: the build it names is "
+                   "exported")
+        ->required()
+        ->group("Source");
+    app.add_option("--listfile", opts.listfile, "community listfile CSV")->required()->group("Resolution");
+    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--store", opts.store, "the canonical store directory")->required()->group("Store");
+    app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
+    app.add_option("--tag", opts.tag, "the tag to point at the snapshot")->capture_default_str()->group("Store");
+    app.add_option("--previous-tag", opts.previousTag, "the tag the replaced build keeps")
+        ->capture_default_str()
+        ->group("Store");
+}
+
+int snapshot(int argc, char** args) {
+    CLI::App app{"husk snapshot -- record the source mount's current game build in the canonical store", "husk snapshot"};
+    SnapshotOptions opts;
+    addSnapshotOptions(app, opts);
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
+    try {
+        // Pinned once: the tag link can move to a new patch mid-run, and
+        // every path below reads the build it named now.
+        std::string game = gameLabelOf(opts.source);
+        std::error_code ec;
+        fs::path build = fs::canonical(opts.source, ec);
+        if (ec) throw std::runtime_error("expected the source build " + opts.source + ", got none: " + ec.message());
+        corpus::Store store(fs::absolute(opts.store));
+        corpus::BuildId id{game, corpus::huskLabel(std::string("husk ") + husk::version())};
+        std::map<std::string, corpus::BuildId> tags = store.tags();
+        std::optional<corpus::BuildId> replaced;
+        if (auto current = tags.find(opts.tag); current != tags.end() && current->second.path() != id.path()) {
+            replaced = current->second;
+        }
+        std::cout << "snapshot: " << id.path() << " from " << build.string() << std::endl;
+        if (fs::exists(store.buildDir(id) / "files.tsv")) {
+            std::cout << "already stored" << std::endl;
+            store.setTag(opts.tag, id);
+        } else {
+            std::vector<std::string> corpusArgs = {(store.root() / "views" / game / id.husk).string(),
+                                                   "--listfile", opts.listfile,
+                                                   "--listfile-root", build.string(),
+                                                   "--db2-dir", (build / "dbfilesclient").string(),
+                                                   "--dbd-dir", opts.dbdDir.empty() ? "none" : opts.dbdDir,
+                                                   "--store", store.root().string(),
+                                                   "--game", game,
+                                                   "--tag", opts.tag,
+                                                   "--config", "/dev/null"};
+            if (opts.jobs > 0) {
+                corpusArgs.push_back("--jobs");
+                corpusArgs.push_back(std::to_string(opts.jobs));
+            }
+            std::vector<char*> argv;
+            for (std::string& a : corpusArgs) argv.push_back(a.data());
+            if (int code = exportCorpus(static_cast<int>(argv.size()), argv.data())) return code;
+        }
+        if (replaced) {
+            store.setTag(opts.previousTag, *replaced);
+            std::cout << opts.previousTag << ": " << replaced->path() << std::endl;
+        }
+        std::cout << opts.tag << ": " << id.path() << std::endl;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "husk: snapshot: " << e.what() << "\n";
+        return 1;
+    }
+}
+
 void addIndexTreeOptions(CLI::App& app, IndexTreeOptions& opts) {
     app.add_option("tree", opts.tree, "an export tree (export-world or export-corpus output)")->required();
 }

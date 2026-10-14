@@ -180,7 +180,12 @@ int exportWorld(int argc, char** args) {
         // by re-reading its tag files; with every thread reading, that was
         // the whole cost of the run (12.1.0 export, 2026-10-12). Resolve the
         // links once and read by the real path.
-        for (std::string* root : {&opts.listfileRoot, &opts.mapsRoot}) {
+        // The DB2 directory too: through `live` it would be read from
+        // whichever build the tag names at the time, and recorded in
+        // inputs.log by that path rather than relative to the source.
+        std::vector<std::string*> sourceRoots = {&opts.listfileRoot, &opts.mapsRoot};
+        if (!opts.db2Dir.empty() && opts.db2Dir != "none") sourceRoots.push_back(&opts.db2Dir);
+        for (std::string* root : sourceRoots) {
             std::error_code ec;
             std::filesystem::path real = std::filesystem::canonical(*root, ec);
             if (ec) throw SourceGone("expected the source tree " + *root + ", got none (unmounted?): " + ec.message());

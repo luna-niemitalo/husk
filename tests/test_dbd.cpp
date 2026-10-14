@@ -375,8 +375,8 @@ TEST_CASE(
     "dbd: real reference/WoWDBDefs checkout resolves ChrModelMaterial's real column names for the "
     "real chrmodelmaterial.db2 file's own layout_hash" *
     doctest::skip(husk::test::testDbdDir().empty() ||
-                   !std::filesystem::exists("/media/luna/wow_export/live/dbfilesclient/chrmodelmaterial.db2"))) {
-    // Real values from `husk db2-info /media/luna/wow_export/live/dbfilesclient/chrmodelmaterial.db2`
+                   !std::filesystem::exists("/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/chrmodelmaterial.db2"))) {
+    // Real values from `husk db2-info /media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/chrmodelmaterial.db2`
     // at test-writing time: table_hash=0xfa82a022, layout_hash=0x22469480, 7 fields.
     std::optional<dbd::Table> table = dbd::loadTableForHash(husk::test::testDbdDir(), 0xfa82a022);
     REQUIRE(table.has_value());
@@ -390,7 +390,7 @@ TEST_CASE(
     // real bitpacked/bitpacked_indexed_array storage, not just the
     // synthetic None-only cases above.
     db2::File file =
-        db2::parse(readFileBytes("/media/luna/wow_export/live/dbfilesclient/chrmodelmaterial.db2"));
+        db2::parse(readFileBytes("/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/chrmodelmaterial.db2"));
     auto resolved = dbd::resolveFieldNames(*table, *layout, file.fieldStorageInfo);
     REQUIRE(resolved.has_value());
     REQUIRE(resolved->size() == 7);

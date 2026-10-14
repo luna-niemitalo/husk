@@ -15,7 +15,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kMountDb2Dir = "/media/luna/wow_export/live/dbfilesclient";
+constexpr const char* kMountDb2Dir = "/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient";
 constexpr uint32_t kModelFile = 500;
 
 canon::Model modelWithGeosets(std::vector<uint32_t> geosetIds) {

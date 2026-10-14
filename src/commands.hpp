@@ -116,6 +116,7 @@ int mount(int argc, char** args);
 // `export-corpus` -- export-world over every map with --all-assets, then
 // (with --store) store-add of the tree (cmd_store.cpp).
 int exportCorpus(int argc, char** args);
+int snapshot(int argc, char** args);
 // `index-tree` -- (re)builds an export tree's index/ lookup tables (corpus_index.hpp).
 int indexTree(int argc, char** args);
 
@@ -314,6 +315,17 @@ struct ExportCorpusOptions {
     std::vector<std::string> tags;
 };
 void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts);
+
+struct SnapshotOptions {
+    std::string source;  // the source mount's tag link, e.g. /media/luna/wow_export/live
+    std::string listfile;
+    std::string dbdDir;
+    std::string store;
+    unsigned jobs = 0;
+    std::string tag = "live";
+    std::string previousTag = "previous";
+};
+void addSnapshotOptions(CLI::App& app, SnapshotOptions& opts);
 
 struct IndexTreeOptions {
     std::string tree;

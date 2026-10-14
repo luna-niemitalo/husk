@@ -356,6 +356,7 @@ struct AllSubcommandOpts {
     husk::commands::MountOptions mountOpts;
     husk::commands::ExportCorpusOptions exportCorpusOpts;
     husk::commands::IndexTreeOptions indexTreeOpts;
+    husk::commands::SnapshotOptions snapshotOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -421,6 +422,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportCorpusSub =
         root.add_subcommand("export-corpus", "every map and every M2/WMO of a game build, optionally into the store");
     husk::commands::addExportCorpusOptions(*exportCorpusSub, opts.exportCorpusOpts);
+
+    CLI::App* snapshotSub =
+        root.add_subcommand("snapshot", "record the source mount's current game build in the canonical store");
+    husk::commands::addSnapshotOptions(*snapshotSub, opts.snapshotOpts);
 
     CLI::App* indexTreeSub = root.add_subcommand("index-tree", "(re)build an export tree's index/ lookup tables");
     husk::commands::addIndexTreeOptions(*indexTreeSub, opts.indexTreeOpts);
@@ -612,6 +617,8 @@ int main(int argc, char** argv) {
         "                               browse the canonical store as a read-only filesystem\n"
         "  export-corpus <out> [--store DIR|none [--tag NAME]...]\n"
         "                               every map and every M2/WMO, then optionally store-add\n"
+        "  snapshot [--listfile-root D/live] [--store DIR]\n"
+        "                               record the source mount's current game build in the store\n"
         "  index-tree <tree>            (re)build an export tree's index/ lookup tables\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
@@ -676,6 +683,9 @@ int main(int argc, char** argv) {
     }
     if (command == "export-corpus") {
         return husk::commands::exportCorpus(restArgc, rest);
+    }
+    if (command == "snapshot") {
+        return husk::commands::snapshot(restArgc, rest);
     }
     if (command == "mount") {
         return husk::commands::mount(restArgc, rest);

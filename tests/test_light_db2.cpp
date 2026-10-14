@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kMountDb2Dir = "/media/luna/wow_export/live/dbfilesclient";
+constexpr const char* kMountDb2Dir = "/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient";
 
 bool haveRealLightTables() {
     return fs::exists(fs::path(kMountDb2Dir) / "light.db2") && !test::testDbdDir().empty();

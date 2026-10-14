@@ -78,7 +78,7 @@ TEST_CASE("README.md's generated flag tables match --print-flag-docs") {
         while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
         return s;
     };
-    for (const std::string sub : {"export-terrain", "export-world", "export-corpus", "store-add", "mount", "index-tree"}) {
+    for (const std::string sub : {"export-terrain", "export-world", "export-corpus", "store-add", "snapshot", "mount", "index-tree"}) {
         CAPTURE(sub);
         auto result = runHusk("--print-flag-docs=" + sub);
         REQUIRE(result.exitCode == 0);
