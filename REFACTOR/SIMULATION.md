@@ -1,9 +1,11 @@
 # SIMULATION.md — living creatures and NPCs in the canonical format
 
 **Status: proposal (2026-10-15), nothing built.** Decisions marked
-**(Luna)** are settled; the rest is proposal. Luna will bring a reference
-for NPC simulation. The agent side (§7) waits for it; the world and body
-sides (§3–§5) don't depend on it.
+**(Luna)** are settled; the rest is proposal. Reference (Luna,
+2026-10-15): "How I Simulate Over a Million Persistent NPCs For My
+Procedural City" (YouTube `nBV0yAAJUf0`; video and transcript in the
+gitignored `reference/npc_simulation/`). Its ideas are in §7, marked
+"(reference)".
 
 ## Goal (Luna)
 
@@ -50,7 +52,7 @@ The runtime decides, each step, what everyone does next.
 4. **Derived documents are deterministic** from their source build and
    their parameters, so they are stored and versioned like any export
    (`CORPUS_EXPORT.md`): a patch rebuilds only what changed.
-5. **Agents act through a fixed action vocabulary** (§7) and animate
+5. **Agents act through a fixed action vocabulary** (§7.3) and animate
    through animation *states* (§5), never clip indices. A species
    without a clip for a state falls back the way the source says.
 6. **Static costs are geometric.** Anything that varies with weather, time,
@@ -113,6 +115,11 @@ To add (all present in the 12.1.5 client: `dbfilesclient/` and the M2s):
 - **Area costs** from geometry and surface: surface type, liquid depth,
   road (from ground textures/effects, inferred). Per-agent preferences
   multiply these at query time (invariant 6).
+- **A coarse travel graph** per profile over the navmesh tiles (regions as
+  nodes, crossings and links as edges, with travel times), for routes
+  across a map and for the coarse tier (§7.1). The reference uses a street
+  graph for far goals and the navmesh only for the last stretch; this
+  graph is that street graph, derived instead of authored.
 
 ### 4.2 Affordances
 
@@ -212,7 +219,7 @@ individuals share one.
 
 ### 5.5 Animation
 
-The species maps the action vocabulary's states (§7) to animation states
+The species maps the action vocabulary's states (§7.3) to animation states
 from `AnimationData`, with the display's replacements applied. Idle
 variety uses the clips' frequency, variation chain and replay range.
 States the source lacks (`shiver`, `pant`) are added to the vocabulary
@@ -228,11 +235,22 @@ affordances, capacity, and owner or occupants. Seeds come from source
 (WMO group names, AreaTable, interiors); the rest is authored or
 generated.
 
+A place lists its **stationary spots**: where an occupant stands, sits
+or sleeps while there (the reference's "building map" that anchors
+project onto). Each place also gives its population capacity, which
+feeds the density map (§7.2).
+
 ### 6.2 Individuals
 
-An `individual` document (new kind) for anything with a life worth
-tracking; creatures without one are species instances spawned by
-density.
+Most individuals are **generated from a seed**, not stored: the world's
+population seed plus the individual's index gives its species,
+appearance, traits, home, work and relationships, the same every run
+(reference: each NPC's seed is its pixel coordinate plus the city seed).
+An `individual` document exists only for an authored one, or to pin
+values over a generated one. Persistent changes made at runtime (a new
+friend, a moved home) are the simulation's save data, not bundle data
+(invariant 3). Creatures without a life worth tracking are species
+instances spawned by density.
 - Species and appearance (a preset).
 - Name, personality traits.
 - **Home** and **work** (place refs), role at work, a schedule *template*
@@ -243,7 +261,54 @@ density.
 
 ## 7. Decision layer
 
-Format-agnostic; the reference may change it.
+### 7.1 Two tiers (reference)
+
+Everyone is simulated all the time, but not at the same detail:
+- **Coarse tier, for every individual**: an approximate position, a
+  current activity phase (home, travelling, at work, at a hobby place,
+  satisfying a need) and a destination, advanced cheaply. The reference
+  keeps a million of these on the GPU, one pixel each (position in R/G,
+  phase in B, normalized). Routes follow the coarse travel graph
+  (§4.1); needs advance as rates, without perception.
+- **Detailed tier, near the observer**: navmesh pathing, avoidance, IK,
+  perception, the planner and executor below. Only a few hundred at once
+  (the reference: 200–300).
+- **Promotion**: an individual entering range spawns at its coarse
+  position, projected onto something valid (on a walkable surface if
+  travelling, onto a stationary spot of its place if stationary).
+- **Anchors**: while detailed, the coarse tier keeps giving it an anchor
+  (where the coarse simulation says it should be), so the two don't
+  drift apart. The reference re-reads every few seconds, off the main
+  thread.
+- **Retention**: a detailed individual still near the observer is kept
+  even when its coarse position leaves range, so nobody vanishes in
+  view; it rejoins its anchor when it can.
+- **Interaction** (talking, following) detaches an individual from its
+  anchor; it returns to it afterwards.
+- **Demotion, beyond the reference**: when a detailed individual leaves
+  range, its state is written back to the coarse tier (need levels,
+  current goal as a phase and destination). The reference throws the
+  detailed state away, which is fine for fixed schedules but would lose
+  goals a planner chose.
+
+The planner and executor (§7.3) run only in the detailed tier; the
+coarse tier follows schedule templates and need rates, so an LLM never
+runs for a million agents.
+
+### 7.2 Population density (reference)
+
+Homes, workplaces and creature populations are sampled from a density
+map, so nobody lives in a river. The reference builds a coarse density
+grid once (from building height and roads; rivers and roads are 0),
+computes its cumulative distribution once, and draws locations by
+inverse transform sampling. Here the density comes from place
+capacities (§6.1) and, for creatures, habitat scores times species
+density (§5.4): one grid per map and kind of population, derived and
+stored with the population.
+
+### 7.3 Planner and executor
+
+Format-agnostic.
 - **Perception** queries return affordances, agents and places within the
   agent's senses, with what each offers.
 - **Planner**: a utility system, a behaviour system or a small LLM sets a
@@ -265,7 +330,9 @@ Format-agnostic; the reference may change it.
 | `affordances`, habitat, thermal shape | derived | per tile, as placement sets of typed points and regions |
 | `locomotion_profile` | authored | the profile records (§4.1) |
 | `species` | authored + source refs | §5 |
-| `place` sets, `individual` | authored | §6 |
+| `place` sets, `individual` | authored | §6 (individuals only where authored or pinned) |
+| `population` | authored + derived | per world: population seed, generator parameters, density grids and their distributions (§7.2) |
+| coarse travel graph | derived | per tile and profile, beside the navmesh (§4.1) |
 | `behaviour` | authored | behaviour trees as data |
 | `climate` | authored | per-zone baselines (§4.4) |
 
@@ -279,9 +346,13 @@ Format-agnostic; the reference may change it.
 3. **Where individuals live**: in world bundles, or a separate population
    bundle per world (proposal: separate; it changes on a different
    schedule from the game build).
-4. **The decision layer's shape**: waits for Luna's reference.
+4. **The planner and executor (§7.3)**: utility system, behaviour trees,
+   LLM, or a mix. The reference covers tiers, spawning and density but not
+   decision-making (its NPCs follow fixed home/work schedules).
 5. **Climate source**: authored per zone, or derived from zone names,
    skyboxes and weather data where some exists (unchecked).
+6. **Coarse tier placement**: on the GPU as in the reference, or on the CPU
+   (a WoW world's population is likely far below a million; unchecked).
 
 ## 10. First steps
 
