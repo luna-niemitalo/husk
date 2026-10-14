@@ -13,10 +13,9 @@ compositing".
 3. **Texel sizes**: the compositor copies texel for texel, unscaled; how
    a choice texture whose size differs from its section is drawn (a mip,
    a scale) is unknown.
-4. **WMO shader formulas**: `techniques/wmo_shader/` states 23 of 25
-   from the client's `uber` shader; Parallax (22) and `UnkDFShader` (23)
-   are `partial` (parallax offsets and a 4-layer height blend, described
-   in notes). The lighting after the shader (vertex light, the `r8.x`
+4. **WMO shader inputs**: 23's tint (`cb2[5]`) is unidentified, and what
+   the client samples for a missing height texture (`runTimeData` 0) is
+   unknown. The lighting after the shader (vertex light, the `r8.x`
    flag) is not traced.
 5. **Mesh colour alpha**: a batch whose colour alpha and texture weight
    both animate keeps only the colour's in `alpha_fade`; the shaders

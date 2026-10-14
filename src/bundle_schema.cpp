@@ -502,8 +502,8 @@ void checkExpression(const json& node, const json& definition, const std::string
     }
     if (!node.contains("op")) return;
     static const std::map<std::string, std::pair<size_t, size_t>> arity = {
-        {"add", {2, 99}}, {"sub", {2, 2}}, {"mul", {2, 99}}, {"lerp", {3, 3}},
-        {"saturate", {1, 1}}, {"luma", {1, 1}}, {"channels", {1, 1}}, {"lit", {1, 1}}};
+        {"add", {2, 99}}, {"sub", {2, 2}},      {"mul", {2, 99}},      {"div", {2, 2}},  {"max", {2, 99}},
+        {"lerp", {3, 3}}, {"saturate", {1, 1}}, {"luma", {1, 1}}, {"channels", {1, 1}}, {"lit", {1, 1}}};
     std::string op = node["op"];
     size_t n = node.contains("args") ? node["args"].size() : 0;
     auto [lo, hi] = arity.at(op);
@@ -512,12 +512,46 @@ void checkExpression(const json& node, const json& definition, const std::string
     for (size_t i = 0; i < n; ++i) checkExpression(node["args"][i], definition, pointer + "/args/" + std::to_string(i), fail);
 }
 
+// The "input:<name>"/"term:<name>" nodes an expression reads.
+void collectReads(const json& node, std::set<std::string>& out) {
+    if (node.contains("input")) out.insert("input:" + node["input"].get<std::string>());
+    if (node.contains("term")) out.insert("term:" + node["term"].get<std::string>());
+    for (const json& arg : node.value("args", json::array())) collectReads(arg, out);
+}
+
 void checkTechnique(const json& technique, const std::function<void(const std::string&, const std::string&)>& fail) {
     const json& definition = technique["definition"];
     for (const char* section : {"terms", "outputs"}) {
         if (!definition.contains(section)) continue;
         for (const auto& [name, expr] : definition[section].items()) {
             checkExpression(expr, definition, std::string("/definition/") + section + "/" + name, fail);
+        }
+    }
+    std::map<std::string, std::set<std::string>> reads;
+    for (const auto& [name, input] : definition["inputs"].items()) {
+        if (!input.contains("coordinate")) continue;
+        checkExpression(input["coordinate"], definition, "/definition/inputs/" + name + "/coordinate", fail);
+        collectReads(input["coordinate"], reads["input:" + name]);
+    }
+    for (const auto& [name, expr] : definition.value("terms", json::object()).items()) collectReads(expr, reads["term:" + name]);
+
+    // A coordinate may read inputs and terms, so a term can depend on itself
+    // through one (an input sampled where a term that reads it says).
+    std::map<std::string, int> state;  // 1: on the current path, 2: done
+    std::function<bool(const std::string&)> cyclic = [&](const std::string& node) {
+        if (state[node] == 1) return true;
+        if (state[node] == 2) return false;
+        state[node] = 1;
+        for (const std::string& next : reads[node]) {
+            if (cyclic(next)) return true;
+        }
+        state[node] = 2;
+        return false;
+    };
+    for (const auto& [node, _] : reads) {
+        if (cyclic(node)) {
+            fail("/definition", "expected terms and input coordinates without a cycle, got one through " + node);
+            return;
         }
     }
 }

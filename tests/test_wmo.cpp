@@ -468,6 +468,29 @@ TEST_CASE("wmo::parseRoot: portal ranges and links past their tables throw with 
         "MOPE: expected one entry per MOPT portal (2), got 1", wmo::ParseError);
 }
 
+TEST_CASE("wmo::parseRoot: MOMT's runTimeData; materialTextures gives shaders 22 and 23 nine texture fields") {
+    std::vector<uint8_t> momt(64, 0);
+    put<uint32_t>(momt, 0x04, 23);
+    put<uint32_t>(momt, 0x0C, 101);
+    put<uint32_t>(momt, 0x28, 104);
+    put<uint32_t>(momt, 0x2C, 105);
+    for (uint32_t k = 0; k < 4; ++k) put<uint32_t>(momt, 0x30 + 4 * k, 117 + k);
+    wmo::RootFile root = wmo::parseRoot(minimalRoot(0, {{"MOMT", momt}}));
+    REQUIRE(root.materials.size() == 1);
+    CHECK(root.materials[0].runTimeData == std::array<uint32_t, 4>{117, 118, 119, 120});
+
+    std::vector<wmo::MaterialTexture> fields = wmo::materialTextures(root.materials[0]);
+    REQUIRE(fields.size() == 9);
+    CHECK(fields[3].unit == 3);
+    CHECK(fields[3].value == 104);
+    CHECK(fields[4].value == 105);
+    CHECK(fields[5].unit == 17);
+    CHECK(fields[8].unit == 20);
+    CHECK(fields[8].value == 120);
+    root.materials[0].shader = 6;
+    CHECK(wmo::materialTextures(root.materials[0]).size() == 3);
+}
+
 TEST_CASE("wmo::groupFileDataId: GFID is row-major [lodTier][group], 0 for holes and out of range") {
     std::vector<uint8_t> gfid;
     for (uint32_t id : {10u, 11u, 20u, 0u}) put(gfid, gfid.size(), id);
@@ -490,6 +513,7 @@ TEST_CASE("wmo::parseGroup: reads the MOGP header and every sub-chunk after it")
                                            {"MOTV", floats({0, 0, 1, 0, 0, 1})},
                                            {"MOTV", floats({0, 0, 2, 0, 0, 2})},
                                            {"MOCV", mocv},
+                                           {"MOC2", std::vector<uint8_t>{1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0}},
                                            {"MOBA", moba}});
 
     wmo::GroupFile g = wmo::parseGroup(file);
@@ -501,6 +525,7 @@ TEST_CASE("wmo::parseGroup: reads the MOGP header and every sub-chunk after it")
     CHECK(g.uvSets.size() == 2);
     CHECK(g.uvSets[1][1][0] == 2.0f);
     CHECK(g.colorSets.size() == 1);
+    CHECK(g.blendWeights == std::vector<uint32_t>{0x04030201u, 0, 0});
     REQUIRE(g.triangles.size() == 1);
     CHECK(g.triangles[0].flags == 0x20);
     CHECK(g.triangles[0].material == 7);

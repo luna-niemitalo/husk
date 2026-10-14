@@ -77,7 +77,6 @@
               "kind": {
                 "enum": [
                   "texture_unit",
-                  "texture_slot",
                   "per_draw_constant",
                   "vertex_term",
                   "vertex_value",
@@ -92,7 +91,11 @@
               "unit": {
                 "type": "integer",
                 "minimum": 0,
-                "description": "texture_unit/texture_slot: which."
+                "description": "texture_unit: the material layer whose texture_unit this is (t<unit> in the source shader)."
+              },
+              "coordinate": {
+                "$ref": "#/definitions/expression",
+                "description": "texture_unit: the coordinate the texture is sampled at (two components), an expression over the other inputs and the terms. Absent: the layer's own uv_map."
               },
               "status": {
                 "enum": [
@@ -178,7 +181,7 @@
   "definitions": {
     "expression": {
       "type": "object",
-      "description": "An expression over the technique's inputs and terms. Values are colours or scalars; operations act per channel, and a scalar combines with every channel of a colour. Operations: add, sub, mul (n-ary for mul and add); lerp(a, b, t) = a + (b - a)*t; saturate(x) clamps to 0..1; luma(x) = 0.30*x.r + 0.59*x.g + 0.11*x.b; channels(x) selects `channels` of x; lit(x) is the renderer's lighting applied to x. A node is exactly one of: {input, channels?}, {term}, {const}, {op, args, channels?}.",
+      "description": "An expression over the technique's inputs and terms. Values are colours or scalars; operations act per channel, and a scalar combines with every channel of a colour. Operations: add, sub, mul, div (n-ary for add and mul); max (n-ary, per channel); lerp(a, b, t) = a + (b - a)*t; saturate(x) clamps to 0..1; luma(x) = 0.30*x.r + 0.59*x.g + 0.11*x.b; channels(x) selects `channels` of x; lit(x) is the renderer's lighting applied to x. A node is exactly one of: {input, channels?}, {term}, {const}, {op, args, channels?}.",
       "properties": {
         "input": {
           "type": "string",
@@ -198,6 +201,8 @@
             "add",
             "sub",
             "mul",
+            "div",
+            "max",
             "lerp",
             "saturate",
             "luma",

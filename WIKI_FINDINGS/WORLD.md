@@ -195,6 +195,41 @@ Against `WMO.md` / `WMO/Rendering.md`:
   where the wiki's client array holds three `MOTV`, and one more `uint`.
   The layout is verified; that the last `uint` is `MOC2` is **inferred**.
 
+### WMO shaders 22 and 23 (2026-10-15)
+
+From mantlecore's handoff (`/home/luna/dev/mantlecore/development/husk_wmo_shaders_handoff.md`),
+re-checked against program 0000 of the `uber` pixel and vertex shaders
+and the 12.1.5.70391 mount. The formulas are the technique documents
+`techniques/wmo_shader/Parallax.json` and `UnkDFShader.json`.
+
+- **Texture fields.** Shaders 22 and 23 sample `MOMT`'s `color_2`,
+  `flags_2` and `runTimeData[0..3]` as texture FileDataIDs: `texture_1`-`3`
+  are `t0`-`t2`, `color_2` `t3`, `flags_2` `t4`, `runTimeData[0..3]`
+  `t17`-`t20` (`wmo::materialTextures`). 23 samples all nine; 22 samples six,
+  and all 115 shader-22 materials have `runTimeData[1..3] = 0`. The order
+  of `color_2` and `flags_2` is **inferred**: wow.export's renderer binds them
+  in that order, and among 23's materials with four distinct layers
+  `flags_2` is the `_s` companion of `runTimeData[3]` in 809 against at most
+  17 elsewhere. The other layers' companions don't pair as cleanly (the
+  handoff's table), so the binding is positional, as the shader pairs
+  `t(16+i)` with `t(i)` (same uv, same sampler).
+- **Missing heights.** 18,844 of 37,911 shader-23 materials have no
+  `runTimeData[0]`. What the client binds for a missing texture is not known.
+- **`MOC2` is BGRA, like `MOCV`.** Real shader-23 groups carry four `MOTV`
+  and a `MOC2` of 4 bytes per vertex (`orgrimmar2frontgate.wmo`). Over 150
+  seeded roots with a shader-23 material missing a layer texture, reading
+  `MOC2` as BGRA (x = byte 2) puts 0.06% of the layer weight on layers
+  with no texture; reading the bytes as stored (x = byte 0) puts 6.77%
+  there. So the weights are x = R, y = G, z = B of a BGRA colour, and
+  wow.export's `.bgr` after its own BGRA→RGBA swap reverses x and z.
+  husk writes `MOC2` as the vertex channel `wmo.moc2` in RGBA order.
+- **22's coordinates.** `t1` is sampled at `reflect(V, N).xy` (the vertex
+  shader's `o9.xy`, not sphere-mapped); `t3` at
+  `uv1 − e·0.25·t17.r` and `t4` at `uv2 − e·0.5·t17.r`, where `e` is the
+  view direction in a tangent frame built from screen derivatives of
+  `uv1`. The technique states `e` as a renderer value (`tangent_view`).
+  The branch on `v3.w > 0` only skips the `t0` fetch.
+
 ## WDT `_lgt.wdt` lights in the client shaders (12.1.0)
 
 Clustered lighting reads a 192-byte `ShaderLight` record per light (the

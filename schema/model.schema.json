@@ -1290,7 +1290,7 @@
                     "texture_unit": {
                       "type": "integer",
                       "minimum": 0,
-                      "description": "The shader texture this layer is: t<n> in pixel_shader's formula. No pixel shader reads a unit above 3; such layers are the source's, carried as they are."
+                      "description": "The shader texture this layer is: t<n> in its techniques' formulas (texture_unit inputs). An M2 pixel shader reads units 0-3; a layer above that is the source's, carried as it is. A WMO material's are its MOMT fields in shader order: texture_1-3 are 0-2, and for shaders 22 and 23, color_2 and flags_2 are 3-4 and runTimeData[0..3] are 17-20."
                     },
                     "slot": {
                       "type": "integer",

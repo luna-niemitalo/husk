@@ -192,6 +192,23 @@ TEST_CASE("bundle_schema: a technique's expressions are one node kind each and n
     CHECK(mentions(problems, "expected exactly one of input, term, const, op, got 2"));
 }
 
+TEST_CASE("bundle_schema: a technique's input coordinates are checked, and a cycle through one fails") {
+    fs::path file = fs::temp_directory_path() / "husk-schema-technique-cycle" / "t.json";
+    fs::remove_all(file.parent_path());
+    writeText(file, std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+        "definition": {"family": "wmo_shader", "status": "verified", "evidence": "test",
+                       "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x",
+                                         "coordinate": {"op": "div", "args": [{"term": "offset"}, {"input": "uv9"}]}},
+                                  "t1": {"kind": "texture_unit", "unit": 1, "description": "x",
+                                         "coordinate": {"op": "max", "args": [{"input": "t0", "channels": "rg"}, {"const": 0}]}}},
+                       "terms": {"offset": {"input": "t1", "channels": "rg"}},
+                       "outputs": {"diffuse": {"input": "t0", "channels": "rgb"}}},
+        "selection": {}, "references": []})");
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(file);
+    CHECK(mentions(problems, "expected an input definition.inputs declares, got 'uv9'"));
+    CHECK(mentions(problems, "expected terms and input coordinates without a cycle"));
+}
+
 TEST_CASE("bundle_schema: an inline effect's instance is checked against the inputs it declares") {
     std::vector<bundle_schema::Problem> warnings;
     std::vector<bundle_schema::Problem> problems =

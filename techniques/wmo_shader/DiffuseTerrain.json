@@ -6,9 +6,9 @@
     "shader_id": 16,
     "inputs": {
       "t0": {
-        "kind": "texture_slot",
+        "kind": "texture_unit",
         "unit": 0,
-        "description": "The material's texture 1, sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+        "description": "The material layer whose texture_unit is 0 (MOMT texture_1), sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       }
     },
     "outputs": {

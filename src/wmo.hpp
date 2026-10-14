@@ -54,8 +54,11 @@ struct Material {
     uint32_t sidnColor = 0;  // CImVector (BGRA), raw
     uint32_t diffuseColor = 0;
     uint32_t groundType = 0;  // TerrainType row
+    // Shaders 22 and 23 read color_2, flags_2 and runTimeData as texture
+    // FileDataIDs (WIKI_FINDINGS/WORLD.md "WMO shaders 22 and 23").
     uint32_t color2 = 0;
     uint32_t flags2 = 0;
+    std::array<uint32_t, 4> runTimeData{};
 };
 
 // MOGI, 32 bytes.
@@ -388,6 +391,9 @@ struct GroupFile {
     std::vector<Vec3> normals;
     std::vector<std::vector<Vec2>> uvSets;            // every MOTV, in file order
     std::vector<std::vector<uint32_t>> colorSets;     // every MOCV (BGRA, raw), in file order
+    // MOC2 (DF+): shader 23's layer weights and tint amount, BGRA like MOCV
+    // (WIKI_FINDINGS/WORLD.md "WMO shaders 22 and 23"). Empty: none.
+    std::vector<uint32_t> blendWeights;
     std::vector<Batch> batches;
     // Per-face ground types (DF+): MOQG[i] is the TerrainType row of the
     // face queryFaceStart + i (MOGX's first word), used where that face's
@@ -430,5 +436,20 @@ uint32_t groupFileDataId(const RootFile& root, uint32_t lodTier, uint32_t group)
 // The zero-terminated string starting at `offset` in a MOGN/MOTX/MODN blob.
 // Throws ParseError when `offset` is past the blob.
 std::string stringAt(const std::string& blob, uint32_t offset);
+
+// One MOMT field a material's shader samples as a texture: t<unit> in the
+// client's uber shader. `value` is a FileDataID, or a MOTX offset in a root
+// with MOTX; 0 = none.
+struct MaterialTexture {
+    uint32_t unit = 0;
+    uint32_t value = 0;
+    const char* field = "";
+};
+
+// Every texture field `m`'s shader samples, in unit order: texture_1-3 for
+// every shader; for 22 and 23 also color_2, flags_2 and runTimeData, bound
+// in the order wow.export's renderer binds them (WIKI_FINDINGS/WORLD.md
+// "WMO shaders 22 and 23").
+std::vector<MaterialTexture> materialTextures(const Material& m);
 
 }  // namespace husk::wmo

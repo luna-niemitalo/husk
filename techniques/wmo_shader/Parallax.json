@@ -1,12 +1,305 @@
 {
   "definition": {
     "family": "wmo_shader",
-    "status": "partial",
-    "evidence": "example_exports/gls_exported/pixel/dx_5_0/uber (12.1.0 client, all 26 variants): the switch on cb2[4].x that sets diffuse and emissive, and the alpha-test switch that sets alpha",
+    "status": "verified",
+    "evidence": "example_exports/gls_exported/pixel/dx_5_0/uber (12.1.0 client, all 26 variants): the switch on cb2[4].x that sets diffuse and emissive, and the alpha-test switch that sets alpha; vertex/dx_5_0/uber for the generated coordinates",
     "shader_id": 22,
-    "inputs": {},
-    "outputs": {},
-    "notes": "Not expressible here: a parallax offset from height texture t17 (at uv1) along a tangent frame built from screen derivatives offsets t3 (at uv1) and t4 (at uv2); diffuse = lerp(t3*t3.a + t4, t2, t17.g), then toward t0 (uv0) by v3.w where v3.w > 0; emissive = t1 (at a further generated uv) * t2.rgb*t2.a (also blended toward t0 by v3.w) plus the parallax layers. Alpha 1."
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "coordinate": {
+          "input": "uv0"
+        },
+        "description": "The material layer whose texture_unit is 0 (MOMT texture_1)."
+      },
+      "t1": {
+        "kind": "texture_unit",
+        "unit": 1,
+        "coordinate": {
+          "input": "reflect_xy"
+        },
+        "description": "The material layer whose texture_unit is 1 (MOMT texture_2)."
+      },
+      "t2": {
+        "kind": "texture_unit",
+        "unit": 2,
+        "coordinate": {
+          "input": "uv1"
+        },
+        "description": "The material layer whose texture_unit is 2 (MOMT texture_3)."
+      },
+      "t3": {
+        "kind": "texture_unit",
+        "unit": 3,
+        "coordinate": {
+          "op": "sub",
+          "args": [
+            {
+              "input": "uv1"
+            },
+            {
+              "op": "mul",
+              "args": [
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "input": "tangent_view"
+                    },
+                    {
+                      "const": 0.25
+                    }
+                  ]
+                },
+                {
+                  "input": "t17",
+                  "channels": "r"
+                }
+              ]
+            }
+          ]
+        },
+        "description": "The material layer whose texture_unit is 3 (MOMT color_2)."
+      },
+      "t4": {
+        "kind": "texture_unit",
+        "unit": 4,
+        "coordinate": {
+          "op": "sub",
+          "args": [
+            {
+              "input": "uv2"
+            },
+            {
+              "op": "mul",
+              "args": [
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "input": "tangent_view"
+                    },
+                    {
+                      "const": 0.5
+                    }
+                  ]
+                },
+                {
+                  "input": "t17",
+                  "channels": "r"
+                }
+              ]
+            }
+          ]
+        },
+        "description": "The material layer whose texture_unit is 4 (MOMT flags_2)."
+      },
+      "t17": {
+        "kind": "texture_unit",
+        "unit": 17,
+        "coordinate": {
+          "input": "uv1"
+        },
+        "description": "The material layer whose texture_unit is 17 (MOMT runTimeData[0])."
+      },
+      "uv0": {
+        "kind": "vertex_value",
+        "description": "The uv0 the vertex shader generates for this draw (its uv mode, cb2[1]) unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+      },
+      "uv1": {
+        "kind": "vertex_value",
+        "description": "The uv1 the vertex shader generates for this draw (its uv mode, cb2[1]) unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+      },
+      "uv2": {
+        "kind": "vertex_value",
+        "description": "The uv2 the vertex shader generates for this draw (its uv mode, cb2[1])."
+      },
+      "reflect_xy": {
+        "kind": "renderer_value",
+        "status": "described",
+        "description": "reflect(V, N).xy = (V - 2*dot(V, N)*N).xy, the raw x and y used as a coordinate (not sphere-mapped), with V = normalize(view-space position) and N the view-space normal; the vertex shader computes it per vertex."
+      },
+      "tangent_view": {
+        "kind": "renderer_value",
+        "status": "described",
+        "description": "The view direction in a tangent frame built from screen derivatives of uv1 (two components): with P the view-space position, N the view-space normal, V = normalize(P), dp1 = ddx(P), dp2 = ddy(P), du1 = ddx(uv1), du2 = ddy(uv1) (coarse derivatives), T = cross(dp2, N)*du1.x + cross(N, dp1)*du2.x and B = cross(dp2, N)*du1.y + cross(N, dp1)*du2.y, both divided by sqrt(max(dot(T, T), dot(B, B))): (dot(T, V), dot(B, V)) / dot(N, V). It needs screen derivatives, so the renderer computes it."
+      },
+      "v3w": {
+        "kind": "vertex_value",
+        "description": "The second vertex colour's alpha (v3.w)."
+      }
+    },
+    "terms": {
+      "layers": {
+        "op": "add",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "t3",
+                "channels": "rgb"
+              },
+              {
+                "input": "t3",
+                "channels": "a"
+              }
+            ]
+          },
+          {
+            "input": "t4",
+            "channels": "rgb"
+          }
+        ]
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "op": "lerp",
+        "args": [
+          {
+            "op": "lerp",
+            "args": [
+              {
+                "term": "layers"
+              },
+              {
+                "input": "t2",
+                "channels": "rgb"
+              },
+              {
+                "input": "t17",
+                "channels": "g"
+              }
+            ]
+          },
+          {
+            "input": "t0",
+            "channels": "rgb"
+          },
+          {
+            "input": "v3w"
+          }
+        ]
+      },
+      "emissive": {
+        "op": "add",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "t1",
+                "channels": "rgb"
+              },
+              {
+                "op": "lerp",
+                "args": [
+                  {
+                    "op": "mul",
+                    "args": [
+                      {
+                        "input": "t2",
+                        "channels": "rgb"
+                      },
+                      {
+                        "input": "t2",
+                        "channels": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "mul",
+                    "args": [
+                      {
+                        "input": "t0",
+                        "channels": "rgb"
+                      },
+                      {
+                        "input": "t0",
+                        "channels": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "input": "v3w"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "args": [
+              {
+                "op": "add",
+                "args": [
+                  {
+                    "op": "mul",
+                    "args": [
+                      {
+                        "op": "mul",
+                        "args": [
+                          {
+                            "op": "sub",
+                            "args": [
+                              {
+                                "const": 1
+                              },
+                              {
+                                "input": "t17",
+                                "channels": "g"
+                              }
+                            ]
+                          },
+                          {
+                            "input": "t4",
+                            "channels": "rgb"
+                          }
+                        ]
+                      },
+                      {
+                        "input": "t4",
+                        "channels": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "mul",
+                    "args": [
+                      {
+                        "input": "t17",
+                        "channels": "b"
+                      },
+                      {
+                        "input": "t2",
+                        "channels": "rgb"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "sub",
+                "args": [
+                  {
+                    "const": 1
+                  },
+                  {
+                    "input": "v3w"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "alpha": {
+        "const": 1
+      }
+    },
+    "notes": "t17 is a control map: r scales the parallax offset of t3 and t4, g blends the parallax layers toward t2, b adds t2 to the emissive. The client samples t0 only where v3w > 0; lerp by 0 makes that the same. The simple-lighting programs (14-25) compute the same diffuse and no emissive. The emissive output is before the client's view-depth fade: after lighting it is scaled by saturate(v5.z * cb1[8].x + cb1[8].y) (SHADER_FINDINGS/notes/wmo.md). Alpha is what the shader alpha-tests (128/255, per MSAA sample)."
   },
   "selection": {},
   "references": []

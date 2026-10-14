@@ -35,9 +35,12 @@
 //   MOPY/MPY2 flags raw; WMO.md's isCollidable is 0x08, or 0x20 without
 //   0x04; MPY2 0x100 takes the face's ground type from MOQG),
 //   "wmo.poly_material" (face, u16, MOMT index raw; 0xFF in MOPY, 0xFFFF in
-//   MPY2 marks a collision-only face no primitive draws), and, when a WMO
-//   has MOQG, "surface_type" (face, u16, index into resources.surface_types,
-//   resolved rather than raw; 0xFFFF: none).
+//   MPY2 marks a collision-only face no primitive draws), when a WMO has
+//   MOC2, "wmo.moc2" (vertex, 4 x u8, RGBA from the BGRA bytes like a
+//   colour set: shader 23's layer weights x, y, z and tint amount w; zeros
+//   for a group without MOC2), and, when a WMO has MOQG, "surface_type"
+//   (face, u16, index into resources.surface_types, resolved rather than
+//   raw; 0xFFFF: none).
 //
 // Throws std::runtime_error when `bundleDir` cannot be created, or when
 // `writers::composeJointCurves`/`writers::localBindTranslation` would

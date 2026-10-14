@@ -1,12 +1,530 @@
 {
   "definition": {
     "family": "wmo_shader",
-    "status": "partial",
-    "evidence": "example_exports/gls_exported/pixel/dx_5_0/uber (12.1.0 client, all 26 variants): the switch on cb2[4].x that sets diffuse and emissive, and the alpha-test switch that sets alpha",
+    "status": "inferred",
+    "evidence": "example_exports/gls_exported/pixel/dx_5_0/uber (12.1.0 client, all 26 variants): the switch on cb2[4].x that sets diffuse and emissive, and the alpha-test switch that sets alpha; vertex/dx_5_0/uber for the generated coordinates",
     "shader_id": 23,
-    "inputs": {},
-    "outputs": {},
-    "notes": "Not expressible here: a 4-layer height blend like terrain's (layers t1..t4 at uv0, uv1, uv2, uv3; heights t17..t20 .a floored at 0.004, weighted by the vertex value v9.xyz and 1 minus their sum), diffuse = lerp(blend.rgb, a per-draw colour cb2[5].rgb, v9.w), emissive = t0.rgb (sphere-mapped coordinates) * blend.rgb * blend.a. Alpha 1."
+    "inputs": {
+      "t0": {
+        "kind": "texture_unit",
+        "unit": 0,
+        "coordinate": {
+          "input": "sphere"
+        },
+        "description": "The material layer whose texture_unit is 0 (MOMT texture_1)."
+      },
+      "t1": {
+        "kind": "texture_unit",
+        "unit": 1,
+        "coordinate": {
+          "input": "uv0"
+        },
+        "description": "The material layer whose texture_unit is 1 (MOMT texture_2)."
+      },
+      "t2": {
+        "kind": "texture_unit",
+        "unit": 2,
+        "coordinate": {
+          "input": "uv1"
+        },
+        "description": "The material layer whose texture_unit is 2 (MOMT texture_3)."
+      },
+      "t3": {
+        "kind": "texture_unit",
+        "unit": 3,
+        "coordinate": {
+          "input": "uv2"
+        },
+        "description": "The material layer whose texture_unit is 3 (MOMT color_2)."
+      },
+      "t4": {
+        "kind": "texture_unit",
+        "unit": 4,
+        "coordinate": {
+          "input": "uv3"
+        },
+        "description": "The material layer whose texture_unit is 4 (MOMT flags_2)."
+      },
+      "t17": {
+        "kind": "texture_unit",
+        "unit": 17,
+        "coordinate": {
+          "input": "uv0"
+        },
+        "description": "The material layer whose texture_unit is 17 (MOMT runTimeData[0])."
+      },
+      "t18": {
+        "kind": "texture_unit",
+        "unit": 18,
+        "coordinate": {
+          "input": "uv1"
+        },
+        "description": "The material layer whose texture_unit is 18 (MOMT runTimeData[1])."
+      },
+      "t19": {
+        "kind": "texture_unit",
+        "unit": 19,
+        "coordinate": {
+          "input": "uv2"
+        },
+        "description": "The material layer whose texture_unit is 19 (MOMT runTimeData[2])."
+      },
+      "t20": {
+        "kind": "texture_unit",
+        "unit": 20,
+        "coordinate": {
+          "input": "uv3"
+        },
+        "description": "The material layer whose texture_unit is 20 (MOMT runTimeData[3])."
+      },
+      "uv0": {
+        "kind": "vertex_value",
+        "description": "The vertex's uv set 0 as stored (shader 23 skips the uv modes) unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+      },
+      "uv1": {
+        "kind": "vertex_value",
+        "description": "The vertex's uv set 1 as stored (shader 23 skips the uv modes) unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+      },
+      "uv2": {
+        "kind": "vertex_value",
+        "description": "The vertex's uv set 2 as stored (shader 23 skips the uv modes)."
+      },
+      "uv3": {
+        "kind": "vertex_value",
+        "description": "The vertex's uv set 3 as stored (shader 23 skips the uv modes)."
+      },
+      "sphere": {
+        "kind": "renderer_value",
+        "status": "described",
+        "description": "Sphere-mapped coordinates of the view-space reflection: with V = normalize(view-space position), N the view-space normal and R = 2*dot(V, N)*N - V, (R.x, R.y) / length(R.x, R.y, R.z + 1) * 0.5 + 0.5."
+      },
+      "v9": {
+        "kind": "vertex_value",
+        "status": "inferred",
+        "description": "The vertex's wmo.moc2 channel (MOC2) as four unorm values in the channel's RGBA order: x, y and z weight layers 1-3 (layer 4 takes the rest), a (w) is how far diffuse goes toward the tint. That the shader's attribute is MOC2 is inferred (WIKI_FINDINGS/WORLD.md \"WMO shaders 22 and 23\")."
+      },
+      "tint": {
+        "kind": "per_draw_constant",
+        "status": "unidentified",
+        "description": "A per-draw colour (cb2[5]); its source is not identified (MOMT diffColor and sidnColor are candidates)."
+      }
+    },
+    "terms": {
+      "w4": {
+        "op": "sub",
+        "args": [
+          {
+            "const": 1
+          },
+          {
+            "op": "saturate",
+            "args": [
+              {
+                "op": "add",
+                "args": [
+                  {
+                    "op": "add",
+                    "args": [
+                      {
+                        "input": "v9",
+                        "channels": "x"
+                      },
+                      {
+                        "input": "v9",
+                        "channels": "y"
+                      }
+                    ]
+                  },
+                  {
+                    "input": "v9",
+                    "channels": "z"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "p1": {
+        "op": "mul",
+        "args": [
+          {
+            "input": "v9",
+            "channels": "x"
+          },
+          {
+            "op": "max",
+            "args": [
+              {
+                "input": "t17",
+                "channels": "a"
+              },
+              {
+                "const": 0.004
+              }
+            ]
+          }
+        ]
+      },
+      "p2": {
+        "op": "mul",
+        "args": [
+          {
+            "input": "v9",
+            "channels": "y"
+          },
+          {
+            "op": "max",
+            "args": [
+              {
+                "input": "t18",
+                "channels": "a"
+              },
+              {
+                "const": 0.004
+              }
+            ]
+          }
+        ]
+      },
+      "p3": {
+        "op": "mul",
+        "args": [
+          {
+            "input": "v9",
+            "channels": "z"
+          },
+          {
+            "op": "max",
+            "args": [
+              {
+                "input": "t19",
+                "channels": "a"
+              },
+              {
+                "const": 0.004
+              }
+            ]
+          }
+        ]
+      },
+      "p4": {
+        "op": "mul",
+        "args": [
+          {
+            "term": "w4"
+          },
+          {
+            "op": "max",
+            "args": [
+              {
+                "input": "t20",
+                "channels": "a"
+              },
+              {
+                "const": 0.004
+              }
+            ]
+          }
+        ]
+      },
+      "top": {
+        "op": "max",
+        "args": [
+          {
+            "term": "p1"
+          },
+          {
+            "term": "p2"
+          },
+          {
+            "term": "p3"
+          },
+          {
+            "term": "p4"
+          }
+        ]
+      },
+      "q1": {
+        "op": "mul",
+        "args": [
+          {
+            "term": "p1"
+          },
+          {
+            "op": "sub",
+            "args": [
+              {
+                "const": 1
+              },
+              {
+                "op": "saturate",
+                "args": [
+                  {
+                    "op": "sub",
+                    "args": [
+                      {
+                        "term": "top"
+                      },
+                      {
+                        "term": "p1"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "q2": {
+        "op": "mul",
+        "args": [
+          {
+            "term": "p2"
+          },
+          {
+            "op": "sub",
+            "args": [
+              {
+                "const": 1
+              },
+              {
+                "op": "saturate",
+                "args": [
+                  {
+                    "op": "sub",
+                    "args": [
+                      {
+                        "term": "top"
+                      },
+                      {
+                        "term": "p2"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "q3": {
+        "op": "mul",
+        "args": [
+          {
+            "term": "p3"
+          },
+          {
+            "op": "sub",
+            "args": [
+              {
+                "const": 1
+              },
+              {
+                "op": "saturate",
+                "args": [
+                  {
+                    "op": "sub",
+                    "args": [
+                      {
+                        "term": "top"
+                      },
+                      {
+                        "term": "p3"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "q4": {
+        "op": "mul",
+        "args": [
+          {
+            "term": "p4"
+          },
+          {
+            "op": "sub",
+            "args": [
+              {
+                "const": 1
+              },
+              {
+                "op": "saturate",
+                "args": [
+                  {
+                    "op": "sub",
+                    "args": [
+                      {
+                        "term": "top"
+                      },
+                      {
+                        "term": "p4"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "blend": {
+        "op": "div",
+        "args": [
+          {
+            "op": "add",
+            "args": [
+              {
+                "op": "add",
+                "args": [
+                  {
+                    "op": "add",
+                    "args": [
+                      {
+                        "op": "mul",
+                        "args": [
+                          {
+                            "term": "q1"
+                          },
+                          {
+                            "input": "t1"
+                          }
+                        ]
+                      },
+                      {
+                        "op": "mul",
+                        "args": [
+                          {
+                            "term": "q2"
+                          },
+                          {
+                            "input": "t2"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "mul",
+                    "args": [
+                      {
+                        "term": "q3"
+                      },
+                      {
+                        "input": "t3"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "mul",
+                "args": [
+                  {
+                    "term": "q4"
+                  },
+                  {
+                    "input": "t4"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "args": [
+              {
+                "op": "add",
+                "args": [
+                  {
+                    "op": "add",
+                    "args": [
+                      {
+                        "term": "q1"
+                      },
+                      {
+                        "term": "q2"
+                      }
+                    ]
+                  },
+                  {
+                    "term": "q3"
+                  }
+                ]
+              },
+              {
+                "term": "q4"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "outputs": {
+      "diffuse": {
+        "op": "lerp",
+        "args": [
+          {
+            "op": "channels",
+            "channels": "rgb",
+            "args": [
+              {
+                "term": "blend"
+              }
+            ]
+          },
+          {
+            "input": "tint",
+            "channels": "rgb"
+          },
+          {
+            "input": "v9",
+            "channels": "a"
+          }
+        ]
+      },
+      "emissive": {
+        "op": "mul",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              {
+                "input": "t0",
+                "channels": "rgb"
+              },
+              {
+                "op": "channels",
+                "channels": "rgb",
+                "args": [
+                  {
+                    "term": "blend"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "channels",
+            "channels": "a",
+            "args": [
+              {
+                "term": "blend"
+              }
+            ]
+          }
+        ]
+      },
+      "alpha": {
+        "const": 1
+      }
+    },
+    "notes": "A four-layer height blend like terrain's, with layer 4 taking the remainder weight. t17-t20 are the layers' heights (alpha). 18,844 of 37,911 shader-23 materials in 12.1.5 have no runTimeData[0]; what the client samples for a missing height is not known. The simple-lighting programs (14-25) compute the same diffuse and no emissive. The emissive output is before the client's view-depth fade: after lighting it is scaled by saturate(v5.z * cb1[8].x + cb1[8].y) (SHADER_FINDINGS/notes/wmo.md). Alpha is what the shader alpha-tests (128/255, per MSAA sample)."
   },
   "selection": {},
   "references": []

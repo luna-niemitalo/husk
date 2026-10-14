@@ -62,6 +62,26 @@ preliminary feedback:
   `materials[].surface_type`, and a WMO's face channel `surface_type`
   (when it has per-face overrides) index it. Most terrain has none: 63%
   of quads' ground effects are absent from the build's DB2.
+- WMO shaders 22 and 23 (2026-10-15, answering
+  `development/husk_wmo_shaders_handoff.md`): both technique documents
+  now have outputs. To evaluate them:
+  - WMO layers carry `texture_unit` like M2 layers, and WMO technique
+    inputs are `texture_unit` (`texture_slot` is gone). For 22 and 23 the
+    layers include `color_2` (3), `flags_2` (4) and `runTimeData[0..3]`
+    (17-20). Bind input `t<n>` to the layer whose `texture_unit` is n.
+  - A texture input may have a `coordinate` expression: 22 offsets uv1
+    and uv2 by `tangent_view`, and samples at `reflect_xy`; 23 samples at
+    `sphere` and raw uv0-uv3. These are `renderer_value` and
+    `vertex_value` inputs whose descriptions give the formula.
+  - New ops: `div`, `max` (n-ary). A technique's terms may now use them.
+  - `MOC2` is the vertex channel `wmo.moc2` (4 x u8, RGBA, x/y/z/w =
+    R/G/B/A). The bytes are BGRA like `MOCV`, verified on real data
+    (`WIKI_FINDINGS/WORLD.md` "WMO shaders 22 and 23"), so wow.export's
+    `.bgr` swaps x and z.
+  - WMO meshes keep a fourth uv set (`uv_sets[3]`; husk capped them at
+    three).
+  - 22's diffuse layer is `texture_3` (`t2`) and 23's is `texture_2`
+    (`t1`), for a renderer that draws one texture.
 
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so

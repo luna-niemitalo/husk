@@ -6,19 +6,19 @@
     "shader_id": 18,
     "inputs": {
       "t0": {
-        "kind": "texture_slot",
+        "kind": "texture_unit",
         "unit": 0,
-        "description": "The material's texture 1, sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+        "description": "The material layer whose texture_unit is 0 (MOMT texture_1), sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       },
       "t1": {
-        "kind": "texture_slot",
+        "kind": "texture_unit",
         "unit": 1,
-        "description": "The material's texture 2, sampled at uv1 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+        "description": "The material layer whose texture_unit is 1 (MOMT texture_2), sampled at uv1 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       },
       "t2": {
-        "kind": "texture_slot",
+        "kind": "texture_unit",
         "unit": 2,
-        "description": "The material's texture 3, sampled at uv2."
+        "description": "The material layer whose texture_unit is 2 (MOMT texture_3), sampled at uv2."
       },
       "v3w": {
         "kind": "vertex_value",

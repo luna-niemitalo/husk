@@ -266,7 +266,13 @@ drawing step of the source game (an M2 pixel shader, the M2 pipeline every
 pixel shader feeds, a framebuffer blend, a WMO shader) as data: its inputs
 (texture units, per-draw constants, vertex values), named `terms`, and
 `outputs` as expression trees (`input`, `term`, `const`, or `op` over
-`args`; ops add, sub, mul, lerp, saturate, luma, channels, lit). Each
+`args`; ops add, sub, mul, div, max, lerp, saturate, luma, channels,
+lit). A texture input is the material layer with that `texture_unit`;
+its optional `coordinate` is an expression over the other inputs and
+terms (offset or generated coordinates), else it samples at the layer's
+`uv_map`. Values a renderer computes (sphere-mapped coordinates, a
+screen-derivative tangent frame) are `renderer_value` inputs whose
+description states the formula. Each
 states its `status` (verified from the client's shaders, inferred,
 partial, or from the wiki) and its `evidence`, and what an expression
 can't capture goes in `notes`. The checked-in `techniques/<family>/<name>.json`
@@ -277,8 +283,10 @@ carries each one it uses under `techniques/`, plus those they reference
 (a pixel shader references `m2_pipeline/pipeline`), so a bundle is
 self-contained, and the content-addressed store keeps identical files
 once. 72 documents: 37 M2 pixel shaders, the M2 pipeline, 9 framebuffer
-blends, 25 WMO shaders (from the client's `uber` shader; 2, Parallax and
-`UnkDFShader`, partial, their steps in notes).
+blends, 25 WMO shaders (from the client's `uber` shader). A WMO
+material's layers carry `texture_unit`: `texture_1`-`3` are 0-2, and for
+shaders 22 and 23 `color_2`, `flags_2` are 3-4 and `runTimeData[0..3]`
+17-20 (`WIKI_FINDINGS/WORLD.md` "WMO shaders 22 and 23").
 
 ## Surface types — what the ground is made of
 

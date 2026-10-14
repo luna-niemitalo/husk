@@ -6,19 +6,19 @@
     "shader_id": 24,
     "inputs": {
       "t0": {
-        "kind": "texture_slot",
+        "kind": "texture_unit",
         "unit": 0,
-        "description": "The material's texture 1, sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+        "description": "The material layer whose texture_unit is 0 (MOMT texture_1), sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       },
       "t1": {
-        "kind": "texture_slot",
+        "kind": "texture_unit",
         "unit": 1,
-        "description": "The material's texture 2, sampled at uv1 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+        "description": "The material layer whose texture_unit is 1 (MOMT texture_2), sampled at uv1 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       },
       "t2": {
-        "kind": "texture_slot",
+        "kind": "texture_unit",
         "unit": 2,
-        "description": "The material's texture 3, sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
+        "description": "The material layer whose texture_unit is 2 (MOMT texture_3), sampled at uv0 unless the draw's environment-mapping flag (cb0[5].y = 1 or 2) replaces it with sphere-mapped coordinates."
       }
     },
     "outputs": {
@@ -53,7 +53,7 @@
         "channels": "a"
       }
     },
-    "notes": "Not on the wiki: EnvMetal (5) with the alpha (and alpha test) from t2.a at the first uv. Alpha is what the shader alpha-tests (128/255, per MSAA sample)."
+    "notes": "Not on the wiki: EnvMetal (5) with the alpha (and alpha test) from t2.a at the first uv. The emissive output is before the client's view-depth fade: after lighting it is scaled by saturate(v5.z * cb1[8].x + cb1[8].y) (SHADER_FINDINGS/notes/wmo.md). Alpha is what the shader alpha-tests (128/255, per MSAA sample)."
   },
   "selection": {},
   "references": []

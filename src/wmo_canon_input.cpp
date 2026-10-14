@@ -5,6 +5,7 @@
 #include <bit>
 #include <cmath>
 #include <iterator>
+#include <map>
 #include <stdexcept>
 #include <string>
 
@@ -64,6 +65,33 @@ canon::TextureRef textureFor(const WmoInputs& in, uint32_t slot) {
     return textureById(in.textures, slot);
 }
 
+// The uv a shader samples texture t<unit> at (its technique document has
+// the full coordinate; 22's offset layers start from these). Shader 23 takes
+// four raw uvs, layer i and its height at uv i - 1, and 22 samples t1 at
+// reflect(V, N).xy. Elsewhere assumed: texture k samples uv k, the shader
+// deciding the real mapping per draw (WMO.md "Shader types").
+canon::UvRef layerUv(uint32_t shader, uint32_t unit) {
+    if (shader == 23) {
+        if (unit == 0) return canon::EnvironmentMapped{};
+        return canon::UvSetIndex{unit >= 17 ? unit - 17 : unit - 1};
+    }
+    if (shader == 22) {
+        static const std::map<uint32_t, uint32_t> kParallaxUv = {{0, 0}, {2, 1}, {3, 1}, {4, 2}, {17, 1}};
+        if (unit == 1) return canon::EnvironmentMapped{};
+        return canon::UvSetIndex{kParallaxUv.at(unit)};
+    }
+    return canon::UvSetIndex{unit};
+}
+
+// The layer a renderer without the technique draws: 23's t0 is a reflection
+// (0 in most materials) and 22's t0 only shows where the second vertex
+// alpha blends toward it, so they name their base layers.
+uint32_t diffuseUnit(uint32_t shader) {
+    if (shader == 23) return 1;
+    if (shader == 22) return 2;
+    return 0;
+}
+
 canon::Material buildMaterial(const WmoInputs& in, uint32_t index) {
     const wmo::Material& m = in.root->materials[index];
     canon::Material material;
@@ -77,21 +105,21 @@ canon::Material buildMaterial(const WmoInputs& in, uint32_t index) {
     material.shader = canon::Ref{canon::RecordIndex{m.shader}, shader ? shader : "",
                                  shader ? canon::NameSource::Synthesized : canon::NameSource::None};
 
-    for (uint32_t k = 0; k < m.textures.size(); ++k) {
-        if (m.textures[k] == 0) continue;
+    for (const wmo::MaterialTexture& field : wmo::materialTextures(m)) {
+        if (field.value == 0) continue;
+        uint32_t unit = field.unit;
         canon::MaterialLayer layer;
-        layer.identity = canon::Ref{canon::RecordIndex{k}, "texture_" + std::to_string(k + 1),
-                                    canon::NameSource::Synthesized};
-        layer.texture = textureFor(in, m.textures[k]);
-        // Assumed: texture k samples UV set k. The shader decides the real
-        // mapping (WMO.md "Shader types"); not verified per shader.
-        layer.uv = canon::UvSetIndex{k};
-        layer.role = k == 0 ? canon::LayerRole{canon::KnownRole::Diffuse} : canon::LayerRole{canon::KnownRole::Unknown};
-        if (k < 2 && !in.root->uvScrollSpeeds.empty()) {
-            const wmo::Vec2& speed = in.root->uvScrollSpeeds[index][k];
+        layer.identity = canon::Ref{canon::RecordIndex{unit}, field.field, canon::NameSource::Synthesized};
+        layer.texture = textureFor(in, field.value);
+        layer.uv = layerUv(m.shader, unit);
+        layer.textureUnit = unit;
+        bool diffuse = unit == diffuseUnit(m.shader);
+        layer.role = diffuse ? canon::LayerRole{canon::KnownRole::Diffuse} : canon::LayerRole{canon::KnownRole::Unknown};
+        if (unit < 2 && !in.root->uvScrollSpeeds.empty()) {
+            const wmo::Vec2& speed = in.root->uvScrollSpeeds[index][unit];
             if (speed[0] != 0.0f || speed[1] != 0.0f) layer.uvScroll = canon::Vec2{speed[0], speed[1]};
         }
-        if (k == 0) material.diffuseLayer = layer.identity;
+        if (diffuse) material.diffuseLayer = layer.identity;
         material.layers.push_back(std::move(layer));
     }
     return material;
@@ -707,6 +735,24 @@ std::vector<canon::AttributeChannel> buildFaceAttributes(const WmoInputs& in) {
             {"wmo.poly_material", canon::AttributeDomain::Face, 1, std::move(materials)}};
 }
 
+// Every group's MOC2 as one vertex channel of RGBA bytes (the order shader
+// 23 reads as x, y, z, w), in appendGroup's vertex order; a group without
+// MOC2 gets zeros. nullopt when no group has one.
+std::optional<canon::AttributeChannel> buildBlendWeights(const WmoInputs& in) {
+    bool any = std::any_of(in.groups.begin(), in.groups.end(),
+                           [](const std::optional<wmo::GroupFile>& g) { return g && !g->blendWeights.empty(); });
+    if (!any) return std::nullopt;
+    std::vector<uint8_t> values;
+    for (const std::optional<wmo::GroupFile>& g : in.groups) {
+        if (!g) continue;
+        for (size_t v = 0; v < g->positions.size(); ++v) {
+            std::array<uint8_t, 4> rgba = g->blendWeights.empty() ? std::array<uint8_t, 4>{} : bgraToRgba(g->blendWeights[v]);
+            values.insert(values.end(), rgba.begin(), rgba.end());
+        }
+    }
+    return canon::AttributeChannel{"wmo.moc2", canon::AttributeDomain::Vertex, 4, std::move(values)};
+}
+
 // Each face's surface (index into `surfaces`; kNoSurface for a face whose
 // material doesn't exist, e.g. collision-only 0xFF): its MOQG ground type
 // where flagged, else its material's. nullopt when no group has MOQG, so
@@ -920,7 +966,9 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     size_t colorSetCount = 0;
     for (const auto& g : in.groups) {
         if (!g) continue;
-        uvSetCount = std::max(uvSetCount, std::min<size_t>(g->uvSets.size(), 3));
+        // The client's WMO vertex holds four uv sets (WIKI_FINDINGS/WORLD.md),
+        // the fourth read by shader 23.
+        uvSetCount = std::max(uvSetCount, std::min<size_t>(g->uvSets.size(), 4));
         colorSetCount = std::max(colorSetCount, g->colorSets.size());
     }
 
@@ -980,6 +1028,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         mesh.portals.push_back(std::move(portal));
     }
     mesh.attributes = buildFaceAttributes(in);
+    if (std::optional<canon::AttributeChannel> weights = buildBlendWeights(in)) mesh.attributes.push_back(std::move(*weights));
     std::vector<canon::LiquidGrid> liquids;
     for (uint32_t part = 0; part < in.groups.size(); ++part) {
         if (in.groups[part] && in.groups[part]->liquid) liquids.push_back(buildLiquid(in, part, *in.groups[part]));

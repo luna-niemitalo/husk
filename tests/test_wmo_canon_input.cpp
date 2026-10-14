@@ -198,6 +198,57 @@ TEST_CASE("buildCanonWmo: materials carry blend, shared flags, shader name, text
     CHECK(model.mesh.primitives.empty());  // both group files missing
 }
 
+TEST_CASE("buildCanonWmo: a shader-23 material's layers are its nine MOMT texture fields, by shader unit") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::Material& m = root.materials[1];
+    m.shader = 23;
+    m.textures = {0, 202, 203};  // no reflection texture, as in most real shader-23 materials
+    m.color2 = 204;
+    m.flags2 = 205;
+    m.runTimeData = {217, 218, 0, 220};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, std::nullopt};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+    const canon::Material& material = model.materials[1];
+
+    REQUIRE(material.layers.size() == 7);
+    std::vector<uint32_t> units;
+    for (const canon::MaterialLayer& layer : material.layers) units.push_back(*layer.textureUnit);
+    CHECK(units == std::vector<uint32_t>{1, 2, 3, 4, 17, 18, 20});
+    CHECK(material.layers[2].identity.name == "color_2");
+    CHECK(material.layers[6].identity.name == "runTimeData[3]");
+    CHECK(material.layers[6].texture.unresolvedReason == "texture FileDataID 220 was not resolved");
+    CHECK(std::get<canon::UvSetIndex>(material.layers[3].uv).index == 3);  // t4 at uv3
+    CHECK(std::get<canon::UvSetIndex>(material.layers[6].uv).index == 3);  // t20 at uv3
+    REQUIRE(material.diffuseLayer.has_value());
+    CHECK(material.diffuseLayer->name == "texture_2");
+}
+
+TEST_CASE("buildCanonWmo: MOC2 is an RGBA vertex channel, zeros for a group without it; four uv sets kept") {
+    wmo::RootFile root = syntheticRoot();
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    wmo::GroupFile withWeights = group(3, 4, 0, 1);
+    withWeights.blendWeights = {0x3FFF0000u, 0x3FFF0000u, 0x01020304u};  // BGRA
+    in.groups = {withWeights, group(3, 1, 1, 1)};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    CHECK(model.mesh.uvSets.size() == 4);
+    auto channel = std::find_if(model.mesh.attributes.begin(), model.mesh.attributes.end(),
+                                [](const canon::AttributeChannel& c) { return c.name == "wmo.moc2"; });
+    REQUIRE(channel != model.mesh.attributes.end());
+    CHECK(channel->domain == canon::AttributeDomain::Vertex);
+    CHECK(channel->components == 4);
+    const auto& values = std::get<std::vector<uint8_t>>(channel->values);
+    REQUIRE(values.size() == 6 * 4);
+    CHECK(std::vector<uint8_t>(values.begin(), values.begin() + 4) == std::vector<uint8_t>{0xFF, 0, 0, 0x3F});
+    CHECK(std::vector<uint8_t>(values.begin() + 8, values.begin() + 12) == std::vector<uint8_t>{2, 3, 4, 1});
+    CHECK(std::all_of(values.begin() + 12, values.end(), [](uint8_t v) { return v == 0; }));
+}
+
 TEST_CASE("buildCanonWmo: doodad sets become owned placement sets, set 0 always on") {
     wmo::RootFile root = syntheticRoot();
     wmoinput::WmoInputs in;

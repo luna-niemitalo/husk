@@ -271,7 +271,8 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
     }
     if (listfile) {
         for (const wmo::Material& m : root.materials) {
-            for (uint32_t fdid : m.textures) {
+            for (const wmo::MaterialTexture& texture : wmo::materialTextures(m)) {
+                uint32_t fdid = texture.value;
                 if (fdid != 0 && root.textureNames.empty() && !inputs.textures.count(fdid)) {
                     inputs.textures.emplace(fdid, resolveTexture(fdid, *listfile, listfileRoot));
                 }

@@ -114,8 +114,9 @@ computed before its switch instead of recomputing it inside the case.
   toward `cb2[5]`. Nothing in the shaders names the attribute, so the match is inferred.
 - DF supports up to 4 `MOTV` UV sets, which fits the four raw UVs.
 - For shader 23, `MOMT` can carry extra texture file IDs in `color_2`, `flags_2` and
-  `runTimeData`. Those are the textures bound to `t0`–`t4` and `t17`–`t20`, but the
-  shaders can't show which field fills which slot.
+  `runTimeData`. Those are the textures bound to `t0`–`t4` and `t17`–`t20`. The
+  shaders can't show which field fills which slot; the data does
+  (`WIKI_FINDINGS/WORLD.md` "WMO shaders 22 and 23").
 - `cb2[5]`, the tint colour, has no counterpart on the wiki page. It may come from the
   material's colour fields; that is unconfirmed.
 

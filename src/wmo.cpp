@@ -136,6 +136,9 @@ std::vector<Material> parseMaterials(const Chunk& c) {
         m.textures[2] = read<uint32_t>(c.data, c.size, o + 0x24, "MOMT");
         m.color2 = read<uint32_t>(c.data, c.size, o + 0x28, "MOMT");
         m.flags2 = read<uint32_t>(c.data, c.size, o + 0x2C, "MOMT");
+        for (size_t k = 0; k < m.runTimeData.size(); ++k) {
+            m.runTimeData[k] = read<uint32_t>(c.data, c.size, o + 0x30 + 4 * k, "MOMT");
+        }
     }
     return out;
 }
@@ -701,6 +704,8 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
             g.uvSets.push_back(readArray<Vec2>(c));
         } else if (c.tag == "MOCV") {
             g.colorSets.push_back(readArray<uint32_t>(c));
+        } else if (c.tag == "MOC2") {
+            g.blendWeights = readArray<uint32_t>(c);
         } else if (c.tag == "MOBA") {
             g.batches = parseBatches(c);
         } else if (c.tag == "MOGX") {
@@ -745,6 +750,7 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
     if (!g.normals.empty()) requireVertexCount("MONR", g.normals.size(), vertexCount);
     for (const auto& uv : g.uvSets) requireVertexCount("MOTV", uv.size(), vertexCount);
     for (const auto& colors : g.colorSets) requireVertexCount("MOCV", colors.size(), vertexCount);
+    if (!g.blendWeights.empty()) requireVertexCount("MOC2", g.blendWeights.size(), vertexCount);
     for (uint32_t i : g.indices) {
         if (i >= vertexCount) {
             throw ParseError("MOVI: expected indices < " + std::to_string(vertexCount) + " vertices, got " +
@@ -784,6 +790,17 @@ std::string stringAt(const std::string& blob, uint32_t offset) {
                          std::to_string(offset));
     }
     return text::fromGameText(blob.c_str() + offset);
+}
+
+std::vector<MaterialTexture> materialTextures(const Material& m) {
+    std::vector<MaterialTexture> out = {
+        {0, m.textures[0], "texture_1"}, {1, m.textures[1], "texture_2"}, {2, m.textures[2], "texture_3"}};
+    if (m.shader != 22 && m.shader != 23) return out;
+    out.push_back({3, m.color2, "color_2"});
+    out.push_back({4, m.flags2, "flags_2"});
+    static constexpr const char* kRunTimeData[] = {"runTimeData[0]", "runTimeData[1]", "runTimeData[2]", "runTimeData[3]"};
+    for (uint32_t k = 0; k < m.runTimeData.size(); ++k) out.push_back({17 + k, m.runTimeData[k], kRunTimeData[k]});
+    return out;
 }
 
 }  // namespace husk::wmo
