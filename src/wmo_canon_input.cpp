@@ -713,14 +713,28 @@ canon::LiquidGrid buildLiquid(const WmoInputs& in, uint32_t part, const wmo::Gro
     return out;
 }
 
+// The group files one mesh (or mesh level) is built from, in part order:
+// each part's file at that level.
+struct PartGroup {
+    uint32_t part = 0;
+    const wmo::GroupFile* group = nullptr;
+};
+
+std::vector<PartGroup> baseGroups(const WmoInputs& in) {
+    std::vector<PartGroup> out;
+    for (uint32_t part = 0; part < in.groups.size(); ++part) {
+        if (in.groups[part]) out.push_back({part, &*in.groups[part]});
+    }
+    return out;
+}
+
 // Every group's MOPY/MPY2 entries as two face channels, in the order
 // appendGroup appended the groups' triangles.
-std::vector<canon::AttributeChannel> buildFaceAttributes(const WmoInputs& in) {
+std::vector<canon::AttributeChannel> buildFaceAttributes(const std::vector<PartGroup>& groups) {
     std::vector<uint16_t> flags;
     std::vector<uint16_t> materials;
-    for (uint32_t part = 0; part < in.groups.size(); ++part) {
-        if (!in.groups[part]) continue;
-        const wmo::GroupFile& g = *in.groups[part];
+    for (const auto& [part, group] : groups) {
+        const wmo::GroupFile& g = *group;
         if (g.triangles.size() != g.indices.size() / 3) {
             throw std::runtime_error("WMO group " + std::to_string(part) + ": expected one MOPY/MPY2 entry per triangle (" +
                                       std::to_string(g.indices.size() / 3) + "), got " +
@@ -738,13 +752,12 @@ std::vector<canon::AttributeChannel> buildFaceAttributes(const WmoInputs& in) {
 // Every group's MOC2 as one vertex channel of RGBA bytes (the order shader
 // 23 reads as x, y, z, w), in appendGroup's vertex order; a group without
 // MOC2 gets zeros. nullopt when no group has one.
-std::optional<canon::AttributeChannel> buildBlendWeights(const WmoInputs& in) {
-    bool any = std::any_of(in.groups.begin(), in.groups.end(),
-                           [](const std::optional<wmo::GroupFile>& g) { return g && !g->blendWeights.empty(); });
+std::optional<canon::AttributeChannel> buildBlendWeights(const std::vector<PartGroup>& groups) {
+    bool any = std::any_of(groups.begin(), groups.end(), [](const PartGroup& p) { return !p.group->blendWeights.empty(); });
     if (!any) return std::nullopt;
     std::vector<uint8_t> values;
-    for (const std::optional<wmo::GroupFile>& g : in.groups) {
-        if (!g) continue;
+    for (const PartGroup& p : groups) {
+        const wmo::GroupFile* g = p.group;
         for (size_t v = 0; v < g->positions.size(); ++v) {
             std::array<uint8_t, 4> rgba = g->blendWeights.empty() ? std::array<uint8_t, 4>{} : bgraToRgba(g->blendWeights[v]);
             values.insert(values.end(), rgba.begin(), rgba.end());
@@ -759,15 +772,15 @@ std::optional<canon::AttributeChannel> buildBlendWeights(const WmoInputs& in) {
 // the materials say it all.
 constexpr uint16_t kNoSurface = 0xFFFF;
 
-std::optional<canon::AttributeChannel> faceSurfaceTypes(const WmoInputs& in, const std::vector<canon::Material>& materials,
+std::optional<canon::AttributeChannel> faceSurfaceTypes(const std::vector<PartGroup>& groups,
+                                                        const std::vector<canon::Material>& materials,
                                                         surfaceinput::SurfaceTable& surfaces) {
-    bool overridden = std::any_of(in.groups.begin(), in.groups.end(), [](const std::optional<wmo::GroupFile>& g) {
-        return g && !g->queryFaceGroundTypes.empty();
-    });
+    bool overridden =
+        std::any_of(groups.begin(), groups.end(), [](const PartGroup& p) { return !p.group->queryFaceGroundTypes.empty(); });
     if (!overridden) return std::nullopt;
     std::vector<uint16_t> values;
-    for (const std::optional<wmo::GroupFile>& g : in.groups) {
-        if (!g) continue;
+    for (const PartGroup& p : groups) {
+        const wmo::GroupFile* g = p.group;
         for (size_t f = 0; f < g->triangles.size(); ++f) {
             const wmo::TriangleInfo& t = g->triangles[f];
             if ((t.flags & wmo::kFaceUsesQueryGroundType) && !g->queryFaceGroundTypes.empty()) {
@@ -824,6 +837,65 @@ void appendGroup(const WmoInputs& in, uint32_t part, const wmo::GroupFile& g, ca
         mesh.primitives.push_back(primitive);
         primitiveMaterials.push_back(canon::Identity{canon::RecordIndex{batch.material}});
     }
+}
+
+// Appends `groups`' vertices, triangles and batches to `mesh`, its UV and
+// colour sets sized to the most any of them has, and their face and vertex
+// channels except surface_type (which needs the built materials). A mesh
+// level's face channels are left out unless every group has MOPY/MPY2:
+// level files are drawn only, and carry none.
+void appendGroups(const WmoInputs& in, const std::vector<PartGroup>& groups, canon::Mesh& mesh,
+                  std::vector<canon::Identity>& primitiveMaterials, bool isLevel = false) {
+    size_t uvSetCount = 1;
+    size_t colorSetCount = 0;
+    for (const PartGroup& p : groups) {
+        // The client's WMO vertex holds four uv sets (WIKI_FINDINGS/WORLD.md),
+        // the fourth read by shader 23.
+        uvSetCount = std::max(uvSetCount, std::min<size_t>(p.group->uvSets.size(), 4));
+        colorSetCount = std::max(colorSetCount, p.group->colorSets.size());
+    }
+    mesh.uvSets.resize(uvSetCount);
+    mesh.colorSets.resize(colorSetCount);
+    for (const PartGroup& p : groups) appendGroup(in, p.part, *p.group, mesh, primitiveMaterials, colorSetCount);
+    bool allHaveFaces = std::all_of(groups.begin(), groups.end(),
+                                    [](const PartGroup& p) { return p.group->triangles.size() == p.group->indices.size() / 3; });
+    if (!isLevel || allHaveFaces) mesh.attributes = buildFaceAttributes(groups);
+    if (std::optional<canon::AttributeChannel> weights = buildBlendWeights(groups)) mesh.attributes.push_back(std::move(*weights));
+}
+
+// SMOGroup::LOD (MOGI/MOGP flag 0x400): the client loads the group at
+// levels above 0 too. On 1,380 sampled roots, a group has a lod1/lod2 file
+// exactly when it carries this flag; an unflagged group has none and drops
+// out of every coarser level.
+constexpr uint32_t kGroupDrawnAtLod = 0x400;
+
+// Mesh level k (1-based) draws every flagged group at the highest of its
+// own levels <= k that the caller loaded: a group whose files stop at
+// level 2 draws level 2 at level 3 (39 of 505 sampled flagged groups at
+// level 3; MGI2's low byte gives the same last level).
+std::vector<canon::MeshLevel> buildMeshLevels(const WmoInputs& in, const std::vector<canon::Material>& materials,
+                                              surfaceinput::SurfaceTable& surfaces) {
+    std::vector<canon::MeshLevel> out;
+    for (size_t level = 1; level <= in.lodGroups.size(); ++level) {
+        std::vector<PartGroup> groups;
+        canon::MeshLevel meshLevel;
+        for (uint32_t part = 0; part < in.groups.size(); ++part) {
+            if (!(in.root->groups[part].flags & kGroupDrawnAtLod)) continue;
+            for (size_t source = level + 1; source-- > 0;) {
+                const std::optional<wmo::GroupFile>& file = source == 0 ? in.groups[part] : in.lodGroups[source - 1][part];
+                if (!file) continue;
+                groups.push_back({part, &*file});
+                meshLevel.partLevels.push_back({part, static_cast<uint32_t>(source)});
+                break;
+            }
+        }
+        appendGroups(in, groups, meshLevel.mesh, meshLevel.primitiveMaterials, true);
+        bool hasFaces = !meshLevel.mesh.attributes.empty() && meshLevel.mesh.attributes[0].name == "wmo.poly_flags";
+        std::optional<canon::AttributeChannel> faces = hasFaces ? faceSurfaceTypes(groups, materials, surfaces) : std::nullopt;
+        if (faces) meshLevel.mesh.attributes.push_back(std::move(*faces));
+        out.push_back(std::move(meshLevel));
+    }
+    return out;
 }
 
 }  // namespace
@@ -962,14 +1034,12 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
                                   "), got " + std::to_string(in.groups.size()));
     }
 
-    size_t uvSetCount = 1;
-    size_t colorSetCount = 0;
-    for (const auto& g : in.groups) {
-        if (!g) continue;
-        // The client's WMO vertex holds four uv sets (WIKI_FINDINGS/WORLD.md),
-        // the fourth read by shader 23.
-        uvSetCount = std::max(uvSetCount, std::min<size_t>(g->uvSets.size(), 4));
-        colorSetCount = std::max(colorSetCount, g->colorSets.size());
+    for (size_t level = 0; level < in.lodGroups.size(); ++level) {
+        if (in.lodGroups[level].size() != root.groups.size()) {
+            throw std::runtime_error("WMO level " + std::to_string(level + 1) + " groups: expected one entry per MOGI group (" +
+                                      std::to_string(root.groups.size()) + "), got " +
+                                      std::to_string(in.lodGroups[level].size()));
+        }
     }
 
     std::vector<canon::Model::OwnedSet> sets = buildPlacementSets(in);
@@ -980,8 +1050,6 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     std::vector<canon::InstanceRef> particulate = placeParticulate(in, placer);
 
     canon::Mesh mesh;
-    mesh.uvSets.resize(std::max<size_t>(1, uvSetCount));
-    mesh.colorSets.resize(colorSetCount);
     std::vector<canon::Identity> primitiveMaterials;
     for (uint32_t part = 0; part < root.groups.size(); ++part) {
         const wmo::GroupInfo& info = root.groups[part];
@@ -1014,8 +1082,9 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
             }
         }
         mesh.parts.push_back(meshPart);
-        if (in.groups[part]) appendGroup(in, part, *in.groups[part], mesh, primitiveMaterials, colorSetCount);
     }
+    std::vector<PartGroup> base = baseGroups(in);
+    appendGroups(in, base, mesh, primitiveMaterials);
     for (size_t i = 0; i < root.portals.size(); ++i) {
         const wmo::Portal& p = root.portals[i];
         canon::Portal portal;
@@ -1027,8 +1096,6 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         if (!root.portalExtras.empty()) portal.sourceExtra.assign(root.portalExtras[i].begin(), root.portalExtras[i].end());
         mesh.portals.push_back(std::move(portal));
     }
-    mesh.attributes = buildFaceAttributes(in);
-    if (std::optional<canon::AttributeChannel> weights = buildBlendWeights(in)) mesh.attributes.push_back(std::move(*weights));
     std::vector<canon::LiquidGrid> liquids;
     for (uint32_t part = 0; part < in.groups.size(); ++part) {
         if (in.groups[part] && in.groups[part]->liquid) liquids.push_back(buildLiquid(in, part, *in.groups[part]));
@@ -1048,15 +1115,17 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
     surfaceinput::SurfaceTable surfaces(in.surfaces);
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials[i].surfaceType = surfaces.add(root.materials[i].groundType);
-    if (std::optional<canon::AttributeChannel> faces = faceSurfaceTypes(in, materials, surfaces)) {
+    if (std::optional<canon::AttributeChannel> faces = faceSurfaceTypes(base, materials, surfaces)) {
         mesh.attributes.push_back(std::move(*faces));
     }
+    std::vector<canon::MeshLevel> levels = buildMeshLevels(in, materials, surfaces);
     nameByPosition(lights.scene.localLights, "light");
 
     canon::Model model =
         canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials), {},
                              std::move(lights.scene), std::move(sets), std::move(liquids), {},
                              fogs.empty() ? std::nullopt : fogs[0]);
+    canon::setMeshLevels(model, std::move(levels));
     model.liquidTypes = std::move(liquidTypes);
     model.surfaceTypes = surfaces.take();
     return model;

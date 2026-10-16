@@ -315,6 +315,16 @@ where it came from.
   sampled M2s have LOD skins; the rest have `max_level` 0. `LDV1`'s
   `lodCount` isn't used: some models with LOD skins lack the chunk (that
   tree), and the SFID list is what names the files.
+- **WMO**: level k is GFID row k (`<root>_NNN_lodK.wmo`). It draws every
+  group carrying `SMOGroup::LOD` (flag 0x400), each from its highest own
+  level ≤ k, and drops the other groups (interiors). On 1,380 sampled
+  roots a group has lod1/lod2 files exactly when it carries the flag; at
+  level 3, 39 of 505 flagged groups have no file and draw their level 2,
+  the per-part version of the reader's own clamp. `source.part_levels`
+  lists the parts drawn with the level each came from. A level has its
+  own vertex streams (group files hold their own vertices) and no
+  `wmo.poly_*` face channels unless every group it draws has them: level
+  files carry no `MOPY`. Bootybay: 269,121 → 113,433 → 70,332 indices.
 
 ## Surface types — what the ground is made of
 

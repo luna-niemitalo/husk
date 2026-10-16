@@ -227,26 +227,30 @@ void nameModelRefs(canon::Terrain& terrain, const ListfileIndex& listfile) {
 
 std::string modelBundleName(uint32_t fdid) { return std::to_string(fdid) + ".canon.bundle"; }
 
-// IN, critical when found: a WMO group file, by its GFID FileDataID (listfile
-// path or the store), else by the <root stem>_NNN.wmo name beside the root
-// (the local extraction's naming). nullopt when neither exists.
+// IN, critical when found: a WMO group file at `level` (GFID row), by its
+// GFID FileDataID (listfile path or the store), else by the
+// <root stem>_NNN[_lodK].wmo name beside the root (the local extraction's
+// naming). nullopt when neither exists.
 std::optional<std::filesystem::path> findWmoGroupFile(const std::filesystem::path& rootPath, const wmo::RootFile& root,
-                                                      uint32_t group, const ListfileIndex* listfile,
+                                                      uint32_t group, uint32_t level, const ListfileIndex* listfile,
                                                       const std::string& listfileRoot) {
-    uint32_t fdid = wmo::groupFileDataId(root, 0, group);
+    uint32_t fdid = wmo::groupFileDataId(root, level, group);
     if (listfile && fdid != 0) {
         if (auto found = sources::localFileForFileDataId(*listfile, listfileRoot, fdid)) return found;
     }
     std::string suffix = std::to_string(group);
     suffix.insert(0, suffix.size() < 3 ? 3 - suffix.size() : 0, '0');
+    if (level > 0) suffix += "_lod" + std::to_string(level);
     std::filesystem::path sibling = rootPath.parent_path() / (rootPath.stem().string() + "_" + suffix + ".wmo");
     if (std::filesystem::exists(sibling)) return sibling;
     return std::nullopt;
 }
 
-// A WMO root and its base-LOD group files as a canon::Model. Missing group
-// files are reported through `warn` and leave that part empty; a group file
-// that exists but doesn't parse fails the export.
+// A WMO root and its group files as a canon::Model, each GFID row after the
+// first a mesh level. A missing base group file is reported through `warn`
+// and leaves that part empty; a missing coarser one is reported and that
+// group falls back to its previous level. A group file that exists but
+// doesn't parse fails the export.
 canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<uint32_t> fileDataId,
                           const ListfileIndex* listfile, const std::string& listfileRoot,
                           const liquiddb::Data* liquids, const surfacedb::Data* surfaces, const std::function<void(const std::string&)>& warn) {
@@ -256,7 +260,7 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
     inputs.liquids = liquids;
     inputs.surfaces = surfaces;
     for (uint32_t g = 0; g < root.groups.size(); ++g) {
-        std::optional<std::filesystem::path> path = findWmoGroupFile(rootPath, root, g, listfile, listfileRoot);
+        std::optional<std::filesystem::path> path = findWmoGroupFile(rootPath, root, g, 0, listfile, listfileRoot);
         if (!path) {
             warn("expected group " + std::to_string(g) + " of " + rootPath.filename().string() + " (FileDataID " +
                  std::to_string(wmo::groupFileDataId(root, 0, g)) + "), found no file -- its part has no geometry");
@@ -267,6 +271,29 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
             inputs.groups.emplace_back(wmo::parseGroup(adt::readFile(*path)));
         } catch (const std::exception& e) {
             throw std::runtime_error(path->string() + ": " + e.what());
+        }
+    }
+    size_t rows = root.groups.empty() ? 0 : root.groupFileDataIds.size() / root.groups.size();
+    for (uint32_t level = 1; level < rows; ++level) {
+        std::vector<std::optional<wmo::GroupFile>>& files = inputs.lodGroups.emplace_back();
+        for (uint32_t g = 0; g < root.groups.size(); ++g) {
+            uint32_t fdid = wmo::groupFileDataId(root, level, g);
+            std::optional<std::filesystem::path> path =
+                fdid != 0 ? findWmoGroupFile(rootPath, root, g, level, listfile, listfileRoot) : std::nullopt;
+            if (fdid != 0 && !path) {
+                warn("expected level " + std::to_string(level) + " of group " + std::to_string(g) + " of " +
+                     rootPath.filename().string() + " (FileDataID " + std::to_string(fdid) +
+                     "), found no file -- that level draws the group's previous one");
+            }
+            if (!path) {
+                files.emplace_back();
+                continue;
+            }
+            try {
+                files.emplace_back(wmo::parseGroup(adt::readFile(*path)));
+            } catch (const std::exception& e) {
+                throw std::runtime_error(path->string() + ": " + e.what());
+            }
         }
     }
     if (listfile) {

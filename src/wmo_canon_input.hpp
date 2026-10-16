@@ -29,6 +29,11 @@ struct WmoInputs {
     // when the caller couldn't find or read it -- that part then has no
     // primitives.
     std::vector<std::optional<wmo::GroupFile>> groups;
+    // The coarser group files: lodGroups[k - 1][g] is group g's level-k file
+    // (GFID row k), one inner entry per root group; nullopt where GFID has
+    // none or the caller couldn't read it. One outer entry per GFID row
+    // after the first: these become the model's mesh levels 1..n.
+    std::vector<std::vector<std::optional<wmo::GroupFile>>> lodGroups;
     // Material and particulate-volume textures and doodad models, keyed by
     // FileDataID, resolved by the caller (no filesystem access here).
     TextureResolutions textures;

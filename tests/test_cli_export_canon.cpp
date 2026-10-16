@@ -96,6 +96,32 @@ TEST_CASE("husk export --bundle-only: a doodad's _lodNN skins become mesh levels
     }
 }
 
+TEST_CASE("husk export-wmo: GFID rows become mesh levels, a group past its last file drawing its last one" *
+          doctest::skip(!fs::exists(husk::test::testWmoChamberCap()))) {
+    // Rows: groups 0 and 1 have lod1 and lod2, only group 1 has lod3; group
+    // 2 lacks the LOD flag and has no level files.
+    auto dir = defaultsDir("wmo_lod");
+    auto bundle = dir / "out.bundle";
+    auto result = runHusk("export-wmo --config /dev/null " + husk::test::testWmoChamberCap() + " " + bundle.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(runHusk("validate-bundle " + bundle.string()).exitCode == 0);
+
+    nlohmann::json m = nlohmann::json::parse(std::ifstream(bundle / "manifest.json"));
+    const nlohmann::json& lod = m["resources"]["geometry"]["lod"];
+    REQUIRE(lod["max_level"] == 3);
+    auto partLevels = [&](size_t level) {
+        std::vector<std::pair<int, int>> out;
+        for (const auto& p : lod["levels"][level]["source"]["part_levels"]) out.emplace_back(p["part"], p["level"]);
+        return out;
+    };
+    CHECK(partLevels(1) == std::vector<std::pair<int, int>>{{0, 1}, {1, 1}});
+    CHECK(partLevels(2) == std::vector<std::pair<int, int>>{{0, 2}, {1, 2}});
+    CHECK(partLevels(3) == std::vector<std::pair<int, int>>{{0, 2}, {1, 3}});
+    CHECK(lod["levels"][1]["indices"]["count"] < lod["levels"][0]["indices"]["count"]);
+    CHECK(lod["levels"][1]["positions"] != m["resources"]["geometry"]["mesh"]["positions"]);  // its own vertices
+}
+
 TEST_CASE("husk export --bundle-only: a model in the store finds the skeleton its SKID names" *
           doctest::skip(!fs::exists(husk::test::testSkelM2()) || !fs::exists(husk::test::testSkel()))) {
     // The store names files by FileDataID, so no same-basename .skel exists.
