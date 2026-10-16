@@ -523,12 +523,23 @@ int exportWorld(int argc, char** args) {
                         if (!texSidecar.warning.empty()) errors.add("tex", t.root.string(), texSidecar.warning);
                         tex = std::move(texSidecar.value);
                     }
+                    Sidecar<adt::LodFile> lodSidecar = loadSidecar(t.root, "auto", "_lod.adt", "--lod", &adt::parseLod);
+                    if (!lodSidecar.warning.empty()) errors.add("lod", t.root.string(), lodSidecar.warning);
+                    Sidecar<adt::Obj1File> obj1Sidecar =
+                        loadSidecar(t.root, "auto", "_obj1.adt", "--obj1", &adt::parseObj1);
+                    if (!obj1Sidecar.warning.empty()) errors.add("obj1", t.root.string(), obj1Sidecar.warning);
+                    auto wdt = wdts.find(t.map);
+                    auto [mapTexture, mapNormalTexture] =
+                        mapTextureIds(name, wdt != wdts.end() ? &wdt->second : nullptr, listfile.get());
 
                     std::filesystem::path relToOut = std::filesystem::relative(out, bundle);
                     adtinput::TextureResolutions textures;
                     writers::AssetUris textureUris;
                     std::vector<uint32_t> textureIds;
                     if (tex) textureIds = adtinput::textureFileDataIds(*tex, gamePaths);
+                    for (std::optional<uint32_t> fdid : {mapTexture, mapNormalTexture}) {
+                        if (fdid) textureIds.push_back(*fdid);
+                    }
                     if (liquids) {
                         for (uint32_t fdid : liquidinput::textureFileDataIds(adtinput::liquidTypeRows(root), *liquids)) {
                             textureIds.push_back(fdid);
@@ -539,7 +550,10 @@ int exportWorld(int argc, char** args) {
                         textures.emplace(fdid, ref);
                         if (!filename.empty()) textureUris.emplace(fdid, (relToOut / "textures" / filename).generic_string());
                     }
-                    adtinput::TileSources sources{root, obj, tex, flags, name.map, name.x, name.y};
+                    adtinput::TileSources sources{root, obj, tex, flags, name.map, name.x, name.y,
+                                                  lodSidecar.value ? &*lodSidecar.value : nullptr,
+                                                  obj1Sidecar.value ? &*obj1Sidecar.value : nullptr, mapTexture,
+                                                  mapNormalTexture};
                     canon::Terrain terrain = adtinput::buildCanonTerrain(
                         sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
                     nameModelRefs(terrain, *listfile);
@@ -554,7 +568,9 @@ int exportWorld(int argc, char** args) {
                     }
                     terrain.subject = writers::subjectRef(t.root, tileFileDataId(rootIds, opts.listfileRoot, t.root));
                     writers::writeTerrainBundle(terrain, bundle,
-                                                terrainProvenance(obj.has_value(), tex.has_value(), flags.has_value(),
+                                                terrainProvenance(obj.has_value(), tex.has_value(),
+                                                                  lodSidecar.value.has_value(),
+                                                                  obj1Sidecar.value.has_value(), flags.has_value(),
                                                                   listfile.get(), opts.listfile, !groundEffects.empty(),
                                                                   liquids.has_value(), surfaces.has_value()),
                                                 modelUris, textureUris);

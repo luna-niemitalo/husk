@@ -83,6 +83,16 @@ preliminary feedback:
   - 22's diffuse layer is `texture_3` (`t2`) and 23's is `texture_2`
     (`t1`), for a renderer that draws one texture.
 
+v0.2.1 (2026-10-16), levels of detail (additions; nothing moved): every
+mesh model has `resources.geometry.lod`, every terrain tile
+`resources.terrain.lod`, both `{max_level, levels}` with level 0 the full
+detail. To draw level n, read `levels[min(n, max_level)]`. M2 levels are
+the `_lodNN` skins (sharing level 0's vertices), WMO levels the GFID rows
+(their own vertices, interiors dropped), terrain levels the `_lod.adt`
+band meshes over the tile's baked map texture. Tile placement instances
+listed in `_obj1.adt` carry `distant`; leave the rest out when drawing a
+tile from afar. `BUNDLE_FORMAT.md` "Levels of detail" has the details.
+
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so
 it never said how layers combine. An M2 material now names its

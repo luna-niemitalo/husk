@@ -308,8 +308,8 @@ constexpr const char* kFoxM2 = "creature/fox/fox.m2";
 constexpr const char* kFoxSkin = "creature/fox/fox00.skin";
 // ADT terrain: Crystal Lake, Elwynn (azeroth_32_49) -- the tile the terrain
 // export's conventions were verified on (WIKI_FINDINGS/ADT.md): liquid,
-// tilted doodads, 8-bit RLE alpha. Its _obj0/_tex0 siblings and the map's
-// azeroth.wdt are expected beside it.
+// tilted doodads, 8-bit RLE alpha. Its _obj0/_tex0/_obj1/_lod siblings and
+// the map's azeroth.wdt are expected beside it.
 constexpr const char* kAdtTile = "world/maps/azeroth/azeroth_32_49.adt";
 // WMO: cameron is the smallest real root+group pair (1 group, 1 material);
 // guardtower has 3 doodad sets and 2 groups; torghast chambercap01 has a

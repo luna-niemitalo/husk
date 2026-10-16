@@ -26,6 +26,12 @@ struct TileSources {
     std::string mapName;
     uint32_t tileX = 0;  // from the file name; checked against MCNK #0's position
     uint32_t tileY = 0;
+    const adt::LodFile* lod = nullptr;  // the tile's _lod.adt; null: no coarser levels
+    const adt::Obj1File* obj1 = nullptr;  // the tile's _obj1.adt; null: no instance has a distant listing
+    // The tile's map textures (WDT MAID, else the listfile's
+    // world/maptextures path), resolved through Resolutions::textures.
+    std::optional<uint32_t> mapTexture;
+    std::optional<uint32_t> mapNormalTexture;
 };
 
 // Keyed by FileDataID. A texture absent here becomes

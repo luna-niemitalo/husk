@@ -226,6 +226,25 @@ canon::PlacedInstance buildMapObject(const adt::MapObjectPlacement& m, const adt
                           adt::activeDoodadSets(m, obj));
 }
 
+// Each _obj1 entry onto the obj0 instance with its uniqueId, bounds in the
+// world frame (on azeroth_32_49 every box lies at its instance
+// horizontally). An entry naming no instance is foreign data that doesn't
+// fit: it fails the tile.
+void attachDistant(canon::PlacementSet& set, const std::vector<adt::DistantPlacement>& listed, const char* tag) {
+    std::unordered_map<uint32_t, canon::PlacedInstance*> byId;
+    for (canon::PlacedInstance& instance : set.instances) byId[instance.id] = &instance;
+    for (const adt::DistantPlacement& p : listed) {
+        auto it = byId.find(p.uniqueId);
+        if (it == byId.end()) {
+            throw std::runtime_error(std::string(tag) + ": expected uniqueId " + std::to_string(p.uniqueId) +
+                                     " among the tile's " + std::to_string(set.instances.size()) + " " + set.ref.name +
+                                     ", found none");
+        }
+        it->second->distant = canon::DistantListing{{p.boundsMin[0], p.boundsMin[1], p.boundsMin[2]},
+                                                    {p.boundsMax[0], p.boundsMax[1], p.boundsMax[2]}, p.radius, p.band};
+    }
+}
+
 // Instance ids are ADT uniqueIds; a set's ids must be unique (PLACEMENT_SETS.md).
 void requireUniqueIds(const canon::PlacementSet& set) {
     std::set<uint32_t> seen;
@@ -353,6 +372,46 @@ std::vector<canon::TerrainLayer> buildLayers(const adt::TexChunk& tc, const adt:
     return out;
 }
 
+// _lod.adt -> TerrainLod. Its grids sit where the chunks' vertices do: on
+// azeroth_32_49 every centre height equals the chunks' own, and corners
+// differ by up to ~4 yd (the coarse meshes' baking moved them), so the
+// grids are placed exactly as TerrainChunk's are. Bands are stored
+// coarsest first; levels run finest first.
+canon::TerrainLod buildLod(const TileSources& sources, const Resolutions& resolutions) {
+    canon::TerrainLod out;
+    if (sources.mapTexture) out.diffuse = textureFor(*sources.mapTexture, resolutions);
+    if (sources.mapNormalTexture) out.normal = textureFor(*sources.mapNormalTexture, resolutions);
+    if (!sources.lod) return out;
+    const adt::LodFile& lod = *sources.lod;
+    constexpr float q = canon::kTerrainQuadSize;
+    auto corner = [&](size_t i) {
+        return canon::Vec3{-static_cast<float>(i / adt::kLodCornersPerSide) * q,
+                           -static_cast<float>(i % adt::kLodCornersPerSide) * q, lod.heights[i]};
+    };
+    constexpr size_t kCorners = adt::kLodCornersPerSide * adt::kLodCornersPerSide;
+    for (size_t i = 0; i < kCorners; ++i) out.positions.push_back(corner(i));
+    for (size_t i = 0; i < adt::kLodCentresPerSide * adt::kLodCentresPerSide; ++i) {
+        float r = static_cast<float>(i / adt::kLodCentresPerSide) + 0.5f;
+        float c = static_cast<float>(i % adt::kLodCentresPerSide) + 0.5f;
+        out.positions.push_back({-r * q, -c * q, lod.heights[kCorners + i]});
+    }
+    for (size_t k = 0; k < lod.skirtSources.size(); ++k) {
+        canon::Vec3 p = corner(lod.skirtSources[k]);
+        p.z = lod.heights[adt::kLodGridVertexCount + k];
+        out.positions.push_back(p);
+    }
+    for (auto band = lod.bands.rbegin(); band != lod.bands.rend(); ++band) {
+        canon::TerrainMeshLevel level;
+        level.band = band->lod;
+        level.indices.assign(lod.indices.begin() + band->surfaceStart,
+                             lod.indices.begin() + band->surfaceStart + band->surfaceCount);
+        level.skirtIndices.assign(lod.indices.begin() + band->skirtStart,
+                                  lod.indices.begin() + band->skirtStart + band->skirtCount);
+        out.levels.push_back(std::move(level));
+    }
+    return out;
+}
+
 }  // namespace
 
 canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& resolutions) {
@@ -364,6 +423,7 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
     out.tileY = sources.tileY;
     canon::Vec2 corner = canon::terrainTileCorner(sources.tileX, sources.tileY);
     for (const adt::MapChunk& mc : root.chunks) out.chunks.push_back(buildChunk(mc, corner));
+    out.lod = buildLod(sources, resolutions);
 
     if (sources.tex) {
         if (!sources.wdtFlags) {
@@ -421,10 +481,19 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
         requireUniqueIds(out.doodads);
         requireUniqueIds(out.mapObjects);
     }
+    if (sources.obj && sources.obj1) {
+        attachDistant(out.doodads, sources.obj1->doodads, "MLDD");
+        attachDistant(out.mapObjects, sources.obj1->mapObjects, "MLMD");
+    }
     for (canon::PlacementSet* set : {&out.doodads, &out.mapObjects}) {
         for (canon::PlacedInstance& instance : set->instances) {
             instance.translation.x -= corner.x;
             instance.translation.y -= corner.y;
+            if (!instance.distant) continue;
+            for (canon::Vec3* p : {&instance.distant->boundsMin, &instance.distant->boundsMax}) {
+                p->x -= corner.x;
+                p->y -= corner.y;
+            }
         }
     }
     return out;

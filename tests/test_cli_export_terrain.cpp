@@ -3,11 +3,13 @@
 // with its WDT, a real BLP ground texture and a listfile, run through the
 // real binary (run_husk.hpp). Model export (`export-world`'s pass 2) is
 // covered by the existing `export --bundle-only` tests; these use
-// --skip-models and check that placements stay identity-only.
+// --skip-models and check that placements stay identity-only. Terrain
+// levels need a real _lod.adt, so that one test runs on test_data's tile.
 
 #include <doctest/doctest.h>
 
 #include "bundle_schema.hpp"
+#include "test_data_paths.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -128,7 +130,7 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
     auto r = runHusk("export-terrain " + q(c.tile()) + " " + q(out) + " " + c.listfileArgs());
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(r.output.find("256 chunks, 2 textures") != std::string::npos);
+    CHECK(r.output.find("256 chunks, 0 coarser levels, 2 textures") != std::string::npos);
     CHECK(r.output.find("2 doodads, 1 map objects") != std::string::npos);
 
     nlohmann::json t = readTile(out / "manifest.json");
@@ -153,6 +155,55 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
     REQUIRE(mapObjects.size() == 1);
     CHECK(mapObjects[0]["asset"]["name"] == "inn");
     CHECK(mapObjects[0]["selection"]["placement_sets"][0] == 0);
+}
+
+TEST_CASE("husk export-terrain: a real tile's _lod.adt bands become terrain levels 1..4, finest first" *
+          doctest::skip(!fs::exists(fs::path(husk::test::testAdtTile()).replace_filename("azeroth_32_49_lod.adt")))) {
+    fs::path out = fs::temp_directory_path() / "husk_terrain_lod" / "out.bundle";
+    fs::remove_all(out);
+    auto r = runHusk("export-terrain --config /dev/null " + q(husk::test::testAdtTile()) + " " + q(out));
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    CHECK(runHusk("validate-bundle " + q(out)).exitCode == 0);
+
+    nlohmann::json t = readTile(out / "manifest.json");
+    const nlohmann::json& lod = t["resources"]["terrain"]["lod"];
+    REQUIRE(lod["max_level"] == 4);
+    CHECK(lod["levels"][0]["surface"] == "heightfield");
+    std::vector<double> bands;
+    for (size_t l = 1; l <= 4; ++l) {
+        INFO("level " << l);
+        const nlohmann::json& level = lod["levels"][l];
+        bands.push_back(level["source"]["band"]);
+        CHECK(level["positions"] == lod["levels"][1]["positions"]);  // one vertex list per tile
+        // 129 x 129 corners + 128 x 128 centres + 77 skirt copies on this tile.
+        CHECK(level["positions"]["count"] == 33102);
+        if (l > 1) CHECK(level["indices"]["count"] < lod["levels"][l - 1]["indices"]["count"]);
+    }
+    CHECK(bands == std::vector<double>{4, 8, 16, 32});
+    CHECK(lod["levels"][1]["skirt_indices"]["count"] == 0);  // the finest band has no skirt
+
+    // _obj1.adt lists all 1,410 doodads and all 8 WMOs of this tile. Each
+    // box is the placed model's, so horizontally it lies at the instance:
+    // a pivot can sit outside its own geometry, but not further from the
+    // box than the box is large (a wrong frame is ~17,000 yd off). Height
+    // isn't checked: two models here float 8.82 yd above their pivot.
+    for (const char* set : {"0.json", "1.json"}) {
+        INFO(set);
+        nlohmann::json instances = readPlacements(out / "sets" / set);
+        CHECK(instances.size() == (std::string(set) == "0.json" ? 1410u : 8u));
+        size_t far = 0;
+        for (const auto& instance : instances) {
+            REQUIRE(instance.contains("distant"));
+            for (int a = 0; a < 2; ++a) {
+                double p = instance["translation"][a];
+                double lo = instance["distant"]["bounds_min"][a];
+                double hi = instance["distant"]["bounds_max"][a];
+                if (p < lo - (hi - lo) - 1 || p > hi + (hi - lo) + 1) ++far;
+            }
+        }
+        CHECK(far == 0);
+    }
 }
 
 TEST_CASE("husk export-terrain: without a listfile, name-table paths stay names and textures stay unresolved") {

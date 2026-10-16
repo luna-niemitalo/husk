@@ -4,7 +4,7 @@ _husk_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle export-world store-add export-corpus index-tree mount"
+    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle export-world store-add export-corpus snapshot index-tree mount"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcommands" -- "$cur"))
@@ -299,6 +299,14 @@ _husk_completions() {
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
                     ;;
+                --lod)
+                    COMPREPLY=($(compgen -W "all" -- "$cur"))
+                    return
+                    ;;
+                --obj1)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
                 --wdt)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
@@ -325,7 +333,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --obj --tex --wdt --listfile --listfile-root --db2-dir --dbd-dir --models-dir --list-models" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --obj --tex --lod --obj1 --wdt --listfile --listfile-root --db2-dir --dbd-dir --models-dir --list-models" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
@@ -433,9 +441,13 @@ _husk_completions() {
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
                     ;;
+                --link-store)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --map --listfile --listfile-root --db2-dir --dbd-dir --jobs --skip-models --all-assets --sample" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --map --listfile --listfile-root --db2-dir --dbd-dir --jobs --skip-models --all-assets --sample --link-store" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
@@ -464,7 +476,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --store --game --game-from --tag" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --store --link --game --game-from --tag" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
@@ -522,6 +534,47 @@ _husk_completions() {
             esac
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--help -h --config --map --sample --listfile --listfile-root --db2-dir --dbd-dir --jobs --store --game --game-from --tag" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
+        snapshot)
+            case "$prev" in
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --listfile-root)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --listfile)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --store)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --jobs)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --tag)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --previous-tag)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --config --listfile-root --listfile --dbd-dir --store --jobs --tag --previous-tag" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

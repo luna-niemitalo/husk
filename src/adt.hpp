@@ -167,6 +167,62 @@ struct TexFile {
     size_t textureCount() const { return diffuseIds.empty() ? diffuseNames.size() : diffuseIds.size(); }
 };
 
+// _lod.adt (Legion+): the tile's distant terrain, ADT/v18 MLHD..MLSI and
+// ADTLodImplementation.md. One vertex list per tile -- 129x129 corners,
+// then 128x128 quad centres, then one skirt vertex per MLSI entry -- and
+// per band one whole-tile triangle list into it. On azeroth_32_49 each
+// band's MLLL range is exactly the union of its MLND quad-tree depth's
+// node ranges, so the tree isn't needed to draw a band whole.
+inline constexpr size_t kLodCornersPerSide = 129;
+inline constexpr size_t kLodCentresPerSide = 128;
+inline constexpr size_t kLodGridVertexCount =
+    kLodCornersPerSide * kLodCornersPerSide + kLodCentresPerSide * kLodCentresPerSide;
+
+// MLLL, 20 bytes: one band's triangles (surface) and the skirt triangles
+// that hang below its edges.
+struct LodBand {
+    float lod = 0;  // as stored; 32, 16, 8, 4 in every sampled file
+    uint32_t surfaceStart = 0;
+    uint32_t surfaceCount = 0;
+    uint32_t skirtStart = 0;
+    uint32_t skirtCount = 0;
+};
+
+struct LodFile {
+    std::vector<float> heights;          // MLVH: absolute; skirt entries already lowered
+    std::vector<uint16_t> skirtSources;  // MLSI: the corner each skirt vertex copies
+    std::vector<uint16_t> indices;       // MLVI
+    std::vector<LodBand> bands;          // MLLL, coarsest first (checked)
+};
+
+// Throws ParseError on a missing chunk, a vertex count other than grid +
+// MLSI, an MLSI entry past the corners, an index past the vertices, or a
+// band range outside MLVI.
+LodFile parseLod(const std::vector<uint8_t>& bytes);
+
+// One _obj1.adt entry (MLDD+MLDX or MLMD+MLMX). In 12.1.0 MLDD repeats
+// every MDDF placement (same uniqueId and name, 274/274 sampled tiles) and
+// MLMD a subset of MODF (2 tiles leave WMOs out), each list re-sorted.
+struct DistantPlacement {
+    uint32_t uniqueId = 0;
+    std::array<float, 3> boundsMin{};  // CAaBox of the placed, transformed model, as stored
+    std::array<float, 3> boundsMax{};
+    float radius = 0;
+    // MLFD's band (0..2) whose range holds the entry; nullopt without MLFD
+    // (78% of sampled files). The bands split the list; what a band means
+    // is not established (not radius, not the WMO's own level count).
+    std::optional<uint32_t> band;
+};
+
+struct Obj1File {
+    std::vector<DistantPlacement> doodads;     // MLDD/MLDX
+    std::vector<DistantPlacement> mapObjects;  // MLMD/MLMX
+};
+
+// Throws ParseError when a definition list and its extents differ in
+// count, or an MLFD range runs past its list.
+Obj1File parseObj1(const std::vector<uint8_t>& bytes);
+
 // WDT MPHD flags this exporter reads.
 inline constexpr uint32_t kMphdGlobalMapObject = 0x1;  // no terrain: one map-wide WMO (MWMO/MODF)
 inline constexpr uint32_t kMphdBigAlpha = 0x4;

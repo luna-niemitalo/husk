@@ -334,6 +334,14 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   (mechanical grouping checked by derivation coverage, no screenshots). Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
   yet. The format is at schema_version 0.2.0.
+- **Levels of detail (2026-10-16, schema 0.2.1)**: `resources.geometry.
+  lod` on every mesh model and `resources.terrain.lod` on every tile,
+  `{max_level, levels}`, level 0 full detail, read `levels[min(n,
+  max_level)]` (REFACTOR/BUNDLE_FORMAT.md "Levels of detail"). M2 =
+  `_lodNN` skins, WMO = GFID rows, terrain = `_lod.adt` bands + map
+  textures; `_obj1.adt` is each tile instance's `distant`. Open:
+  `TODO/WORLD/ADT_LOD_TODO.md` (band meaning, radius rule, liquid LOD,
+  WDL).
 - **Surface types (2026-10-13, for the weather system)**: TerrainType
   rows as `resources.surface_types`, indexed by terrain ground effects
   (GroundEffectTexture.Sound), WMO materials (MOMT ground_type) and WMO

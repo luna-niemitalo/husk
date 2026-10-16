@@ -676,8 +676,24 @@ struct Validation {
     // mesh itself, repeated.
     void checkLevels(const json& model, DocumentChecker& checker) {
         const json& resources = model["resources"];
+        if (resources.contains("terrain")) {
+            const json& levels = resources["terrain"]["lod"]["levels"];
+            for (size_t l = 0; l < levels.size(); ++l) {
+                std::string at = "/resources/terrain/lod/levels/" + std::to_string(l);
+                bool mesh = levels[l]["surface"] == "mesh";
+                if (mesh != (l > 0)) {
+                    checker.fail(at + "/surface", std::string("expected ") + (l > 0 ? "mesh" : "heightfield") + ", got " +
+                                                      levels[l]["surface"].dump());
+                }
+                for (const char* key : {"positions", "indices", "skirt_indices"}) {
+                    if (mesh != levels[l].contains(key)) {
+                        checker.fail(at, std::string("expected '") + key + "' exactly on a mesh level");
+                    }
+                }
+            }
+        }
         for (const char* owner : {"geometry", "terrain"}) {
-            if (!resources.contains(owner) || !resources[owner].contains("lod")) continue;
+            if (!resources.contains(owner)) continue;
             const json& lod = resources[owner]["lod"];
             std::string pointer = std::string("/resources/") + owner + "/lod";
             int64_t max = lod["max_level"];

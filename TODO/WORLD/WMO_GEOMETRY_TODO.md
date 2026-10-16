@@ -14,11 +14,10 @@ as placement sets (`../../REFACTOR/PLACEMENT_SETS.md`); group files are found
 by GFID through the listfile, else `<root>_NNN.wmo`. Open, in order:
 1. **Which UV set each texture samples** is assumed (texture k → UV set k);
    the shader decides (`### Shader types` below). Verify per shader.
-2. **LOD tiers**: only GFID row 0 (base) is exported.
-3. **Skybox** (`MOSB`/`MOSI`) is parsed, not written.
-4. `MOC2`, `MOM3`; vertex colours are exported raw (no
+2. **Skybox** (`MOSB`/`MOSI`) is parsed, not written.
+3. `MOC2`, `MOM3`; vertex colours are exported raw (no
    `FixColorVertexAlpha`).
-5. Collision, portals and fog inside a WMO -- the sibling TODO files.
+4. Collision, portals and fog inside a WMO -- the sibling TODO files.
    `MNLD`/`MOLT` lights and `MLIQ` liquid export (`LIGHTING_TODO.md`,
    `LIQUID_TODO.md`).
 **The "Coordinate system note" section below is wrong**: positions are

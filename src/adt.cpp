@@ -403,6 +403,117 @@ TexFile parseTex(const std::vector<uint8_t>& bytes) {
     return out;
 }
 
+LodFile parseLod(const std::vector<uint8_t>& bytes) {
+    std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
+    auto require = [&](const char* tag, size_t stride) {
+        std::optional<Chunk> c = findChunk(chunks, tag);
+        if (!c) throw ParseError(std::string("_lod: expected a ") + tag + " chunk");
+        if (c->size % stride != 0) {
+            throw ParseError(std::string(tag) + ": expected size multiple of " + std::to_string(stride) + ", got " +
+                             std::to_string(c->size));
+        }
+        return *c;
+    };
+    Chunk mlvh = require("MLVH", 4);
+    Chunk mlsi = require("MLSI", 2);
+    Chunk mlvi = require("MLVI", 2);
+    Chunk mlll = require("MLLL", 20);
+    LodFile out;
+    for (size_t b = 0; b < mlvh.size; b += 4) out.heights.push_back(read<float>(mlvh.data, mlvh.size, b, "MLVH"));
+    for (size_t b = 0; b < mlsi.size; b += 2) out.skirtSources.push_back(read<uint16_t>(mlsi.data, mlsi.size, b, "MLSI"));
+    for (size_t b = 0; b < mlvi.size; b += 2) out.indices.push_back(read<uint16_t>(mlvi.data, mlvi.size, b, "MLVI"));
+    for (size_t b = 0; b < mlll.size; b += 20) {
+        out.bands.push_back({read<float>(mlll.data, mlll.size, b, "MLLL.lod"),
+                             read<uint32_t>(mlll.data, mlll.size, b + 4, "MLLL.height_index"),
+                             read<uint32_t>(mlll.data, mlll.size, b + 8, "MLLL.height_length"),
+                             read<uint32_t>(mlll.data, mlll.size, b + 16, "MLLL.mapAreaLow_index"),
+                             read<uint32_t>(mlll.data, mlll.size, b + 12, "MLLL.mapAreaLow_length")});
+    }
+
+    // The vertex list is the grids plus one copy per MLSI entry, each of a
+    // corner vertex (ADTLodImplementation.md; checked here on every file).
+    size_t expected = kLodGridVertexCount + out.skirtSources.size();
+    if (out.heights.size() != expected) {
+        throw ParseError("MLVH: expected " + std::to_string(expected) + " heights (" + std::to_string(kLodGridVertexCount) +
+                         " grid + " + std::to_string(out.skirtSources.size()) + " MLSI skirt), got " +
+                         std::to_string(out.heights.size()));
+    }
+    for (uint16_t s : out.skirtSources) {
+        if (s >= kLodCornersPerSide * kLodCornersPerSide) {
+            throw ParseError("MLSI: expected a corner vertex < " + std::to_string(kLodCornersPerSide * kLodCornersPerSide) +
+                             ", got " + std::to_string(s));
+        }
+    }
+    for (uint16_t i : out.indices) {
+        if (i >= out.heights.size()) {
+            throw ParseError("MLVI: expected indices < " + std::to_string(out.heights.size()) + " vertices, got " +
+                             std::to_string(i));
+        }
+    }
+    for (size_t k = 0; k < out.bands.size(); ++k) {
+        const LodBand& band = out.bands[k];
+        std::string what = "MLLL[" + std::to_string(k) + "]";
+        for (auto [start, count] : {std::pair{band.surfaceStart, band.surfaceCount}, std::pair{band.skirtStart, band.skirtCount}}) {
+            if (size_t{start} + count > out.indices.size() || count % 3 != 0) {
+                throw ParseError(what + ": expected a whole-triangle range within MLVI (" + std::to_string(out.indices.size()) +
+                                 " indices), got [" + std::to_string(start) + ", +" + std::to_string(count) + ")");
+            }
+        }
+        if (k > 0 && !(band.lod < out.bands[k - 1].lod)) {
+            throw ParseError(what + ": expected bands coarsest first (lod below " + std::to_string(out.bands[k - 1].lod) +
+                             "), got " + std::to_string(band.lod));
+        }
+    }
+    return out;
+}
+
+Obj1File parseObj1(const std::vector<uint8_t>& bytes) {
+    std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
+    auto readList = [&](const char* defTag, size_t defStride, const char* extentTag) {
+        std::vector<DistantPlacement> out;
+        std::optional<Chunk> defs = findChunk(chunks, defTag);
+        std::optional<Chunk> extents = findChunk(chunks, extentTag);
+        size_t count = defs ? defs->size / defStride : 0;
+        size_t extentCount = extents ? extents->size / 28 : 0;
+        if ((defs && defs->size % defStride != 0) || (extents && extents->size % 28 != 0) || count != extentCount) {
+            throw ParseError(std::string(defTag) + "/" + extentTag + ": expected one " + std::to_string(defStride) +
+                             "-byte definition per 28-byte extent, got " + std::to_string(defs ? defs->size : 0) + " and " +
+                             std::to_string(extents ? extents->size : 0) + " bytes");
+        }
+        for (size_t i = 0; i < count; ++i) {
+            DistantPlacement p;
+            p.uniqueId = read<uint32_t>(defs->data, defs->size, i * defStride + 4, defTag);
+            p.boundsMin = readVec3(extents->data, extents->size, i * 28, extentTag);
+            p.boundsMax = readVec3(extents->data, extents->size, i * 28 + 12, extentTag);
+            p.radius = read<float>(extents->data, extents->size, i * 28 + 24, extentTag);
+            out.push_back(p);
+        }
+        return out;
+    };
+    Obj1File out;
+    out.doodads = readList("MLDD", kMddfSize, "MLDX");
+    out.mapObjects = readList("MLMD", 40, "MLMX");
+    if (std::optional<Chunk> mlfd = findChunk(chunks, "MLFD")) {
+        requireSize(*mlfd, 48, "MLFD");
+        // m2LodOffset[3], m2LodLength[3], wmoLodOffset[3], wmoLodLength[3]
+        auto assign = [&](std::vector<DistantPlacement>& list, size_t base, const char* what) {
+            for (uint32_t band = 0; band < 3; ++band) {
+                uint32_t offset = read<uint32_t>(mlfd->data, mlfd->size, base + band * 4, "MLFD");
+                uint32_t length = read<uint32_t>(mlfd->data, mlfd->size, base + 12 + band * 4, "MLFD");
+                if (size_t{offset} + length > list.size()) {
+                    throw ParseError(std::string("MLFD ") + what + " band " + std::to_string(band) + ": expected a range within " +
+                                     std::to_string(list.size()) + " entries, got [" + std::to_string(offset) + ", +" +
+                                     std::to_string(length) + ")");
+                }
+                for (uint32_t i = offset; i < offset + length; ++i) list[i].band = band;
+            }
+        };
+        assign(out.doodads, 0, "doodad");
+        assign(out.mapObjects, 24, "map object");
+    }
+    return out;
+}
+
 uint32_t parseWdtFlags(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     std::optional<Chunk> mphd = findChunk(chunks, "MPHD");

@@ -203,7 +203,7 @@ breakdown would mean anything:
 
 | Feature | Chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| Legion+ terrain LOD (heightmap, doodad, and lighting variants) | `MLHD`/`MLVH`/`MLVI`/`MLLL`/`MLND`/`MLSI`/`MLLD`/`MLLN`/`MLLV`/`MLLI`/`MLMD`/`MLMX`/`MLDD`/`MLDX`/`MLDL`/`MLFD`/`MBMB`/`MLMB`/`MLDB`, plus Shadowlands+ `MWDR`/`MWDS` doodad refs | none | none | native-possible, not done | mirrors M2's own multi-LOD story (`husk export --lod`, see `M2_COMPLETENESS.md`) at the terrain-tile scale — full implementation-ready plan now in `TODO/WORLD/ADT_LOD_TODO.md`; real-data-verified: `MLLL`'s LOD-band set is really `{4,8,16,32}` (2,000 real `_lod.adt` files), not `2.0` as `ADTLodImplementation.md`'s own prose could be misread to imply |
+| Legion+ terrain LOD (heightmap, doodad, and lighting variants) | `MLHD`/`MLVH`/`MLVI`/`MLLL`/`MLND`/`MLSI`/`MLLD`/`MLLN`/`MLLV`/`MLLI`/`MLMD`/`MLMX`/`MLDD`/`MLDX`/`MLDL`/`MLFD`/`MBMB`/`MLMB`/`MLDB`, plus Shadowlands+ `MWDR`/`MWDS` doodad refs | full (`MLVH`/`MLVI`/`MLLL`/`MLSI`, `MLDD`/`MLDX`/`MLMD`/`MLMX`/`MLFD`); none for the liquid, blend-mesh and opaque chunks | native (bundle) | n/a, bundle | terrain levels 1–4 per tile and each placement's `distant` listing (`REFACTOR/BUNDLE_FORMAT.md` "Levels of detail"); `MLLL`'s band set is `{4,8,16,32}` (2,000 real `_lod.adt` files), not `2.0` as `ADTLodImplementation.md`'s prose could be misread to imply; what's left in `TODO/WORLD/ADT_LOD_TODO.md` |
 
 ## WMO static geometry & materials
 

@@ -14,6 +14,27 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-16 — Levels of detail.**
+
+- Luna's shape: an ordered list per asset, level 0 full detail, plus the
+  last authored level, so a reader takes `levels[min(n, max_level)]`.
+  Priority doodads, trees, WMOs, then distant terrain.
+- M2: the `_lodNN` skins (SFID after the views). An 800-file sample
+  showed views 00..03 near-identical in size, `_lod` skins shrinking, so
+  views aren't distance levels (the legacy `--lod n` still treats SFID
+  index n as level n). A tree's last level is an impostor card.
+- WMO: GFID rows; group flag 0x400 ⇔ has lod1/lod2 files on 1,380
+  sampled roots; a group's files can stop early (39/505 at level 3) and
+  it then draws its last one. Level files carry no MOPY.
+- Terrain: `_lod.adt` bands 4/8/16/32 as levels 1–4, plus the baked map
+  textures (orientation matched by eye on azeroth_32_49). `_obj1.adt`
+  turned out to repeat `_obj0`'s placements (doodads 274/274 tiles, WMOs
+  a subset), so it became a `distant` block on instances, not a list.
+- schema_version 0.2.1. Luna's versioning rule: middle digit breaking,
+  last digit additions.
+- Luna flagged too many shell calls (prompting); batch through file
+  tools, one plain command per call.
+
 **2026-10-11 (night) — Creature variants; classification without screenshots.**
 
 - Luna's calls: Phase 5 classification is checked by derivation coverage,

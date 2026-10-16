@@ -240,6 +240,49 @@ void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uin
     w.endObject();
 }
 
+// resources.terrain.lod: level 0 is the chunks' heightfield; every mesh
+// level shares one positions slice.
+void writeLodSection(json::Writer& w, const canon::TerrainLod& lod, TextureTable& table, std::vector<uint8_t>& bin) {
+    w.beginObject();
+    w.key("max_level");
+    w.value(static_cast<int64_t>(lod.levels.size()));
+    w.key("levels");
+    w.beginArray();
+    w.beginObject();
+    w.key("surface");
+    w.value("heightfield");
+    w.endObject();
+    BufferSlice positions;
+    if (!lod.levels.empty()) positions = appendArray(bin, kTerrainBin, lod.positions, 3, "f32");
+    for (const canon::TerrainMeshLevel& level : lod.levels) {
+        w.beginObject();
+        w.key("surface");
+        w.value("mesh");
+        w.key("positions");
+        writeBufferSlice(w, positions, "POSITION");
+        w.key("indices");
+        writeBufferSlice(w, appendArray(bin, kTerrainBin, level.indices, 1, "u32"), "INDICES");
+        w.key("skirt_indices");
+        writeBufferSlice(w, appendArray(bin, kTerrainBin, level.skirtIndices, 1, "u32"));
+        if (lod.diffuse) {
+            w.key("diffuse");
+            w.value(static_cast<int64_t>(table.add(*lod.diffuse)));
+        }
+        if (lod.normal) {
+            w.key("normal");
+            w.value(static_cast<int64_t>(table.add(*lod.normal)));
+        }
+        w.key("source");
+        w.beginObject();
+        w.key("band");
+        w.value(static_cast<double>(level.band));
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+}
+
 }  // namespace
 
 void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::path& bundleDir,
@@ -306,6 +349,8 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     writeGroundEffectsSection(w, terrain.groundEffects, modelUris);
     w.key("chunks");
     writeChunksSection(w, terrain.chunks, terrainBin);
+    w.key("lod");
+    writeLodSection(w, terrain.lod, table, terrainBin);
     w.key("liquid_objects");
     writeLiquidObjects(w, terrain.liquidObjects);
     w.key("liquids");

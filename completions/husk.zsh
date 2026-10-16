@@ -26,6 +26,7 @@ _husk() {
         'export-world:export every ADT tile of every map to a canonical scene'
         'store-add:record an export tree as a build in the canonical store'
         'export-corpus:every map and every M2/WMO of a game build, optionally into the store'
+        'snapshot:record the source mount's current game build in the canonical store'
         'index-tree:(re)build an export tree's index/ lookup tables'
         'mount:browse the canonical store as a read-only filesystem'
     )
@@ -143,6 +144,8 @@ _husk() {
                 '--config[--config]:value:_files' \
                 '--obj[--obj]:value:_files' \
                 '--tex[--tex]:value:_files' \
+                '--lod[LOD index, or all]:value:(all)' \
+                '--obj1[--obj1]:value:_files' \
                 '--wdt[--wdt]:value:_files' \
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
@@ -193,6 +196,7 @@ _husk() {
                 '--skip-models[--skip-models]' \
                 '--all-assets[--all-assets]' \
                 '--sample[--sample]:value:_files' \
+                '--link-store[--link-store]:value:_files' \
                 '1:model:_files'
             ;;
         store-add)
@@ -200,6 +204,7 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--config[--config]:value:_files' \
                 '--store[--store]:value:_files' \
+                '--link[--link]' \
                 '--game[--game]:value:_files' \
                 '--game-from[--game-from]:value:_files' \
                 '--tag[--tag]:value:_files' \
@@ -220,6 +225,19 @@ _husk() {
                 '--game[--game]:value:_files' \
                 '--game-from[--game-from]:value:_files' \
                 '--tag[--tag]:value:_files' \
+                '1:model:_files'
+            ;;
+        snapshot)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--store[--store]:value:_files' \
+                '--jobs[--jobs]:value:_files' \
+                '--tag[--tag]:value:_files' \
+                '--previous-tag[--previous-tag]:value:_files' \
                 '1:model:_files'
             ;;
         index-tree)

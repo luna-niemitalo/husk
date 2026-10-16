@@ -227,6 +227,24 @@ void nameModelRefs(canon::Terrain& terrain, const ListfileIndex& listfile) {
 
 std::string modelBundleName(uint32_t fdid) { return std::to_string(fdid) + ".canon.bundle"; }
 
+std::pair<std::optional<uint32_t>, std::optional<uint32_t>> mapTextureIds(const TileName& tile, const adt::WdtFile* wdt,
+                                                                          const ListfileIndex* listfile) {
+    if (wdt && wdt->tileFileDataIds) {
+        const adt::TileFileDataIds& ids = (*wdt->tileFileDataIds)[tile.y * 64 + tile.x];
+        auto nonzero = [](uint32_t id) { return id != 0 ? std::optional<uint32_t>(id) : std::nullopt; };
+        return {nonzero(ids.mapTexture), nonzero(ids.mapTextureN)};
+    }
+    if (!listfile) return {};
+    std::string stem = "world/maptextures/" + tile.map + "/" + tile.map + "_" + std::to_string(tile.x) + "_" +
+                       std::to_string(tile.y);
+    std::unordered_map<std::string, uint32_t> ids = sources::fileDataIdsForGamePaths(*listfile, {stem + ".blp", stem + "_n.blp"});
+    auto find = [&](const std::string& path) {
+        auto it = ids.find(path);
+        return it != ids.end() ? std::optional<uint32_t>(it->second) : std::nullopt;
+    };
+    return {find(stem + ".blp"), find(stem + "_n.blp")};
+}
+
 // IN, critical when found: a WMO group file at `level` (GFID row), by its
 // GFID FileDataID (listfile path or the store), else by the
 // <root stem>_NNN[_lodK].wmo name beside the root (the local extraction's
@@ -349,12 +367,14 @@ writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::stri
 
 // What a tile was built from. A sidecar marked unavailable was missing, or
 // (tex0 without a readable WDT) unusable.
-writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,
-                                      const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids,
-                                      bool haveSurfaces) {
+writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveLod, bool haveObj1, bool haveWdt,
+                                      const ListfileIndex* listfile, const std::string& listfilePath,
+                                      bool haveGroundEffects, bool haveLiquids, bool haveSurfaces) {
     writers::Provenance out{std::string("husk ") + husk::version(), "adt", {}};
     out.sources.push_back({"obj0", "doodad and map-object placements", haveObj, ""});
     out.sources.push_back({"tex0", "texture layers and alpha maps", haveTex, ""});
+    out.sources.push_back({"lod", "the surface's coarser mesh levels", haveLod, ""});
+    out.sources.push_back({"obj1", "which placements show from afar, and their extents", haveObj1, ""});
     out.sources.push_back({"wdt", "MPHD flags: the alpha-map format", haveWdt, ""});
     out.sources.push_back({"listfile", "textures and name-table paths by FileDataID", listfile != nullptr,
                            listfile ? listfilePath : "not given"});

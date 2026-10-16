@@ -117,6 +117,48 @@
               "multiplier"
             ]
           },
+          "distant": {
+            "type": "object",
+            "description": "Present when the source lists the instance for drawing at range (a terrain tile's distant-object list); absent when it doesn't, so a renderer drawing the tile from afar leaves the instance out. Whether the list was read at all is the tile's provenance (source obj1).",
+            "properties": {
+              "bounds_min": {
+                "$ref": "common.schema.json#/definitions/vec3",
+                "description": "Minimum of the placed, transformed model's box, in the set's parent frame.",
+                "x-unit": "yard"
+              },
+              "bounds_max": {
+                "$ref": "common.schema.json#/definitions/vec3",
+                "description": "Maximum of that box.",
+                "x-unit": "yard"
+              },
+              "source": {
+                "type": "object",
+                "description": "Source-specific raw values.",
+                "properties": {
+                  "radius": {
+                    "type": "number",
+                    "description": "The source's radius for the listing; the client's distance culling scales with it (wowdev), by a rule not established.",
+                    "x-unit": "yard"
+                  },
+                  "band": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Which of the source's three bands lists the instance; what a band means is not established. Absent when the source has no bands."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "radius"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "bounds_min",
+              "bounds_max",
+              "source"
+            ]
+          },
           "selection": {
             "type": "object",
             "description": "What the placed model shows, indexing the placed model's own definition.",

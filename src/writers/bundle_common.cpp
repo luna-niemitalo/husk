@@ -736,6 +736,25 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
             w.value(static_cast<double>(instance.tint->multiplier));
             w.endObject();
         }
+        if (instance.distant) {
+            const canon::DistantListing& d = *instance.distant;
+            w.key("distant");
+            w.beginObject();
+            w.key("bounds_min");
+            writeFloats(w, {d.boundsMin.x, d.boundsMin.y, d.boundsMin.z});
+            w.key("bounds_max");
+            writeFloats(w, {d.boundsMax.x, d.boundsMax.y, d.boundsMax.z});
+            w.key("source");
+            w.beginObject();
+            w.key("radius");
+            w.value(static_cast<double>(d.radius));
+            if (d.band) {
+                w.key("band");
+                w.value(static_cast<int64_t>(*d.band));
+            }
+            w.endObject();
+            w.endObject();
+        }
         w.key("selection");
         w.beginObject();
         w.key("placement_sets");

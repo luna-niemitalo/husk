@@ -35,6 +35,16 @@ void addExportTerrainOptions(CLI::App& app, ExportTerrainOptions& opts) {
                    "texture-layer file: 'auto' (the tile's sibling <stem>_tex0.adt), 'none', or a path")
         ->default_val("auto")
         ->group("Tile sidecars");
+    app.add_option("--lod", opts.lodArg,
+                   "distant-terrain file (coarser mesh levels): 'auto' (the tile's sibling <stem>_lod.adt), 'none', "
+                   "or a path")
+        ->default_val("auto")
+        ->group("Tile sidecars");
+    app.add_option("--obj1", opts.obj1Arg,
+                   "distant-object file (which placements show from afar): 'auto' (the tile's sibling "
+                   "<stem>_obj1.adt), 'none', or a path")
+        ->default_val("auto")
+        ->group("Tile sidecars");
     app.add_option("--wdt", opts.wdtArg,
                    "map WDT, whose MPHD flags pick the alpha-map format: 'auto' (<map>.wdt beside the tile) "
                    "or a path. No 'none': without a WDT, texture layers can't be read -- use --tex none")
@@ -114,6 +124,11 @@ int exportTerrain(int argc, char** args) {
         if (!texSidecar.warning.empty()) warn(texSidecar.warning);
         std::optional<adt::ObjFile>& obj = objSidecar.value;
         std::optional<adt::TexFile>& tex = texSidecar.value;
+        Sidecar<adt::LodFile> lodSidecar = loadSidecar(rootPath, opts.lodArg, "_lod.adt", "--lod", &adt::parseLod);
+        Sidecar<adt::Obj1File> obj1Sidecar = loadSidecar(rootPath, opts.obj1Arg, "_obj1.adt", "--obj1", &adt::parseObj1);
+        for (const auto* sidecar : {&lodSidecar.note, &obj1Sidecar.note}) announce(*sidecar);
+        if (!lodSidecar.warning.empty()) warn(lodSidecar.warning);
+        if (!obj1Sidecar.warning.empty()) warn(obj1Sidecar.warning);
 
         // The WDT is only needed to read texture layers. An auto-located one
         // that's missing drops the layers with a warning; an explicit --wdt
@@ -188,7 +203,13 @@ int exportTerrain(int argc, char** args) {
             }
         }
 
-        adtinput::TileSources sources{root, obj, tex, wdtFlags, tile.map, tile.x, tile.y};
+        auto [mapTexture, mapNormalTexture] = mapTextureIds(tile, nullptr, listfile.get());
+        for (std::optional<uint32_t> fdid : {mapTexture, mapNormalTexture}) {
+            if (fdid && listfile) textures.emplace(*fdid, resolveTexture(*fdid, *listfile, listfileRoot));
+        }
+        adtinput::TileSources sources{root, obj, tex, wdtFlags, tile.map, tile.x, tile.y,
+                                      lodSidecar.value ? &*lodSidecar.value : nullptr,
+                                      obj1Sidecar.value ? &*obj1Sidecar.value : nullptr, mapTexture, mapNormalTexture};
         canon::Terrain terrain = adtinput::buildCanonTerrain(
             sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
         if (listfile) nameModelRefs(terrain, *listfile);
@@ -215,11 +236,12 @@ int exportTerrain(int argc, char** args) {
         if (listfile && !listfileRoot.empty()) rootIds = tileFileDataIds(*listfile, listfileRoot, {rootPath});
         terrain.subject = writers::subjectRef(rootPath, tileFileDataId(rootIds, listfileRoot, rootPath));
         writers::writeTerrainBundle(terrain, opts.output,
-                                    terrainProvenance(obj.has_value(), tex.has_value(), wdtFlags.has_value(),
-                                                      listfile.get(), listfilePath, !groundEffects.empty(),
-                                                      liquids.has_value(), surfaces.has_value()),
+                                    terrainProvenance(obj.has_value(), tex.has_value(), lodSidecar.value.has_value(),
+                                                      obj1Sidecar.value.has_value(), wdtFlags.has_value(), listfile.get(), listfilePath,
+                                                      !groundEffects.empty(), liquids.has_value(), surfaces.has_value()),
                                     modelUris);
-        std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, " << terrain.textures.size()
+        std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, "
+                  << terrain.lod.levels.size() << " coarser levels, " << terrain.textures.size()
                   << " textures, " << terrain.groundEffects.size() << " ground effects, " << terrain.liquids.size()
                   << " liquid surfaces, " << terrain.doodads.instances.size() << " doodads, "
                   << terrain.mapObjects.instances.size() << " map objects, " << modelUris.size()

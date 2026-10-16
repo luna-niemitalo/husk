@@ -140,6 +140,30 @@ struct LiquidSurface {
 };
 
 
+// One coarser level of a tile's terrain (REFACTOR/BUNDLE_FORMAT.md "Levels
+// of detail"): a whole-tile triangle list over TerrainLod::positions.
+struct TerrainMeshLevel {
+    std::vector<uint32_t> indices;
+    // Triangles hanging below the level's border, hiding cracks where it
+    // meets a tile drawn at another level. The finest band has none.
+    std::vector<uint32_t> skirtIndices;
+    float band = 0;  // the source band as stored (_lod.adt MLLL lod: 4, 8, 16, 32)
+};
+
+struct TerrainLod {
+    // Tile frame, shared by every level: corner (r, c) and centre (r, c) of
+    // the 128x128-quad tile grid, placed as TerrainChunk's are, then the
+    // skirt copies of border corners (lowered).
+    std::vector<Vec3> positions;
+    std::vector<TerrainMeshLevel> levels;  // levels 1..n, finest first; level 0 is the chunks' heightfield
+    // The tile's baked colour and normal map (world/maptextures), drawn over
+    // the whole tile: the image's first stored row is at the tile corner,
+    // rows step along the row axis, columns along the column axis
+    // (azeroth_32_49's map texture matches its heights so, by eye).
+    std::optional<TextureRef> diffuse;
+    std::optional<TextureRef> normal;
+};
+
 struct Terrain {
     Ref subject;  // the tile itself: its root ADT; set by the caller, like Model::subject
     Ref map;  // the map's directory name; no Map.db2 row is resolved
@@ -149,6 +173,7 @@ struct Terrain {
     std::vector<GroundEffect> groundEffects;
     std::vector<SurfaceType> surfaceTypes;  // what the ground effects' surfaces are, each once
     std::vector<TerrainChunk> chunks;  // index gridY * 16 + gridX
+    TerrainLod lod;  // no levels: the tile has no _lod.adt
     std::vector<LiquidSurface> liquids;
     // Each LiquidType and LiquidObject the liquids name, once, in first-seen
     // order; a liquid's refs match one entry each.

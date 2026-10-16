@@ -26,6 +26,16 @@ struct InstanceTint {
     float multiplier = 1.0f;
 };
 
+// How the source lists an instance for drawing at range (a terrain tile's
+// _obj1.adt): its placed bounds in the set's frame, and the raw values the
+// client's distance culling reads (wowdev: visibility scales with radius).
+struct DistantListing {
+    Vec3 boundsMin;
+    Vec3 boundsMax;
+    float radius = 0;
+    std::optional<uint32_t> band;  // which of the source's bands lists it; meaning not established
+};
+
 struct PlacedInstance {
     uint32_t id = 0;  // unique within its set; what a runtime addresses
     Ref asset;        // the placed asset's identity
@@ -37,6 +47,9 @@ struct PlacedInstance {
     Quat rotation;  // parent-from-asset
     float scale = 1.0f;
     std::optional<InstanceTint> tint;
+    // Set when the source lists the instance for drawing at range; nullopt
+    // when it doesn't, or the source has no such list.
+    std::optional<DistantListing> distant;
     uint32_t flags = 0;  // source-format placement flags, raw
     // For an asset that owns placement sets: which of them this instance
     // turns on, by set ref. nullopt = the asset's defaults (its always-on sets).

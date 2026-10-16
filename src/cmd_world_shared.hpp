@@ -83,6 +83,12 @@ Sidecar<Parsed> loadSidecar(const std::filesystem::path& root, const std::string
 
 canon::TextureRef resolveTexture(uint32_t fdid, const ListfileIndex& listfile, const std::string& listfileRoot);
 
+// The tile's baked map textures (colour, normal): the WDT's MAID ids when
+// `wdt` has them, else the listfile's world/maptextures/<map>/
+// <map>_<x>_<y>[_n].blp. nullopt where neither names one.
+std::pair<std::optional<uint32_t>, std::optional<uint32_t>> mapTextureIds(const TileName& tile, const adt::WdtFile* wdt,
+                                                                          const ListfileIndex* listfile);
+
 adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, const std::string& dbdDir,
                                                     std::string& note);
 std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
@@ -111,8 +117,9 @@ void dropMissingDoodadSets(canon::PlacementSet& set, const std::unordered_map<ui
                            const std::function<void(const std::string&)>& warn);
 
 writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids, bool haveSurfaces);
-writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveWdt, const ListfileIndex* listfile,
-                                      const std::string& listfilePath, bool haveGroundEffects, bool haveLiquids, bool haveSurfaces);
+writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveLod, bool haveObj1, bool haveWdt,
+                                      const ListfileIndex* listfile, const std::string& listfilePath,
+                                      bool haveGroundEffects, bool haveLiquids, bool haveSurfaces);
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
                                     const std::string& listfilePath, bool haveLights, bool haveConditions);
 

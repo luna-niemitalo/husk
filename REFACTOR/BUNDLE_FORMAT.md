@@ -326,6 +326,32 @@ where it came from.
   `wmo.poly_*` face channels unless every group it draws has them: level
   files carry no `MOPY`. Bootybay: 269,121 → 113,433 → 70,332 indices.
 
+A terrain tile's chain is `resources.terrain.lod`, the same wrapper. Level
+0 is `{"surface": "heightfield"}`: draw the chunks. Levels 1–4 are the
+tile's `_lod.adt` bands (`source.band` 4, 8, 16, 32, finest first), each a
+whole-tile mesh: `positions` (one slice every level shares: 129×129
+corners, 128×128 centres, then skirt copies of border corners, lowered),
+`indices`, and `skirt_indices` (triangles hanging below the border to hide
+cracks against a neighbour at another level; the finest band has none).
+Each band's range is the union of one depth of the file's quad tree
+(verified on azeroth_32_49), so a band draws whole without the tree. The
+grids sit where the chunks' vertices do: centre heights equal the chunks'
+exactly, corners differ by up to ~4 yd (moved when the coarse meshes were
+baked). `diffuse` and `normal` index the tile's baked map textures
+(`world/maptextures`); the image's first stored row is at the tile corner,
+rows along `row_axis`, columns along `column_axis` (matched by eye against
+azeroth_32_49's heights). A tile without `_lod.adt` has `max_level` 0.
+
+Placements carry what the source draws from afar on the instance, not as
+a separate list: a tile's `_obj1.adt` repeats every `_obj0` doodad (same
+uniqueId and model on 274 of 274 sampled tiles) and a subset of its WMOs
+(2 tiles leave some out), re-sorted, with each placed model's box. An
+instance it lists has `distant` (`bounds_min`/`bounds_max` in the set's
+frame; `source.radius`, which the client's distance culling scales with
+by a rule not established, and `source.band`, one of three bands whose
+meaning is not established). An instance without `distant` isn't drawn
+from afar; the tile's provenance (`obj1`) says whether the list was read.
+
 ## Surface types — what the ground is made of
 
 **Current** (2026-10-13): a document lists each surface it names once in

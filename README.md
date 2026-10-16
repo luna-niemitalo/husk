@@ -995,6 +995,8 @@ bundle as its raw name (`name_source: adt_embedded`).
 |---|---|---|---|
 | `--obj` | -- | placements file: 'auto' (the tile's sibling <stem>_obj0.adt), 'none', or a path | `auto` |
 | `--tex` | -- | texture-layer file: 'auto' (the tile's sibling <stem>_tex0.adt), 'none', or a path | `auto` |
+| `--lod` | -- | distant-terrain file (coarser mesh levels): 'auto' (the tile's sibling <stem>_lod.adt), 'none', or a path | `auto` |
+| `--obj1` | -- | distant-object file (which placements show from afar): 'auto' (the tile's sibling <stem>_obj1.adt), 'none', or a path | `auto` |
 | `--wdt` | -- | map WDT, whose MPHD flags pick the alpha-map format: 'auto' (<map>.wdt beside the tile) or a path. No 'none': without a WDT, texture layers can't be read -- use --tex none | `auto` |
 | `--listfile` | -- | community listfile CSV, or 'none': finds texture files by FileDataID, resolves name-table (MMDX/MWMO/MTEX) paths to FileDataIDs, and names placed models | unset |
 | `--listfile-root` | -- | directory the listfile's paths are relative to, or 'none' | unset |

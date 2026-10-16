@@ -236,6 +236,8 @@ struct ExportTerrainOptions {
     std::string output;
     std::string objArg = "auto";
     std::string texArg = "auto";
+    std::string lodArg = "auto";
+    std::string obj1Arg = "auto";
     std::string wdtArg = "auto";
     std::string listfile;
     std::string listfileRoot;
