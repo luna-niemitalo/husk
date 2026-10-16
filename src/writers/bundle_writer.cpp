@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -94,56 +95,54 @@ const char* domainName(canon::AttributeDomain domain) {
     throw std::logic_error("unreachable AttributeDomain");
 }
 
-void writeAttributes(json::Writer& w, const std::vector<canon::AttributeChannel>& attributes,
-                     std::vector<uint8_t>& meshBin) {
-    w.beginArray();
+std::vector<BufferSlice> appendAttributes(const std::vector<canon::AttributeChannel>& attributes,
+                                          std::vector<uint8_t>& meshBin) {
+    std::vector<BufferSlice> out;
     for (const canon::AttributeChannel& a : attributes) {
+        out.push_back(std::visit(
+            [&](const auto& values) {
+                using T = typename std::decay_t<decltype(values)>::value_type;
+                return appendComponents(meshBin, "mesh.bin", values, a.components, componentTypeName<T>());
+            },
+            a.values));
+    }
+    return out;
+}
+
+// `slices[i]` holds attributes[i]'s values (appendAttributes).
+void writeAttributes(json::Writer& w, const std::vector<canon::AttributeChannel>& attributes,
+                     const std::vector<BufferSlice>& slices) {
+    w.beginArray();
+    for (size_t i = 0; i < attributes.size(); ++i) {
         w.beginObject();
         w.key("name");
-        w.value(a.name);
+        w.value(attributes[i].name);
         w.key("domain");
-        w.value(domainName(a.domain));
+        w.value(domainName(attributes[i].domain));
         w.key("data");
-        writeBufferSlice(w, std::visit(
-                                [&](const auto& values) {
-                                    using T = typename std::decay_t<decltype(values)>::value_type;
-                                    return appendComponents(meshBin, "mesh.bin", values, a.components,
-                                                            componentTypeName<T>());
-                                },
-                                a.values));
+        writeBufferSlice(w, slices[i]);
         w.endObject();
     }
     w.endArray();
 }
 
-void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<uint8_t>& meshBin) {
-    const canon::Mesh& mesh = model.mesh;
-    w.beginObject();
+// A mesh's (or mesh level's) vertex streams, once appended to mesh.bin; a
+// level that shares them writes the same slices.
+struct VertexSlices {
+    BufferSlice positions;
+    BufferSlice normals;
+    std::vector<BufferSlice> uvSets;
+    std::vector<BufferSlice> colorSets;
+    std::optional<BufferSlice> joints;
+    std::optional<BufferSlice> weights;
+};
 
-    w.key("positions");
-    writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.positions, 3, "f32"), "POSITION");
-
-    w.key("normals");
-    writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.normals, 3, "f32"), "NORMAL");
-
-    w.key("uv_sets");
-    w.beginArray();
-    for (size_t k = 0; k < mesh.uvSets.size(); ++k) {
-        std::string semantic = "TEXCOORD_" + std::to_string(k);
-        writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.uvSets[k], 2, "f32"), semantic.c_str());
-    }
-    w.endArray();
-
-    if (!mesh.colorSets.empty()) {
-        w.key("colors");
-        w.beginArray();
-        for (size_t k = 0; k < mesh.colorSets.size(); ++k) {
-            std::string semantic = "COLOR_" + std::to_string(k);
-            writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.colorSets[k], 4, "u8"), semantic.c_str());
-        }
-        w.endArray();
-    }
-
+VertexSlices appendVertexStreams(const canon::Mesh& mesh, std::vector<uint8_t>& meshBin) {
+    VertexSlices out;
+    out.positions = appendArray(meshBin, "mesh.bin", mesh.positions, 3, "f32");
+    out.normals = appendArray(meshBin, "mesh.bin", mesh.normals, 3, "f32");
+    for (const auto& uv : mesh.uvSets) out.uvSets.push_back(appendArray(meshBin, "mesh.bin", uv, 2, "f32"));
+    for (const auto& colors : mesh.colorSets) out.colorSets.push_back(appendArray(meshBin, "mesh.bin", colors, 4, "u8"));
     if (!mesh.skinning.empty()) {
         std::vector<std::array<uint8_t, 4>> joints;
         std::vector<std::array<float, 4>> weights;
@@ -153,19 +152,49 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
             joints.push_back(s.joints);
             weights.push_back(s.weights);
         }
-        w.key("joints0");
-        writeBufferSlice(w, appendArray(meshBin, "mesh.bin", joints, 4, "u8"), "JOINTS_0");
-        w.key("weights0");
-        writeBufferSlice(w, appendArray(meshBin, "mesh.bin", weights, 4, "f32"), "WEIGHTS_0");
+        out.joints = appendArray(meshBin, "mesh.bin", joints, 4, "u8");
+        out.weights = appendArray(meshBin, "mesh.bin", weights, 4, "f32");
     }
+    return out;
+}
 
-    w.key("indices");
-    writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.indices, 1, "u32"), "INDICES");
-
-    w.key("primitives");
+void writeVertexSlices(json::Writer& w, const VertexSlices& v) {
+    w.key("positions");
+    writeBufferSlice(w, v.positions, "POSITION");
+    w.key("normals");
+    writeBufferSlice(w, v.normals, "NORMAL");
+    w.key("uv_sets");
     w.beginArray();
-    for (size_t i = 0; i < mesh.primitives.size(); ++i) {
-        const canon::PrimitiveGeoset& prim = mesh.primitives[i];
+    for (size_t k = 0; k < v.uvSets.size(); ++k) {
+        std::string semantic = "TEXCOORD_" + std::to_string(k);
+        writeBufferSlice(w, v.uvSets[k], semantic.c_str());
+    }
+    w.endArray();
+    if (!v.colorSets.empty()) {
+        w.key("colors");
+        w.beginArray();
+        for (size_t k = 0; k < v.colorSets.size(); ++k) {
+            std::string semantic = "COLOR_" + std::to_string(k);
+            writeBufferSlice(w, v.colorSets[k], semantic.c_str());
+        }
+        w.endArray();
+    }
+    if (v.joints) {
+        w.key("joints0");
+        writeBufferSlice(w, *v.joints, "JOINTS_0");
+        w.key("weights0");
+        writeBufferSlice(w, *v.weights, "WEIGHTS_0");
+    }
+}
+
+// `materialOf(i)`: primitive i's index into model.materials, resolved
+// through canon::resolveMaterialIndex or its level twin -- model.materials
+// is deduped (canon_model.hpp), so it is never assumed to be `i`.
+void writePrimitives(json::Writer& w, const std::vector<canon::PrimitiveGeoset>& primitives,
+                     const std::function<std::optional<size_t>(size_t)>& materialOf) {
+    w.beginArray();
+    for (size_t i = 0; i < primitives.size(); ++i) {
+        const canon::PrimitiveGeoset& prim = primitives[i];
         w.beginObject();
         w.key("geoset_id");
         w.value(static_cast<int64_t>(prim.geoset.group * 100 + prim.geoset.variant));
@@ -177,18 +206,14 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         w.value(static_cast<int64_t>(prim.indexStart));
         w.key("index_count");
         w.value(static_cast<int64_t>(prim.indexCount));
-        // Resolved via canon::resolveMaterialIndex, not assumed to equal
-        // `i` -- model.materials is deduped (canon_model.hpp's own doc
-        // comment); see this function's own doc comment above and
-        // tests/test_writers_bundle.cpp's explicit regression test. A
-        // nullopt here means `model` holds a `primitiveMaterials` entry
-        // this bundle format has no way to represent (a bundle-external
-        // material reference, not implemented anywhere yet) -- an interior
-        // invariant violation for this writer's own current scope, so it
-        // throws rather than silently writing a wrong index (FOREIGN_DATA
-        // policy: the interior trusts an already-validated canon::Model,
-        // it doesn't limp past a shape it can't handle).
-        auto matIdx = canon::resolveMaterialIndex(model, i);
+        // A nullopt here means the model holds a primitive material this
+        // bundle format has no way to represent (a bundle-external material
+        // reference, not implemented anywhere yet) -- an interior invariant
+        // violation for this writer's own current scope, so it throws
+        // rather than silently writing a wrong index (FOREIGN_DATA policy:
+        // the interior trusts an already-validated canon::Model, it doesn't
+        // limp past a shape it can't handle).
+        auto matIdx = materialOf(i);
         if (!matIdx) {
             throw std::runtime_error("writeBundle: primitive " + std::to_string(i) +
                                       "'s material reference isn't a local RecordIndex -- bundle writer has no "
@@ -203,6 +228,29 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         w.endObject();
     }
     w.endArray();
+}
+
+struct MeshSlices {
+    VertexSlices vertices;
+    BufferSlice indices;
+    std::vector<BufferSlice> attributes;
+};
+
+// resources.mesh -- appends every mesh BufferSlice to `meshBin` and writes
+// the section to `w`. Returns the slices, which mesh level 0 repeats.
+MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<uint8_t>& meshBin) {
+    const canon::Mesh& mesh = model.mesh;
+    w.beginObject();
+
+    VertexSlices vertices = appendVertexStreams(mesh, meshBin);
+    writeVertexSlices(w, vertices);
+
+    BufferSlice indices = appendArray(meshBin, "mesh.bin", mesh.indices, 1, "u32");
+    w.key("indices");
+    writeBufferSlice(w, indices, "INDICES");
+
+    w.key("primitives");
+    writePrimitives(w, mesh.primitives, [&](size_t i) { return canon::resolveMaterialIndex(model, i); });
 
     w.key("parts");
     w.beginArray();
@@ -291,8 +339,68 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
     w.endArray();
 
     w.key("attributes");
-    writeAttributes(w, mesh.attributes, meshBin);
+    std::vector<BufferSlice> attributes = appendAttributes(mesh.attributes, meshBin);
+    writeAttributes(w, mesh.attributes, attributes);
 
+    w.endObject();
+    return {std::move(vertices), indices, std::move(attributes)};
+}
+
+// resources.geometry.lod: level 0 repeats the mesh's own slices and
+// primitives (`mesh0`), so every level reads the same way; a level sharing
+// the mesh's vertices repeats its vertex slices.
+void writeLodSection(json::Writer& w, const canon::Model& model, const MeshSlices& mesh0, std::vector<uint8_t>& meshBin) {
+    w.beginObject();
+    w.key("max_level");
+    w.value(static_cast<int64_t>(model.meshLevels.size()));
+    w.key("levels");
+    w.beginArray();
+
+    w.beginObject();
+    writeVertexSlices(w, mesh0.vertices);
+    w.key("indices");
+    writeBufferSlice(w, mesh0.indices, "INDICES");
+    w.key("primitives");
+    writePrimitives(w, model.mesh.primitives, [&](size_t i) { return canon::resolveMaterialIndex(model, i); });
+    w.key("attributes");
+    writeAttributes(w, model.mesh.attributes, mesh0.attributes);
+    w.endObject();
+
+    for (size_t l = 0; l < model.meshLevels.size(); ++l) {
+        const canon::MeshLevel& level = model.meshLevels[l];
+        w.beginObject();
+        writeVertexSlices(w, level.sharesVertices ? mesh0.vertices : appendVertexStreams(level.mesh, meshBin));
+        w.key("indices");
+        writeBufferSlice(w, appendArray(meshBin, "mesh.bin", level.mesh.indices, 1, "u32"), "INDICES");
+        w.key("primitives");
+        writePrimitives(w, level.mesh.primitives,
+                        [&](size_t i) { return canon::resolveLevelMaterialIndex(model, l, i); });
+        w.key("attributes");
+        writeAttributes(w, level.mesh.attributes, appendAttributes(level.mesh.attributes, meshBin));
+        w.key("source");
+        w.beginObject();
+        if (level.sourceFile) {
+            w.key("file");
+            writeRef(w, *level.sourceFile);
+        }
+        if (!level.partLevels.empty()) {
+            w.key("part_levels");
+            w.beginArray();
+            for (const canon::PartLevel& p : level.partLevels) {
+                w.beginObject();
+                w.key("part");
+                w.value(static_cast<int64_t>(p.part));
+                w.key("level");
+                w.value(static_cast<int64_t>(p.sourceLevel));
+                w.endObject();
+            }
+            w.endArray();
+        }
+        w.endObject();
+        w.endObject();
+    }
+
+    w.endArray();
     w.endObject();
 }
 
@@ -1065,7 +1173,9 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("geometry");
     w.beginObject();
     w.key("mesh");
-    writeMeshSection(w, model, meshBin);
+    MeshSlices mesh0 = writeMeshSection(w, model, meshBin);
+    w.key("lod");
+    writeLodSection(w, model, mesh0, meshBin);
     w.key("liquids");
     writeLiquids(w, model, liquidBin);
     bool hasCollision = !model.collision.indices.empty();

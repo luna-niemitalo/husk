@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -224,6 +225,32 @@ std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::
         return skinsToExport;
     }
     return resolveSkin(header, modelPath, skinDir, listfileRoot, skinDirNone);
+}
+
+std::vector<LodSkinPath> resolveLodSkinPaths(const m2::Header& header, const std::string& modelPath,
+                                             const std::string& skinDir, const std::string& listfileRoot) {
+    if (!header.skinFileDataIds) return {};
+    const std::vector<uint32_t>& ids = *header.skinFileDataIds;
+    std::filesystem::path model(modelPath);
+    std::vector<LodSkinPath> out;
+    for (size_t i = header.numSkinProfiles; i < ids.size(); ++i) {
+        size_t level = i - header.numSkinProfiles + 1;
+        std::optional<std::string> found = findSfidSkin(skinDir, listfileRoot, ids[i]);
+        if (!found) {
+            char suffix[16];
+            std::snprintf(suffix, sizeof suffix, "_lod%02zu.skin", level);
+            std::filesystem::path sibling = model.parent_path() / (model.stem().string() + suffix);
+            std::error_code ec;
+            if (std::filesystem::exists(sibling, ec) && !ec) found = sibling.string();
+        }
+        if (!found) {
+            std::cerr << "husk: note: '" << modelPath << "': LOD skin " << level << " (FileDataID " << ids[i]
+                      << ") not found; its mesh levels stop at " << level - 1 << "\n";
+            break;
+        }
+        out.push_back({ids[i], *found});
+    }
+    return out;
 }
 
 }  // namespace husk::commands

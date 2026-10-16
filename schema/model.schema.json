@@ -17,7 +17,7 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.2.0",
+      "const": "0.2.1",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
@@ -657,53 +657,8 @@
                   "type": "array",
                   "description": "Index ranges drawn with one material.",
                   "items": {
-                    "type": "object",
-                    "description": "One primitive.",
-                    "properties": {
-                      "geoset_id": {
-                        "type": "integer",
-                        "description": "Geoset the range belongs to: group * 100 + variant."
-                      },
-                      "geoset_group": {
-                        "type": "integer",
-                        "description": "Geoset group."
-                      },
-                      "geoset_variant": {
-                        "type": "integer",
-                        "description": "Variant within the group."
-                      },
-                      "index_start": {
-                        "type": "integer",
-                        "description": "First index.",
-                        "minimum": 0
-                      },
-                      "index_count": {
-                        "type": "integer",
-                        "description": "Number of indices.",
-                        "minimum": 0
-                      },
-                      "material_index": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "description": "Material that draws it.",
-                        "x-index-into": "/resources/materials"
-                      },
-                      "part": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "description": "Part it belongs to.",
-                        "x-index-into": "/resources/geometry/mesh/parts"
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "geoset_id",
-                      "geoset_group",
-                      "geoset_variant",
-                      "index_start",
-                      "index_count",
-                      "material_index"
-                    ]
+                    "$ref": "#/definitions/primitive",
+                    "description": "One primitive."
                   }
                 },
                 "parts": {
@@ -899,32 +854,8 @@
                   "type": "array",
                   "description": "Per-element data with no dedicated field.",
                   "items": {
-                    "type": "object",
-                    "description": "A named per-element data channel.",
-                    "properties": {
-                      "name": {
-                        "type": "string",
-                        "description": "Channel name, '<source>.<field>', unique within the mesh."
-                      },
-                      "domain": {
-                        "enum": [
-                          "vertex",
-                          "face",
-                          "part"
-                        ],
-                        "description": "Which elements it covers: vertices, faces (one per triangle of indices, in order) or parts."
-                      },
-                      "data": {
-                        "$ref": "common.schema.json#/definitions/buffer_slice",
-                        "description": "The values; count is the element count."
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "name",
-                      "domain",
-                      "data"
-                    ]
+                    "$ref": "#/definitions/attribute_channel",
+                    "description": "A named per-element data channel."
                   }
                 }
               },
@@ -938,6 +869,31 @@
                 "parts",
                 "portals",
                 "attributes"
+              ]
+            },
+            "lod": {
+              "type": "object",
+              "description": "Levels of detail of the mesh, finest first. To draw level n, read levels[min(n, max_level)]; every level reads the same way. Level 0 is the mesh above, repeated; each later level is a coarser stand-in the source draws from further away. Its primitives name the mesh's parts and materials.",
+              "properties": {
+                "max_level": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "The last level the source authored: levels has max_level + 1 entries. 0 when the mesh has no coarser level."
+                },
+                "levels": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "Level 0 first.",
+                  "items": {
+                    "$ref": "#/definitions/mesh_level",
+                    "description": "One level."
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "max_level",
+                "levels"
               ]
             },
             "liquids": {
@@ -1060,6 +1016,7 @@
           "additionalProperties": false,
           "required": [
             "mesh",
+            "lod",
             "liquids"
           ]
         },
@@ -2352,6 +2309,190 @@
   ],
   "additionalProperties": false,
   "definitions": {
+    "primitive": {
+      "type": "object",
+      "description": "An index range drawn with one material.",
+      "properties": {
+        "geoset_id": {
+          "type": "integer",
+          "description": "Geoset the range belongs to: group * 100 + variant."
+        },
+        "geoset_group": {
+          "type": "integer",
+          "description": "Geoset group."
+        },
+        "geoset_variant": {
+          "type": "integer",
+          "description": "Variant within the group."
+        },
+        "index_start": {
+          "type": "integer",
+          "description": "First index.",
+          "minimum": 0
+        },
+        "index_count": {
+          "type": "integer",
+          "description": "Number of indices.",
+          "minimum": 0
+        },
+        "material_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Material that draws it.",
+          "x-index-into": "/resources/materials"
+        },
+        "part": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Part it belongs to.",
+          "x-index-into": "/resources/geometry/mesh/parts"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "geoset_id",
+        "geoset_group",
+        "geoset_variant",
+        "index_start",
+        "index_count",
+        "material_index"
+      ]
+    },
+    "attribute_channel": {
+      "type": "object",
+      "description": "A named per-element data channel.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Channel name, '<source>.<field>', unique within the mesh or level."
+        },
+        "domain": {
+          "enum": [
+            "vertex",
+            "face",
+            "part"
+          ],
+          "description": "Which elements it covers: vertices, faces (one per triangle of indices, in order) or the mesh's parts."
+        },
+        "data": {
+          "$ref": "common.schema.json#/definitions/buffer_slice",
+          "description": "The values; count is the element count."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "domain",
+        "data"
+      ]
+    },
+    "mesh_level": {
+      "type": "object",
+      "description": "One level of detail: a complete triangle list over its vertex streams, read like resources.geometry.mesh. A stream two levels share names the same bytes.",
+      "properties": {
+        "positions": {
+          "$ref": "common.schema.json#/definitions/buffer_slice",
+          "description": "Vertex positions, f32x3.",
+          "x-unit": "yard"
+        },
+        "normals": {
+          "$ref": "common.schema.json#/definitions/buffer_slice",
+          "description": "Vertex normals, f32x3, unit length."
+        },
+        "uv_sets": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Texture coordinate sets, f32x2, one entry per vertex each; set 0 first.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/buffer_slice",
+            "description": "One texture coordinate set."
+          }
+        },
+        "colors": {
+          "type": "array",
+          "description": "Vertex colour sets, u8x4 RGBA 0..255 as stored.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/buffer_slice",
+            "description": "One colour set."
+          }
+        },
+        "joints0": {
+          "$ref": "common.schema.json#/definitions/buffer_slice",
+          "description": "Skinning joint indices per vertex, u8x4."
+        },
+        "weights0": {
+          "$ref": "common.schema.json#/definitions/buffer_slice",
+          "description": "Skinning weights per vertex, f32x4."
+        },
+        "indices": {
+          "$ref": "common.schema.json#/definitions/buffer_slice",
+          "description": "Triangle vertex indices, u32, three per triangle."
+        },
+        "primitives": {
+          "type": "array",
+          "description": "Index ranges drawn with one material.",
+          "items": {
+            "$ref": "#/definitions/primitive",
+            "description": "One primitive."
+          }
+        },
+        "attributes": {
+          "type": "array",
+          "description": "Per-element data over this level's vertices and faces.",
+          "items": {
+            "$ref": "#/definitions/attribute_channel",
+            "description": "A named per-element data channel."
+          }
+        },
+        "source": {
+          "type": "object",
+          "description": "Where the level's geometry came from. Absent on level 0.",
+          "properties": {
+            "file": {
+              "$ref": "common.schema.json#/definitions/ref",
+              "description": "The file holding the level (M2: its LOD skin)."
+            },
+            "part_levels": {
+              "type": "array",
+              "description": "The parts the level draws, each with the source level its geometry is from (WMO: the group file's level). A part whose files stop below this level draws its last one; a part not listed is not drawn at this level.",
+              "items": {
+                "type": "object",
+                "description": "One part.",
+                "properties": {
+                  "part": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The part.",
+                    "x-index-into": "/resources/geometry/mesh/parts"
+                  },
+                  "level": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The source level drawn."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "part",
+                  "level"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "positions",
+        "normals",
+        "uv_sets",
+        "indices",
+        "primitives",
+        "attributes"
+      ]
+    },
     "m2_pixel_shader": {
       "description": "The client pixel shader a M2 batch is drawn with. Its formula is the technique document m2_pixel_shader/<name> the material references (techniques/ in the bundle).",
       "oneOf": [

@@ -86,6 +86,9 @@ struct Model {
     Ref subject;  // the model itself; set by whoever knows its identity (the export command)
     Skeleton skeleton;
     Mesh mesh;
+    // Coarser levels of detail, finest first: levels 1..n, `mesh` being
+    // level 0. Set through setMeshLevels.
+    std::vector<MeshLevel> meshLevels;
     std::vector<Material> materials;
     std::vector<Identity> primitiveMaterials;  // one per mesh.primitives entry, see above
     std::vector<AnimationClip> animations;
@@ -169,5 +172,16 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
 // validates it at construction -- checked again here defensively since
 // this function has no other way to know how its `Model` was built).
 std::optional<size_t> resolveMaterialIndex(const Model& model, size_t primitiveIndex);
+
+// The same lookup for a primitive of `model.meshLevels[level]`.
+std::optional<size_t> resolveLevelMaterialIndex(const Model& model, size_t level, size_t primitiveIndex);
+
+// Sets `model.meshLevels`, checking each level as assembleModel checks the
+// mesh: one primitiveMaterials entry per primitive, RecordIndex materials
+// and parts in range, primitive ranges inside its indices, indices inside
+// its vertex streams (Model::mesh's when it shares them), attribute
+// channels sized to their domains, and partLevels naming parts in range.
+// Call it after assembleModel and before materials are added to.
+void setMeshLevels(Model& model, std::vector<MeshLevel> levels);
 
 }  // namespace husk::canon

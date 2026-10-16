@@ -121,7 +121,8 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
                               const std::vector<uint32_t>& triangleIndices,
                               const ExternalAnimBlobs& externalAnimBlobs,
                               const TextureResolutions& textureResolutions,
-                              const ExternalSkeletonSource* externalSkeleton) {
+                              const ExternalSkeletonSource* externalSkeleton,
+                              const std::vector<LodSkin>& lodSkins) {
     // Skeleton + bone-animation source: model's own inline data, or the
     // caller-supplied .skel triple -- see ExternalSkeletonSource's own doc
     // comment for why mesh geometry (model.vertices) and material tables
@@ -236,26 +237,46 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     M2MaterialInputs m2in = toMaterialInputs(model);
 
     std::vector<canon::Material> materials;
-    std::vector<canon::Identity> primitiveMaterials;
     std::map<MaterialKey, size_t> materialIndexByKey;
-    for (size_t bi = 0; bi < batches.size(); ++bi) {
-        const auto& b = batches[bi];
-        if (b.skinSectionIndex >= submeshes.size()) continue;  // assembleMesh already threw on this; unreachable in practice
-        if (submeshes[b.skinSectionIndex].indexCount == 0) continue;
+    auto primitiveMaterialsFor = [&](const std::vector<skin::Batch>& skinBatches,
+                                     const std::vector<skin::Submesh>& skinSubmeshes) {
+        std::vector<canon::Identity> out;
+        for (size_t bi = 0; bi < skinBatches.size(); ++bi) {
+            const auto& b = skinBatches[bi];
+            if (b.skinSectionIndex >= skinSubmeshes.size()) continue;  // assembleMesh already threw on this; unreachable in practice
+            if (skinSubmeshes[b.skinSectionIndex].indexCount == 0) continue;
 
-        MaterialKey key = materialKeyFor(b);
-        auto it = materialIndexByKey.find(key);
-        size_t materialIndex;
-        if (it != materialIndexByKey.end()) {
-            materialIndex = it->second;
-        } else {
-            canon::Material mat = assembleMaterial(b, bi, m2in, materialSequenceIndex, textureResolutions);
-            materialIndex = materials.size();
-            mat.ref.id = canon::RecordIndex{static_cast<uint32_t>(materialIndex)};
-            materials.push_back(std::move(mat));
-            materialIndexByKey.emplace(key, materialIndex);
+            MaterialKey key = materialKeyFor(b);
+            auto it = materialIndexByKey.find(key);
+            size_t materialIndex;
+            if (it != materialIndexByKey.end()) {
+                materialIndex = it->second;
+            } else {
+                canon::Material mat = assembleMaterial(b, bi, m2in, materialSequenceIndex, textureResolutions);
+                materialIndex = materials.size();
+                mat.ref.id = canon::RecordIndex{static_cast<uint32_t>(materialIndex)};
+                materials.push_back(std::move(mat));
+                materialIndexByKey.emplace(key, materialIndex);
+            }
+            out.push_back(canon::Identity{canon::RecordIndex{static_cast<uint32_t>(materialIndex)}});
         }
-        primitiveMaterials.push_back(canon::Identity{canon::RecordIndex{static_cast<uint32_t>(materialIndex)}});
+        return out;
+    };
+    std::vector<canon::Identity> primitiveMaterials = primitiveMaterialsFor(batches, submeshes);
+
+    std::vector<canon::MeshLevel> levels;
+    for (const LodSkin& lod : lodSkins) {
+        canon::MeshLevel level;
+        level.mesh = assembleMesh(model.vertices, bones.size(), lod.batches, lod.submeshes, lod.triangleIndices);
+        // An LOD skin indexes the model's own vertex list, the one level 0 draws.
+        level.mesh.positions.clear();
+        level.mesh.normals.clear();
+        level.mesh.uvSets.clear();
+        level.mesh.skinning.clear();
+        level.sharesVertices = true;
+        level.primitiveMaterials = primitiveMaterialsFor(lod.batches, lod.submeshes);
+        level.sourceFile = lod.file;
+        levels.push_back(std::move(level));
     }
 
     const ExternalAnimBlobs noExternalBlobs;
@@ -272,6 +293,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     canon::Model result = canon::assembleModel(std::move(skeleton), std::move(mesh), std::move(materials),
                                                std::move(primitiveMaterials), std::move(animations),
                                                std::move(scene), std::move(sets), {}, buildCollision(model));
+    canon::setMeshLevels(result, std::move(levels));
     result.textureSlots = textureSlots(model.textures);
     return result;
 }

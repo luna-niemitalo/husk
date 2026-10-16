@@ -288,6 +288,34 @@ material's layers carry `texture_unit`: `texture_1`-`3` are 0-2, and for
 shaders 22 and 23 `color_2`, `flags_2` are 3-4 and `runTimeData[0..3]`
 17-20 (`WIKI_FINDINGS/WORLD.md` "WMO shaders 22 and 23").
 
+## Levels of detail
+
+**Current** (2026-10-16, Luna's shape): every mesh model has
+`resources.geometry.lod = {max_level, levels}`. Levels are finest first:
+level 0 is full detail, each later one a coarser stand-in the source draws
+from further away. `max_level` is the last level the source authored, and
+`levels` has exactly `max_level + 1` entries. A reader wanting level n reads
+`levels[min(n, max_level)]` and never checks per item what exists.
+
+Every level is a complete mesh, read like `resources.geometry.mesh` (vertex
+streams, `indices`, `primitives`, `attributes`). Level 0 repeats the mesh
+itself, the same slices and primitives; `validate-bundle` checks that it
+does. A stream two levels share names the same bytes. A level's primitives
+name the mesh's parts and the document's materials. Its `source` says
+where it came from.
+
+- **M2** (doodads, trees, anything with `_lodNN.skin`): level k is the k-th
+  LOD skin, the SFID entries after the model's `numSkinProfiles` view
+  skins. The views are not distance levels: on a sample of 800 world M2s,
+  a model's view skins `00`..`03` were near-identical in size, while its
+  `_lod01`..`_lod03` shrink each step (a tree: 11,460 → 5,448 → 1,992 → 18
+  indices, the last an impostor card with its own `_lod` leaf texture). An
+  LOD skin indexes the model's one vertex list, so every level shares
+  level 0's vertex slices. `source.file` is the skin. 17 of the 800
+  sampled M2s have LOD skins; the rest have `max_level` 0. `LDV1`'s
+  `lodCount` isn't used: some models with LOD skins lack the chunk (that
+  tree), and the SFID list is what names the files.
+
 ## Surface types — what the ground is made of
 
 **Current** (2026-10-13): a document lists each surface it names once in

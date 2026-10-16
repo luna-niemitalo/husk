@@ -125,7 +125,7 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     // Every schema/*.schema.json pins this as its schema_version const;
     // bump them together. Below 1.0, placeholder effects are allowed
     // (REFACTOR/EFFECTS.md).
-    w.value("0.2.0");
+    w.value("0.2.1");
     w.key("subject");
     writeRef(w, subject);
     w.key("space");

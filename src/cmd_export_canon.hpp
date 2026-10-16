@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "creature_display_db2.hpp"
+#include "export_skin_resolution.hpp"  // LodSkinPath
 #include "writers/texture_store.hpp"
 #include "gltf_mesh.hpp"
 #include "gltf_skeleton.hpp"
@@ -83,9 +84,11 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
                            const std::vector<gltf::Material>& legacyMaterials = {});
 
 // `export --bundle-only`: the same canon:: build runCanonExport does, written
-// straight to `bundleDir` -- no lean glTF, no legacy comparison. Throws on
+// straight to `bundleDir` -- no lean glTF, no legacy comparison -- plus the
+// model's mesh levels from `lodSkins` (resolveLodSkinPaths). Throws on
 // failure (unlike runCanonExport, the bundle is this mode's only output).
-void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, husk::sources::Catalog& catalog,
+void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath,
+                          const std::vector<LodSkinPath>& lodSkins, husk::sources::Catalog& catalog,
                           const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
                           uint32_t objectSkinTextureFileDataId,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,

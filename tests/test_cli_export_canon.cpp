@@ -74,6 +74,28 @@ TEST_CASE("husk export --bundle-only: the bundle's subject carries the model's F
     CHECK(m["subject"]["name"] == "textured");
 }
 
+TEST_CASE("husk export --bundle-only: a doodad's _lodNN skins become mesh levels 1..3, coarser each step" *
+          doctest::skip(!fs::exists(husk::test::testLodDoodad()))) {
+    auto dir = defaultsDir("bundleonly_lod");
+    auto bundle = dir / "out.bundle";
+    auto result = runHusk("export " + husk::test::testLodDoodad() + " -o " + bundle.string() +
+                          " --bundle-only --config /dev/null");
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(runHusk("validate-bundle " + bundle.string()).exitCode == 0);
+
+    nlohmann::json m = nlohmann::json::parse(std::ifstream(bundle / "manifest.json"));
+    const nlohmann::json& lod = m["resources"]["geometry"]["lod"];
+    REQUIRE(lod["max_level"] == 3);
+    REQUIRE(lod["levels"].size() == 4);
+    for (size_t l = 1; l < 4; ++l) {
+        INFO("level " << l);
+        CHECK(lod["levels"][l]["positions"] == m["resources"]["geometry"]["mesh"]["positions"]);  // one vertex list
+        CHECK(lod["levels"][l]["indices"]["count"] < lod["levels"][l - 1]["indices"]["count"]);
+        CHECK(lod["levels"][l]["source"]["file"]["id"]["value"] == std::vector<int>{3895592, 3895593, 3895594}[l - 1]);
+    }
+}
+
 TEST_CASE("husk export --bundle-only: a model in the store finds the skeleton its SKID names" *
           doctest::skip(!fs::exists(husk::test::testSkelM2()) || !fs::exists(husk::test::testSkel()))) {
     // The store names files by FileDataID, so no same-basename .skel exists.

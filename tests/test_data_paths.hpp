@@ -171,6 +171,8 @@ constexpr const char* kTexturesDir = "textures";
 constexpr const char* kSkelM2 = "character/bloodelf/female/bloodelffemale_hd.m2";
 constexpr const char* kSkelSkin = "character/bloodelf/female/bloodelffemale_hd00.skin";
 constexpr const char* kSkel = "character/bloodelf/female/bloodelffemale_hd.skel";
+// A doodad with one view skin and three distance LOD skins (_lod01..03).
+constexpr const char* kLodDoodad = "world/doodads/dr_cup_02/dr_cup_02.m2";
 // The real bloodelffemale_hd_*.anim files (AFSB-shaped) sit right next to
 // the .m2/.skin/.skel above -- same directory, not a separate one, since
 // that's exactly the layout a real casc-tool extraction produces.
@@ -359,6 +361,7 @@ inline std::string testSkelM2() { return resolve("HUSK_TEST_SKEL_M2", fixtures::
 inline std::string testSkelSkin() { return resolve("HUSK_TEST_SKEL_SKIN", fixtures::kSkelSkin); }
 inline std::string testAnimDir() { return resolve("HUSK_TEST_ANIM_DIR", fixtures::kAnimDir); }
 inline std::string testSkel() { return resolve("HUSK_TEST_SKEL", fixtures::kSkel); }
+inline std::string testLodDoodad() { return resolve("HUSK_TEST_LOD_DOODAD", fixtures::kLodDoodad); }
 inline std::string testWeaponRibbon() {
     return resolve("HUSK_TEST_WEAPON_RIBBON", fixtures::kWeaponRibbon);
 }

@@ -64,6 +64,15 @@ struct ExternalSkeletonSource {
     std::optional<skel::Attachments> attachments;  // skel::findAttachments; replaces model.attachments when set
 };
 
+// One already-parsed LOD skin (`<model>_lodNN.skin`, an SFID entry after
+// the model's views): a coarser triangle list over the model's vertices.
+struct LodSkin {
+    std::vector<skin::Batch> batches;
+    std::vector<skin::Submesh> submeshes;
+    std::vector<uint32_t> triangleIndices;
+    canon::Ref file;
+};
+
 // Builds a canon::Model from one real M2 model + its already-resolved
 // skin tier, mirroring the legacy pipeline's own three real animation
 // shapes (real-inline, global-sequence, alias) and deduping materials by
@@ -115,14 +124,19 @@ struct ExternalSkeletonSource {
 // only for a model's own sequences: a .skel-sourced model's external blobs
 // hold skeleton data, so its scene tracks resolve inline only.
 //
+// `lodSkins`, finest first, become the model's mesh levels 1..n (the skin
+// above is level 0); their batches share the same material dedup, so a
+// level draws the materials level 0 does wherever its batches agree.
+//
 // Throws std::runtime_error wherever assembleSkeleton/assembleMesh/
-// assembleMaterial/assembleBoneAnimation/assembleScene/canon::assembleModel
-// already would -- no new corruption checks are added here.
+// assembleMaterial/assembleBoneAnimation/assembleScene/canon::assembleModel/
+// canon::setMeshLevels already would -- no new corruption checks are added here.
 canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Batch>& batches,
                               const std::vector<skin::Submesh>& submeshes,
                               const std::vector<uint32_t>& triangleIndices,
                               const ExternalAnimBlobs& externalAnimBlobs = {},
                               const TextureResolutions& textureResolutions = {},
-                              const ExternalSkeletonSource* externalSkeleton = nullptr);
+                              const ExternalSkeletonSource* externalSkeleton = nullptr,
+                              const std::vector<LodSkin>& lodSkins = {});
 
 }  // namespace husk::m2input

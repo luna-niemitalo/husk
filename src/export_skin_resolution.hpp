@@ -86,4 +86,20 @@ std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::
                                                                         const std::string& lodArg,
                                                                         const std::string& skinArg);
 
+// The model's distance LOD skins, finest first: the SFID entries after its
+// `numSkinProfiles` views (`<model>_lod01.skin`, `_lod02`, ...). The views
+// themselves are not distance levels: across a sample of real doodads, a
+// model's view skins 00..03 are near-identical in size while its _lodNN
+// skins shrink step by step (REFACTOR/BUNDLE_FORMAT.md "Levels of
+// detail"). Each is found as an SFID skin is (`<skinDir>/<fdid>.skin`,
+// then `listfileRoot`'s `_by_fdid`), else as `<model>_lodNN.skin` beside
+// the model. The list stops at the first skin not found, so the levels it
+// gives stay contiguous; that one is reported on stderr.
+struct LodSkinPath {
+    uint32_t fileDataId = 0;
+    std::string path;
+};
+std::vector<LodSkinPath> resolveLodSkinPaths(const m2::Header& header, const std::string& modelPath,
+                                             const std::string& skinDir, const std::string& listfileRoot);
+
 }  // namespace husk::commands

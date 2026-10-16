@@ -387,15 +387,26 @@ writers::Provenance m2Provenance() { return writers::Provenance{std::string("hus
 CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
                                const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
                                uint32_t objectSkinTextureFileDataId, const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
-                               const std::vector<uint8_t>& skelBytes) {
+                               const std::vector<uint8_t>& skelBytes, const std::vector<LodSkinPath>& lodSkinPaths = {}) {
     auto skinBytes = readFileBytes(skinPath);
     skin::Header skinHeader = skin::parseHeader(skinBytes);
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
     std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
     std::vector<skin::Batch> batches = skin::parseBatches(skinBytes, skinHeader.batches);
 
+    std::vector<m2input::LodSkin> lodSkins;
+    std::vector<skin::Batch> allBatches = batches;
+    for (const LodSkinPath& lod : lodSkinPaths) {
+        auto bytes = readFileBytes(lod.path);
+        skin::Header header = skin::parseHeader(bytes);
+        m2input::LodSkin parsed{skin::parseBatches(bytes, header.batches), skin::parseSubmeshes(bytes, header.submeshes),
+                                skin::resolveTriangleIndices(bytes, header), writers::subjectRef(lod.path, lod.fileDataId)};
+        allBatches.insert(allBatches.end(), parsed.batches.begin(), parsed.batches.end());
+        lodSkins.push_back(std::move(parsed));
+    }
+
     m2input::TextureResolutions textureResolutions =
-        buildTextureResolutions(model, batches, catalog, modelPath, objectSkinTextureFileDataId);
+        buildTextureResolutions(model, allBatches, catalog, modelPath, objectSkinTextureFileDataId);
 
     bool animChunked = (model.header.globalFlags & 0x200000) != 0;
 
@@ -440,7 +451,7 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
             : m2input::ExternalAnimBlobs{};
 
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
-                                                         externalAnimBlobs, textureResolutions, externalSkeleton);
+                                                         externalAnimBlobs, textureResolutions, externalSkeleton, lodSkins);
     canonModel.subject = writers::subjectRef(modelPath, modelFileDataId);
     return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
 }
@@ -503,15 +514,15 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
     }
 }
 
-void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
-                          const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
+void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, const std::vector<LodSkinPath>& lodSkins,
+                          sources::Catalog& catalog, const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
                           uint32_t objectSkinTextureFileDataId,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir,
                           const creaturedisplay::Data* creatures, const writers::StoreLink* textureStore) {
     CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
-                                           bonesAreInline, haveSkel, skelBytes);
+                                           bonesAreInline, haveSkel, skelBytes, lodSkins);
     writers::AssetUris textureUris;
     if (creatures && modelFileDataId) {
         creatureinput::OptionsReport report;

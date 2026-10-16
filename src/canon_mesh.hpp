@@ -115,4 +115,26 @@ struct Mesh {
     std::vector<AttributeChannel> attributes;
 };
 
+// Which of the source's own levels one part of a MeshLevel draws: a WMO
+// group whose file stops at a lower level than the one asked for draws its
+// last one.
+struct PartLevel {
+    uint32_t part = 0;         // index into Model::mesh.parts
+    uint32_t sourceLevel = 0;  // WMO: the GFID row
+};
+
+// One coarser level of detail of Model::mesh (REFACTOR/BUNDLE_FORMAT.md
+// "Levels of detail"). Its indices, primitives and attributes are its own;
+// its primitives name Model::mesh's parts, and its own parts/portals stay
+// empty.
+struct MeshLevel {
+    Mesh mesh;
+    // The level indexes Model::mesh's vertex streams and holds none of its
+    // own: an M2 LOD skin draws the model's one vertex list.
+    bool sharesVertices = false;
+    std::vector<Identity> primitiveMaterials;  // one per mesh.primitives entry, like Model::primitiveMaterials
+    std::optional<Ref> sourceFile;             // M2: the LOD skin
+    std::vector<PartLevel> partLevels;         // WMO: one per part the level draws
+};
+
 }  // namespace husk::canon

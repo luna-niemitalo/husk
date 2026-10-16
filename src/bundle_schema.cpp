@@ -668,7 +668,33 @@ struct Validation {
         std::vector<const json*> referenced = references(document, path, prefix);
         if (kind == "placement_set") checkEffectInstances(document, referenced, checker);
         if (kind == "model") checkMaterialBindings(document, referenced, checker);
+        if (kind == "model") checkLevels(document, checker);
         return true;
+    }
+
+    // A level chain's max_level is its last index, and mesh level 0 is the
+    // mesh itself, repeated.
+    void checkLevels(const json& model, DocumentChecker& checker) {
+        const json& resources = model["resources"];
+        for (const char* owner : {"geometry", "terrain"}) {
+            if (!resources.contains(owner) || !resources[owner].contains("lod")) continue;
+            const json& lod = resources[owner]["lod"];
+            std::string pointer = std::string("/resources/") + owner + "/lod";
+            int64_t max = lod["max_level"];
+            if (max + 1 != static_cast<int64_t>(lod["levels"].size())) {
+                checker.fail(pointer + "/max_level", "expected the last level's index, " +
+                                                         std::to_string(lod["levels"].size() - 1) + ", got " + std::to_string(max));
+            }
+        }
+        if (!resources.contains("geometry")) return;
+        const json& mesh = resources["geometry"]["mesh"];
+        const json& level0 = resources["geometry"]["lod"]["levels"][0];
+        for (const char* key : {"positions", "normals", "uv_sets", "colors", "joints0", "weights0", "indices", "primitives", "attributes"}) {
+            if (mesh.value(key, json()) != level0.value(key, json())) {
+                checker.fail(std::string("/resources/geometry/lod/levels/0/") + key,
+                             std::string("expected mesh level 0 to repeat resources.geometry.mesh's '") + key + "'");
+            }
+        }
     }
 
     // Every {"input": name} a material's layers or composites read names an

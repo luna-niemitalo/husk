@@ -19,7 +19,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0.2.0",
+constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0.2.1",
   "space": {"length_unit": "yard", "angle_unit": "radian", "time_unit": "second", "up_axis": "+z", "handedness": "right"},
   "provenance": {"producer": "husk test", "input_format": "test",
                  "sources": [{"name": "listfile", "role": "names", "available": true}]},)";
@@ -32,6 +32,10 @@ std::string slice(size_t offset, size_t length, const char* type, int components
 
 // One triangle, one material, one owned placement set placing one chair.
 std::string modelDocument() {
+    std::string level0 = R"({"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
+                         R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) +
+                         R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
+               "attributes": []})";
     return std::string("{") + kHeader + R"(
   "kind": "model",
   "subject": {"id": {"kind": "file_data_id", "value": 1}, "name": "crate", "name_source": "listfile"},
@@ -45,6 +49,7 @@ std::string modelDocument() {
            R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) + R"(,
                "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
                "parts": [], "portals": [], "attributes": []},
+      "lod": {"max_level": 0, "levels": [)" + level0 + R"(]},
       "liquids": []},
     "rig": {"skeleton": {"joint_count": 0, "parents": )" + slice(108, 0, "i32", 1, 0) + R"(, "bind_translation": )" +
            slice(108, 0, "f32", 3, 0) + R"(, "joints": []}, "animation": []},
@@ -304,6 +309,15 @@ TEST_CASE("bundle_schema: structural checks the schema can't express, each repor
 
     dir = writeBundle("husk-schema-uri", replaced(model, R"("uri": "sets/0.json")", R"("uri": "sets/9.json")"), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "expected 'sets/9.json' to exist"));
+
+    dir = writeBundle("husk-schema-max-level", replaced(model, R"("max_level": 0)", R"("max_level": 2)"), setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir), "expected the last level's index, 0, got 2"));
+
+    // The second "index_count": 3 is level 0's copy of the mesh's primitive.
+    std::string level0Differs = model;
+    level0Differs.replace(level0Differs.rfind(R"("index_count": 3)"), 16, R"("index_count": 0)");
+    dir = writeBundle("husk-schema-level0", level0Differs, setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir), "expected mesh level 0 to repeat resources.geometry.mesh's 'primitives'"));
 }
 
 TEST_CASE("bundle_schema: the lint rejects each known antipattern in a kind schema") {

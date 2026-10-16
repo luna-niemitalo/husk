@@ -187,3 +187,55 @@ TEST_CASE("canon::assembleModel throws when a bone reference or an instance anch
                          "placement set 'effects' instance 0's anchor's bone: expected an index < 2 joints, got 2",
                          std::runtime_error);
 }
+
+TEST_CASE("canon::setMeshLevels checks each level against the model it joins") {
+    canon::Mesh mesh;
+    mesh.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+    mesh.indices = {0, 1, 2};
+    canon::PrimitiveGeoset prim;
+    prim.indexCount = 3;
+    mesh.primitives = {prim};
+    canon::Material mat;
+    mat.ref.id = canon::RecordIndex{0};
+    canon::Model model = canon::assembleModel({}, mesh, {mat}, {canon::Identity{canon::RecordIndex{0}}}, {});
+
+    auto sharedLevel = [&] {
+        canon::MeshLevel level;
+        level.sharesVertices = true;
+        level.mesh.indices = {2, 1, 0};
+        level.mesh.primitives = {prim};
+        level.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
+        return level;
+    };
+
+    SUBCASE("a level sharing the mesh's vertices is accepted") {
+        canon::setMeshLevels(model, {sharedLevel()});
+        CHECK(model.meshLevels.size() == 1);
+        CHECK(canon::resolveLevelMaterialIndex(model, 0, 0) == 0u);
+    }
+    SUBCASE("an index past the shared vertices") {
+        canon::MeshLevel level = sharedLevel();
+        level.mesh.indices = {0, 1, 3};
+        CHECK_THROWS_WITH(canon::setMeshLevels(model, {level}), doctest::Contains("expected indices < 3 vertices, got 3"));
+    }
+    SUBCASE("a material out of range") {
+        canon::MeshLevel level = sharedLevel();
+        level.primitiveMaterials = {canon::Identity{canon::RecordIndex{1}}};
+        CHECK_THROWS_WITH(canon::setMeshLevels(model, {level}), doctest::Contains("material: expected an index < 1, got 1"));
+    }
+    SUBCASE("a primitive past the level's indices") {
+        canon::MeshLevel level = sharedLevel();
+        level.mesh.primitives[0].indexCount = 6;
+        CHECK_THROWS_WITH(canon::setMeshLevels(model, {level}), doctest::Contains("within 3"));
+    }
+    SUBCASE("a sharing level with streams of its own") {
+        canon::MeshLevel level = sharedLevel();
+        level.mesh.positions = mesh.positions;
+        CHECK_THROWS_WITH(canon::setMeshLevels(model, {level}), doctest::Contains("expected no vertex streams of its own"));
+    }
+    SUBCASE("a part level naming a part the mesh lacks") {
+        canon::MeshLevel level = sharedLevel();
+        level.partLevels = {{0, 1}};
+        CHECK_THROWS_WITH(canon::setMeshLevels(model, {level}), doctest::Contains("expected a part < 0, got 0"));
+    }
+}

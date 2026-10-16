@@ -1250,7 +1250,10 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             }
             // A tier without geometry still exports: a model that only emits
             // (steam, a spell impact) is its effects and skeleton.
-            writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath,
+            std::vector<LodSkinPath> lodSkins =
+                opts.skinArg == "auto" && !lodGiven ? resolveLodSkinPaths(header, modelPath, skinDir, listfileRoot)
+                                                    : std::vector<LodSkinPath>{};
+            writeCanonBundleOnly(model, skinsToExport.front().second, lodSkins, catalog, modelPath,
                                  modelFileDataId ? modelFileDataId
                                                  : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
                                  objectSkinTextureFileDataId,
