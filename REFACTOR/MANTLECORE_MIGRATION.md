@@ -337,6 +337,24 @@ on husk's side (`BUNDLE_FORMAT.md` "Seams between tiles").
 - `subject.id`: the WDT's FileDataID. Every document's `subject` now
   carries its FileDataID when husk knows it, M2 bundles included.
 
+## 6a. Worlds authored in Blender
+
+The Blender addon (`blender/addons/husk_addon`,
+`BLENDER_WORLD_AUTHORING.md`) writes the same document kinds, and a
+loader that reads sizes from the documents reads its output unchanged.
+What can differ from a husk-written world:
+
+- `grid.cell_size` other than 533⅓ (a re-diced or scaled world), with
+  each tile's `tile_size`/`chunk_size`/`quad_size` following it: read all
+  four from the documents, never a constant. Cell indices can fall
+  outside 0..63.
+- A third tile placement set, `authored`: instances made in Blender, ids
+  in their own space (not ADT uniqueIds), unique across the world.
+- Baked tiles have no texture layers, ground effects, liquids or coarser
+  levels (`lod.max_level` 0); their `provenance.sources` lists those as
+  unavailable. A tile subject without an id (`{"kind": "none"}`) is a
+  cell that has no source tile.
+
 ## 7. Check
 
 Before changing the loader, validate the export it reads. Each bundle

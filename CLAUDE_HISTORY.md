@@ -14,6 +14,29 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-17 — Blender world authoring (MVP).**
+
+- Luna's ask: load husk worlds/tiles into Blender, placements as empties
+  instancing assets from another collection, the dicing grid visible,
+  tiles merged on import and split per cell on export. Design agreed in
+  `REFACTOR/BLENDER_WORLD_AUTHORING.md` over four rounds: collection
+  instancing (not a GN tree), full conformant tiles (not overlays),
+  Blender-made placements in their own id space (`authored` set), and
+  then the turn that shaped it: the terrain is a free mesh and export
+  *bakes* it onto any dicing by raycasting straight down at the sample
+  points. Goal: scale a world 15-30x, props kept at their size, then add
+  detail. Losing textures on bake is accepted for now.
+- Built `blender/addons/husk_addon` and `tests/world_authoring_check.py`.
+  Bugs found on the way, each now covered by the check: GN raycast fields
+  re-evaluated after Set Position (half the samples "missed",
+  nondeterministically); the GN raycast is a coin flip exactly on the
+  mesh's outer edge (Python re-cast of misses, with fixed-order nudges so
+  two cells sharing a border point agree); the file's float32 quad_size
+  vs the bake's cell_size/128 put the loaded edge 0.0006 yd off; stale
+  `matrix_world` made every placement read as the scene origin (the first
+  id-only placement check passed anyway, now compared by transform).
+- Results: see the design doc's "Current state".
+
 **2026-10-16 — Levels of detail.**
 
 - Luna's shape: an ordered list per asset, level 0 full detail, plus the

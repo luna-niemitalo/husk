@@ -75,14 +75,17 @@ Import becomes: point at a manifest. Nothing else.
 
 ## Packaging
 
-`blender/husk_addon/`, a real installable addon, split by concern rather than by
+`blender/addons/husk_addon/` (so `blender/` is a Blender Script Directory), a
+real installable addon, split by concern rather than by
 "the file we already had". Each module under the `FILE_SIZE.md` ceiling — the
 current 3,505-line script is 3.5× over it with no §4 justification comment.
+Its world-authoring part landed first (2026-10-17,
+`BLENDER_WORLD_AUTHORING.md`); its `docs.py` is the one reader below.
 
 ```
-blender/husk_addon/
+blender/addons/husk_addon/
   __init__.py          registration, preferences
-  manifest.py          THE ONE reader — shared, not copied
+  docs.py              THE ONE reader — shared, not copied
   importer.py          bundle -> Blender datablocks
   geosets.py           Geometry Nodes switch
   customization.py     shader-node choice switches

@@ -250,6 +250,7 @@ drifting implementations into one exposes *why* things look wrong today.
 | `MANTLECORE_MIGRATION.md` | What MantleCore must change to read the current format | Scratch; delete once MantleCore has migrated |
 | `SIMULATION.md` | Living creatures and NPCs: navmeshes per body type, affordances, temperature, species, individuals, the decision layer | Proposal; reference folded in (tiers, density); planner open |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
+| `BLENDER_WORLD_AUTHORING.md` | Edit a world in Blender: grid cells as boxes, tiles merged into one free terrain mesh, placements as instancing empties, export bakes the mesh onto any dicing | MVP built (2026-10-17): import, scale, preview, bake-export on any dicing |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
 
 Out of scope, deliberately: everything in `POTENTIAL_PLAN/` about engines, GPU

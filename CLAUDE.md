@@ -95,6 +95,8 @@ tool, `blp/`) converts BLP2 textures to PNG.
   "Terrain tile bundles"; open items: `TODO/WORLD/ADT_TERRAIN_TODO.md`,
   `WORLD_PLACEMENT_TODO.md`. WMO geometry is not implemented, so `MODF`
   placements are identity-only. MantleCore is the bundle's real consumer.
+  Worlds can also be edited in Blender and re-baked onto any dicing
+  (`blender/addons/husk_addon`, `REFACTOR/BLENDER_WORLD_AUTHORING.md`).
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*
@@ -342,6 +344,15 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   textures; `_obj1.adt` is each tile instance's `distant`. Open:
   `TODO/WORLD/ADT_LOD_TODO.md` (band meaning, radius rule, liquid LOD,
   WDL).
+- **Blender world authoring (2026-10-17, MVP)**: `blender/addons/
+  husk_addon` imports world cells (one welded terrain mesh, placements as
+  collection-instancing empties), scales a world keeping props' size, and
+  exports by baking the free mesh onto any dicing (GN raycast + Python
+  re-cast of misses). `tests/world_authoring_check.py` round-trips azeroth
+  32_49/32_50 exactly and checks a 20x scale; current state and the gaps
+  (no textures/liquids/LOD on baked tiles, world-only export) are in
+  `REFACTOR/BLENDER_WORLD_AUTHORING.md` "Current state". Next: Luna's GUI
+  pass; then the splat bake (stage 2) if textures are wanted back.
 - **Surface types (2026-10-13, for the weather system)**: TerrainType
   rows as `resources.surface_types`, indexed by terrain ground effects
   (GroundEffectTexture.Sound), WMO materials (MOMT ground_type) and WMO
