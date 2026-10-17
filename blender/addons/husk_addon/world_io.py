@@ -13,7 +13,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 
 from . import assets as assets_mod
-from . import bake, docs, grid as grid_mod, placements as pl, terrain as tr
+from . import bake, docs, grid as grid_mod, placements as pl, terrain as tr, zones
 from .grid import Grid
 
 ROOT_PREFIX = "husk_world:"
@@ -34,9 +34,14 @@ def _cell_refs(world):
     return {(c["i"], c["j"]): (c, world["references"][c["tile"]]["asset"]) for c in world["grid"]["cells"]}
 
 
+CELLS_HELP = "cells: '32_49 32_50', or a rectangle '31:33,48:50'"
+
+
 def parse_cells(text):
-    """'32_49 32_50' or '31:33,48:50' (inclusive ranges) -> [(i, j)]."""
+    """'32_49 32_50' or '31:33,48:50' (inclusive ranges) -> [(i, j)], in order, once each."""
     cells = []
+    if not text.split():
+        raise ValueError("no cells given; " + CELLS_HELP)
     for token in text.replace(";", " ").split():
         if ":" in token:
             ir, jr = token.split(",")
@@ -46,7 +51,7 @@ def parse_cells(text):
         else:
             i, j = token.split("_")
             cells.append((int(i), int(j)))
-    return cells
+    return list(dict.fromkeys(cells))
 
 
 def import_world(context, world_dir, wanted):
@@ -54,16 +59,20 @@ def import_world(context, world_dir, wanted):
     world = docs.load(world_dir)
     g = world["grid"]
     by_cell = _cell_refs(world)
-    missing = [c for c in wanted if c not in by_cell or "uri" not in by_cell[c][1]]
-    if missing:
-        raise ValueError("cells not in the world or never exported: %s" % ", ".join("%d_%d" % c for c in missing))
+    asked = len(wanted)
+    # A rectangle or radius usually covers holes (ocean, unexported tiles).
+    wanted = [c for c in wanted if c in by_cell and "uri" in by_cell[c][1]]
+    if not wanted:
+        i_range = (min(c[0] for c in by_cell), max(c[0] for c in by_cell))
+        j_range = (min(c[1] for c in by_cell), max(c[1] for c in by_cell))
+        raise ValueError("none of the %d cells asked for has an exported tile; this world's cells span i %d..%d, j %d..%d"
+                         % (asked, *i_range, *j_range))
     probe = Grid(g["origin"], g["cell_size"], g["axis_i"], g["axis_j"], (0, 0, 0))
     offset = probe.cell_corner(*wanted[0]) * np.array([1.0, 1.0, 0.0])
 
     root = bpy.data.collections.new(ROOT_PREFIX + world["subject"].get("name", "world"))
     context.scene.collection.children.link(root)
     root["husk_world_path"] = world_dir
-    root["husk_schema_version"] = world["schema_version"]
     root["husk_loaded_cells"] = [list(c) for c in wanted]
     grid_obj = grid_mod.create(root, g["origin"], g["cell_size"], g["axis_i"], g["axis_j"], offset, world_dir)
     G = Grid.of(grid_obj)
@@ -230,7 +239,7 @@ def export_world(context, root, out_root, keep_source_tiles=None, log=print):
     G = Grid.of(grid_obj)
     src_dir = root["husk_world_path"]
     src_world = docs.load(src_dir)
-    schema_version = root["husk_schema_version"]
+    schema_version = docs.SCHEMA_VERSION
     map_name = src_world["subject"].get("name", "world")
     out_maps = os.path.join(os.path.abspath(out_root), "maps", map_name)
     world_dir = os.path.join(out_maps, map_name + ".world.bundle")
@@ -271,6 +280,7 @@ def export_world(context, root, out_root, keep_source_tiles=None, log=print):
     areas_global = json.loads(terrain_obj.get("husk_areas", "[]"))
     probe = bake.TerrainProbe(terrain_obj)
     refs, grid_cells = [], []
+    baked_areas = {}
     written = 0
 
     def progress(done, total):
@@ -298,8 +308,13 @@ def export_world(context, root, out_root, keep_source_tiles=None, log=print):
         subject = ({k: v for k, v in source_ref[1].items() if k != "uri"}
                    if source_ref and keeps_source_tiles(root)
                    else {"id": {"kind": "none"}, "name": name, "name_source": "synthesized"})
-        _tile_document(subject, cell, result, areas_global, probe.chunk_areas(G, cell, result), G, sets, tile_dir,
-                       schema_version, src_dir)
+        chunk_area = probe.chunk_areas(G, cell, result)
+        _tile_document(subject, cell, result, areas_global, chunk_area, G, sets, tile_dir, schema_version, src_dir)
+        counts = {}
+        for a in chunk_area[chunk_area >= 0]:
+            key = zones.area_key(areas_global[int(a)])
+            counts[key] = counts.get(key, 0) + 1
+        baked_areas[cell] = counts
         bmin, bmax = _bounds(G, cell, result)
         refs.append({"kind": "model", "asset": dict(subject, uri=os.path.join(tile_dir, "manifest.json"))})
         grid_cells.append({"i": i, "j": j, "tile": len(refs) - 1, "bounds_min": bmin, "bounds_max": bmax})
@@ -333,6 +348,7 @@ def export_world(context, root, out_root, keep_source_tiles=None, log=print):
                  "axis_i": [float(v) for v in G.axis_i], "axis_j": [float(v) for v in G.axis_j],
                  "cells": grid_cells},
         "placements": world_places,
+        "zones": zones.rebuild(src_world, kept, baked_areas),
     }
     docs.write(os.path.join(world_dir, "manifest.json"), docs.relative_uris(world, world_dir))
     log("husk export: %d tiles baked, %d source tiles kept, %d placements -> %s"

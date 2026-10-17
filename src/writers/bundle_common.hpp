@@ -77,6 +77,9 @@ void writeBufferSlice(json::Writer& w, const BufferSlice& slice, const char* sem
 // `uri`, when non-empty, adds BUNDLE_FORMAT.md's "Embed or reference"
 // field.
 void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri = "");
+void writeIdentity(json::Writer& w, const canon::Identity& identity);
+// A Ref's `name` and `name_source` keys, both or neither, into the open object.
+void writeName(json::Writer& w, const canon::Ref& ref);
 
 // FileDataID -> uri of a file the caller produced outside this bundle (a
 // model bundle, or a texture shared across tiles), relative to the file that

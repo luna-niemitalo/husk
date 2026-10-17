@@ -17,7 +17,7 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.2.1",
+      "const": "0.2.2",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
@@ -144,6 +144,90 @@
         "minimum": 0,
         "description": "A placement set document.",
         "x-index-into": "/references"
+      },
+      "x-layer": "resource"
+    },
+    "zones": {
+      "type": "array",
+      "description": "Named regions of the world, nested (a subzone lies in its parent), each as the grid cells it covers. A cell lists only the zone its surface lies directly in: a zone's whole extent is its own cells and its descendants'.",
+      "items": {
+        "type": "object",
+        "description": "One zone.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Display name; absent when the source names none."
+          },
+          "name_source": {
+            "$ref": "common.schema.json#/definitions/ref/properties/name_source",
+            "description": "Where the name came from. Present exactly when name is."
+          },
+          "parent": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The zone this one lies in; absent for a top-level zone.",
+            "x-index-into": "/zones"
+          },
+          "cells": {
+            "type": "array",
+            "description": "Cells part of whose surface lies directly in this zone. Empty for a zone whose ground is all subzones.",
+            "items": {
+              "type": "object",
+              "description": "One covered cell.",
+              "properties": {
+                "i": {
+                  "type": "integer",
+                  "description": "Cell column."
+                },
+                "j": {
+                  "type": "integer",
+                  "description": "Cell row."
+                },
+                "coverage": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Fraction of the cell's surface lying directly in this zone.",
+                  "x-unit": "1"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "i",
+                "j",
+                "coverage"
+              ]
+            }
+          },
+          "source": {
+            "type": "object",
+            "description": "Source-specific raw values.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/identity",
+                "description": "The source's own record of the zone."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cells",
+          "source"
+        ],
+        "dependencies": {
+          "name": [
+            "name_source"
+          ],
+          "name_source": [
+            "name"
+          ]
+        }
       },
       "x-layer": "resource"
     }

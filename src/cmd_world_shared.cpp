@@ -5,6 +5,7 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <regex>
@@ -102,6 +103,21 @@ adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, c
     adtinput::GroundEffectDefinitions out = adtinput::groundEffectDefinitions(*data);
     note = "ground effects: " + std::to_string(out.size()) + " rules from " + db2Dir;
     return out;
+}
+
+std::optional<areadb::Data> loadAreas(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "zones: unnamed (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<areadb::Data> data = areadb::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "zones: unnamed (areatable.db2 unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "zones: " + std::to_string(data->size()) + " areas from " + db2Dir;
+    return data;
 }
 
 std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
@@ -547,6 +563,57 @@ std::pair<canon::Vec3, canon::Vec3> terrainBounds(const canon::Terrain& terrain)
     return {lo, hi};
 }
 
+namespace {
+
+// AreaTable row -> chunk count, for one tile. Area 0 is a chunk in no area.
+using AreaChunks = std::map<uint32_t, uint32_t>;
+
+AreaChunks countAreas(const canon::Terrain& terrain) {
+    AreaChunks out;
+    for (const canon::TerrainChunk& c : terrain.chunks) {
+        if (auto row = std::get_if<canon::Db2Row>(&c.area.id); row && row->row != 0) ++out[row->row];
+    }
+    return out;
+}
+
+// Every area a chunk names, plus the areas those lie in (a zone whose
+// ground is all subzones still has an extent), in first-seen order.
+std::vector<canon::Zone> buildZones(const std::vector<canon::WorldCell>& cells, const std::vector<AreaChunks>& perCell,
+                                    const areadb::Data* areas) {
+    std::vector<canon::Zone> zones;
+    std::map<uint32_t, size_t> index;
+    std::function<size_t(uint32_t)> zoneOf = [&](uint32_t id) -> size_t {
+        if (auto it = index.find(id); it != index.end()) return it->second;
+        size_t k = zones.size();
+        index[id] = k;  // before the parent walk, so a cyclic parent chain ends here
+        canon::Zone zone;
+        zone.ref.id = canon::Db2Row{"AreaTable", id};
+        const areadb::Row* row = nullptr;
+        if (areas) {
+            if (auto it = areas->find(id); it != areas->end()) row = &it->second;
+        }
+        if (row && !row->name.empty()) {
+            zone.ref.name = row->name;
+            zone.ref.source = canon::NameSource::Db2;
+        }
+        zones.push_back(std::move(zone));
+        if (row && row->parent != 0) {
+            size_t parent = zoneOf(row->parent);
+            zones[k].parent = parent;
+        }
+        return k;
+    };
+    constexpr float kChunksPerTile = canon::kTerrainChunksPerSide * canon::kTerrainChunksPerSide;
+    for (size_t i = 0; i < cells.size(); ++i) {
+        for (const auto& [id, count] : perCell[i]) {
+            zones[zoneOf(id)].cells.push_back({cells[i].tileX, cells[i].tileY, static_cast<float>(count) / kChunksPerTile});
+        }
+    }
+    return zones;
+}
+
+}  // namespace
+
 // IN, critical: a map's world document from its parsed WDT, its root ADTs
 // and its _fogs.wdt/_mpv.wdt. `tiles` holds only roots the WDT's MAIN lists
 // (the store keeps stale tiles the WDT dropped); MAID names each tile's
@@ -556,7 +623,7 @@ std::pair<canon::Vec3, canon::Vec3> terrainBounds(const canon::Terrain& terrain)
 // empty.
 canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& wdt, const std::vector<WorldTile>& tiles,
                        const ListfileIndex* listfile, const std::string& listfileRoot, const lightdb::Data* lights,
-                       const volumecond::Data* conditions, unsigned jobs) {
+                       const volumecond::Data* conditions, const areadb::Data* areas, unsigned jobs) {
     std::string map = mapDir.filename().string();
     std::filesystem::path wdtPath = mapDir / (map + ".wdt");
     std::vector<std::filesystem::path> named{wdtPath};
@@ -588,6 +655,7 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& 
     const adtinput::GroundEffectDefinitions noEffects;
     const adtinput::GamePathResolutions noPaths;
     world.cells.resize(tiles.size());
+    std::vector<AreaChunks> cellAreas(tiles.size());
     std::exception_ptr failure;
     std::mutex failureMutex;
     parallelFor(tiles.size(), jobs, [&](size_t i) {
@@ -599,18 +667,21 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& 
             canon::Terrain terrain = adtinput::buildCanonTerrain(sources, {noTextures, noEffects, noPaths});
             auto [lo, hi] = terrainBounds(terrain);
             world.cells[i] = {name.x, name.y, writers::subjectRef(t.root, rootId(t, name)), lo, hi};
+            cellAreas[i] = countAreas(terrain);
         } catch (const std::exception& e) {
             std::lock_guard<std::mutex> lock(failureMutex);
             if (!failure) failure = std::make_exception_ptr(std::runtime_error(t.root.string() + ": " + e.what()));
         }
     });
     if (failure) std::rethrow_exception(failure);
+    world.zones = buildZones(world.cells, cellAreas, areas);
     for (canon::PlacementSet& set : loadMapEffects(mapDir, listfile, listfileRoot, lights, conditions)) world.placements.push_back(std::move(set));
     return world;
 }
 
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
-                                    const std::string& listfilePath, bool haveLights, bool haveConditions) {
+                                    const std::string& listfilePath, bool haveLights, bool haveConditions,
+                                    bool haveAreas) {
     std::string map = mapDir.filename().string();
     writers::Provenance out{std::string("husk ") + husk::version(), "wdt", {}};
     out.sources.push_back({"root adt", "the tile grid and each tile's bounds", true, ""});
@@ -622,6 +693,7 @@ writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const L
     out.sources.push_back({"light db2", "the map's zone lights and their fog by time of day", haveLights, ""});
     out.sources.push_back({"volume condition db2", "the map volumes' PlayerConditions (Particulate, VolumeFogCondition)",
                            haveConditions, ""});
+    out.sources.push_back({"area db2", "zone names and which zone each lies in (AreaTable)", haveAreas, ""});
     return out;
 }
 

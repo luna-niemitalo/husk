@@ -266,6 +266,7 @@ struct ExportMapOptions {
     std::string listfileRoot;
     std::string db2Dir;
     std::string dbdDir;
+    std::string tilesFrom;
 };
 void addExportMapOptions(CLI::App& app, ExportMapOptions& opts);
 

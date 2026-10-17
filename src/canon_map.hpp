@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "canon_placement.hpp"
@@ -23,10 +24,26 @@ struct WorldCell {
     Vec3 boundsMax;
 };
 
+// A named region of a world, nested in its parent (Northshire in Elwynn
+// Forest), as the cells it covers. A cell lists only the zone its surface
+// is directly in; a zone's whole extent is its cells and its descendants'.
+struct ZoneCell {
+    uint32_t tileX = 0;
+    uint32_t tileY = 0;
+    float coverage = 0;  // fraction of the cell's surface, 0..1
+};
+
+struct Zone {
+    Ref ref;  // identity is the source's record (AreaTable row), the name its own
+    std::optional<size_t> parent;  // index into World::zones
+    std::vector<ZoneCell> cells;
+};
+
 // A map as the root of a place: its tiles and what it places as a whole.
 struct World {
     Ref subject;  // the map
     std::vector<WorldCell> cells;
+    std::vector<Zone> zones;
     // What the world places off the grid, world frame: the map-wide WMO of a
     // map without terrain, and the map's fog and particulate volumes as
     // effect instances (mapinput::buildMapEffects).

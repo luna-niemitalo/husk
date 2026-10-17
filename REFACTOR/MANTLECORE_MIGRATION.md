@@ -336,6 +336,9 @@ on husk's side (`BUNDLE_FORMAT.md` "Seams between tiles").
   keys by time.
 - `subject.id`: the WDT's FileDataID. Every document's `subject` now
   carries its FileDataID when husk knows it, M2 bundles included.
+- `zones` (schema 0.2.2): named, nested regions as the cells each covers
+  (`BUNDLE_FORMAT.md` "World documents"), for loading or streaming a
+  world by zone.
 
 ## 6a. Worlds authored in Blender
 

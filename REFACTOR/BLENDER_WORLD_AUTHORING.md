@@ -10,6 +10,15 @@ Directory in Preferences, enable "husk world authoring", sidebar tab
 "husk"). Checked by `tests/world_authoring_check.py` (headless, on
 azeroth 32_49 + 32_50 from the mounted store):
 
+- **Import by zone** (Luna, 2026-10-17: work divides into zones, a zone is
+  a workable size): the world document's `zones` (schema 0.2.2), with
+  autocomplete; a zone loads with every zone inside it, skipping cells it
+  covers less than `min_coverage` of (default 5%). Northshire: 4 tiles.
+  A world written before 0.2.2 has no zones; `husk export-map <maps>/<map>
+  <out> --db2-dir ... --dbd-dir ... --tiles-from <tree>/maps/<map>`
+  rewrites its world document in seconds. Cells (`i_j`, rectangles)
+  remain the alternative. Export writes `zones` again, each cell's
+  coverage recounted from the baked chunks.
 - **Import**: Grid + cell boxes, the merged Terrain mesh (tiles welded,
   vertices snapped onto the bake's lattice), placements as collection
   instances, assets (level-0 mesh, first UV set, base colour), WMO doodad
@@ -308,6 +317,7 @@ blender/addons/husk_addon/
   bake.py          the node tree, sample meshes, batched evaluation, Python re-cast
   placements.py    sets <-> empties, ids, cell assignment
   assets.py        model bundles -> Assets/ collections, placeholders
+  zones.py         cells for a zone name; the exported world's zones
   world_io.py      import, scale, export: the output tree
   ops.py           operators and the sidebar panel
 ```

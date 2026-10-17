@@ -281,6 +281,9 @@ int exportWorld(int argc, char** args) {
         const std::optional<volumecond::Data> conditions =
             loadVolumeConditions(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), conditionNote);
         std::cout << conditionNote << std::endl;
+        std::string areaNote;
+        const std::optional<areadb::Data> areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), areaNote);
+        std::cout << areaNote << std::endl;
         std::string creatureNote;
         const std::optional<creaturedisplay::Data> creatures =
             loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
@@ -617,7 +620,8 @@ int exportWorld(int argc, char** args) {
                         }
                         canon::World world =
                             loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot,
-                                      lights ? &*lights : nullptr, conditions ? &*conditions : nullptr, jobs);
+                                      lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
+                                      areas ? &*areas : nullptr, jobs);
                         for (canon::PlacementSet& set : world.placements) {
                             dropMissingDoodadSets(set, wmoSetCounts,
                                                   [&](const std::string& w) { errors.add("placement", mapDir.string(), w); });
@@ -639,7 +643,9 @@ int exportWorld(int argc, char** args) {
                                 }
                             }
                         }
-                        writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value(), conditions.has_value()),
+                        writers::writeWorldBundle(world, bundle,
+                                                  worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value(),
+                                                                  conditions.has_value(), areas.has_value()),
                                                   tileUris, assetUris);
                     }
                     ++worlds;

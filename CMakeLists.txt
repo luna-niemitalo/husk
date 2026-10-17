@@ -195,6 +195,7 @@ add_library(husk-lib STATIC
   src/creature_options_input.cpp
   src/groundeffect_db2.cpp
   src/liquid_db2.cpp
+  src/area_db2.cpp
   src/light_db2.cpp
   src/liquid_canon_input.cpp
   src/surface_db2.cpp

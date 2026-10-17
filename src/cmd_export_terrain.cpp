@@ -79,10 +79,14 @@ void addExportMapOptions(CLI::App& app, ExportMapOptions& opts) {
         ->group("Resolution");
     app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
-    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the zone lights (Light, LightData, LightParams, LightSkybox, Map) and volume conditions "
-                   "(Particulate, VolumeFogCondition), or 'none'")
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the zone lights (Light, LightData, LightParams, LightSkybox, Map), volume conditions "
+                   "(Particulate, VolumeFogCondition) and zone names (AreaTable), or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--tiles-from", opts.tilesFrom,
+                   "an exported map directory (<tree>/maps/<map>) whose <tile>.bundle the grid links to, where one "
+                   "exists; default: tiles by identity only")
+        ->group("Output");
 }
 
 void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts) {
@@ -373,17 +377,35 @@ int exportMap(int argc, char** args) {
         std::optional<volumecond::Data> conditions =
             loadVolumeConditions(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), conditionNote);
         std::cerr << "husk: note: " << conditionNote << "\n";
+        std::string areaNote;
+        std::optional<areadb::Data> areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), areaNote);
+        std::cerr << "husk: note: " << areaNote << "\n";
         canon::World world = loadWorld(mapDir, wdt, tiles, listfile.get(), unlessNone(opts.listfileRoot),
                                        lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
-                                       std::max(1u, std::thread::hardware_concurrency()));
+                                       areas ? &*areas : nullptr, std::max(1u, std::thread::hardware_concurrency()));
         if (world.cells.empty() && !placesModels(world.placements)) {
             throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() +
                                      " or a map-wide WMO in " + map + ".wdt, found neither");
         }
-        writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath, lights.has_value(), conditions.has_value()),
-                                  std::vector<std::string>(world.cells.size()));
-        std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles, " << world.placements.size()
-                  << " off-grid placement sets\n";
+        // world.cells[i] is tiles[i]: loadWorld fills them in that order.
+        std::vector<std::string> tileUris(world.cells.size());
+        size_t linked = 0;
+        if (!opts.tilesFrom.empty()) {
+            std::filesystem::path output = std::filesystem::absolute(opts.output);
+            for (size_t i = 0; i < tiles.size(); ++i) {
+                std::filesystem::path manifest =
+                    std::filesystem::absolute(opts.tilesFrom) / (tiles[i].root.stem().string() + ".bundle") / "manifest.json";
+                if (!std::filesystem::exists(manifest)) continue;
+                tileUris[i] = std::filesystem::relative(manifest, output).generic_string();
+                ++linked;
+            }
+        }
+        writers::writeWorldBundle(world, opts.output,
+                                  worldProvenance(mapDir, listfile.get(), listfilePath, lights.has_value(),
+                                                  conditions.has_value(), areas.has_value()),
+                                  tileUris);
+        std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles (" << linked << " linked), "
+                  << world.zones.size() << " zones, " << world.placements.size() << " off-grid placement sets\n";
         printPlaceholderEffects(world.placements, "export-map");
     } catch (const std::exception& e) {
         std::cerr << "husk: export-map: " << e.what() << "\n";

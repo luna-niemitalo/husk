@@ -1313,6 +1313,31 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     for (size_t i = 0; i < sets.size(); ++i) w.value(static_cast<int64_t>(world.cells.size() + i));
     w.endArray();
 
+    w.key("zones");
+    w.beginArray();
+    for (const canon::Zone& zone : world.zones) {
+        w.beginObject();
+        writeName(w, zone.ref);
+        if (zone.parent) writeIntField(w, "parent", static_cast<int64_t>(*zone.parent));
+        w.key("cells");
+        w.beginArray();
+        for (const canon::ZoneCell& cell : zone.cells) {
+            w.beginObject();
+            writeIntField(w, "i", cell.tileX);
+            writeIntField(w, "j", cell.tileY);
+            writeFloatField(w, "coverage", cell.coverage);
+            w.endObject();
+        }
+        w.endArray();
+        w.key("source");
+        w.beginObject();
+        w.key("id");
+        writeIdentity(w, zone.ref.id);
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
+
     w.endObject();
 
     std::string bytes = text.str();

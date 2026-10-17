@@ -799,4 +799,16 @@ its `MAID` (the listfile only without one).
   each instance's id its source's own. They are two sets because the two
   id spaces overlap. Every azeroth fog and particle volume lands on one of
   its cells.
+- `zones` (schema 0.2.2, Luna 2026-10-17): the world's named regions,
+  nested (`parent`), each as the cells its surface directly covers with a
+  `coverage` fraction; a zone's whole extent is its cells and its
+  descendants'. A zone is the format's own description, not a source
+  table: the AreaTable row is only its `source.id`. From WoW, every area
+  a chunk names plus the areas those lie in, named from AreaTable with
+  `--db2-dir` (unnamed without). azeroth: 785 zones; Northshire is its
+  three subzones over 31_48, 32_48, 32_49 (and slivers of 33_48/33_49).
+  It exists so work can be loaded by zone: a zone is a workable size.
+  `export-map --tiles-from <tree>/maps/<map>` rewrites a map's world
+  document linked to an existing export's tiles (seconds, not a
+  re-export).
 

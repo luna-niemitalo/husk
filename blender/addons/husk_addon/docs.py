@@ -8,6 +8,11 @@ import os
 
 import numpy as np
 
+# The schema version every document the addon writes conforms to; its
+# counterpart is writeContractHeader in src/writers/bundle_common.cpp. Older
+# documents are read as long as nothing they lack is needed.
+SCHEMA_VERSION = "0.2.2"
+
 SPACE = {
     "length_unit": "yard",
     "angle_unit": "radian",
@@ -19,7 +24,7 @@ SPACE = {
 _DTYPES = {"f32": "<f4", "u32": "<u4", "u16": "<u2", "u8": "u1", "i32": "<i4"}
 
 
-class FormatError(Exception):
+class FormatError(ValueError):
     pass
 
 

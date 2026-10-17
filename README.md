@@ -1015,8 +1015,9 @@ collect what the tiles reference, export each referenced M2 and WMO once
 (`export --bundle-only` in-process; WMOs as `export-wmo` would), export each
 tile, then each map's world document: its tile grid and its fog and
 particulate volumes (`<map>_fogs.wdt`, `<map>_mpv.wdt`; `husk export-map
-<map-dir> <out-dir>` writes one map's, tiles referenced but not exported).
-Output:
+<map-dir> <out-dir>` writes one map's, tiles referenced but not exported,
+or linked to an existing export's with `--tiles-from <tree>/maps/<map>`),
+and its zones, named from AreaTable with `--db2-dir`. Output:
 
 ```
 <out-dir>/maps/<map>/<map>_<x>_<y>.bundle/   tile bundles

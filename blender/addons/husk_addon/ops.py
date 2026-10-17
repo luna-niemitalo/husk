@@ -2,7 +2,7 @@
 import bpy
 from bpy.props import EnumProperty, FloatProperty, StringProperty
 
-from . import bake, grid as grid_mod, world_io
+from . import bake, docs, grid as grid_mod, world_io, zones
 
 PREVIEW_ALL_LIMIT = 64
 
@@ -23,15 +23,50 @@ class HUSK_OT_import_world(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     directory: StringProperty(subtype="DIR_PATH", name="World bundle")
-    cells: StringProperty(name="Cells", description="'32_49 32_50' or ranges '31:33,48:50'", default="32_49 32_50")
+    zone: StringProperty(name="Zone", description="Load this zone and every zone inside it, e.g. Northshire, Badlands",
+                         search=lambda self, context, text: _zone_names(self.directory, text))
+    min_coverage: FloatProperty(name="Min coverage", default=0.05, min=0.0, max=1.0, subtype="FACTOR",
+                                description="Skip cells the zone covers less of than this")
+    cells: StringProperty(name="Cells", description="Instead of a zone: " + world_io.CELLS_HELP)
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Open the .world.bundle folder, then pick a zone:")
+        layout.prop(self, "zone")
+        layout.prop(self, "min_coverage")
+        layout.separator()
+        layout.label(text="Or name cells (i_j, or a rectangle 31:33,48:50):")
+        layout.prop(self, "cells")
+
     def execute(self, context):
-        return _report_errors(self, lambda: world_io.import_world(
-            context, self.directory, world_io.parse_cells(self.cells)))
+        def run():
+            if self.zone.strip():
+                cells = zones.cells_for(docs.load(self.directory), self.zone, self.min_coverage)
+                what = "zone %s" % self.zone
+            else:
+                cells = world_io.parse_cells(self.cells)
+                what = "cells"
+            root = world_io.import_world(context, self.directory, cells)
+            self.report({"INFO"}, "loaded %d cells of %s" % (len(root["husk_loaded_cells"]), what))
+        return _report_errors(self, run)
+
+
+_ZONE_NAMES = {}
+
+
+def _zone_names(directory, text):
+    """Autocomplete for the zone field; one read of the world document per folder."""
+    if directory not in _ZONE_NAMES:
+        try:
+            _ZONE_NAMES[directory] = zones.names(docs.load(directory))
+        except (OSError, ValueError, KeyError):
+            return []
+    wanted = text.casefold()
+    return [n for n in _ZONE_NAMES[directory] if wanted in n.casefold()]
 
 
 class HUSK_OT_rebuild_cells(bpy.types.Operator):

@@ -56,9 +56,7 @@ void writeBufferSlice(json::Writer& w, const BufferSlice& slice, const char* sem
     w.endObject();
 }
 
-void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri) {
-    w.beginObject();
-    w.key("id");
+void writeIdentity(json::Writer& w, const canon::Identity& identity) {
     w.beginObject();
     std::visit(
         [&w](const auto& id) {
@@ -85,14 +83,23 @@ void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri) {
                 w.value(static_cast<int64_t>(id.value));
             }
         },
-        ref.id);
+        identity);
     w.endObject();
-    if (!ref.name.empty()) {
-        w.key("name");
-        w.value(ref.name);
-        w.key("name_source");
-        w.value(nameSourceName(ref.source));
-    }
+}
+
+void writeName(json::Writer& w, const canon::Ref& ref) {
+    if (ref.name.empty()) return;
+    w.key("name");
+    w.value(ref.name);
+    w.key("name_source");
+    w.value(nameSourceName(ref.source));
+}
+
+void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri) {
+    w.beginObject();
+    w.key("id");
+    writeIdentity(w, ref.id);
+    writeName(w, ref);
     if (!uri.empty()) {
         w.key("uri");
         w.value(uri);
@@ -125,7 +132,7 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     // Every schema/*.schema.json pins this as its schema_version const;
     // bump them together. Below 1.0, placeholder effects are allowed
     // (REFACTOR/EFFECTS.md).
-    w.value("0.2.1");
+    w.value("0.2.2");
     w.key("subject");
     writeRef(w, subject);
     w.key("space");

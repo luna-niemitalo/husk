@@ -456,7 +456,8 @@ TEST_CASE("husk export-map: a map's tiles and _fogs.wdt become a world document;
     auto r = runHusk("export-map " + q(c.mapDir()) + " " + q(out) + " --listfile none");
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(r.output.find("1 tiles, 1 off-grid placement sets") != std::string::npos);
+    CHECK(r.output.find("1 tiles (0 linked)") != std::string::npos);
+    CHECK(r.output.find("1 off-grid placement sets") != std::string::npos);
     CHECK(r.output.find("warning: 1 instances of placeholder effect classic_volumetric_fog") != std::string::npos);
     nlohmann::json m = readTile(out / "manifest.json");
     CHECK(m["kind"] == "world");
@@ -502,7 +503,7 @@ TEST_CASE("husk export-map: a map without terrain places its WDT's one WMO off t
     auto r = runHusk("export-map " + q(mapDir) + " " + q(out) + " --listfile none");
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(r.output.find("0 tiles, 1 off-grid placement sets") != std::string::npos);
+    CHECK(r.output.find("0 tiles (0 linked), 0 zones, 1 off-grid placement sets") != std::string::npos);
     nlohmann::json m = readTile(out / "manifest.json");
     CHECK(m["grid"]["cells"].empty());
     REQUIRE(m["placements"].size() == 1);

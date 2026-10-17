@@ -173,7 +173,7 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     nlohmann::json manifest = parseManifest(dir);
     CHECK(manifest["format"] == "husk-bundle");
     CHECK(manifest["kind"] == "model");
-    CHECK(manifest["schema_version"] == "0.2.1");
+    CHECK(manifest["schema_version"] == "0.2.2");
     CHECK(manifest["space"]["length_unit"] == "yard");
     CHECK(manifest["provenance"]["producer"] == "husk test");
     CHECK_FALSE(manifest["provenance"].contains("exported_at"));

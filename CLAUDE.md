@@ -351,8 +351,13 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   re-cast of misses). `tests/world_authoring_check.py` round-trips azeroth
   32_49/32_50 exactly and checks a 20x scale; current state and the gaps
   (no textures/liquids/LOD on baked tiles, world-only export) are in
-  `REFACTOR/BLENDER_WORLD_AUTHORING.md` "Current state". Next: Luna's GUI
-  pass; then the splat bake (stage 2) if textures are wanted back.
+  `REFACTOR/BLENDER_WORLD_AUTHORING.md` "Current state". Imports by zone:
+  world documents carry `zones` since schema 0.2.2 (AreaTable-named,
+  nested, cells with coverage); `export-map --tiles-from` rewrites a
+  stored map's world document against its tiles. The store
+  (`/media/luna/canonical_export`) is still 0.2.1: it has no zones and no
+  longer validates until rebuilt. Next: Luna's GUI pass; then the splat
+  bake (stage 2) if textures are wanted back.
 - **Surface types (2026-10-13, for the weather system)**: TerrainType
   rows as `resources.surface_types`, indexed by terrain ground effects
   (GroundEffectTexture.Sound), WMO materials (MOMT ground_type) and WMO
