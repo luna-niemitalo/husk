@@ -1,4 +1,4 @@
-// CLI tier: --phys resolution -- exercises husk::commands::exportGlb by
+// CLI tier: --phys resolution -- exercises husk::commands::exportBundle by
 // spawning the real compiled binary (see run_husk.hpp) against small,
 // synthetic, on-disk fixtures. Covers same-basename/explicit-path/none
 // resolution and out-of-range .phys body bone corrections. See

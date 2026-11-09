@@ -1,5 +1,5 @@
 // CLI tier: inline-M2 animation-sequence resolution -- exercises
-// husk::commands::exportGlb by spawning the real compiled binary (see
+// husk::commands::exportBundle by spawning the real compiled binary (see
 // run_husk.hpp) against small, synthetic, on-disk fixtures. This file
 // covers a model's own inline
 // (flags&0x20) sequences, pure-alias (flags&0x40) chain resolution, and

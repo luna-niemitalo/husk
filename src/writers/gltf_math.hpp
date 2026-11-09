@@ -1,9 +1,7 @@
 #pragma once
 
-// WoW->glTF coordinate-frame primitives: the plain Vec3/Vec2/Quat value
-// types every other gltf_*.hpp uses, plus the Z-up->Y-up axis-conversion
-// functions built on them. Self-contained -- no dependency on gltf_mesh.hpp/
-// gltf_skeleton.hpp/gltf.hpp (FILE_SPLIT_TODO.md Item 3).
+// The glTF projection's coordinate-frame primitives (gltf_lean.cpp): plain
+// Vec3/Vec2/Quat value types and the Z-up -> Y-up axis conversion.
 namespace husk::gltf {
 
 struct Vec3 {

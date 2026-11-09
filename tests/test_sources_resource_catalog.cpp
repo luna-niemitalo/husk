@@ -8,12 +8,14 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
-#include "../src/export_materials.hpp"
+#include "../src/character_texture_context.hpp"
 #include "../src/sources/texture_resolution.hpp"
 #include "../src/listfile_index.hpp"
 #include "../src/sources/catalog.hpp"
 #include "test_adt_fixtures.hpp"  // adtfx::oneBlockBlp
+#include "test_data_paths.hpp"
 
 using husk::sources::Catalog;
 using husk::sources::CharacterTextureContext;
@@ -552,48 +554,28 @@ TEST_CASE("Catalog::texture: the DB2-character tier is never consulted when the 
     CHECK(r.tier == ResolutionTier::Literal);
 }
 
-// buildCharacterTextureContext (export_materials.hpp/.cpp) -- the reduction
-// that feeds setCharacterTextureContext above, built from the same
-// gltf::Skeleton fields attachCharTextureLayout/attachCustomizationChoices
-// already populate (cmd_export.cpp), never a second DB2 load of its own.
+// chartexture::build -- the DB2-character tier's input, read straight from
+// the DB2 tables.
 
-TEST_CASE("buildCharacterTextureContext: an unpopulated skeleton (no DB2 data at all) reduces to "
-          "two empty maps -- the clean no-op every other DB2-driven enrichment in this project "
-          "guarantees") {
-    husk::gltf::Skeleton skeleton;
-    auto ctx = husk::commands::buildCharacterTextureContext(skeleton);
-    CHECK(ctx.singleLayerTargetByTextureType.empty());
-    CHECK(ctx.fileDataIdByTarget.empty());
+TEST_CASE("chartexture::build: no DB2 flags at all is the unused feature, not an empty context") {
+    husk::EmptyListfileIndex listfile;
+    std::ostringstream err;
+    CHECK_FALSE(husk::chartexture::build({}, "humanmale_hd.m2", listfile, "", err).has_value());
+    CHECK(err.str().empty());
 }
 
-TEST_CASE("buildCharacterTextureContext: a textureType with exactly one real ChrModelTextureLayer "
-          "row maps to that row's own target; a textureType with more than one (real skin/type-1 "
-          "shape) is excluded entirely, never picking an arbitrary one of the several targets") {
-    husk::gltf::Skeleton skeleton;
-    husk::gltf::Skeleton::CharTextureLayout layout;
-    layout.textureLayers.push_back({1, /*textureType=*/6, 0, 0, 0, 0, /*chrModelTextureTargetId=*/10});
-    layout.textureLayers.push_back({2, /*textureType=*/1, 0, 0, 0, 0, /*chrModelTextureTargetId=*/1});
-    layout.textureLayers.push_back({3, /*textureType=*/1, 0, 0, 0, 0, /*chrModelTextureTargetId=*/13});
-    skeleton.charTextureLayout = layout;
-
-    auto ctx = husk::commands::buildCharacterTextureContext(skeleton);
-    REQUIRE(ctx.singleLayerTargetByTextureType.count(6) == 1);
-    CHECK(ctx.singleLayerTargetByTextureType.at(6) == 10);
-    CHECK(ctx.singleLayerTargetByTextureType.count(1) == 0);  // 2 rows -- excluded, not guessed at
-}
-
-TEST_CASE("buildCharacterTextureContext: enabledMaterials reduces straight to a target -> "
-          "fileDataId map, fileDataId 0 kept (not dropped) since it's a real, distinct miss for "
-          "the DB2-character tier to report") {
-    husk::gltf::Skeleton skeleton;
-    skeleton.enabledMaterials.push_back({/*choiceId=*/100, /*chrModelTextureTargetId=*/38,
-                                          /*materialResourcesId=*/500, /*fileDataId=*/3613861});
-    skeleton.enabledMaterials.push_back({/*choiceId=*/101, /*chrModelTextureTargetId=*/10,
-                                          /*materialResourcesId=*/501, /*fileDataId=*/0});
-
-    auto ctx = husk::commands::buildCharacterTextureContext(skeleton);
-    REQUIRE(ctx.fileDataIdByTarget.count(38) == 1);
-    CHECK(ctx.fileDataIdByTarget.at(38) == 3613861);
-    REQUIRE(ctx.fileDataIdByTarget.count(10) == 1);
-    CHECK(ctx.fileDataIdByTarget.at(10) == 0);
+TEST_CASE("chartexture::build: real 12.1.0 tables -- ChrModel 1 (human male) maps its single-layer texture "
+          "types and its default choices' textures; the many-layer skin (type 1) is left out" *
+          doctest::skip(!fs::exists("/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/chrmodel.db2") ||
+                        husk::test::testDbdDir().empty())) {
+    husk::EmptyListfileIndex listfile;
+    std::ostringstream err;
+    husk::chartexture::Args args{"/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient",
+                                 husk::test::testDbdDir(), "", "1", ""};
+    auto ctx = husk::chartexture::build(args, "humanmale_hd.m2", listfile, "", err);
+    INFO(err.str());
+    REQUIRE(ctx.has_value());
+    CHECK_FALSE(ctx->singleLayerTargetByTextureType.empty());
+    CHECK(ctx->singleLayerTargetByTextureType.count(1) == 0);
+    CHECK_FALSE(ctx->fileDataIdByTarget.empty());
 }

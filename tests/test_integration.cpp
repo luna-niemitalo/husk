@@ -594,7 +594,7 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves a real model's LOD0 .skin v
                            skinDir + "\"");
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    // resolveSkin's own phrasing (cmd_export.cpp), not exportGlb's separate
+    // resolveSkin's own phrasing (cmd_export.cpp), not exportBundle's separate
     // --lod-path message ("resolved 'auto' -> ...") -- the two currently
     // read slightly differently depending on whether --lod was given.
     CHECK(result.output.find("'auto' resolved") != std::string::npos);

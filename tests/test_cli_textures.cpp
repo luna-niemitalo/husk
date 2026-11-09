@@ -1,5 +1,5 @@
 // CLI tier: `husk export`'s texture-resolution cluster -- exercises
-// husk::commands::exportGlb by spawning the real compiled binary (see
+// husk::commands::exportBundle by spawning the real compiled binary (see
 // run_husk.hpp) against small, synthetic, on-disk fixtures. Split out of
 // tests/test_cli.cpp (FILE_SPLIT_TODO.md Item 3) -- covers fuzzy/hardcoded-
 // slot basename matching, ambiguous-slot defaulting (size/category/blend-mode

@@ -1,5 +1,5 @@
 // CLI tier: .skel-sourced external animation-sequence resolution and
-// keyframe-data validation -- exercises husk::commands::exportGlb by
+// keyframe-data validation -- exercises husk::commands::exportBundle by
 // spawning the real compiled binary (see run_husk.hpp) against small,
 // synthetic, on-disk fixtures. This file covers a .skel's own SKS1
 // sequences (inline and

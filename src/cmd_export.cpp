@@ -27,16 +27,11 @@
 #include "cli_args.hpp"
 #include "cmd_export_canon.hpp"
 #include "commands.hpp"
-#include "export_animation.hpp"
-#include "export_extras.hpp"
-#include "export_materials.hpp"
-#include "export_skeleton.hpp"
 #include "skin_resolution.hpp"
-#include "export_transform.hpp"
-#include "gltf.hpp"
 #include "husk_config.hpp"
 #include "itemappearance_db2.hpp"
 #include "listfile.hpp"
+#include "read_file.hpp"
 #include "listfile_cache.hpp"
 #include "listfile_index.hpp"
 #include "m2.hpp"
@@ -47,66 +42,15 @@
 #include "sources/listfile_catalog.hpp"
 #include "sources/resolved.hpp"
 
-// Roadmap stages 1-5 (see README.md): stage 1 resolves an M2's vertex array
-// plus a .skin file's two-level triangle-index lookup (see src/skin.hpp)
-// into a static mesh; stage 2 additionally resolves the `bones` array into
-// a bind-pose glTF skin, wiring M2Vertex's bone_weights/bone_indices into
-// JOINTS_0/WEIGHTS_0; stage 3 covers the case where those bones live in an
-// external .skel file instead (see src/skel.hpp); stage 5 resolves the
-// .skin file's per-submesh batches (M2's materials/textures arrays, see
-// src/skin.hpp's Batch) into one glTF material + primitive per batch, with
-// WoW's blend mode translated to glTF's alphaMode and (optionally, via
-// --textures) a real baseColorTexture image embedded. All of the above
-// convert WoW's Z-up coordinates to glTF's Y-up. Stage 6 (animation, see
-// README.md) additionally resolves M2Sequence + each bone's M2Track<T>
-// keyframes into real glTF animation clips, for a model's own inline bones
-// and (via skel::parseSequences/skel::boneTrackBlob/skel::findAnimFileIds)
-// a .skel-sourced skeleton alike -- either way, only for sequences whose
-// keyframe data actually resolves: inline, or via --anim for an external
-// .anim file, AFM2- or AFSB-shaped alike (see export_animation.hpp's
-// buildAnimations doc comment).
-//
-// This file is the orchestrator (per FILE_SPLIT_TODO.md's Item 1): CLI flag
-// registration (addExportOptions) plus exportGlb's own pipeline wiring,
-// each stage of which is a named phase-function below rather than inline
-// code, so the pipeline's shape (skin resolution -> skeleton -> bones-dir/
-// .phys attachments -> per-LOD mesh build -> collision mesh -> glTF write)
-// is visible from function signatures. The actual struct/algorithm bodies
-// for each stage live in export_transform/export_skeleton/export_animation/
-// export_materials/export_skin_resolution.
+// `husk export`: one M2 (+ .skin/.skel/.anim/.bone/.phys sidecars and
+// optional DB2 data) -> one model bundle (REFACTOR/BUNDLE_FORMAT.md).
+// This file is the orchestrator: flag registration (addExportOptions),
+// sidecar resolution (skin, skeleton, physics, bone corrections, gear),
+// and the --from-list batch loop; canon assembly and the bundle write are
+// cmd_export_canon.cpp's.
 namespace husk::commands {
 
 namespace {
-
-// Builds the M2's own global vertex list (positions/normals/UVs, Z-up ->
-// Y-up converted) -- shared by every LOD tier (a .skin file only ever
-// selects a *subset* of it via its own vertices/indices two-level lookup,
-// see src/skin.hpp; it never adds vertices of its own), built once rather
-// than once per LOD.
-gltf::Mesh buildBaseMesh(const std::vector<m2::Vertex>& vertices) {
-    gltf::Mesh baseMesh;
-    baseMesh.positions.reserve(vertices.size());
-    baseMesh.normals.reserve(vertices.size());
-    baseMesh.texCoords.reserve(vertices.size());
-    baseMesh.texCoords2.reserve(vertices.size());
-    for (size_t vi = 0; vi < vertices.size(); ++vi) {
-        const auto& v = vertices[vi];
-        // glTF requires finite POSITION/NORMAL values (and their accessor
-        // min/max); a NaN/Inf here is a real symptom of a corrupted read or
-        // truncated file, not valid mesh data -- catch it here, where the
-        // offending vertex index is still known, rather than downstream.
-        if (!isFinite(v.pos) || !isFinite(v.normal)) {
-            throw std::runtime_error("vertex " + std::to_string(vi) +
-                                      " has a non-finite (NaN/Inf) position or normal -- "
-                                      "corrupted read or truncated file?");
-        }
-        baseMesh.positions.push_back(toGltf(v.pos));
-        baseMesh.normals.push_back(toGltf(v.normal));
-        baseMesh.texCoords.push_back({v.texCoords[0].x, v.texCoords[0].y});
-        baseMesh.texCoords2.push_back({v.texCoords[1].x, v.texCoords[1].y});
-    }
-    return baseMesh;
-}
 
 // Resolves this model's bones -- inline first, falling back to an external
 // .skel per the three-state --skel resolution (~/docs/CLI.md §2.11):
@@ -169,75 +113,6 @@ std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model
         }
     }
     return bones;
-}
-
-// Resolves per-M2Sequence + global-sequence animation clips for `bones`,
-// either from the model's own inline blob/sequences or (bonesAreInline ==
-// false) a .skel-sourced blob/sequences -- see buildAnimations's doc
-// comment for why these two cases share one resolver. `animNone` (--anim
-// none) short-circuits to no clips at all; global-sequence tracks aren't
-// gated on that model even having per-sequence M2Sequence data, so they're
-// still resolved whenever a bone/skel source is being used at all.
-//
-// model.sequences is already parsed;
-// canon::enforcePartialFailurePolicy(model, "sequences",
-// kExportPartialFailurePolicy) in the `bonesAreInline` branch below must
-// run before reading it, same hazard as resolveBones' bones check above --
-// a malformed sequences array would otherwise silently read as "no
-// animations" instead of a loud parse error. The `haveSkel` branch parses
-// its own, unrelated sequences via skel::parseSequences.
-std::vector<gltf::Animation> resolveAnimationsForModel(
-    bool animNone, bool bonesAreInline, bool haveSkel, const m2::Model& model,
-    const std::vector<uint8_t>& skelBytes, const std::vector<m2::Bone>& bones, const gltf::Skeleton& skeleton,
-    const std::string& animDir, const std::string& listfileRoot, const std::string& modelPath,
-    const std::unordered_map<uint32_t, std::string>* animationNames) {
-    std::vector<gltf::Animation> animations;
-    if (animNone) return animations;
-
-    const m2::Header& header = model.header;
-    const std::vector<uint8_t>& blob = model.blob;
-
-    if (bonesAreInline) {
-        canon::enforcePartialFailurePolicy(model, "sequences", kExportPartialFailurePolicy);
-        auto sequences = model.sequences;
-        M2AnimInputs animInputs;
-        animInputs.animFileIds = header.animFileIds;
-        animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
-        animInputs.animDir = animDir;
-        animInputs.listfileRoot = listfileRoot;
-        animInputs.modelPath = modelPath;
-        animations = buildAnimations(blob, bones, skeleton, sequences, animInputs, animationNames);
-        // Global-sequence-driven tracks (continuous looping animation
-        // independent of any M2Sequence) aren't tied to `sequences` at
-        // all, so this runs unconditionally alongside the per-sequence
-        // clips above, not gated on any of them existing.
-        auto globalSeqAnims = buildGlobalSequenceAnimations(blob, bones, skeleton);
-        animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
-                           std::make_move_iterator(globalSeqAnims.end()));
-    } else if (haveSkel) {
-        // Same buildAnimations, pointed at the .skel's own blob (SKB1's
-        // payload, which is what `bones`'s track offsets are relative to
-        // -- see skel::boneTrackBlob) and its own sequences/AFID table
-        // instead of the M2's. Peeking for SKS1 first, rather than just
-        // calling skel::parseSequences and letting its ParseError
-        // propagate, treats "this .skel has no sequences at all" as "no
-        // animation clips available," not export failure.
-        auto skelTrackBlob = skel::boneTrackBlob(skelBytes);
-        if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
-            auto sequences = skel::parseSequences(skelBytes);
-            M2AnimInputs animInputs;
-            animInputs.animFileIds = skel::findAnimFileIds(skelBytes);
-            animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
-            animInputs.animDir = animDir;
-            animInputs.listfileRoot = listfileRoot;
-            animInputs.modelPath = modelPath;
-            animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs, animationNames);
-        }
-        auto globalSeqAnims = buildGlobalSequenceAnimations(skelTrackBlob, bones, skeleton);
-        animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
-                           std::make_move_iterator(globalSeqAnims.end()));
-    }
-    return animations;
 }
 
 // --knowledge-db: queries husk's own pre-built knowledge base
@@ -355,256 +230,17 @@ husk::sources::Resolved<KbObjectSkinResolution> resolveObjectSkinTextureFromKb(c
     return Resolved<KbObjectSkinResolution>::hit(result, ResolutionTier::KnowledgeBase, std::move(reason));
 }
 
-// One NamedMesh per LOD tier: each resolves its own .skin file's
-// triangle-index lookup/submeshes/batches (see src/skin.hpp) into its own
-// primitives/materials, but reuses `baseMesh`'s shared positions/normals/
-// texCoords/texCoords2/skinning as-is. Skips a tier entirely when its
-// .skin has no renderable geometry (glTF requires a mesh's own primitives
-// list to be non-empty) -- the model's skeleton and ribbon/particle
-// emitter anchors still export regardless.
-std::vector<gltf::NamedMesh> buildLodTierMeshes(
-    const std::vector<std::pair<std::string, std::string>>& skinsToExport,
-    const std::vector<m2::Vertex>& vertices, const gltf::Mesh& baseMesh, const M2MaterialInputs& m2Inputs,
-    husk::sources::Catalog& catalog, const std::string& texturesDir, const std::string& modelPath,
-    const std::string& modelBasename, const std::string& texturesOutDir,
-    const husk::ListfileIndex& listfile = husk::EmptyListfileIndex(), const std::string& listfileRoot = "",
-    uint32_t objectSkinTextureFileDataId = 0,
-    const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {},
-    bool debugTextureWarnings = false) {
-    std::vector<gltf::NamedMesh> namedMeshes;
-    namedMeshes.reserve(skinsToExport.size());
-    for (const auto& [name, path] : skinsToExport) {
-        auto skinBytes = readFileBytes(path);
-        auto skinHeader = skin::parseHeader(skinBytes);
-        auto triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
-        auto submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
-        auto batches = skin::parseBatches(skinBytes, skinHeader.batches);
-
-        // Cross-module boundary check: skin::resolveTriangleIndices only
-        // validates indices against the skin file's own `vertices` array
-        // -- it has no idea how many vertices the M2 actually has. A skin
-        // file that doesn't belong to this M2 (wrong LOD, wrong model)
-        // shows up here as an out-of-range global vertex index. Report
-        // every out-of-range index found (count + the worst offender), not
-        // just the first -- a real wrong-.skin pairing references
-        // hundreds of out-of-range indices, not one.
-        uint32_t maxOutOfRange = 0;
-        size_t outOfRangeCount = 0;
-        for (uint32_t idx : triangleIndices) {
-            if (idx >= vertices.size()) {
-                maxOutOfRange = std::max(maxOutOfRange, idx);
-                ++outOfRangeCount;
-            }
-        }
-        if (outOfRangeCount > 0) {
-            // exception-message construction on a rare error path, not a hot
-            // loop; the `+` chain reads more clearly than += here.
-            // NOLINTBEGIN(performance-inefficient-string-concatenation)
-            throw std::runtime_error(
-                "'" + path + "' references " + std::to_string(outOfRangeCount) +
-                " out-of-range M2 vertex index(es) (up to " + std::to_string(maxOutOfRange) +
-                ") but '" + modelPath + "' only has " + std::to_string(vertices.size()) +
-                " vertices -- model/.skin mismatch?");
-            // NOLINTEND(performance-inefficient-string-concatenation)
-        }
-
-        auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs, catalog,
-                                                   texturesDir, modelPath, texturesOutDir, listfile,
-                                                   listfileRoot.empty() ? texturesDir : listfileRoot,
-                                                   objectSkinTextureFileDataId, customizationNames);
-
-        // See BuiltMaterials::distinctSkinSectionIds's own doc comment for
-        // why this note exists.
-        if (built.distinctSkinSectionIds.size() > 1) {
-            std::cerr << "husk: note: '" << path << "'" << (name.empty() ? "" : " (" + name + ")")
-                      << "'s batches span " << built.distinctSkinSectionIds.size()
-                      << " distinct geoset IDs (skinSectionId: ";
-            for (size_t i = 0; i < built.distinctSkinSectionIds.size(); ++i) {
-                if (i) std::cerr << ", ";
-                std::cerr << built.distinctSkinSectionIds[i];
-            }
-            std::cerr << ") -- husk doesn't filter geosets yet, so every one of them is exported "
-                         "unfiltered into this mesh\n";
-        }
-
-        // See BuiltMaterials::multiTextureBatchCount's own doc comment for
-        // why this note exists.
-        if (built.multiTextureBatchCount > 0) {
-            std::cerr << "husk: note: '" << path << "'" << (name.empty() ? "" : " (" + name + ")")
-                      << "' has " << built.multiTextureBatchCount
-                      << " batch(es) with more than one texture (textureCount > 1) -- husk only "
-                         "wires the first texture per batch into the rendered material; "
-                         "additional layers are exported as inert 'extras' metadata, not "
-                         "applied to the render\n";
-        }
-
-        // See BuiltMaterials::animatedTintOrFadeBatchCount's own doc
-        // comment for why this note exists.
-        if (built.animatedTintOrFadeBatchCount > 0) {
-            std::cerr << "husk: note: '" << path << "'" << (name.empty() ? "" : " (" + name + ")")
-                      << "' has " << built.animatedTintOrFadeBatchCount
-                      << " batch(es) whose color tint (M2Color) or transparency fade "
-                         "(M2TextureWeight) is animated (per-sequence or global-sequence "
-                         "keyframes, not a single constant value) -- core glTF has no way to "
-                         "animate a material's baseColorFactor, so each batch's static default "
-                         "is used on the render, but the real curve is attached as "
-                         "'tint_animation'/'fade_animation' extras\n";
-        }
-
-        // See BuiltMaterials::textureTransformBatchCount's own doc comment
-        // for why this note exists.
-        if (built.textureTransformBatchCount > 0) {
-            std::cerr << "husk: note: '" << path << "'" << (name.empty() ? "" : " (" + name + ")")
-                      << "' has " << built.textureTransformBatchCount
-                      << " batch(es) with a UV transform (M2TextureTransform) -- constant, "
-                         "planar-rotation ones with a resolved baseColorTexture get a real "
-                         "KHR_texture_transform on the render; every batch's raw values are also "
-                         "always attached as inert 'extras' metadata, and a genuinely-animated "
-                         "track's full keyframe curve is attached as 'texture_transform_animation'\n";
-        }
-
-        // Every batch that got its texture from the basename-fuzzy pool,
-        // not one of the two real deterministic matches -- see
-        // BuiltMaterials::FuzzyMatch's doc comment. A real character model
-        // routinely has dozens of batches resolving to the *same* fuzzy
-        // file (e.g. every skin-tone-bearing batch), so by default these
-        // are grouped by (fileName, fileDataId) and printed once per
-        // distinct link, naming how many materials share it, rather than
-        // once per batch -- --debug opts back into one line per batch.
-        if (debugTextureWarnings) {
-            for (const auto& fm : built.fuzzyMatches) {
-                std::cerr << "husk: warning: material '" << fm.materialName << "' linked '" << fm.fileName
-                          << "' via non-deterministic basename matching, not a verified FileDataID "
-                             "or exact-name match -- please confirm this is the correct texture";
-                if (fm.fileDataId != 0) {
-                    std::cerr << " (resolved FileDataID " << fm.fileDataId
-                              << ", NOT independently verified against it -- husk has no CASC/"
-                                 "listfile access to check a FileDataID's real name)";
-                } else {
-                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
-                }
-                std::cerr << "\n";
-            }
-        } else {
-            std::vector<std::pair<std::string, uint32_t>> order;
-            std::map<std::pair<std::string, uint32_t>, std::vector<std::string>> byLink;
-            for (const auto& fm : built.fuzzyMatches) {
-                auto key = std::make_pair(fm.fileName, fm.fileDataId);
-                if (byLink.find(key) == byLink.end()) order.push_back(key);
-                byLink[key].push_back(fm.materialName);
-            }
-            for (const auto& key : order) {
-                const auto& materials = byLink[key];
-                std::cerr << "husk: warning: " << materials.size() << " material(s) (e.g. '"
-                          << materials.front() << "'" << (materials.size() > 1 ? ", ..." : "")
-                          << ") linked '" << key.first
-                          << "' via non-deterministic basename matching, not a verified FileDataID "
-                             "or exact-name match -- please confirm this is the correct texture";
-                if (key.second != 0) {
-                    std::cerr << " (resolved FileDataID " << key.second
-                              << ", NOT independently verified against it -- husk has no CASC/"
-                                 "listfile access to check a FileDataID's real name)";
-                } else {
-                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
-                }
-                std::cerr << "\n";
-            }
-        }
-
-        // Genuinely ambiguous hardcoded slots (2+ same-basename candidates)
-        // -- see BuiltMaterials::AmbiguousMatch's doc comment. Every real
-        // candidate is embedded as an alternate_textures extras entry on
-        // every affected material; by default the console just names which
-        // default husk arbitrarily wired in and how many candidates/
-        // materials share it, grouped by identical candidate set (same
-        // "dozens of batches, same skin-tone pool" shape fuzzyMatches has
-        // above) instead of dumping the same multi-hundred-filename list
-        // once per batch -- the full list is already in the .glb's own
-        // extras, not lost. --debug opts back into the full per-batch dump.
-        if (debugTextureWarnings) {
-            for (const auto& am : built.ambiguousMatches) {
-                std::cerr << "husk: warning: material '" << am.materialName << "' had "
-                          << am.allFileNames.size() << " same-basename texture candidate(s) ("
-                          << am.defaultFileName << " picked arbitrarily as the default) -- all "
-                          << am.allFileNames.size()
-                          << " are embedded as 'alternate_textures' extras on this material";
-                if (am.fileDataId != 0) {
-                    std::cerr << " (resolved FileDataID " << am.fileDataId
-                              << ", NOT independently verified against it)";
-                } else {
-                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
-                }
-                std::cerr << ": ";
-                for (size_t i = 0; i < am.allFileNames.size(); ++i) {
-                    if (i) std::cerr << ", ";
-                    std::cerr << am.allFileNames[i];
-                }
-                std::cerr << "\n";
-            }
-        } else {
-            std::vector<std::string> order;
-            std::map<std::string, std::vector<std::string>> materialsBySig;
-            std::map<std::string, const BuiltMaterials::AmbiguousMatch*> firstBySig;
-            for (const auto& am : built.ambiguousMatches) {
-                std::string sig = am.defaultFileName;
-                for (const auto& f : am.allFileNames) sig += '\n' + f;
-                if (materialsBySig.find(sig) == materialsBySig.end()) {
-                    order.push_back(sig);
-                    firstBySig[sig] = &am;
-                }
-                materialsBySig[sig].push_back(am.materialName);
-            }
-            for (const auto& sig : order) {
-                const auto& am = *firstBySig[sig];
-                const auto& materials = materialsBySig[sig];
-                std::cerr << "husk: warning: " << materials.size() << " material(s) (e.g. '"
-                          << materials.front() << "'" << (materials.size() > 1 ? ", ..." : "")
-                          << ") each had " << am.allFileNames.size()
-                          << " same-basename texture candidate(s) (" << am.defaultFileName
-                          << " picked arbitrarily as the default) -- all " << am.allFileNames.size()
-                          << " are embedded as 'alternate_textures' extras on each material";
-                if (am.fileDataId != 0) {
-                    std::cerr << " (resolved FileDataID " << am.fileDataId
-                              << ", NOT independently verified against it)";
-                } else {
-                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
-                }
-                std::cerr << "\n";
-            }
-        }
-
-        if (built.primitives.empty()) {
-            std::cerr << "husk: note: '" << path << "'" << (name.empty() ? "" : " (" + name + ")")
-                      << "' has no renderable geometry -- skipping mesh output for this LOD tier "
-                         "(skeleton and ribbon/particle emitter anchors, if any, are still "
-                         "exported)\n";
-            continue;
-        }
-
-        gltf::NamedMesh nm;
-        // A real tier label ("lod0", ...) for --lod all; falls back to the
-        // model's own basename otherwise, so the render mesh's glTF node
-        // isn't left unnamed.
-        nm.name = name.empty() ? modelBasename : name;
-        nm.mesh = baseMesh;
-        nm.mesh.primitives = built.primitives;
-        nm.materials = std::move(built.materials);
-        namedMeshes.push_back(std::move(nm));
-    }
-    return namedMeshes;
-}
-
 }  // namespace
 
 // See commands.hpp's doc comment on ExportOptions: this is the one place
-// export's flag surface is declared, shared by exportGlb's own real parse
+// export's flag surface is declared, shared by exportBundle's own real parse
 // and main.cpp's `--print-completion` introspection.
 void addExportOptions(CLI::App& app, ExportOptions& opts) {
     addConfigOption(app);
 
     // Not ->required() here even though single-file mode needs it -- --from-list
     // mode (below) takes its model paths from a file instead, so requiredness is
-    // enforced by hand after parsing (see exportGlb), once it's known which mode
+    // enforced by hand after parsing (see exportBundle), once it's known which mode
     // this invocation is actually in.
     app.add_option("-i,--input,input", opts.modelPath,
                     "the .m2 file to export -- required for single-file mode (--from-list "
@@ -612,9 +248,10 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "argument")
         ->group("Input / output");
     app.add_option("-o,--output,output", opts.outputPath,
-                    "output .glb path (default: '<model-basename>.glb') -- mutually exclusive "
-                    "with --from-list, which always writes into --output-dir instead; also "
-                    "usable as the last bare positional argument")
+                    "the bundle directory to write (default: '<model-basename>.bundle' beside the "
+                    "model); an existing one is written over -- mutually exclusive with "
+                    "--from-list, which always writes into --output-dir instead; also usable as "
+                    "the last bare positional argument")
         ->group("Input / output");
     app.add_option("--from-list", opts.fromListArg,
                     "batch mode: a plain text file of .m2 paths, one per line (blank lines and "
@@ -627,9 +264,9 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "'N succeeded, M failed' summary line")
         ->group("Batch");
     app.add_option("--output-dir", opts.outputDirArg,
-                    "directory to write each --from-list entry's .glb into (named "
-                    "'<model-basename>.glb', or '<parent-dir-name>_<model-basename>.glb' if two "
-                    "entries in the same batch share a basename) -- required alongside "
+                    "directory to write each --from-list entry's bundle into (named "
+                    "'<model-basename>.bundle', or '<parent-dir-name>_<model-basename>.bundle' if "
+                    "two entries in the same batch share a basename) -- required alongside "
                     "--from-list, meaningless without it")
         ->group("Batch");
     app.add_option("-s,--skin", opts.skinArg,
@@ -650,14 +287,17 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
             "SKIN")
         ->group("Model sidecars");
     app.add_option("-t,--textures", opts.texturesArg,
-                    "directory of already-converted '<FileDataID>.png' files, raw '<FileDataID>.blp' "
-                    "files (decoded and embedded in-memory, no separate husk-blp step needed), or "
-                    "'none' to skip embedding images (default: the model's own directory)")
+                    "directory of '<FileDataID>.png' or '<FileDataID>.blp' texture files, or "
+                    "'none' to resolve no textures from a directory (default: the model's own "
+                    "directory)")
         ->group("Input / output");
     app.add_option("--textures-out", opts.texturesOutArg,
                     "directory to also write each --textures .blp's decoded .png to, mirroring its "
-                    "location under --textures (default: unset -- decoded textures stay in-memory "
-                    "only, embedded straight into the .glb, nothing written to disk)")
+                    "location under --textures (default: unset -- nothing extra written)")
+        ->group("Input / output");
+    app.add_option("--glb", opts.glbArg,
+                    "also write the bundle's lean glTF projection (best effort: no options, presets or "
+                    "effects) to this .glb path -- single-file mode only")
         ->group("Input / output");
     app.add_flag("--explain-textures", opts.explainTextures,
                  "after exporting, print the texture-resolution ledger: for every texture slot, "
@@ -667,38 +307,6 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "diff resolution behavior before vs. after a change, rather than inferring it "
                  "from the export summary")
         ->group("Diagnostics");
-    app.add_flag("--debug", opts.debugTextureWarnings,
-                 "print the full fuzzy/ambiguous-texture-match warning dump: one line per batch, "
-                 "every same-basename candidate filename listed -- off by default, since the same "
-                 "candidates are already embedded as 'alternate_textures' extras on the .glb and the "
-                 "default output instead groups by identical candidate set (one summary line per "
-                 "group). Use this only when you need to see every candidate without opening the "
-                 ".glb's own extras JSON")
-        ->group("Diagnostics");
-    app.add_flag("--export-canon", opts.exportCanon,
-                 "also run the in-progress canon:: pipeline (REFACTOR/README.md stage 3) against this "
-                 "same model/skin tier, write its own '<output-basename>.canon.glb' (lean glTF "
-                 "projection) and '<output-basename>.canon.bundle/' (native bundle) alongside the real "
-                 "output, and print a structural deviation report to stderr -- off by default, never "
-                 "affects the real export's own output or exit code on failure. Only covers the "
-                 "resolved --skin tier used when --skin is 'auto' with a single (non-'--lod all') "
-                 "entry -- canon::Model has no LOD concept yet, so an ambiguous multi-tier case is "
-                 "skipped with a note rather than guessed at")
-        ->group("Diagnostics");
-    app.add_flag("--bundle-only", opts.bundleOnly,
-                 "write only the canon:: native bundle, with the output path as the bundle directory: "
-                 "no legacy .glb, no lean .canon.glb, no deviation report, no legacy animation build. "
-                 "Same single-tier restriction as --export-canon; exits 1 when no bundle could be written");
-    app.add_flag("--slim-textures", opts.slimTextures,
-                 "write resolved base-color textures as real '<output-dir>/textures/<name>.png' "
-                 "files (named by real FileDataID when known, else the resolved source filename) "
-                 "and reference them via glTF's own external image URI, instead of embedding them "
-                 "in the .glb's binary buffer -- off by default (embed, the existing behavior); "
-                 "produces a much smaller .glb for a real character export, at the cost of the "
-                 ".glb no longer being a single self-contained file (the 'textures/' directory "
-                 "must travel with it). Additional-texture-layer and ambiguous-candidate extras "
-                 "images stay embedded regardless -- see README.md")
-        ->group("Input / output");
     app.add_option("--skin-dir", opts.skinDirArg,
                     "directory 'auto' searches for the SFID-declared '<FileDataID>.skin' file, or "
                     "'none' to skip that stage (default: the model's own directory)")
@@ -716,42 +324,22 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "'none' to never look for one (default: a same-basename '.skel' next to the "
                     "model, if any)")
         ->group("Model sidecars");
-    app.add_option("--lod", opts.lodArg,
-                    "'<n>' or 'all' -- only meaningful when --skin resolves via 'auto' (default: "
-                    "entry 0)")
-        ->group("Model sidecars");
     app.add_option("--bones-dir", opts.bonesDirArg,
                     "directory of already-extracted '<FileDataID>.bone' files (per the model's/"
-                    "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
-                    "-- attached as inert glTF extras only, never applied to the render")
+                    "'.skel's BFID array), tried before the listfile and store, or 'none' to look "
+                    "only there (default: the model's own directory) -- written as the bundle's "
+                    "correction sets, data only")
         ->group("Model sidecars");
     app.add_option("--phys", opts.physArg,
                     "external .phys path (per the model's own PFID scalar), or 'none' to never "
                     "look for one (default: a same-basename '.phys' next to the model, if any) -- "
-                    "a minimal per-body placement anchor is attached as inert glTF extras; the "
-                    "full body/shape/joint record set is available via 'husk dump-chunks' instead")
-        ->group("Model sidecars");
-    app.add_flag("--collision", opts.collisionRequested,
-                 "include the collision mesh, when present, as real (unskinned) geometry tagged "
-                 "{\"collision\": true} in glTF extras -- off by default, since Blender's stock "
-                 "importer has no concept of that tag and renders it like any other mesh, and the "
-                 "collision hull is often larger than and visually occludes the real character; "
-                 "the full body/shape/joint record set is also always available via "
-                 "'husk dump-chunks'")
+                    "written as the bundle's physics: bodies, shapes and joints, data only")
         ->group("Model sidecars");
     app.add_option("--db2-dir", opts.db2DirArg,
-                    "directory of real, already-extracted character/creature DB2 files "
-                    "(chrmodelmaterial.db2/charcomponenttexturesections.db2/"
-                    "chrmodeltexturelayer.db2/charcomponenttexturelayouts.db2 for --char-layout-id; "
-                    "chrcustomizationelement.db2/chrcustomizationgeoset.db2/"
-                    "chrcustomizationboneset.db2 for --customization-choice-ids; "
-                    "creaturedisplayinfogeosetdata.db2 for --creature-display-id -- real lowercase "
-                    "casc-tool filenames, same directory serves all three) -- combined with --dbd-dir "
-                    "and one of --char-layout-id/--customization-choice-ids/--creature-display-id to "
-                    "attach real DB2 extras; unset (default) skips these features entirely, same as "
-                    "every other opt-in sidecar. 'none' explicitly opts out even when --config/"
-                    "$HUSK_CONFIG supplies a value -- the one per-invocation override a config "
-                    "default previously had no way to disable")
+                    "directory of extracted DB2 files (lowercase casc-tool names) -- with --dbd-dir, "
+                    "fills the bundle's character customization, creature options and presets, "
+                    "character textures, and --appearance gear; unset (default) skips them. 'none' "
+                    "opts out even when --config/$HUSK_CONFIG supplies a value")
         ->group("Game data");
     app.add_option("--dbd-dir", opts.dbdDirArg,
                     "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs), used to resolve "
@@ -769,34 +357,27 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "Requires --db2-dir/--dbd-dir either way")
         ->group("Character");
     app.add_option("--customization-choice-ids", opts.customizationChoiceIdsArg,
-                    "comma-separated real ChrCustomizationChoiceID(s) to resolve against "
-                    "--db2-dir -- attaches each choice's real geoset selection as "
-                    "'enabled_geosets' skin extras, and marks "
-                    "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
-                    "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
-                    "inert-extras treatment as --char-layout-id")
+                    "comma-separated ChrCustomizationChoiceID(s) whose textures the character "
+                    "texture slots resolve to, instead of the default choice per option; requires "
+                    "--db2-dir/--dbd-dir")
         ->group("Character");
     app.add_option("--appearance", opts.appearanceArg,
-                    "a husk-appearance/1 string (src/appearance_string.hpp) -- an alternative, "
-                    "superset way to drive customization/gear resolution in one flag: its 'cust' "
-                    "field feeds the exact same resolution --customization-choice-ids does, and its "
-                    "'gear' field resolves each real (SLOT, ItemModifiedAppearanceID) pair "
-                    "(src/itemappearance_db2.hpp) to real equipped-item texture/geometry data, "
-                    "attached as inert 'gear_section_overlays'/'gear_items' skin extras (see "
-                    "TODO/EQUIPPED_GEAR_RENDER_TODO.md) -- husk resolves, never applies. Mutually "
-                    "exclusive with --customization-choice-ids (pick one); requires --db2-dir/"
-                    "--dbd-dir, same as every other DB2-driven enrichment here. 'race'/'sex' fields "
-                    "are informational only -- --chr-model-id's own existing auto-derivation is still "
-                    "what determines the resolved character identity")
+                    "a husk-appearance/1 string (src/appearance_string.hpp): written as one preset "
+                    "-- its 'cust' choices (also used as --customization-choice-ids) and its 'gear' "
+                    "items, each (SLOT, ItemModifiedAppearanceID) resolved to the item's models "
+                    "(exported as bundles under 'items/'), textures and body-section overlays. "
+                    "Mutually exclusive with --customization-choice-ids; requires --db2-dir/"
+                    "--dbd-dir. 'race'/'sex' are informational only -- --chr-model-id's derivation "
+                    "decides the character")
         ->group("Appearance / gear");
     app.add_option("--chr-model-id", opts.chrModelIdArg,
                     "a real ChrModelID (see ChrModel.db2 / `husk db2-export`), the literal 'auto' to "
                     "derive one automatically, or 'none' to explicitly disable derivation. Same "
                     "auto|none|<id> three-state convention as --textures/--skin-dir/--skel -- "
                     "**unset defaults to 'auto'**: whenever --db2-dir/--dbd-dir are given at all, "
-                    "husk now tries to derive a real character identity and attach its full real "
-                    "customization menu (chr_customization_options) automatically, with no separate "
-                    "flag needed. Two derivation paths, tried in order: (1) primary, "
+                    "husk tries to derive the character model whose texture layout and choice "
+                    "textures the texture slots resolve through. Two derivation paths, tried in "
+                    "order: (1) primary, "
                     "if --listfile/--listfile-root resolve this .m2's own real FileDataID -- an exact "
                     "identity match via CreatureModelData/CreatureDisplayInfo/ChrModel, never "
                     "ambiguous for a real file (e.g. correctly tells dracthyrmale.m2 apart from "
@@ -809,19 +390,10 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "exactly one real ChrModelID. Either way, once resolved, auto-selects a "
                     "*sensible default* customization choice per option: the choice "
                     "with the lowest real OrderIndex under each ChrCustomizationOption belonging to "
-                    "this model, mirroring the character-creation UI's own first-shown option; NOT a "
-                    "client-verified default the way --creature-display-id's geoset selection is "
-                    "(no DB2 table states an explicit player default), husk's own heuristic instead. "
+                    "this model; NOT a client-verified default (no DB2 table states a player "
+                    "default), husk's own heuristic. "
                     "Ignored when --customization-choice-ids is "
                     "also given (an explicit pick always wins); requires --db2-dir/--dbd-dir too")
-        ->group("Character");
-    app.add_option("--creature-display-id", opts.creatureDisplayIdArg,
-                    "a real CreatureDisplayInfoID (see `husk db2-export`) to resolve against "
-                    "--db2-dir's creaturedisplayinfogeosetdata.db2 -- attaches that display's real "
-                    "*default* geoset selection as 'creature_enabled_geosets' skin extras (unlike "
-                    "--customization-choice-ids, this is a true default, not a per-choice pick); "
-                    "husk has no way to derive which display ID applies to a given .m2 model on its "
-                    "own, so this must be supplied directly; requires --db2-dir/--dbd-dir too")
         ->group("Character");
     app.add_option("--object-skin-texture-id", opts.objectSkinTextureIdArg,
                     "a real texture FileDataID to fill into any type=2 (object_skin) texture "
@@ -857,95 +429,6 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "case where a single directory happens to serve both roles. 'none' explicitly "
                     "opts out even when --config/$HUSK_CONFIG supplies a value")
         ->group("Game data");
-}
-
-
-// --appearance's case-1 gear items (skeleton.gearItems, already populated
-// by attachGearAppearance with real model FileDataIDs) each need their own
-// real .glb -- resolved via --listfile/--listfile-root (the FileDataID ->
-// real local .m2 path direction, same data every other listfile-driven
-// feature here already has loaded) and exported by recursively calling
-// exportOneModel with a fresh, all-defaults ExportOptions/CLI::App (no
-// --appearance of its own -- an item model doesn't need or want its own
-// gear resolution). Written to '<mainOutputDir>/aux_models/<slot>_<fdid>.glb'
-// (a real, predictable, fixed-convention sibling directory, same role
-// --slim-textures' 'textures/' subdirectory already plays), with the
-// RELATIVE path (e.g. "aux_models/mainhand_370361.glb") baked into
-// GearItem::auxGlbPath -- the Blender-side consumer needs zero listfile
-// access, zero husk subprocess call, and zero FileDataID resolution of its
-// own, same "no external file-path knowledge beyond what's baked into
-// extras" discipline every other Blender-side reader in this project
-// already follows. A resolution/export failure for one item is reported
-// and leaves that item's auxGlbPath empty -- never fatal to the rest of
-// the export, same policy as every other per-entry DB2 resolution here.
-void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex& listfile,
-                              const std::string& listfileRoot, const std::string& mainOutputPath) {
-    if (skeleton.gearItems.empty()) return;
-    if (listfile.empty() || listfileRoot.empty()) {
-        std::cerr << "husk: note: --appearance resolved " << skeleton.gearItems.size()
-                  << " gear item(s) with real geometry, but no --listfile/--listfile-root was "
-                     "given -- can't resolve real item .m2 paths, aux_models export skipped for "
-                     "all of them\n";
-        return;
-    }
-
-    std::filesystem::path mainDir = std::filesystem::path(mainOutputPath).parent_path();
-    if (mainDir.empty()) mainDir = ".";
-    std::filesystem::path auxDir = mainDir / "aux_models";
-
-    // Fresh, all-defaults options/parse (empty argv) -- deliberately NOT
-    // `opts`/`app` from the caller: an item model gets its own ordinary
-    // '--skin auto'/'--textures <its own dir>' resolution, not the base
-    // character's flags, and critically must NOT carry the base model's
-    // own --appearance forward (that would recurse into resolving gear for
-    // the *item*, which is never meaningful).
-    ExportOptions itemOpts;
-    CLI::App itemApp{"husk export (internal -- gear-item aux model)", "husk export"};
-    addExportOptions(itemApp, itemOpts);
-    try {
-        itemApp.parse(std::vector<std::string>{});
-    } catch (const CLI::ParseError&) {
-        return;  // defensive only -- an empty argv parse against this grammar doesn't throw
-    }
-
-    for (auto& item : skeleton.gearItems) {
-        if (item.modelFileDataIds.empty()) continue;
-        uint32_t fdid = item.modelFileDataIds.front();
-
-        auto resolved = husk::sources::localFileForFileDataId(listfile, listfileRoot, fdid);
-        if (!resolved) {
-            std::cerr << "husk: note: gear slot '" << item.slot << "' model FileDataID " << fdid
-                      << " has no local file (--listfile path or --listfile-root's _by_fdid) -- can't export "
-                         "its own aux .glb, skipping\n";
-            continue;
-        }
-        std::filesystem::path itemModelPath = *resolved;
-
-        std::error_code mkEc;
-        std::filesystem::create_directories(auxDir, mkEc);
-        if (mkEc) {
-            std::cerr << "husk: note: couldn't create '" << auxDir.string()
-                      << "' for gear aux models: " << mkEc.message() << " -- skipping\n";
-            continue;
-        }
-
-        std::string slotLower = item.slot;
-        std::transform(slotLower.begin(), slotLower.end(), slotLower.begin(),
-                        [](unsigned char c) { return std::tolower(c); });
-        std::string auxRelPath = "aux_models/" + slotLower + "_" + std::to_string(fdid) + ".glb";
-        std::filesystem::path auxAbsPath = mainDir / auxRelPath;
-
-        int rc = exportOneModel(itemOpts, itemApp, itemModelPath.string(), auxAbsPath.string(),
-                                 /*outputGiven=*/true, listfile, fdid);
-        if (rc == 0) {
-            item.auxGlbPath = auxRelPath;
-            std::cerr << "husk: note: gear slot '" << item.slot << "' item model exported to '"
-                      << auxAbsPath.string() << "'\n";
-        } else {
-            std::cerr << "husk: note: gear slot '" << item.slot
-                      << "' item model export failed -- aux_glb_path left unset\n";
-        }
-    }
 }
 
 // --appearance gear as canon items (ItemModifiedAppearance -> display ->
@@ -1004,7 +487,7 @@ std::vector<std::string> exportGearItemBundles(const std::vector<canon::Item>& g
             std::cerr << "husk: note: gear model FileDataID " << fdid << ": " << e.what() << " -- not exported\n";
             continue;
         }
-        itemOpts.bundleOnly = true;
+
 
         std::string uri = "items/" + std::to_string(fdid) + ".bundle";
         std::string itemDir = (std::filesystem::path(bundleDir) / uri).string();
@@ -1018,7 +501,7 @@ std::vector<std::string> exportGearItemBundles(const std::vector<canon::Item>& g
 }
 
 std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& opts, CLI::App& app) {
-    if (!opts.bundleOnly || !app.count("--db2-dir") || !app.count("--dbd-dir")) return std::nullopt;
+    if (!app.count("--db2-dir") || !app.count("--dbd-dir")) return std::nullopt;
     if (opts.db2DirArg == "none" || opts.dbdDirArg == "none") return std::nullopt;
     std::optional<creaturedisplay::Data> data = creaturedisplay::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
     if (!data) {
@@ -1029,7 +512,7 @@ std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& o
 }
 
 // The single-model export pipeline, unchanged in substance from the old
-// monolithic exportGlb -- factored out so --from-list (below) can call it
+// monolithic exportBundle -- factored out so --from-list (below) can call it
 // once per entry, sharing one already-parsed `opts`/`app` and one
 // already-loaded `listfile` across the whole batch instead of re-parsing
 // argv or re-reading a multi-million-line CSV per file. `modelPath`/
@@ -1053,23 +536,11 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                     const writers::StoreLink* textureStore) {
     std::string outputPath = outputPathIn;
     bool skinDirGiven = app.count("--skin-dir") > 0;
-    bool lodGiven = !opts.lodArg.empty();
 
-    // --skin-dir/--lod only mean anything alongside --skin auto (the
-    // default) -- an explicit .skin path has no SFID-resolution stage for
-    // either of them to modify.
-    if (opts.skinArg != "auto") {
-        if (skinDirGiven) {
-            std::cerr << "husk: --skin-dir only does anything when --skin is 'auto'\n";
-            return 1;
-        }
-        if (lodGiven) {
-            std::cerr << "husk: --lod only does anything when --skin is 'auto'\n";
-            return 1;
-        }
-    }
-    if (lodGiven && skinDirGiven && opts.skinDirArg == "none") {
-        std::cerr << "husk: --lod needs the SFID-based resolution --skin-dir 'none' disables\n";
+    // An explicit .skin path has no SFID-resolution stage for --skin-dir
+    // to modify.
+    if (opts.skinArg != "auto" && skinDirGiven) {
+        std::cerr << "husk: --skin-dir only does anything when --skin is 'auto'\n";
         return 1;
     }
     bool appearanceGiven = app.count("--appearance") > 0;
@@ -1079,18 +550,11 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         return 1;
     }
 
+    // The output is the bundle directory itself; an existing one is
+    // written over.
     if (!outputGiven) {
-        outputPath = std::filesystem::path(modelPath).replace_extension(".glb").string();
+        outputPath = std::filesystem::path(modelPath).replace_extension(".bundle").string();
         std::cerr << "husk: note: no output path given -- writing to '" << outputPath << "'\n";
-    } else if (!opts.bundleOnly && std::filesystem::is_directory(outputPath)) {
-        // -o pointed at an existing directory: infer <dir>/<model-basename>.glb
-        // -- the model's own filename is the obvious guess for what the user
-        // wants the output named, the same way `cp foo.txt somedir/` infers
-        // the destination filename from the source, rather than failing with
-        // "Is a directory".
-        std::string basename = std::filesystem::path(modelPath).stem().string() + ".glb";
-        outputPath = (std::filesystem::path(outputPath) / basename).string();
-        std::cerr << "husk: note: -o pointed at a directory -- writing to '" << outputPath << "'\n";
     }
 
     // -o is where the user *wants* the file to end up, not an assertion that
@@ -1127,7 +591,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     if (texturesDir == "none") texturesDir.clear();
 
     // `listfile` itself is a parameter now, not loaded here -- see this
-    // function's own doc comment: exportGlb loads it once, before either
+    // function's own doc comment: exportBundle loads it once, before either
     // the single-file call or the --from-list loop, never per model.
     // --listfile-root is deliberately its own directory, not texturesDir --
     // see that flag's own help text for why reusing texturesDir would
@@ -1154,7 +618,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     // separate flag: buildAnimations already treats an empty animDir as
     // "skip external resolution," which is exactly what 'inline' means.
     std::string animDir;
-    bool animNone = false;
+    bool animNone = false;  // --anim none: the bundle gets no clips (bind pose only)
     if (opts.animArg == "auto") {
         animDir = modelDirStr;
     } else if (opts.animArg == "none") {
@@ -1207,15 +671,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         gearEntries = parsed.gear;
     }
     std::string chrModelIdArg = app.count("--chr-model-id") ? opts.chrModelIdArg : "";
-    std::string creatureDisplayIdArg =
-        app.count("--creature-display-id") ? opts.creatureDisplayIdArg : "";
-    // Constructed once for this whole model export (every LOD tier's
-    // buildMaterialsAndPrimitives call below shares this one instance,
-    // never a fresh Catalog per tier) -- REFACTOR/RESOURCE_CATALOG.md's
-    // Surface section, "never per model" read as its finer-grained sibling:
-    // this is the single-model-export granularity, one level below "once
-    // per --from-list batch" (not wired up to span a whole batch yet -- see
-    // this session's own REFACTOR_LOG.md entry for that scoping call).
+    // One catalog per model export: every texture slot and LOD level shares
+    // its resolution state (REFACTOR/RESOURCE_CATALOG.md).
     husk::sources::Catalog catalog(texturesDir, listfile, listfileRoot, texturesOutDir);
 
     uint32_t objectSkinTextureFileDataId = 0;
@@ -1248,19 +705,14 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
 
     try {
         auto modelBytes = readFileBytes(modelPath);
-        // `header`/`blob`/`vertices` are local names bound onto model's own
-        // storage; `model` lives for this whole try block, so they (and
-        // m2Inputs.blob below) stay valid as long as it does.
         m2::Model model = m2::loadModel(modelBytes);
         const m2::Header& header = model.header;
-        const std::vector<uint8_t>& blob = model.blob;
-        const std::vector<m2::Vertex>& vertices = model.vertices;
 
         // export fails fast on a malformed field it reads (DESIGN.md's
         // "Two parse-failure contracts" paragraph, Key design decisions) --
         // canon::enforcePartialFailurePolicy enforces that here, in the
         // same order the fields below are read. bones/sequences are
-        // excluded here: resolveBones/resolveAnimationsForModel enforce it
+        // excluded here: resolveBones and the canon assembly enforce it
         // themselves, at the point each is actually read.
         canon::enforcePartialFailurePolicy(model, "vertices", kExportPartialFailurePolicy);
 
@@ -1282,23 +734,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         canon::enforcePartialFailurePolicy(model, "texture_transforms", kExportPartialFailurePolicy);
         canon::enforcePartialFailurePolicy(model, "texture_transform_combos", kExportPartialFailurePolicy);
 
-        M2MaterialInputs m2Inputs;
-        m2Inputs.materials = model.materials;
-        m2Inputs.textures = model.textures;
-        m2Inputs.textureCombos = model.textureCombos;
-        m2Inputs.textureCoordCombos = model.textureCoordCombos;
-        m2Inputs.colors = model.colors;
-        m2Inputs.textureWeights = model.textureWeights;
-        m2Inputs.textureWeightCombos = model.textureWeightCombos;
-        m2Inputs.textureTransforms = model.textureTransforms;
-        m2Inputs.textureTransformCombos = model.textureTransformCombos;
-        m2Inputs.textureFileDataIds = header.textureFileDataIds;
-        m2Inputs.blob = &blob;
-        m2Inputs.sequenceCount = header.sequences.count;
-
-        auto skinsToExport =
-            resolveSkinsToExport(header, modelPath, skinDir, listfileRoot, skinDirNone, lodGiven, opts.lodArg,
-                                 opts.skinArg);
+        auto skinsToExport = resolveSkinsToExport(header, modelPath, skinDir, listfileRoot, skinDirNone,
+                                                  /*lodGiven=*/false, "", opts.skinArg);
 
         bool bonesAreInline = false;
         bool haveSkel = false;
@@ -1306,197 +743,46 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         auto bones = resolveBones(modelPath, model, skelGiven, skelNone, skelPath, bonesAreInline,
                                    haveSkel, skelBytes, listfile, listfileRoot);
 
-        // The bundle is canon::'s: of the glTF build below it needs only the
-        // character texture context the catalog resolves through, so the
-        // rest (mesh, skinning, extras, legacy materials) is never built.
-        if (opts.bundleOnly) {
-            if (skinsToExport.size() != 1) {
-                throw std::runtime_error("--bundle-only: expected exactly 1 resolved skin tier, got " +
-                                         std::to_string(skinsToExport.size()));
-            }
-            if (!bones.empty()) {
-                chartexture::Args charArgs{db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg,
-                                           customizationChoiceIdsArg};
-                if (auto ctx = chartexture::build(charArgs, modelPath, listfile, listfileRoot, std::cerr)) {
-                    catalog.setCharacterTextureContext(std::move(*ctx));
-                }
-            }
-            // A tier without geometry still exports: a model that only emits
-            // (steam, a spell impact) is its effects and skeleton.
-            std::vector<LodSkinPath> lodSkins =
-                opts.skinArg == "auto" && !lodGiven ? resolveLodSkinPaths(header, modelPath, skinDir, listfileRoot)
-                                                    : std::vector<LodSkinPath>{};
-            BundleSidecars sidecars;
-            sidecars.listfile = &listfile;
-            sidecars.bonesDir = bonesDir;
-            if (physGiven && !physNone) {
-                sidecars.physPath = physPath;
-            } else if (!physGiven) {
-                std::filesystem::path beside = std::filesystem::path(modelPath).replace_extension(".phys");
-                std::error_code ec;
-                if (std::filesystem::exists(beside, ec)) sidecars.physPath = beside.string();
-            }
-            if (appearanceGiven) {
-                sidecars.appearance = opts.appearanceArg;
-                std::stringstream ids(customizationChoiceIdsArg);
-                for (std::string id; std::getline(ids, id, ',');) sidecars.appearanceChoiceIds.push_back(std::stoul(id));
-                sidecars.gear = resolveGearItems(db2Dir, dbdDirForChr, gearEntries);
-                sidecars.gearModelUris = exportGearItemBundles(sidecars.gear, listfile, listfileRoot, outputPath, textureStore);
-            }
-            writeCanonBundleOnly(model, skinsToExport.front().second, lodSkins, catalog, modelPath,
-                                 modelFileDataId ? modelFileDataId
-                                                 : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
-                                 objectSkinTextureFileDataId,
-                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures, textureStore,
-                                 sidecars);
-            std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
-            return 0;
-        }
-
-        gltf::Mesh baseMesh = buildBaseMesh(vertices);
-
-        // AnimationData.db2's real Name column ("Stand", "Walk", ...) --
-        // opportunistic, same "--db2-dir/--dbd-dir unlocks this, nothing
-        // else required" convention as the other DB2-driven enrichments
-        // below, but independent of any --chr-model-id/--customization-*
-        // flag: every animated model (creature or player) has real
-        // AnimationData.db2 rows, not just characters.
-        std::unordered_map<uint32_t, std::string> animationNames;
-        if (!db2Dir.empty() && !dbdDirForChr.empty()) {
-            if (auto animData = animationdata::load(db2Dir, dbdDirForChr, std::cerr)) {
-                animationNames = animationdata::toNameMap(*animData);
-            }
-        }
-
-        gltf::Skeleton skeleton;
-        std::vector<gltf::Animation> animations;
         if (!bones.empty()) {
-            skeleton = buildSkeleton(bones);
-            baseMesh.skinning = buildSkinning(vertices, bones.size());
-            animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, model, skelBytes, bones,
-                                                    skeleton, animDir, listfileRoot, modelPath,
-                                                    animationNames.empty() ? nullptr : &animationNames);
-            attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
-            attachEmitterAnchors(model, skeleton);
-            attachPlacementNodes(model, header.sequences.count, skeleton);
-            attachPhysicsBodies(physNone, physGiven, physPath, modelPath, skeleton);
-            attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, modelPath,
-                                     listfile, listfileRoot, skeleton);
-            // Must run after attachBoneCorrections just above -- it only
-            // marks/extends already-resolved correction sets, never
-            // attaches new '.bone' data of its own.
-            attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, chrModelIdArg, modelPath,
-                                        listfile, listfileRoot, skeleton);
-            // Feeds sources::Catalog's opt-in DB2-character texture tier --
-            // must run after both attach calls above, since it reads their
-            // output (charTextureLayout/enabledMaterials), not DB2 data of
-            // its own. A clean no-op when neither populated anything (no
-            // derivable ChrModelID, or --db2-dir/--dbd-dir weren't given).
-            catalog.setCharacterTextureContext(buildCharacterTextureContext(skeleton));
-            attachCreatureGeosets(db2Dir, dbdDirForChr, creatureDisplayIdArg, skeleton);
-            attachGearAppearance(db2Dir, dbdDirForChr, gearEntries, skeleton);
-            exportGearAuxItemModels(skeleton, listfile, listfileRoot, outputPath);
-            // Needs skeleton.attachments/events already populated (just
-            // above), so it can't run inside buildSkeleton itself.
-            applyContextualBoneNames(skeleton);
-        }
-
-        std::string modelBasename = std::filesystem::path(modelPath).stem().string();
-        // Built from skeleton.customizationOptions, already populated by
-        // attachCustomizationChoices above -- lets a batch's own resolved
-        // texture FileDataID pick up a real ChrCustomizationOption/Choice
-        // name for its material's display name. Empty when the feature
-        // wasn't used this run (no derivable ChrModelID), same as every
-        // other DB2-driven enrichment here.
-        auto customizationNames = buildCustomizationNameLookup(skeleton);
-        auto namedMeshes =
-            buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, catalog, texturesDir, modelPath,
-                                modelBasename, texturesOutDir, listfile, listfileRoot,
-                                objectSkinTextureFileDataId, customizationNames, opts.debugTextureWarnings);
-
-
-        // --export-canon: canon::Model has no LOD concept (REFACTOR/README.md
-        // stage 3), so this only ever runs against an unambiguous single
-        // resolved tier -- skipped with a note, not guessed at, for --lod all
-        // or an explicit multi-entry resolution.
-        if (opts.exportCanon) {
-            if (skinsToExport.size() != 1) {
-                std::cerr << "husk: canon-export: note: " << skinsToExport.size()
-                          << " skin tier(s) resolved -- canon::Model has no LOD concept, skipping "
-                             "(only a single resolved tier can be compared unambiguously)\n";
-            } else if (namedMeshes.empty()) {
-                std::cerr << "husk: canon-export: note: the resolved skin tier has no renderable "
-                             "geometry -- nothing to compare\n";
-            } else {
-                runCanonExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
-                                animations, outputPath, catalog, modelPath,
-                                modelFileDataId ? modelFileDataId
-                                                 : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
-                                objectSkinTextureFileDataId, animDir, listfileRoot,
-                                bonesAreInline, haveSkel, skelBytes, namedMeshes.front().materials);
+            chartexture::Args charArgs{db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, customizationChoiceIdsArg};
+            if (auto ctx = chartexture::build(charArgs, modelPath, listfile, listfileRoot, std::cerr)) {
+                catalog.setCharacterTextureContext(std::move(*ctx));
             }
         }
-
-        // One geoset tag joint per distinct skinSectionId across every LOD
-        // tier's primitives -- lets tools/husk_blender_geoset_mask.py
-        // toggle mutually-exclusive geoset variants (hairstyles,
-        // boot cuffs, eye-glow, ...) that husk itself has no DBC/DB2 data
-        // to filter (see gltf_skeleton.hpp's Skeleton::GeosetTag doc
-        // comment for the full mechanism). std::set for dedup + a
-        // deterministic (numeric) order; only meaningful alongside a real
-        // skeleton -- an unskinned model has no `skin.joints` to append to.
-        if (!bones.empty()) {
-            std::set<int> distinctGeosetIds;
-            for (const auto& nm : namedMeshes) {
-                for (const auto& prim : nm.mesh.primitives) {
-                    if (prim.skinSectionId >= 0) distinctGeosetIds.insert(prim.skinSectionId);
-                }
+        // A tier without geometry still exports: a model that only emits
+        // (steam, a spell impact) is its effects and skeleton.
+        std::vector<LodSkinPath> lodSkins = opts.skinArg == "auto"
+                                                ? resolveLodSkinPaths(header, modelPath, skinDir, listfileRoot)
+                                                : std::vector<LodSkinPath>{};
+        BundleSidecars sidecars;
+        sidecars.leanGlbPath = opts.glbArg;
+        sidecars.noAnimation = animNone;
+        sidecars.listfile = &listfile;
+        sidecars.bonesDir = bonesDir;
+        if (physGiven && !physNone) {
+            sidecars.physPath = physPath;
+        } else if (!physGiven) {
+            std::filesystem::path beside = std::filesystem::path(modelPath).replace_extension(".phys");
+            std::error_code ec;
+            if (std::filesystem::exists(beside, ec)) sidecars.physPath = beside.string();
+        }
+        if (appearanceGiven) {
+            sidecars.appearance = opts.appearanceArg;
+            std::stringstream ids(customizationChoiceIdsArg);
+            for (std::string id; std::getline(ids, id, ',');) {
+                sidecars.appearanceChoiceIds.push_back(static_cast<uint32_t>(std::stoul(id)));
             }
-            for (int id : distinctGeosetIds) {
-                skeleton.geosetTags.push_back({id});
-            }
+            sidecars.gear = resolveGearItems(db2Dir, dbdDirForChr, gearEntries);
+            sidecars.gearModelUris = exportGearItemBundles(sidecars.gear, listfile, listfileRoot, outputPath, textureStore);
         }
-
-        // Captured before the collision mesh (if any) is appended below --
-        // the final summary needs to know how many of `namedMeshes` are
-        // real render/LOD entries versus the trailing collision entry, so
-        // it doesn't mislabel the collision mesh as another LOD tier.
-        size_t renderMeshCount = namedMeshes.size();
-        appendCollisionMesh(model, modelPath, opts.collisionRequested, namedMeshes);
-
-        // --slim-textures: the directory the .glb itself is about to be
-        // written into (empty string -- not "." -- when unset, matching
-        // writeGlbMulti's own "off" convention; parent_path() of a
-        // basename-only outputPath, e.g. "model.glb", is legitimately empty
-        // too, meaning "here, the current directory").
-        std::string slimTexturesOutputDir;
-        if (opts.slimTextures) {
-            auto outDir = std::filesystem::path(outputPath).parent_path();
-            slimTexturesOutputDir = outDir.empty() ? "." : outDir.string();
-        }
-        auto glb = gltf::writeGlbMulti(namedMeshes, bones.empty() ? nullptr : &skeleton, animations,
-                                        slimTexturesOutputDir);
-
-        errno = 0;
-        std::ofstream out(outputPath, std::ios::binary);
-        if (!out) {
-            throw std::runtime_error("couldn't open '" + outputPath +
-                                      "' for writing: " + std::strerror(errno));
-        }
-        out.write(reinterpret_cast<const char*>(glb.data()), static_cast<std::streamsize>(glb.size()));
-        if (!out) {
-            throw std::runtime_error("error writing '" + outputPath + "'");
-        }
-
-        printExportSummary(outputPath, vertices, bones, animations, namedMeshes, renderMeshCount);
-        // I4: which tier answered each texture slot is a read operation, not
-        // something inferred from the summary above after the fact. This is
-        // also what makes REFACTOR/README.md's stage-1 gate (a resolution
-        // ledger diffed before vs. after a resolution change) affordable to
-        // run at all -- without it the ledger exists only inside the object.
-        if (opts.explainTextures) {
-            std::cout << catalog.describe();
-        }
+        writeCanonBundleOnly(model, skinsToExport.front().second, lodSkins, catalog, modelPath,
+                             modelFileDataId ? modelFileDataId
+                                             : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
+                             objectSkinTextureFileDataId, animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes,
+                             outputPath, creatures, textureStore, sidecars);
+        std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
+        // I4: which tier answered each texture slot is a read operation.
+        if (opts.explainTextures) std::cout << catalog.describe();
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: export failed: " << e.what() << "\n";
@@ -1528,36 +814,36 @@ std::vector<std::string> readModelListFile(const std::string& path) {
     return result;
 }
 
-// Picks each batch entry's output filename: '<model-basename>.glb', or,
+// Picks each batch entry's output filename: '<model-basename>.bundle', or,
 // when that collides with an earlier entry in the same batch (real corpora
 // commonly reuse basenames across expansion/race subdirectories),
-// '<parent-dir-name>_<model-basename>.glb', falling back to a numeric
+// '<parent-dir-name>_<model-basename>.bundle', falling back to a numeric
 // suffix if even that still collides. `usedNames` accumulates across the
 // whole batch so collisions are detected regardless of how far apart the
 // colliding entries are in the list.
 std::string pickBatchOutputName(const std::string& modelPath, size_t indexInBatch,
                                  std::unordered_map<std::string, int>& usedNames) {
     std::string stem = std::filesystem::path(modelPath).stem().string();
-    std::string name = stem + ".glb";
+    std::string name = stem + ".bundle";
     if (usedNames.find(name) == usedNames.end()) {
         usedNames.emplace(name, 1);
         return name;
     }
     std::string parentName = std::filesystem::path(modelPath).parent_path().filename().string();
-    std::string disambiguated = parentName.empty() ? (stem + "_" + std::to_string(indexInBatch) + ".glb")
-                                                     : (parentName + "_" + stem + ".glb");
+    std::string disambiguated = parentName.empty() ? (stem + "_" + std::to_string(indexInBatch) + ".bundle")
+                                                     : (parentName + "_" + stem + ".bundle");
     if (usedNames.find(disambiguated) == usedNames.end()) {
         usedNames.emplace(disambiguated, 1);
         return disambiguated;
     }
-    disambiguated = stem + "_" + std::to_string(indexInBatch) + ".glb";
+    disambiguated = stem + "_" + std::to_string(indexInBatch) + ".bundle";
     usedNames.emplace(disambiguated, 1);
     return disambiguated;
 }
 
-int exportGlb(int argc, char** args) {
+int exportBundle(int argc, char** args) {
     ExportOptions opts;
-    CLI::App app{"husk export: WoW M2 (+ .skin/.skel/.anim sidecars) -> glTF 2.0 (.glb)",
+    CLI::App app{"husk export: WoW M2 (+ sidecars) -> model bundle",
                  "husk export"};
     addExportOptions(app, opts);
 

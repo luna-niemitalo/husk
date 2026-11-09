@@ -21,7 +21,7 @@ const std::vector<uint32_t>& requireSkinFileDataIds(const m2::Header& header,
 // SFID entry 0, "the main skin aka lod0" (wowdev.wiki M2#SFID), the
 // highest-detail LOD. "<n>": SFID entry n instead (0-based). "all": every
 // entry, so husk export can emit one glTF node per LOD tier in a single
-// .glb (see exportGlb) instead of just one. Each result pairs the entry's
+// .glb (see exportBundle) instead of just one. Each result pairs the entry's
 // own index (for node naming) with its resolved local path. husk doesn't
 // resolve any of these FileDataIDs to a WoW/CASC path itself -- this looks
 // for `<skinDir>/<FileDataID>.skin` (the convention `--textures` uses for
@@ -73,7 +73,7 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
 // meaningful alongside --skin auto) selects resolveAutoSkinPaths's
 // SFID-declared entries instead of the same-basename numbered scan;
 // otherwise falls through to resolveSkin's own auto behavior. Shared by
-// exportGlb and cmd_resolve.cpp (REFACTOR/CLI_AND_TOOLING.md §3's `husk
+// exportBundle and cmd_resolve.cpp (REFACTOR/CLI_AND_TOOLING.md §3's `husk
 // resolve`) so the two commands can never silently pick a different .skin
 // file for the same flags -- moved out of cmd_export.cpp's own anonymous
 // namespace for exactly that reuse, no behavior change.

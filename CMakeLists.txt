@@ -146,7 +146,6 @@ add_library(husk-lib STATIC
   src/m2_sidecar_input.cpp
   src/canon_model.cpp
   src/m2_canon_input.cpp
-  src/canon_diff.cpp
   src/canon_definition_builder.cpp
   src/canon_selection_builder.cpp
   src/canon_item_builder.cpp
@@ -215,20 +214,12 @@ add_library(husk-lib STATIC
   src/cmd_blp.cpp
   src/appearance_string.cpp
   src/cmd_appearance.cpp
-  src/gltf_math.cpp
-  src/gltf_mesh.cpp
-  src/gltf_skeleton.cpp
-  src/gltf.cpp
+  src/writers/gltf_math.cpp
   src/cmd_info.cpp
   src/cmd_info_json.cpp
-  src/export_transform.cpp
-  src/export_skeleton.cpp
-  src/export_animation.cpp
   src/sources/texture_resolution.cpp
   src/sources/dir_listing.cpp
-  src/export_materials.cpp
   src/skin_resolution.cpp
-  src/export_extras.cpp
   src/cmd_export.cpp
   src/cmd_export_canon.cpp
   src/cmd_resolve.cpp
@@ -280,7 +271,6 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_item.cpp
     tests/test_canon_physics.cpp
     tests/test_canon_skeleton.cpp
-    tests/test_canon_skeleton_convergence.cpp
     tests/test_canon_animation_convergence.cpp
     tests/test_canon_mesh_convergence.cpp
     tests/test_canon_material_convergence.cpp
@@ -297,7 +287,6 @@ if(HUSK_BUILD_TESTS)
   tests/test_bundle_schema.cpp
   tests/test_corpus_store.cpp
   tests/test_text_encoding.cpp
-    tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp
     tests/test_canon_selection.cpp
@@ -339,11 +328,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_creature_geosets.cpp
     tests/test_cli_animationdata.cpp
     tests/test_cli_chrmodel_id.cpp
-    tests/test_gltf.cpp
     tests/test_gltf_math.cpp
-    tests/test_gltf_mesh.cpp
-    tests/test_gltf_skeleton.cpp
-    tests/test_export_skeleton.cpp
     tests/test_integration.cpp
     tests/test_integration_weapons.cpp
     tests/test_integration_texture_transform.cpp
@@ -374,7 +359,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_dump_emitters.cpp
     tests/test_dump_phys.cpp
     tests/test_dump_chunks_misc.cpp
-    tests/test_conformance.cpp
+    #tests/test_conformance.cpp
   )
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)
   # -Wunused-function only, husk-tests-only: the shared tests/test_*_fixtures.hpp

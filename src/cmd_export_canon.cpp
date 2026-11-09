@@ -11,7 +11,6 @@
 #include <string_view>
 
 #include "blp.hpp"              // blp::ParseError
-#include "canon_diff.hpp"
 #include "canon_model.hpp"
 #include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
 #include "creature_options_input.hpp"
@@ -29,26 +28,10 @@
 #include "writers/gltf_lean.hpp"
 #include "input_log.hpp"
 
-// This is `husk export`'s new, second pipeline path (REFACTOR/README.md's
-// Migration order, stage 3), run entirely alongside the real, still-shipping
-// legacy gltf_*.cpp pipeline rather than in place of it -- the legacy path
-// is untouched by this file, and this file's own failure can never affect
-// it (see runCanonExport's own doc comment). Its purpose is the
-// runtime counterpart to tests/test_canon_*_convergence.cpp's fixture-only
-// convergence proofs: those check canon:: against one committed real file;
-// `--export-canon` lets the exact same kind of structural check run
-// against ANY real corpus file, in the same invocation, with the same
-// flags, that already produces the legacy .glb -- so the two outputs are
-// always compared on identical inputs, never a separately-reconstructed
-// invocation that could silently drift (different --skin resolution,
-// different --textures directory, ...).
-//
-// Deliberately re-parses the skin file itself (see runCanonExport's
-// own doc comment) rather than taking already-parsed batches/submeshes/
-// triangleIndices from the caller: a genuinely independent re-derivation
-// is a stronger convergence signal than reusing the legacy pipeline's own
-// intermediate state would be, and the extra parse cost is negligible next
-// to the .glb writes this same call already performs.
+// The canon side of `husk export`: resolves textures and external
+// animation through the catalog, assembles canon::Model from the parsed M2
+// and its sidecars, and writes the model bundle (plus, on request, its
+// lean glTF projection).
 namespace husk::commands {
 
 namespace {
@@ -337,15 +320,6 @@ m2input::ExternalAnimBlobs buildExternalAnimBlobs(
     return blobs;
 }
 
-void printReport(const std::string& label, const canon_diff::Report& r) {
-    for (const auto& d : r.deviations) {
-        std::cerr << "husk: canon-export: DEVIATION (" << label << "): " << d << "\n";
-    }
-    for (const auto& n : r.notes) {
-        std::cerr << "husk: canon-export: note (" << label << "): " << n << "\n";
-    }
-}
-
 // A texture option named outside the model (a creature display's): its
 // source blocks as DDS straight from the located file, with no pixel
 // decode (a character model has thousands of baked NPC skins), else the
@@ -371,9 +345,7 @@ canon::TextureRef optionTexture(sources::Catalog& catalog, uint32_t fdid, const 
     return ref;
 }
 
-// Everything canon:: needs, built from the same resolved inputs the legacy
-// pipeline used. Shared by runCanonExport (which then diffs it against
-// legacy) and writeCanonBundleOnly (which only writes it).
+// Everything canon:: needs for one model bundle.
 struct CanonBuild {
     canon::Model model;
     std::vector<m2::Sequence> effectiveSequences;
@@ -522,62 +494,6 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
 }
 }  // namespace
 
-void runCanonExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
-                           const gltf::Skeleton& legacySkeleton,
-                           const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
-                           sources::Catalog& catalog, const std::string& modelPath,
-                           std::optional<uint32_t> modelFileDataId, uint32_t objectSkinTextureFileDataId,
-                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline,
-                           bool haveSkel, const std::vector<uint8_t>& skelBytes,
-                           const std::vector<gltf::Material>& legacyMaterials) {
-    try {
-        CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
-                                               objectSkinTextureFileDataId,
-                                               animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes);
-        const canon::Model& canonModel = build.model;
-        const std::vector<skin::Batch>& batches = build.batches;
-        const std::vector<skin::Submesh>& submeshes = build.submeshes;
-        const std::vector<m2::Sequence>& effectiveSequences = build.effectiveSequences;
-
-        std::filesystem::path leanGlbPath(outputPath);
-        leanGlbPath.replace_extension(".canon.glb");
-        std::filesystem::path bundleDir(outputPath);
-        bundleDir.replace_extension("");
-        bundleDir += ".canon.bundle";
-
-        writers::writeLeanGlb(canonModel, leanGlbPath);
-        writers::writeBundle(canonModel, bundleDir, m2Provenance());
-        std::cerr << "husk: canon-export: wrote '" << leanGlbPath.string() << "' and '" << bundleDir.string()
-                  << "/' alongside '" << outputPath << "'\n";
-
-        bool anyDeviation = false;
-
-        canon_diff::Report meshReport = canon_diff::compareMesh(canonModel.mesh, legacyMesh);
-        anyDeviation = anyDeviation || !meshReport.ok();
-        printReport("mesh", meshReport);
-
-        canon_diff::Report skeletonReport = canon_diff::compareSkeleton(canonModel.skeleton, legacySkeleton);
-        anyDeviation = anyDeviation || !skeletonReport.ok();
-        printReport("skeleton", skeletonReport);
-
-        canon_diff::Report animReport =
-            canon_diff::compareAnimations(canonModel, effectiveSequences, legacyAnimations);
-        anyDeviation = anyDeviation || !animReport.ok();
-        printReport("animations", animReport);
-
-        canon_diff::Report materialReport =
-            canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, model.materials, legacyMaterials,
-                                                   legacyMesh.primitives);
-        anyDeviation = anyDeviation || !materialReport.ok();
-        printReport("materials", materialReport);
-
-        std::cerr << "husk: canon-export: "
-                  << (anyDeviation ? "DEVIATIONS FOUND -- see above" : "clean, no deviations found") << "\n";
-    } catch (const std::exception& e) {
-        std::cerr << "husk: canon-export: failed: " << e.what() << "\n";
-    }
-}
-
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, const std::vector<LodSkinPath>& lodSkins,
                           sources::Catalog& catalog, const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
                           uint32_t objectSkinTextureFileDataId,
@@ -588,6 +504,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes, lodSkins);
+    if (sidecars.noAnimation) build.model.animations.clear();
     size_t jointCount = build.model.skeleton.joints.size();
     if (!sidecars.physPath.empty()) build.model.physics = m2input::loadPhysics(sidecars.physPath, jointCount);
     std::optional<std::vector<uint32_t>> boneFiles =
@@ -616,6 +533,8 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
         }
     }
     if (!sidecars.appearance.empty()) addAppearancePreset(sidecars, build.model, textureFor);
+    // Before externalizing: the projection embeds texture payloads.
+    if (!sidecars.leanGlbPath.empty()) writers::writeLeanGlb(build.model, sidecars.leanGlbPath);
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
     writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris);
 }

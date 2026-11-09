@@ -1,5 +1,5 @@
 // CLI tier: --skin/--skin-dir/--lod resolution -- exercises
-// husk::commands::exportGlb by spawning the real compiled binary (see
+// husk::commands::exportBundle by spawning the real compiled binary (see
 // run_husk.hpp) against small, synthetic, on-disk fixtures. Covers 'auto'
 // resolution order (SFID vs. same-basename scan), --skin-dir none/default,
 // --skin explicit/none conflicts, and --lod <n>/all tier selection. See
@@ -187,7 +187,7 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detai
     CHECK(result.exitCode == 0);
     // resolveSkin's own success note is "'auto' resolved '<path>' (SFID
     // entry 0, ...)" -- note the word order (unlike the --lod-given path's
-    // "resolved 'auto' -> ..." in exportGlb, these two success messages are
+    // "resolved 'auto' -> ..." in exportBundle, these two success messages are
     // phrased differently for what's conceptually the same event).
     CHECK(result.output.find("'auto' resolved") != std::string::npos);
     CHECK(result.output.find(std::to_string(fileDataId)) != std::string::npos);

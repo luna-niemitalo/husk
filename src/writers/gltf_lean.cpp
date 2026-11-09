@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "gltf_buffer_utils.hpp"
-#include "gltf_math.hpp"
+#include "writers/gltf_buffer_utils.hpp"
+#include "writers/gltf_math.hpp"
 #include "writers/writer_common.hpp"
 
 // See gltf_lean.hpp's own doc comment for this file's scope (no extras,

@@ -1,4 +1,4 @@
-#include "gltf_math.hpp"
+#include "writers/gltf_math.hpp"
 
 #include <cmath>
 

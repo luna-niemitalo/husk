@@ -1,4 +1,4 @@
-// CLI tier: `husk export --slim-textures` -- exercises husk::commands::exportGlb
+// CLI tier: `husk export --slim-textures` -- exercises husk::commands::exportBundle
 // by spawning the real compiled binary (see run_husk.hpp) against a small,
 // synthetic, on-disk fixture with a real, decodable PNG texture. Kept apart
 // from tests/test_cli_textures.cpp (one focused .cpp per feature cluster):

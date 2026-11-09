@@ -45,7 +45,7 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
                                                                         const std::string& lodArg) {
     if (skinDir.empty()) {
         // Only reachable via --lod/an indexed 'auto' resolution with
-        // --skin-dir explicitly 'none' -- exportGlb's caller already
+        // --skin-dir explicitly 'none' -- exportBundle's caller already
         // rejects this combination before parsing the model at all (see
         // its own "--lod ... --skin-dir 'none'" check), so this is a
         // belt-and-suspenders guard, not the primary error path.

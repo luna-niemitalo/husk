@@ -3,6 +3,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 
 #include "canon_policy.hpp"
@@ -107,6 +108,20 @@ MaterialKey materialKeyFor(const skin::Batch& b) {
 canon::CollisionMesh buildCollision(const m2::Model& model) {
     canon::enforcePartialFailurePolicy(model, "collision_mesh", canon::PartialFailurePolicy::Strict);
     const m2::CollisionMesh& c = model.collisionMesh;
+    if (c.indices.size() % 3 != 0) {
+        throw std::runtime_error("collision mesh has " + std::to_string(c.indices.size()) +
+                                 " indices, expected a multiple of 3");
+    }
+    for (uint16_t idx : c.indices) {
+        if (idx >= c.positions.size()) {
+            throw std::runtime_error("collision index " + std::to_string(idx) + " is out of range, expected below " +
+                                     std::to_string(c.positions.size()) + " positions");
+        }
+    }
+    if (!c.faceNormals.empty() && c.faceNormals.size() != c.indices.size() / 3) {
+        throw std::runtime_error("collision mesh has " + std::to_string(c.faceNormals.size()) +
+                                 " face normals, expected one per triangle (" + std::to_string(c.indices.size() / 3) + ")");
+    }
     canon::CollisionMesh out;
     for (const m2::Vec3& p : c.positions) out.positions.push_back({p.x, p.y, p.z});
     out.indices.assign(c.indices.begin(), c.indices.end());
@@ -133,6 +148,22 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
 
     canon::Skeleton skeleton = assembleSkeleton(bones);
     canon::Mesh mesh = assembleMesh(model.vertices, bones.size(), batches, submeshes, triangleIndices);
+    // Emitters anchor on a joint; one naming a missing joint is foreign
+    // data that doesn't fit, not an effect to place somewhere else.
+    if (!bones.empty()) {
+        for (const m2::Ribbon& r : model.ribbonEmitters) {
+            if (r.boneIndex >= bones.size()) {
+                throw std::runtime_error("ribbon emitter references bone " + std::to_string(r.boneIndex) +
+                                         ", expected below " + std::to_string(bones.size()) + " bones");
+            }
+        }
+        for (const m2::ParticleEmitter& p : model.particleEmitters) {
+            if (p.boneId >= bones.size()) {
+                throw std::runtime_error("particle emitter references bone " + std::to_string(p.boneId) +
+                                         ", expected below " + std::to_string(bones.size()) + " bones");
+            }
+        }
+    }
 
     // Animations, pass 1: one AnimationClip per sequence that is either
     // real inline OR has a caller-supplied external blob (externalAnimBlobs,

@@ -30,7 +30,7 @@ inline constexpr auto kExportPartialFailurePolicy = canon::PartialFailurePolicy:
 int info(int argc, char** args);
 
 // `export` is a reserved word, hence the name mismatch with the CLI verb.
-int exportGlb(int argc, char** args);
+int exportBundle(int argc, char** args);
 
 // `dump-chunks` -- extracts M2 chunks that don't feed into `export`'s glTF
 // output into readable JSON (see cmd_dump.cpp's own doc comment).
@@ -367,41 +367,28 @@ struct ExportOptions {
     std::string skinDirArg;
     std::string animArg = "auto";
     std::string skelArg;
-    std::string lodArg;
     std::string bonesDirArg;
     std::string physArg;
-    bool collisionRequested = false;
     std::string db2DirArg;
     std::string dbdDirArg;
     std::string charLayoutIdArg;
     std::string customizationChoiceIdsArg;
     std::string appearanceArg;
     std::string chrModelIdArg;
-    std::string creatureDisplayIdArg;
     std::string objectSkinTextureIdArg;
     std::string knowledgeDbArg;
     std::string listfileArg;
     std::string listfileRootArg;
     std::string fromListArg;
     std::string outputDirArg;
-    bool slimTextures = false;
+    std::string glbArg;
     // REFACTOR/README.md's I4 -- see the flag's own --help text.
     bool explainTextures = false;
-    // Opts back into the old full per-batch, full-filename-list
-    // fuzzy/ambiguous-texture warning dump -- see the flag's own --help text.
-    bool debugTextureWarnings = false;
-    // REFACTOR/README.md stage 3's runtime convergence gate -- see the
-    // flag's own --help text and cmd_export_canon.hpp's doc comment.
-    bool exportCanon = false;
-    // Canon bundle as the only output (export-world's model pass, and any
-    // caller that wants a bundle without the legacy .glb) -- see the flag's
-    // own --help text.
-    bool bundleOnly = false;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin
 // none` rejection) onto `app` and binds them into `opts`. Used both by
-// exportGlb's own real parse and by main.cpp's completion generator, which
+// exportBundle's own real parse and by main.cpp's completion generator, which
 // never calls `app.parse(...)` on its copy -- only introspects
 // `get_options()`.
 void addExportOptions(CLI::App& app, ExportOptions& opts);

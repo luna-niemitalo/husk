@@ -13,7 +13,7 @@
 // completion generation"). No C++
 // arg-parsing library (CLI11 included) generates shell completions, so this
 // builds its own throwaway CLI11 App tree -- the exact same shape
-// exportGlb's real parse uses, via husk::commands::addExportOptions, so the
+// exportBundle's real parse uses, via husk::commands::addExportOptions, so the
 // flag surface can never drift between the two -- and walks it with CLI11's
 // own introspection API, never `.parse(...)`.
 namespace {
@@ -642,7 +642,7 @@ int main(int argc, char** argv) {
         return husk::commands::info(restArgc, rest);
     }
     if (command == "export") {
-        return husk::commands::exportGlb(restArgc, rest);
+        return husk::commands::exportBundle(restArgc, rest);
     }
     if (command == "dump-chunks") {
         return husk::commands::dumpChunks(restArgc, rest);

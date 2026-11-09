@@ -1,5 +1,5 @@
 // CLI tier: general `husk export` behavior -- exercises husk::commands::
-// exportGlb by spawning the real compiled binary (see run_husk.hpp) against
+// exportBundle by spawning the real compiled binary (see run_husk.hpp) against
 // small, synthetic, on-disk fixtures -- always run, no real game files or
 // HUSK_TEST_* env vars needed. See TEST_DESIGN.md#Four-tier-architecture for
 // how this tier relates to the others. Every fixture below targets one

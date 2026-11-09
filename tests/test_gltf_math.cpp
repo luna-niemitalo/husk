@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "../src/gltf.hpp"
+#include "../src/writers/gltf_math.hpp"
 
 // (X, Z, -Y) is the corrected WoW Z-up -> glTF Y-up formula: independently
 // confirmed against reference/wow.export's own (differently-derived)

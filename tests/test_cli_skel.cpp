@@ -1,5 +1,5 @@
 // CLI tier: --skel/--bones-dir resolution -- exercises
-// husk::commands::exportGlb by spawning the real compiled binary (see
+// husk::commands::exportBundle by spawning the real compiled binary (see
 // run_husk.hpp) against small, synthetic, on-disk fixtures. Covers
 // --bones-dir default/none/BFID resolution, out-of-range .bone corrections,
 // --skel none, and multi-root .skel skeletons (alone and combined with

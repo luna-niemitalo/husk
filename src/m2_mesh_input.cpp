@@ -1,7 +1,10 @@
 #include "m2_mesh_input.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
+
+#include "keyframe_validation.hpp"  // isFinite
 
 namespace husk::m2input {
 
@@ -82,6 +85,13 @@ canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCou
 
     for (size_t vi = 0; vi < vertices.size(); ++vi) {
         const auto& v = vertices[vi];
+        // A NaN/Inf here is a corrupted read or truncated file, caught while
+        // the vertex index is still known.
+        if (!isFinite(v.pos) || !isFinite(v.normal)) {
+            throw std::runtime_error("vertex " + std::to_string(vi) +
+                                     " has a non-finite (NaN/Inf) position or normal, expected finite values "
+                                     "-- corrupted read or truncated file?");
+        }
         mesh.positions.push_back(toCanon(v.pos));
         mesh.normals.push_back(toCanon(v.normal));
         mesh.uvSets[0].push_back(toCanon(v.texCoords[0]));
@@ -106,6 +116,23 @@ canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCou
     }
 
     if (!uv1AllZero) mesh.uvSets.push_back(std::move(uv1));
+
+    // The .skin validates indices against its own vertex list only; one
+    // paired with the wrong M2 (wrong LOD, wrong model) shows up here,
+    // usually as hundreds of out-of-range indices, so all are counted.
+    uint32_t maxOutOfRange = 0;
+    size_t outOfRange = 0;
+    for (uint32_t idx : triangleIndices) {
+        if (idx < vertices.size()) continue;
+        maxOutOfRange = std::max(maxOutOfRange, idx);
+        ++outOfRange;
+    }
+    if (outOfRange > 0) {
+        throw std::runtime_error("the .skin references " + std::to_string(outOfRange) +
+                                 " vertex index(es) up to " + std::to_string(maxOutOfRange) +
+                                 ", expected below the M2's " + std::to_string(vertices.size()) +
+                                 " vertices -- model/.skin mismatch?");
+    }
 
     mesh.indices = triangleIndices;
     mesh.primitives = assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
