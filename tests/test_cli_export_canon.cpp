@@ -1,20 +1,15 @@
-// CLI tier: `husk export --export-canon` -- exercises
-// husk::commands::runCanonExport (cmd_export_canon.cpp) by spawning
-// the real compiled binary against a small, synthetic, on-disk fixture,
-// same convention as tests/test_cli_slim_textures.cpp. The real-fixture
-// pipeline (bloodelffemale.m2/.skin, test_data/) was exercised manually
-// against a real 119-bone/258-animation character during this feature's
-// own implementation -- mesh/skeleton convergence held with zero
-// deviations, and the animation comparator correctly flagged real
-// alias-sequence naming gaps rather than false-positiving on noise; this
-// file only needs to prove the wiring (flag parses, doesn't crash, writes
-// its own sidecar outputs, never changes the primary .glb's own exit
-// code) on a fixture cheap enough to commit and run in CI.
+// CLI tier: properties of the model bundle `husk export` writes -- where it
+// goes by default, its subject's FileDataID, LOD skins as mesh levels, a
+// store model's .skel found by FileDataID -- and export-wmo's GFID levels,
+// through the real compiled binary (run_husk.hpp).
 
+#include <algorithm>
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <string>
+#include <vector>
 
 #include "run_husk.hpp"
 #include "test_cli_fixtures.hpp"
@@ -24,39 +19,28 @@
 using husk::test::runHusk;
 namespace fs = std::filesystem;
 
-TEST_CASE("husk export --export-canon: off by default -- no '.canon.glb'/'.canon.bundle' sidecar, "
-          "and the flag itself doesn't change the real export's exit code") {
-    auto dir = defaultsDir("comparecanon_off");
+TEST_CASE("husk export without -o: writes the bundle directory <model>.bundle/ beside the model, and no "
+          "other output") {
+    auto dir = defaultsDir("export_default_output");
+    fs::remove_all(dir);
+    fs::create_directories(dir);
     writeFile(dir / "textured.m2", oneTexturedModel(555));
     writeFile(dir / "textured00.skin", oneTexturedModelSkin());
 
-    auto outPath = dir / "out.glb";
-    auto result = runHusk("export " + (dir / "textured.m2").string() + " -o " + outPath.string());
-    CHECK(result.exitCode == 0);
-    REQUIRE(fs::exists(outPath));
-    CHECK_FALSE(fs::exists(dir / "out.canon.glb"));
-    CHECK_FALSE(fs::exists(dir / "out.canon.bundle"));
+    auto result = runHusk("export " + (dir / "textured.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(fs::is_regular_file(dir / "textured.bundle" / "manifest.json"));
+    CHECK(runHusk("validate-bundle " + (dir / "textured.bundle").string()).exitCode == 0);
+    std::vector<std::string> entries;
+    for (const auto& e : fs::directory_iterator(dir)) entries.push_back(e.path().filename().string());
+    std::sort(entries.begin(), entries.end());
+    CHECK(entries == std::vector<std::string>{"textured.bundle", "textured.m2", "textured00.skin"});
+
+    fs::remove_all(dir);
 }
 
-TEST_CASE("husk export --export-canon: writes '.canon.glb' and '.canon.bundle/' sidecars alongside "
-          "the real output, and never fails the real export even if a deviation is found") {
-    auto dir = defaultsDir("comparecanon_on");
-    writeFile(dir / "textured.m2", oneTexturedModel(555));
-    writeFile(dir / "textured00.skin", oneTexturedModelSkin());
-
-    auto outPath = dir / "out.glb";
-    auto result =
-        runHusk("export " + (dir / "textured.m2").string() + " -o " + outPath.string() + " --export-canon");
-    CHECK(result.exitCode == 0);
-    REQUIRE(fs::exists(outPath));
-    CHECK(fs::exists(dir / "out.canon.glb"));
-    CHECK(fs::file_size(dir / "out.canon.glb") > 0);
-    CHECK(fs::is_directory(dir / "out.canon.bundle"));
-    CHECK(fs::exists(dir / "out.canon.bundle" / "manifest.json"));
-    CHECK(result.output.find("husk: canon-export:") != std::string::npos);
-}
-
-TEST_CASE("husk export --bundle-only: the bundle's subject carries the model's FileDataID from the listfile") {
+TEST_CASE("husk export: the bundle's subject carries the model's FileDataID from the listfile") {
     auto dir = defaultsDir("bundleonly_subject");
     fs::create_directories(dir / "world" / "doodad");
     writeFile(dir / "world" / "doodad" / "textured.m2", oneTexturedModel(555));
@@ -65,7 +49,7 @@ TEST_CASE("husk export --bundle-only: the bundle's subject carries the model's F
 
     auto bundle = dir / "out.bundle";
     auto result = runHusk("export " + (dir / "world" / "doodad" / "textured.m2").string() + " -o " + bundle.string() +
-                          " --bundle-only --listfile " + (dir / "listfile.csv").string() + " --listfile-root " +
+                          " --listfile " + (dir / "listfile.csv").string() + " --listfile-root " +
                           dir.string());
     INFO(result.output);
     REQUIRE(result.exitCode == 0);
@@ -74,12 +58,12 @@ TEST_CASE("husk export --bundle-only: the bundle's subject carries the model's F
     CHECK(m["subject"]["name"] == "textured");
 }
 
-TEST_CASE("husk export --bundle-only: a doodad's _lodNN skins become mesh levels 1..3, coarser each step" *
+TEST_CASE("husk export: a doodad's _lodNN skins become mesh levels 1..3, coarser each step" *
           doctest::skip(!fs::exists(husk::test::testLodDoodad()))) {
     auto dir = defaultsDir("bundleonly_lod");
     auto bundle = dir / "out.bundle";
     auto result = runHusk("export " + husk::test::testLodDoodad() + " -o " + bundle.string() +
-                          " --bundle-only --config /dev/null");
+                          " --config /dev/null");
     INFO(result.output);
     REQUIRE(result.exitCode == 0);
     CHECK(runHusk("validate-bundle " + bundle.string()).exitCode == 0);
@@ -122,7 +106,7 @@ TEST_CASE("husk export-wmo: GFID rows become mesh levels, a group past its last 
     CHECK(lod["levels"][1]["positions"] != m["resources"]["geometry"]["mesh"]["positions"]);  // its own vertices
 }
 
-TEST_CASE("husk export --bundle-only: a model in the store finds the skeleton its SKID names" *
+TEST_CASE("husk export: a model in the store finds the skeleton its SKID names" *
           doctest::skip(!fs::exists(husk::test::testSkelM2()) || !fs::exists(husk::test::testSkel()))) {
     // The store names files by FileDataID, so no same-basename .skel exists.
     auto dir = defaultsDir("bundleonly_skid");
@@ -135,7 +119,7 @@ TEST_CASE("husk export --bundle-only: a model in the store finds the skeleton it
 
     auto bundle = dir / "out.bundle";
     auto result = runHusk("export " + (store / "1100000").string() + " -o " + bundle.string() +
-                          " --bundle-only --config /dev/null --listfile " + (dir / "listfile.csv").string() +
+                          " --config /dev/null --listfile " + (dir / "listfile.csv").string() +
                           " --listfile-root " + dir.string());
     INFO(result.output);
     REQUIRE(result.exitCode == 0);
