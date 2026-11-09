@@ -119,8 +119,12 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
 std::string hexFlags(uint32_t flags);
 
 void writeSourceRecord(json::Writer& w, const canon::SourceRecord& record);
+// An effect instance by {set, id} (canon::InstanceRef).
+void writeInstanceRef(json::Writer& w, const canon::InstanceRef& ref);
 void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>& fields);
 
+// writePlacementSetDocuments, writeEffectDocument and writeOwnedSet* are
+// defined in placement_set_writer.cpp.
 struct OwnedSetEntry {
     const canon::PlacementSet* set = nullptr;
     bool alwaysOn = false;

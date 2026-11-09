@@ -152,13 +152,16 @@ add_library(husk-lib STATIC
   src/writers/writer_common.cpp
   src/writers/gltf_lean.cpp
   src/writers/bundle_common.cpp
+  src/writers/placement_set_writer.cpp
   src/writers/texture_store.cpp
   src/writers/material_writer.cpp
   src/writers/bundle_writer.cpp
+  src/writers/bundle_bin_sections.cpp
   src/writers/terrain_bundle_writer.cpp
   src/adt.cpp
   src/wmo.cpp
   src/wmo_canon_input.cpp
+  src/wmo_effects_input.cpp
   src/wdt_volumes.cpp
   src/map_scene_input.cpp
   src/bundle_schema.cpp
@@ -302,6 +305,8 @@ if(HUSK_BUILD_TESTS)
     tests/test_writers_common.cpp
     tests/test_writers_gltf_lean.cpp
     tests/test_writers_bundle.cpp
+    tests/test_writers_bundle_scene.cpp
+    tests/test_writers_bundle_materials.cpp
     tests/test_writers_terrain_bundle.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp
@@ -311,6 +316,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_adt_canon_input.cpp
     tests/test_blp.cpp
     tests/test_db2.cpp
+    tests/test_db2_relations.cpp
     tests/test_db2_offsetmap.cpp
     tests/test_dbd.cpp
     tests/test_listfile.cpp
