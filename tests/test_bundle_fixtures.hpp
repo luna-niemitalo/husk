@@ -17,6 +17,7 @@
 
 #include "bundle_schema.hpp"
 #include "canon_model.hpp"
+#include "test_bundle_read.hpp"
 #include "m2_canon_input.hpp"
 #include "m2.hpp"
 #include "skin.hpp"
@@ -38,27 +39,7 @@ std::vector<uint8_t> readFile(const std::string& path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-std::string readTextFile(const fs::path& path) {
-    std::ifstream f(path, std::ios::binary);
-    REQUIRE(f.good());
-    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-}
-
 writers::Provenance testProvenance() { return writers::Provenance{"husk test", "test", {}}; }
-
-// Every manifest a test reads is also checked against schema/, so the
-// writer can't drift from the format's definition unnoticed.
-nlohmann::json parseManifest(const fs::path& bundleDir) {
-    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(bundleDir);
-    std::string report;
-    for (const bundle_schema::Problem& p : problems) report += p.where + ": " + p.message + "\n";
-    INFO(report);
-    CHECK(problems.empty());
-    std::string text = readTextFile(bundleDir / "manifest.json");
-    auto parsed = nlohmann::json::parse(text, nullptr, /*allow_exceptions=*/false);
-    REQUIRE(!parsed.is_discarded());
-    return parsed;
-}
 
 // Every object anywhere in the manifest that looks like a BufferSlice
 // (carries "file"/"byte_offset"/"byte_length" together) -- collected by a

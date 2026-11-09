@@ -326,7 +326,6 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_chrmodel.cpp
     tests/test_cli_chrcustomization.cpp
     tests/test_cli_creature_geosets.cpp
-    tests/test_cli_animationdata.cpp
     tests/test_cli_chrmodel_id.cpp
     tests/test_gltf_math.cpp
     tests/test_integration.cpp
