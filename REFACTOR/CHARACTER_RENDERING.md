@@ -222,6 +222,7 @@ Needed, all with **data** sources present locally:
 | Application order | base → customization → skinned-model hides → item geosets → helm hides | **ref** (`tab_characters.js:329-390`) |
 | Appearance modifier | `ItemModifiedAppearance.ItemAppearanceModifierID` | unread; wow.export takes the last row |
 | Item scaling, sheathe, visuals | `HelmetAnimScaling`, `SheatheTransformMatrixID`, `ItemVisual`, `ParticleColorID` | unread everywhere |
+| Weapon carry state | `M2Attachment` 1/2 in hand; 26/27/28 SheathMainHand/OffHand/Shield (hip); 30/31 LargeWeaponLeft/Right (back); a HipWeaponLeft/Right pair (wiki Attachments table) | **ref**; since Midnight most weapon classes may sheathe at hip *or* back by player choice, so `Item.SheathType` gives no single answer: the renderer picks among the attachments the model has (Luna) |
 
 NPC equipment: `NPCModelItemSlotDisplayInfo` slots 0–10 named by wow.export
 (**ref**); slot 11 (1,635 rows) unnamed; weapons from `Creature.AlwaysItem`.

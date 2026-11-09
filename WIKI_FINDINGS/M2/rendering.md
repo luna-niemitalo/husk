@@ -171,6 +171,13 @@ sample under MSAA (alpha-to-coverage); 4 is additive with premultiplied
 alpha. Which `M2Blend` value maps to which class is not visible in the
 shaders.
 
+FileDataID 124154 is `black32.blp`, an intentionally solid-black texture
+reused across many unrelated model directories (`environments/stars/`,
+`creature/ghost/`, `creature/tikiman2/`, ...). An additive (`Add`)
+material sampling it contributes no light, so such a model draws nothing
+by design (e.g. `creature/cloud/cloudswampgas_white_clickable.m2`,
+material 0); an empty render of it is not a resolution bug.
+
 ## Particles and ribbons (`M2.md`)
 
 - **Multi-texture particles** (`particle_3colortex_3alphatex`):
