@@ -48,9 +48,24 @@ namespace husk::canon {
 // second identity scheme). nullopt at index i means joint i has no real
 // curve data for this sequence (assembleBoneAnimation's own "nothing to
 // animate" return), not that the joint doesn't exist.
+// An M2 sequence's own facts, for a sequence clip; global-sequence clips
+// have none.
+struct ClipInfo {
+    Ref animation;  // id = Db2Row{"AnimationData", M2Sequence.id}; name = AnimationData.Name when known
+    uint16_t variation = 0;
+    float duration = 0;   // seconds
+    float moveSpeed = 0;  // yards per second
+    int16_t frequency = 0;  // play weight among the same animation's variations
+    float blendIn = 0;    // seconds
+    float blendOut = 0;   // seconds
+    uint32_t flags = 0;   // raw M2Sequence flags
+    int16_t variationNext = -1;  // raw; -1 = the last variation
+};
+
 struct AnimationClip {
     SequenceRef sequence;
     std::vector<std::optional<BoneAnimationCurves>> boneCurves;
+    std::optional<ClipInfo> info;
 };
 
 // The whole model: one bind-pose skeleton, one flat mesh (positions +

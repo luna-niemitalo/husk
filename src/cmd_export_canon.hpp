@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "canon_item.hpp"
@@ -44,6 +45,8 @@ struct BundleSidecars {
     std::vector<std::string> gearModelUris;
     std::string leanGlbPath;  // --glb: also write the lean glTF projection here; empty = none
     bool noAnimation = false;  // --anim none: drop every clip
+    // AnimationData id -> Name, for naming sequence clips; empty = none known.
+    std::unordered_map<uint32_t, std::string> animationNames;
 };
 
 // One model bundle at `bundleDir`: the M2 assembled with the first skin

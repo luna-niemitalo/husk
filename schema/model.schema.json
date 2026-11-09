@@ -1201,6 +1201,61 @@
                     "$ref": "common.schema.json#/definitions/sequence_kind",
                     "description": "Sequence or global sequence."
                   },
+                  "animation": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Sequence clips: which animation this is, an AnimationData row (Stand, Walk, ...); named when the AnimationData table has a name."
+                  },
+                  "variation": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Sequence clips: which of the animation's variations."
+                  },
+                  "duration": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Sequence clips: length.",
+                    "x-unit": "second"
+                  },
+                  "move_speed": {
+                    "type": "number",
+                    "description": "Sequence clips: the movement speed the animation is authored for.",
+                    "x-unit": "yard/second"
+                  },
+                  "frequency": {
+                    "type": "integer",
+                    "description": "Sequence clips: play weight among the animation's variations."
+                  },
+                  "blend_in": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Sequence clips: blend time into this clip.",
+                    "x-unit": "second"
+                  },
+                  "blend_out": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Sequence clips: blend time out of this clip.",
+                    "x-unit": "second"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Sequence clips: raw values.",
+                    "properties": {
+                      "flags": {
+                        "$ref": "common.schema.json#/definitions/flags",
+                        "description": "M2Sequence flags."
+                      },
+                      "variation_next": {
+                        "type": "integer",
+                        "description": "M2Sequence variationNext; -1 = the last variation."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "flags",
+                      "variation_next"
+                    ]
+                  },
                   "joints": {
                     "type": "array",
                     "description": "Joints with curves in this clip.",

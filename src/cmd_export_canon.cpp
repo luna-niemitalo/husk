@@ -505,6 +505,13 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes, lodSkins);
     if (sidecars.noAnimation) build.model.animations.clear();
+    for (canon::AnimationClip& clip : build.model.animations) {
+        if (!clip.info) continue;
+        auto name = sidecars.animationNames.find(std::get<canon::Db2Row>(clip.info->animation.id).row);
+        if (name == sidecars.animationNames.end()) continue;
+        clip.info->animation.name = name->second;
+        clip.info->animation.source = canon::NameSource::Db2;
+    }
     size_t jointCount = build.model.skeleton.joints.size();
     if (!sidecars.physPath.empty()) build.model.physics = m2input::loadPhysics(sidecars.physPath, jointCount);
     std::optional<std::vector<uint32_t>> boneFiles =

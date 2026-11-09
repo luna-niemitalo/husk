@@ -66,9 +66,9 @@ canon::Interpolation toInterpolation(const std::vector<uint8_t>& blob, uint32_t 
 }
 
 canon::VecCurve toVecCurve(std::vector<std::pair<uint32_t, m2::Vec3>> raw, canon::Interpolation interpolation,
-                            uint32_t sequenceIndex) {
+                            canon::SequenceRef sequence) {
     canon::VecCurve curve;
-    curve.sequence = canon::SequenceRef::sequence(sequenceIndex);
+    curve.sequence = sequence;
     curve.interpolation = interpolation;
     curve.keyframes.reserve(raw.size());
     for (const auto& [ts, v] : raw) {
@@ -78,9 +78,9 @@ canon::VecCurve toVecCurve(std::vector<std::pair<uint32_t, m2::Vec3>> raw, canon
 }
 
 canon::QuatCurve toQuatCurve(std::vector<std::pair<uint32_t, m2::Quat>> raw, canon::Interpolation interpolation,
-                              uint32_t sequenceIndex) {
+                              canon::SequenceRef sequence) {
     canon::QuatCurve curve;
-    curve.sequence = canon::SequenceRef::sequence(sequenceIndex);
+    curve.sequence = sequence;
     curve.interpolation = interpolation;
     curve.keyframes.reserve(raw.size());
     for (const auto& [ts, v] : raw) {
@@ -90,9 +90,9 @@ canon::QuatCurve toQuatCurve(std::vector<std::pair<uint32_t, m2::Quat>> raw, can
 }
 
 canon::ScalarCurve toScalarCurve(std::vector<std::pair<uint32_t, uint32_t>> raw, canon::Interpolation interpolation,
-                                  uint32_t sequenceIndex) {
+                                  canon::SequenceRef sequence) {
     canon::ScalarCurve curve;
-    curve.sequence = canon::SequenceRef::sequence(sequenceIndex);
+    curve.sequence = sequence;
     curve.interpolation = interpolation;
     curve.keyframes.reserve(raw.size());
     for (const auto& [ts, bits] : raw)
@@ -209,73 +209,100 @@ canon::TextureRef resolveTextureRef(uint16_t textureIndex, const TextureResoluti
     return it != textureResolutions.end() ? it->second : unresolvedTextureRef();
 }
 
+// The sequence a track's keyframes belong to: its global loop when one
+// drives it (the same keys under every sequence), else `sequenceIndex`.
+canon::SequenceRef trackSequence(const std::vector<uint8_t>& blob, uint32_t offset, uint32_t sequenceIndex) {
+    uint16_t global = m2::readTrackMeta(blob, offset).globalSequence;
+    return global == m2::TrackMeta::kNoGlobalSequence ? canon::SequenceRef::sequence(sequenceIndex)
+                                                      : canon::SequenceRef::globalSequence(global);
+}
+
+bool isGlobal(const canon::SequenceRef& s) { return s.kind == canon::SequenceRef::Kind::GlobalSequence; }
+
+std::optional<canon::VecCurve> vec3Track(const std::vector<uint8_t>& blob, uint32_t offset, uint32_t sequenceIndex) {
+    canon::SequenceRef sequence = trackSequence(blob, offset, sequenceIndex);
+    auto raw = isGlobal(sequence) ? m2::resolveVec3GlobalSequenceTrack(blob, offset)
+                                  : m2::resolveVec3TrackSequence(blob, offset, sequenceIndex);
+    if (raw.empty()) return std::nullopt;
+    return toVecCurve(std::move(raw), toInterpolation(blob, offset), sequence);
+}
+
+// TextureTransform::rotation is a raw C4Quaternion, not M2CompQuat.
+std::optional<canon::QuatCurve> rawQuatTrack(const std::vector<uint8_t>& blob, uint32_t offset, uint32_t sequenceIndex) {
+    canon::SequenceRef sequence = trackSequence(blob, offset, sequenceIndex);
+    auto raw = isGlobal(sequence) ? m2::resolveRawQuatGlobalSequenceTrack(blob, offset)
+                                  : m2::resolveRawQuatTrackSequence(blob, offset, sequenceIndex);
+    if (raw.empty()) return std::nullopt;
+    return toQuatCurve(std::move(raw), toInterpolation(blob, offset), sequence);
+}
+
+std::optional<canon::ScalarCurve> fixed16Track(const std::vector<uint8_t>& blob, uint32_t offset, uint32_t sequenceIndex) {
+    canon::SequenceRef sequence = trackSequence(blob, offset, sequenceIndex);
+    auto raw = isGlobal(sequence) ? m2::resolveRawIntGlobalSequenceTrack(blob, offset, /*elementSize=*/2)
+                                  : m2::resolveRawIntTrackSequence(blob, offset, sequenceIndex, /*elementSize=*/2);
+    if (raw.empty()) return std::nullopt;
+    return toScalarCurve(std::move(raw), toInterpolation(blob, offset), sequence);
+}
+
+// A value that doesn't animate, as a one-key step curve. Callers skip the
+// identity value (white tint, full alpha, no transform): nothing to apply.
+template <typename T>
+canon::Curve<T> constantCurve(T value, uint32_t sequenceIndex) {
+    canon::Curve<T> curve;
+    curve.sequence = canon::SequenceRef::sequence(sequenceIndex);
+    curve.interpolation = canon::Interpolation::Step;
+    curve.keyframes.emplace_back(0.0f, value);
+    return curve;
+}
+
+bool isVec(const m2::Vec3& v, float x, float y, float z) { return v.x == x && v.y == y && v.z == z; }
+
 std::optional<canon::VecCurve> resolveColorTint(const m2::Color& color, const M2MaterialInputs& m2,
                                                  uint32_t sequenceIndex) {
-    if (!color.colorAnimated || !m2.blob) return std::nullopt;
-    auto raw = m2::resolveVec3TrackSequence(*m2.blob, color.colorTrackOffset, sequenceIndex);
-    if (raw.empty()) return std::nullopt;
-    return toVecCurve(std::move(raw), toInterpolation(*m2.blob, color.colorTrackOffset), sequenceIndex);
+    if (color.colorAnimated) return m2.blob ? vec3Track(*m2.blob, color.colorTrackOffset, sequenceIndex) : std::nullopt;
+    if (!color.color || isVec(*color.color, 1, 1, 1)) return std::nullopt;
+    return constantCurve(canon::Vec3{color.color->x, color.color->y, color.color->z}, sequenceIndex);
 }
 
-// M2Color::alpha is an M2Track<fixed16> -- same raw-int-then-scale shape
-// export_materials.cpp's resolveAnimatedFixed16Curve reads via
-// m2::resolveRawIntTrackSequence(..., elementSize=2, ...), reused directly
-// here rather than re-derived.
 std::optional<canon::ScalarCurve> resolveColorAlphaFade(const m2::Color& color, const M2MaterialInputs& m2,
                                                           uint32_t sequenceIndex) {
-    if (!color.alphaAnimated || !m2.blob) return std::nullopt;
-    auto raw = m2::resolveRawIntTrackSequence(*m2.blob, color.alphaTrackOffset, sequenceIndex,
-                                               /*elementSize=*/2);
-    if (raw.empty()) return std::nullopt;
-    return toScalarCurve(std::move(raw), toInterpolation(*m2.blob, color.alphaTrackOffset), sequenceIndex);
+    if (color.alphaAnimated) return m2.blob ? fixed16Track(*m2.blob, color.alphaTrackOffset, sequenceIndex) : std::nullopt;
+    if (!color.alpha || *color.alpha == 1.0f) return std::nullopt;
+    return constantCurve(*color.alpha, sequenceIndex);
 }
 
+// A constant weight of 0 is kept: the batch is never drawn.
 std::optional<canon::ScalarCurve> resolveWeightFade(const m2::TextureWeight& weight, const M2MaterialInputs& m2,
                                                       uint32_t sequenceIndex) {
-    if (!weight.weightAnimated || !m2.blob) return std::nullopt;
-    auto raw = m2::resolveRawIntTrackSequence(*m2.blob, weight.weightTrackOffset, sequenceIndex,
-                                               /*elementSize=*/2);
-    if (raw.empty()) return std::nullopt;
-    return toScalarCurve(std::move(raw), toInterpolation(*m2.blob, weight.weightTrackOffset), sequenceIndex);
+    if (weight.weightAnimated) return m2.blob ? fixed16Track(*m2.blob, weight.weightTrackOffset, sequenceIndex) : std::nullopt;
+    if (!weight.weight || *weight.weight == 1.0f) return std::nullopt;
+    return constantCurve(*weight.weight, sequenceIndex);
 }
 
 std::optional<canon::MaterialLayer::TextureTransformCurves> resolveUvAnimation(const m2::TextureTransform& xf,
                                                                                  const M2MaterialInputs& m2,
                                                                                  uint32_t sequenceIndex) {
-    if (!m2.blob) return std::nullopt;
     canon::MaterialLayer::TextureTransformCurves curves;
-    bool any = false;
-
     if (xf.translationAnimated) {
-        auto raw = m2::resolveVec3TrackSequence(*m2.blob, xf.translationTrackOffset, sequenceIndex);
-        if (!raw.empty()) {
-            curves.translation =
-                toVecCurve(std::move(raw), toInterpolation(*m2.blob, xf.translationTrackOffset), sequenceIndex);
-            any = true;
-        }
+        if (m2.blob) curves.translation = vec3Track(*m2.blob, xf.translationTrackOffset, sequenceIndex);
+    } else if (xf.translation && !isVec(*xf.translation, 0, 0, 0)) {
+        curves.translation = constantCurve(canon::Vec3{xf.translation->x, xf.translation->y, xf.translation->z},
+                                           sequenceIndex);
     }
-    // TextureTransform::rotation is a raw C4Quaternion (4 floats, no
-    // M2CompQuat decompression) -- the same distinction
-    // m2_animation_input.hpp's own doc comment draws for bone rotation
-    // tracks, so this uses resolveRawQuatTrackSequence, not
-    // resolveQuatTrackSequence.
     if (xf.rotationAnimated) {
-        auto raw = m2::resolveRawQuatTrackSequence(*m2.blob, xf.rotationTrackOffset, sequenceIndex);
-        if (!raw.empty()) {
-            curves.rotation =
-                toQuatCurve(std::move(raw), toInterpolation(*m2.blob, xf.rotationTrackOffset), sequenceIndex);
-            any = true;
-        }
+        if (m2.blob) curves.rotation = rawQuatTrack(*m2.blob, xf.rotationTrackOffset, sequenceIndex);
+    } else if (xf.rotation && !(xf.rotation->x == 0 && xf.rotation->y == 0 && xf.rotation->z == 0 &&
+                                 xf.rotation->w == 1)) {
+        curves.rotation =
+            constantCurve(canon::Quat{xf.rotation->x, xf.rotation->y, xf.rotation->z, xf.rotation->w}, sequenceIndex);
     }
     if (xf.scalingAnimated) {
-        auto raw = m2::resolveVec3TrackSequence(*m2.blob, xf.scalingTrackOffset, sequenceIndex);
-        if (!raw.empty()) {
-            curves.scaling =
-                toVecCurve(std::move(raw), toInterpolation(*m2.blob, xf.scalingTrackOffset), sequenceIndex);
-            any = true;
-        }
+        if (m2.blob) curves.scaling = vec3Track(*m2.blob, xf.scalingTrackOffset, sequenceIndex);
+    } else if (xf.scaling && !isVec(*xf.scaling, 1, 1, 1)) {
+        curves.scaling = constantCurve(canon::Vec3{xf.scaling->x, xf.scaling->y, xf.scaling->z}, sequenceIndex);
     }
-    return any ? std::optional<canon::MaterialLayer::TextureTransformCurves>(std::move(curves)) : std::nullopt;
+    if (!curves.translation && !curves.rotation && !curves.scaling) return std::nullopt;
+    return curves;
 }
 
 // Texture unit `unit`'s coordinate animation: like its coordinate set, the
@@ -292,6 +319,31 @@ std::optional<canon::MaterialLayer::TextureTransformCurves> uvAnimationForUnit(c
     uint16_t transformIndex = m2.textureTransformCombos[comboIndex];
     if (transformIndex >= m2.textureTransforms.size()) return std::nullopt;
     return resolveUvAnimation(m2.textureTransforms[transformIndex], m2, sequenceIndex);
+}
+
+// IN (critical): a batch's colour and texture-weight indices, checked for
+// every batch, textured or not: a corrupt index is foreign data that
+// doesn't fit either way. colorIndex 0xFFFF is "none"; the weight combo
+// index is not nullable.
+void checkColorAndWeightIndices(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2) {
+    if (batch.colorIndex != 0xFFFF && batch.colorIndex >= m2.colors.size()) {
+        throw std::runtime_error("batch " + std::to_string(batchIndex) + "'s colorIndex (" +
+                                 std::to_string(batch.colorIndex) + ") is out of range for " +
+                                 std::to_string(m2.colors.size()) + " colors");
+    }
+    if (m2.textureWeightCombos.empty()) return;
+    if (batch.textureWeightComboIndex >= m2.textureWeightCombos.size()) {
+        throw std::runtime_error("batch " + std::to_string(batchIndex) + "'s textureWeightComboIndex (" +
+                                 std::to_string(batch.textureWeightComboIndex) + ") is out of range for " +
+                                 std::to_string(m2.textureWeightCombos.size()) + " textureWeightCombos entries");
+    }
+    uint16_t weightIndex = m2.textureWeightCombos[batch.textureWeightComboIndex];
+    if (weightIndex >= m2.textureWeights.size()) {
+        throw std::runtime_error("batch " + std::to_string(batchIndex) + "'s texture weight (index " +
+                                 std::to_string(weightIndex) + " via textureWeightCombos[" +
+                                 std::to_string(batch.textureWeightComboIndex) + "]) is out of range for " +
+                                 std::to_string(m2.textureWeights.size()) + " textureWeights entries");
+    }
 }
 
 // The required, layer-0 (primary) texture unit -- every check here throws
@@ -322,50 +374,20 @@ canon::MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batch
     layer.role = resolveRole(layer.uv, tex.type, /*isPrimaryLayer=*/true);
     layer.blendIntoPrevious = blendOp;
 
-    // colorIndex is genuinely optional (0xFFFF/"none" is common and
-    // expected); once present it's a required, bounds-checked lookup, same
-    // strictness export_materials.cpp applies.
+    // colorIndex is optional (0xFFFF); checkColorAndWeightIndices has
+    // bounds-checked both indices for every batch.
     if (batch.colorIndex != 0xFFFF) {
-        if (batch.colorIndex >= m2.colors.size()) {
-            throw std::runtime_error("batch " + std::to_string(batchIndex) + "'s colorIndex (" +
-                                      std::to_string(batch.colorIndex) + ") is out of range for " +
-                                      std::to_string(m2.colors.size()) + " colors");
-        }
         const auto& color = m2.colors[batch.colorIndex];
         layer.tint = resolveColorTint(color, m2, sequenceIndex);
         layer.alphaFade = resolveColorAlphaFade(color, m2, sequenceIndex);
     }
 
-    // textureWeightComboIndex is documented as not nullable (every real
-    // batch export_materials.cpp was tested against has a valid one), so
-    // it's resolved unconditionally like any other required index, exactly
-    // matching that function's own two-level bounds check (combo -> weight).
-    // A real M2Color and M2TextureWeight can independently animate at the
-    // same time ("I assume these are multiplied together" per
-    // m2::TextureWeight's own doc comment) -- canon::MaterialLayer has only
-    // one `alphaFade` slot to canon_material.hpp's own current design, not
-    // two, so a color-alpha curve (set just above) wins over a weight-fade
-    // curve when both are genuinely animated on the same batch. Flagged in
-    // this task's own report as a real representational gap, not silently
-    // glossed over.
-    if (!m2.textureWeightCombos.empty()) {
-        if (batch.textureWeightComboIndex >= m2.textureWeightCombos.size()) {
-            throw std::runtime_error(
-                "batch " + std::to_string(batchIndex) + "'s textureWeightComboIndex (" +
-                std::to_string(batch.textureWeightComboIndex) + ") is out of range for " +
-                std::to_string(m2.textureWeightCombos.size()) + " textureWeightCombos entries");
-        }
+    // M2Color alpha and M2TextureWeight multiply, but a layer has one
+    // `alphaFade`: the colour alpha wins when both are set (a known gap,
+    // CHARACTER_RENDERING.md §5).
+    if (!m2.textureWeightCombos.empty() && !layer.alphaFade) {
         uint16_t weightIndex = m2.textureWeightCombos[batch.textureWeightComboIndex];
-        if (weightIndex >= m2.textureWeights.size()) {
-            throw std::runtime_error(
-                "batch " + std::to_string(batchIndex) + "'s texture weight (index " +
-                std::to_string(weightIndex) + " via textureWeightCombos[" +
-                std::to_string(batch.textureWeightComboIndex) + "]) is out of range for " +
-                std::to_string(m2.textureWeights.size()) + " textureWeights entries");
-        }
-        if (!layer.alphaFade) {
-            layer.alphaFade = resolveWeightFade(m2.textureWeights[weightIndex], m2, sequenceIndex);
-        }
+        layer.alphaFade = resolveWeightFade(m2.textureWeights[weightIndex], m2, sequenceIndex);
     }
 
     layer.uvAnimation = uvAnimationForUnit(batch, 0, m2, sequenceIndex);
@@ -417,6 +439,7 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
     // M2Batch::textureCount == 0: no real M2 texture unit for this batch at
     // all -- Material::layers documents "one entry per real M2 texture
     // unit", so zero is the honest count, not a placeholder layer.
+    checkColorAndWeightIndices(batch, batchIndex, m2);
     if (batch.textureCount == 0) {
         return result;
     }

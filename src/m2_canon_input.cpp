@@ -105,6 +105,22 @@ MaterialKey materialKeyFor(const skin::Batch& b) {
             b.colorIndex,             b.textureWeightComboIndex, b.textureTransformComboIndex};
 }
 
+// A sequence's own facts for its clip; times from milliseconds to seconds.
+// The AnimationData name is filled later, by whoever has the DB2.
+canon::ClipInfo clipInfo(const m2::Sequence& s) {
+    canon::ClipInfo info;
+    info.animation = canon::Ref{canon::Db2Row{"AnimationData", s.id}, "", canon::NameSource::None};
+    info.variation = s.variationIndex;
+    info.duration = static_cast<float>(s.duration) / 1000.0f;
+    info.moveSpeed = s.movespeed;
+    info.frequency = s.frequency;
+    info.blendIn = static_cast<float>(s.blendTimeIn) / 1000.0f;
+    info.blendOut = static_cast<float>(s.blendTimeOut) / 1000.0f;
+    info.flags = s.flags;
+    info.variationNext = s.variationNext;
+    return info;
+}
+
 canon::CollisionMesh buildCollision(const m2::Model& model) {
     canon::enforcePartialFailurePolicy(model, "collision_mesh", canon::PartialFailurePolicy::Strict);
     const m2::CollisionMesh& c = model.collisionMesh;
@@ -196,6 +212,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
 
         canon::AnimationClip clip;
         clip.sequence = canon::SequenceRef::sequence(static_cast<uint32_t>(si));
+        clip.info = clipInfo(seq);
         clip.boneCurves.reserve(skeleton.joints.size());
         bool anyBoneAnimated = false;
         for (size_t bi = 0; bi < bones.size(); ++bi) {
@@ -250,6 +267,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
         canon::AnimationClip clip;
         clip.sequence = canon::SequenceRef::sequence(static_cast<uint32_t>(si));
         clip.boneCurves = animations[it->second].boneCurves;
+        clip.info = clipInfo(sequences[si]);
         animations.push_back(std::move(clip));
     }
 

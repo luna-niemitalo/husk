@@ -413,6 +413,26 @@ void writeAnimationSection(json::Writer& w, const canon::Skeleton& skeleton,
         w.value(static_cast<int64_t>(clip.sequence.index));
         w.key("sequence_kind");
         w.value(sequenceKindName(clip.sequence.kind));
+        if (clip.info) {
+            const canon::ClipInfo& info = *clip.info;
+            w.key("animation");
+            writeRef(w, info.animation);
+            w.key("variation");
+            w.value(static_cast<int64_t>(info.variation));
+            writeFloatField(w, "duration", info.duration);
+            writeFloatField(w, "move_speed", info.moveSpeed);
+            w.key("frequency");
+            w.value(static_cast<int64_t>(info.frequency));
+            writeFloatField(w, "blend_in", info.blendIn);
+            writeFloatField(w, "blend_out", info.blendOut);
+            w.key("source");
+            w.beginObject();
+            w.key("flags");
+            w.value(hexFlags(info.flags));
+            w.key("variation_next");
+            w.value(static_cast<int64_t>(info.variationNext));
+            w.endObject();
+        }
 
         w.key("joints");
         w.beginArray();
