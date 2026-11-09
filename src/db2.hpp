@@ -30,7 +30,7 @@
 // /media/luna/data/wow_export/dbfilesclient/ checked so far is WDC5), and the
 // pre-WDC2/legacy string-block layout (unneeded -- WDC5 always carries the
 // WDC2+ per-field string-offset scheme). Offset-map ("sparse", flags & 0x01)
-// sections now DO get real per-field decoding (decodeOffsetMapRecord) --
+// sections get real per-field decoding (decodeOffsetMapRecord) --
 // verified against 5 real local files (conversationline.db2,
 // scenescripttext.db2, and the three collectablesource*sparse.db2 tables),
 // covering every real field_compression value those files actually use
@@ -55,17 +55,11 @@
 // decodeOffsetMapRecord for exactly which real bytes caught each one. WDC5
 // itself still carries no field
 // *names* here -- no `field_structure`/`field_storage_info` entry in
-// DB2.md's own struct definitions carries a name string anywhere (mis-cited
-// in an earlier version of this comment as DB2.md's "Determining Field
-// Types" section, which is actually about inferring a field's *type* --
-// int/float/string -- not its name; that section says nothing about naming
-// at all). Real column naming now lives one layer up: `dbd.hpp` parses
-// WoWDBDefs' .dbd schema files (optional, local-only, see that file's own
-// module comment) and `husk db2-export` (src/cmd_db2.cpp) uses it to
-// produce a real, named, browsable SQLite database -- this file's own
-// `File`/`decodeField` stay name-agnostic by design, exactly the "table-
-// name-to-struct mapping" gap this comment used to describe as entirely
-// unaddressed.
+// DB2.md's own struct definitions carries a name string anywhere. Column
+// naming lives one layer up: `dbd.hpp` parses WoWDBDefs' .dbd schema files
+// (optional, local-only, see that file's own module comment) and
+// `db2table.hpp` reads named columns on top of both -- this file's own
+// `File`/`decodeField` stay name-agnostic by design.
 namespace husk::db2 {
 
 struct ParseError : std::runtime_error {
@@ -193,7 +187,7 @@ struct Section {
     // `tactKeyHash != 0` means this section *would* be TACT-key-gated if
     // the key were unavailable at extraction time -- it does NOT mean the
     // bytes husk actually has are still ciphertext. Confirmed against a
-    // real 130k-file corpus (2026-08-16): a real CASC extraction (via
+    // real 130k-file corpus: a real CASC extraction (via
     // CascLib, given the community TACT key) already decrypts these
     // sections before the .db2 file is ever written to disk in 111/126
     // real cases found; only 15 (all one already-known-truncated file)

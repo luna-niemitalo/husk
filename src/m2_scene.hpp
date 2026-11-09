@@ -184,7 +184,7 @@ struct ParticleEmitter {
 // threshold. One entry expected per `particle_emitters` array entry (same
 // indexing convention TXAC/EXPT/RPID/GPID/PGD1 already use) -- not
 // cross-checked here, same "trust this chunk's own byte length" policy
-// dumpTxac already uses.
+// dumpTxac already uses. Real-file verification: `WIKI_FINDINGS/M2.md`.
 struct ExtendedParticle {
     float zSource = 0;
     float colorMult = 0;

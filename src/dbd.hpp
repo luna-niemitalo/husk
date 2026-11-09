@@ -92,8 +92,7 @@ struct Field {
     // absent, exactly the grammar's own "no size (floats, (loc)strings,
     // non-inline IDs)"/"no [Length] means scalar" defaults. Used by
     // resolveFieldNames' cross-validation against db2::FieldStorageInfo;
-    // not needed for plain name resolution, which is why these were
-    // previously parsed and discarded.
+    // not needed for plain name resolution.
     std::optional<uint32_t> declaredBits;
     bool declaredUnsigned = false;  // the <Size>'s "u" prefix
     uint32_t arrayLength = 1;

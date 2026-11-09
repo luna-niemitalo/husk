@@ -45,6 +45,8 @@ constexpr size_t kSchemaStringSize = 128;
 // DB2.md's wdc5_db2_header (id_index sits as the low half of one uint32
 // slot, packed with flags -- read as two uint16 below, matching the header's
 // documented `uint16_t flags; uint16_t id_index;` pair).
+// IN, critical: the magic is checked here; every count/size field is
+// checked where it sizes a read (requireBytes in parse).
 Header parseHeader(const std::vector<uint8_t>& buf, size_t& pos) {
     requireBytes(0, kMagicSize, buf.size(), "WDC5 magic");
     std::string magic(reinterpret_cast<const char*>(buf.data()), kMagicSize);
@@ -215,6 +217,9 @@ uint32_t additionalDataOffset(const std::vector<FieldStorageInfo>& infos, size_t
 
 }  // namespace
 
+// IN, critical: the whole file; any block that doesn't fit throws.
+// IN, non-critical: an all-zero relationship map (data never extracted)
+// is read as empty, see below.
 File parse(const std::vector<uint8_t>& buf) {
     File file;
     size_t pos = 0;
@@ -258,7 +263,7 @@ File parse(const std::vector<uint8_t>& buf) {
         for (uint32_t i = 0; i < info.additionalDataSize / 8; ++i) {
             uint32_t entryPos = offset + i * 8;
             uint32_t id = readU32(file.commonData, entryPos, "commonData entry id");
-            // First entry wins, as the scan this replaces returned.
+            // First entry wins, matching decodeOffsetMapRecord's scan.
             file.commonDataByField[f].emplace(id, readU32(file.commonData, entryPos + 4, "commonData entry value"));
         }
     }
@@ -298,6 +303,13 @@ File parse(const std::vector<uint8_t>& buf) {
                                         buf.data() + sectionPos + section.header.stringTableSize);
             sectionPos += section.header.stringTableSize;
         } else {
+            // Unchecked, the subtraction below wraps and requireBytes
+            // reports a nonsense byte count.
+            if (section.header.offsetRecordsEnd < sectionPos) {
+                throw ParseError("db2: section " + std::to_string(i) + ": expected offsetRecordsEnd >= fileOffset " +
+                                  std::to_string(sectionPos) + ", got " +
+                                  std::to_string(section.header.offsetRecordsEnd));
+            }
             requireBytes(sectionPos, section.header.offsetRecordsEnd - sectionPos, buf.size(),
                          "section.variableRecordData");
             sectionPos = section.header.offsetRecordsEnd;
@@ -368,12 +380,13 @@ File parse(const std::vector<uint8_t>& buf) {
             size_t relationshipEnd = sectionPos + section.header.relationshipDataSize;
             requireBytes(sectionPos, section.header.relationshipDataSize, buf.size(),
                          "section.relationshipMap");
-            // Same real-world shape as Section::recordsAvailable() above: a
-            // region that genuinely wasn't extracted (a truncated download
-            // patched back to the declared file size with zero bytes,
-            // confirmed 2026-08-16 against a real casc-tool re-extraction --
-            // see recordsAvailable()'s own comment) reads as all-zero here
-            // too, and "declares 140 bytes, decoded 0 real entries" is a
+            // IN, non-critical when all-zero. Same real-world shape as
+            // Section::recordsAvailable(): a region that genuinely wasn't
+            // extracted (a truncated download patched back to the declared
+            // file size with zero bytes, confirmed against a real casc-tool
+            // re-extraction -- see recordsAvailable()'s own comment) reads
+            // as all-zero here too, and "declares 140 bytes, decoded 0 real
+            // entries" is a
             // legitimate "this data isn't here" signal, not a corrupt-file
             // signal -- degrade gracefully (empty relationshipEntries, keep
             // reading the rest of the section) instead of throwing and
@@ -499,6 +512,8 @@ std::vector<std::optional<uint32_t>> nonInlineRelationValuesByRecord(const File&
     return values;
 }
 
+// IN, critical: per-record field bytes are decoded lazily, so field widths
+// and pallet/common-data offsets are checked here, per read (see readBits).
 std::vector<uint64_t> decodeField(const File& file, const Section& section, size_t recordIndex,
                                    size_t fieldIndex) {
     if (fieldIndex >= file.fieldStorageInfo.size()) {
@@ -528,8 +543,9 @@ std::vector<uint64_t> decodeField(const File& file, const Section& section, size
             // totalFieldCount-sized, per-field arrays) -- not re-sorted or
             // re-derived here.
             if (fieldIndex >= file.fieldStructures.size()) {
-                throw ParseError("db2: fieldStorageInfo/fieldStructures length mismatch at index " +
-                                  std::to_string(fieldIndex));
+                throw ParseError("db2: field " + std::to_string(fieldIndex) +
+                                  ": expected a fieldStructures entry for it, got only " +
+                                  std::to_string(file.fieldStructures.size()) + " entries");
             }
             int16_t structSize = file.fieldStructures[fieldIndex].size;
             auto elementBits = static_cast<uint32_t>(32 - structSize);
@@ -632,6 +648,9 @@ std::optional<std::string> tryReadInlineString(const std::vector<uint8_t>& recor
 
 }  // namespace
 
+// IN, critical: a record's fields are walked with a bit cursor, so one
+// misread field would desync every field after it; anything that doesn't
+// fit throws.
 std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const Section& section,
                                                          size_t recordIndex) {
     if (recordIndex >= section.header.recordCount) {
@@ -661,8 +680,9 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
         switch (info.storageType) {
             case FieldCompression::None: {
                 if (f >= file.fieldStructures.size()) {
-                    throw ParseError("db2: fieldStorageInfo/fieldStructures length mismatch at index " +
-                                      std::to_string(f));
+                    throw ParseError("db2: offset-map field " + std::to_string(f) +
+                                      ": expected a fieldStructures entry for it, got only " +
+                                      std::to_string(file.fieldStructures.size()) + " entries");
                 }
                 int16_t structSize = file.fieldStructures[f].size;
                 auto elementBits = static_cast<uint32_t>(32 - structSize);
@@ -803,16 +823,16 @@ std::optional<std::string> resolveFieldString(const std::vector<uint8_t>& fileBy
     // reference/wow.export's WDCReader.js: `if (ofs == 0) out[prop] = ''`)
     // -- NOT a same-position self-reference. Caught here explicitly rather
     // than falling into the position math below: `fieldAbsoluteFilePos`
-    // now (as of the multi-section string-offset fix) already carries a
-    // per-section correction that can be negative, so a zero rawValue no
-    // longer reliably lands back inside this field's own record bytes --
-    // it can land anywhere earlier in the file, including real binary data
-    // (pallet_data, header fields) that occasionally passes this
-    // function's permissive printable-byte heuristic by sheer coincidence.
-    // Confirmed against real data: chrcustomizationchoice.db2's row 1
-    // field 0 has rawValue 0 and, pre-this-check, resolved to the literal
-    // bytes ".\x8c}\xff" at file offset 17332 -- genuine int32 pallet
-    // data, not a string.
+    // carries a per-section correction that can be negative, so a zero
+    // rawValue doesn't reliably land back inside this field's own record
+    // bytes -- it can land anywhere earlier in the file, including real
+    // binary data (pallet_data, header fields) that occasionally passes
+    // this function's permissive printable-byte heuristic by coincidence
+    // (chrcustomizationchoice.db2 row 1 field 0 would read int32 pallet
+    // data at file offset 17332 as the "string" ".\x8c}\xff").
+    //
+    // IN, non-critical: a heuristic. Any offset that lands outside the
+    // file or on non-string bytes is "no string" (nullopt), never a throw.
     if (rawValue == 0) return std::nullopt;
 
     // Absolute file position of the referenced string, per DB2.md's WDC2+

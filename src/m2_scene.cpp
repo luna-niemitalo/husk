@@ -126,8 +126,6 @@ std::vector<Ribbon> parseRibbons(const std::vector<uint8_t>& blob, const Array& 
 
     // M2Ribbon, >= Wrath shape (wowdev.wiki M2#Ribbon_emitters -- see
     // Ribbon's doc comment in m2_scene.hpp for the full offset derivation).
-    // TODO: Remove: WIKI_FINDINGS.md for the real-file cross-check that
-    // confirmed it.
     constexpr size_t kRibbonSize = 0xB0;
     constexpr size_t kRibbonIdOffset = 0x00;
     constexpr size_t kBoneIndexOffset = 0x04;

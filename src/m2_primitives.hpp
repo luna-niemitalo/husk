@@ -6,8 +6,7 @@
 #include <vector>
 
 // M2 primitive types and blob-parsing entry points, per
-// https://wowdev.wiki/M2 (fetched 2026-07-24). This is the
-// base module every other m2_*.hpp builds on: the plain (count, offset)/
+// https://wowdev.wiki/M2. This is the base module every other m2_*.hpp builds on: the plain (count, offset)/
 // vector/quaternion primitives every struct elsewhere is made of, the
 // bounds-checked blob-read helpers every parse* function elsewhere calls,
 // and the top-level entry points (parseHeader/loadFile/extractBlob) that
@@ -70,6 +69,8 @@ struct ParseError : std::runtime_error {
 };
 
 // Bounds-checked blob-read primitives shared across every m2_*.cpp file.
+// IN, critical: each throws ParseError naming the offset and blob size
+// when a read runs past the end.
 uint32_t readU32(const uint8_t* blob, size_t blobSize, size_t off);
 uint16_t readU16(const uint8_t* blob, size_t blobSize, size_t off);
 uint8_t readU8(const uint8_t* blob, size_t blobSize, size_t off);
@@ -117,8 +118,9 @@ std::string expansionForVersion(uint32_t version);
 // from an older-client extraction) would be silently decoded at the wrong
 // byte stride: not necessarily a bounds error, just quiet wrong data, the
 // same failure shape a wrong stride guess always risks (see Sequence's doc
-// comment in m2_animation.hpp). Callers that resolve these three arrays
-// check `header.version < kMinVerifiedRecordStrideVersion`
+// comment in m2_animation.hpp for one such case this parser already had to
+// correct). Callers that resolve these three arrays (cmd_info.cpp,
+// cmd_export.cpp) check `header.version < kMinVerifiedRecordStrideVersion`
 // and warn loudly rather than silently trusting output this parser was
 // never confirmed to read correctly for that version.
 constexpr uint32_t kMinVerifiedRecordStrideVersion = 264;

@@ -1,5 +1,6 @@
 #include "listfile.hpp"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -8,29 +9,21 @@
 
 namespace husk {
 
-// Reads and parses the whole file as one pass over an in-memory buffer
-// (fread + manual memchr/digit scanning), not std::ifstream's
-// std::getline()-per-line plus std::stoul (exception-based, and re-scans
-// each numeric substring). A real community-listfile.csv is ~2.2M lines,
-// and husk has no persistent process to cache a parsed listfile across
-// invocations -- render_sample_driver.py's full-corpus run calls `husk
-// export` 130,576 times, so this file gets re-parsed from scratch that
-// many times. Confirmed by direct timing that this rewrite matters, not
-// just theoretical: the original getline()+stoul version added ~1.1s of
-// pure single-threaded parsing per call (over 36 hours of aggregate waste
-// across a full run, and the real cause of a live "both CPU and GPU usage
-// dropped" regression report after --listfile first shipped) -- this
-// version's overhead is small enough to be within run-to-run noise against
-// not passing --listfile at all, with every real listfile entry still
-// loaded (no pruning: an earlier fix attempt filtered the listfile down to
-// only currently-known-relevant FileDataIDs, which is faster still, but
-// risks silently missing coverage for anything not already flagged by
-// today's specific corpus scan -- this rewrite keeps the full file the
-// deliberately safer choice).
+// One pass over an in-memory buffer (fread + memchr/digit scanning), not
+// getline()+stoul: a real listfile is ~2.2M lines, re-parsed on every
+// uncached invocation, and the line-by-line form cost ~1.1s per call
+// (DESIGN.md "Listfile cache"). Every entry is kept: filtering to known-
+// relevant FileDataIDs would silently drop coverage for anything not yet
+// known.
+//
+// IN, critical: the file itself (an unopenable --listfile throws).
+// IN, non-critical per line: a line without a "<digits>;<path>" shape, a
+// FileDataID of 0 or over 10 digits, or an empty path is skipped
+// (DESIGN.md: "a malformed line is still silently skipped").
 std::unordered_map<uint32_t, std::string> loadListfile(const std::string& path) {
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) {
-        throw std::runtime_error("husk: couldn't open --listfile '" + path + "'");
+        throw std::runtime_error("husk: couldn't open --listfile '" + path + "': " + std::strerror(errno));
     }
     std::fseek(f, 0, SEEK_END);
     long size = std::ftell(f);

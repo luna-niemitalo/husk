@@ -281,6 +281,7 @@ void checkLightSetWindows(const std::vector<LightSetWindow>& windows, size_t rec
     }
 }
 
+// IN, critical: the grid header must match the chunk's size exactly.
 Liquid parseLiquid(const Chunk& c) {
     constexpr size_t kHeaderSize = 30;
     constexpr size_t kVertexSize = 8;
@@ -438,6 +439,8 @@ std::vector<Batch> parseBatches(const Chunk& c) {
 // there. The last one grows by 65,536 while the faces it would take are
 // rendered with its own material: groups often end with faces outside any
 // batch (1,386 of 3,890 sampled), which this leaves alone.
+// IN, non-critical: a repair by inference, never a throw; the repaired
+// ranges are checked against MOVI afterwards in parseGroup.
 void unwrapBatchCounts(GroupFile& g) {
     constexpr uint32_t kWrap = 65536;
     for (size_t i = 0; i + 1 < g.batches.size(); ++i) {
@@ -492,6 +495,8 @@ void keepIfNonzero(const uint8_t* record, size_t begin, size_t end, std::vector<
     if (set) out.push_back(std::move(range));
 }
 
+// IN, critical: keyframe count and the trailing emitter count are checked
+// against the record's own layout; unknown ranges are kept, not judged.
 ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_t offset, const std::string& what) {
     if (offset > size || size - offset < kParticulateVolumeSize) {
         throw ParseError(what + ": expected " + std::to_string(kParticulateVolumeSize) + " bytes at offset " +
@@ -555,6 +560,10 @@ ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_
     return v;
 }
 
+// IN, critical: every in-file cross-reference (per-material/per-doodad/
+// per-portal/per-fog arrays, doodad-set indices and ranges, portal
+// vertices and links) is checked here, after all chunks are read, so
+// consumers index without checking. Unknown chunks are skipped.
 RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     std::vector<Chunk> chunks = readChunksReversed(fileBytes.data(), fileBytes.size());
     RootFile root;
@@ -618,10 +627,13 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     }
     for (size_t i = 0; i < root.portalRefs.size(); ++i) {
         const PortalRef& r = root.portalRefs[i];
-        if (r.portal >= root.portals.size() || r.group >= root.groups.size()) {
+        if (r.portal >= root.portals.size()) {
             throw ParseError("MOPR[" + std::to_string(i) + "]: expected portal < " + std::to_string(root.portals.size()) +
-                             " and group < " + std::to_string(root.groups.size()) + ", got portal " +
-                             std::to_string(r.portal) + ", group " + std::to_string(r.group));
+                             ", got " + std::to_string(r.portal));
+        }
+        if (r.group >= root.groups.size()) {
+            throw ParseError("MOPR[" + std::to_string(i) + "]: expected group < " + std::to_string(root.groups.size()) +
+                             ", got " + std::to_string(r.group));
         }
     }
     if (!root.portalExtras.empty() && root.portalExtras.size() != root.portals.size()) {
@@ -657,6 +669,10 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     return root;
 }
 
+// IN, critical: per-vertex and per-face array lengths, indices, batch
+// ranges, light-set windows and MOQG face coverage are checked here.
+// References into the root (materials, lights, volumes) are not: the root
+// isn't in this file.
 GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
     std::vector<Chunk> top = readChunksReversed(fileBytes.data(), fileBytes.size());
     GroupFile g;
@@ -778,6 +794,8 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
     return g;
 }
 
+// IN, non-critical: 0 (no FileDataID) when the tier or group has no GFID
+// row; the caller falls back to the file name.
 uint32_t groupFileDataId(const RootFile& root, uint32_t lodTier, uint32_t group) {
     size_t index = static_cast<size_t>(lodTier) * root.header.groupCount + group;
     if (group >= root.header.groupCount || index >= root.groupFileDataIds.size()) return 0;

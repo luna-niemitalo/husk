@@ -56,6 +56,8 @@ m2::Array readArray(const uint8_t* buf, size_t bufSize, size_t off) {
 
 }  // namespace
 
+// IN, critical: a .skin whose header doesn't fit or isn't "SKIN" has no
+// triangles to give, so the model can't be drawn from it.
 Header parseHeader(const std::vector<uint8_t>& fileBytes) {
     if (fileBytes.size() < offset::minHeaderSize) {
         throw ParseError(".skin header is " + std::to_string(fileBytes.size()) +
@@ -81,6 +83,7 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes) {
     return h;
 }
 
+// IN, critical: `array` comes straight from the file's header.
 std::vector<uint16_t> parseU16Array(const std::vector<uint8_t>& fileBytes, const m2::Array& array) {
     std::vector<uint16_t> values;
     if (array.count == 0) {
@@ -90,9 +93,8 @@ std::vector<uint16_t> parseU16Array(const std::vector<uint8_t>& fileBytes, const
     const uint8_t* data = fileBytes.data();
     size_t size = fileBytes.size();
 
-    // Up-front validation before reserve(), same reasoning and same bug
-    // class as husk::m2::parseVertices/parseBones.
-    // TODO: Remove: FAILURES.md #2.
+    // Checked before reserve(): a foreign count would otherwise size the
+    // allocation before any read fails.
     constexpr size_t kElementSize = 2;  // uint16
     if (array.offset > size || array.count > (size - array.offset) / kElementSize) {
         throw ParseError("array claims " + std::to_string(array.count) +
@@ -115,6 +117,8 @@ std::vector<uint32_t> resolveTriangleIndices(const std::vector<uint8_t>& fileByt
 
     std::vector<uint32_t> globalIndices;
     globalIndices.reserve(localIndices.size());
+    // IN, critical: an index past `vertices` would draw from an unrelated
+    // vertex, silently.
     for (uint16_t slot : localIndices) {
         if (slot >= localVertices.size()) {
             throw ParseError("skin index " + std::to_string(slot) +
@@ -126,6 +130,7 @@ std::vector<uint32_t> resolveTriangleIndices(const std::vector<uint8_t>& fileByt
     return globalIndices;
 }
 
+// IN, critical: `array` comes straight from the file's header.
 std::vector<Submesh> parseSubmeshes(const std::vector<uint8_t>& fileBytes, const m2::Array& array) {
     std::vector<Submesh> submeshes;
     if (array.count == 0) {
@@ -167,6 +172,9 @@ std::vector<Submesh> parseSubmeshes(const std::vector<uint8_t>& fileBytes, const
     return submeshes;
 }
 
+// IN, critical: `array` comes straight from the file's header. The batch's
+// indices into other tables (submesh, material, combos) are not checked
+// here: those tables aren't in this file.
 std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2::Array& array) {
     std::vector<Batch> batches;
     if (array.count == 0) {

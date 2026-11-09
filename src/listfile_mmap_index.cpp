@@ -1,6 +1,7 @@
 #include "listfile_mmap_index.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -120,28 +121,19 @@ static_assert(offsetof(HashHeader, tableSize) % 8 == 0);
 
 uint64_t roundUp8(uint64_t n) { return (n + 7) & ~uint64_t(7); }
 
-// std::bit_ceil is C++20; this project targets C++17 (CMakeLists.txt).
-// Smallest power of 2 >= n, n >= 1.
-uint64_t nextPow2(uint64_t n) {
-    uint64_t p = 1;
-    while (p < n) p <<= 1;
-    return p;
-}
-
-// Bound checks mirror listfile_cache.cpp's pre-existing generous ceilings
-// (real listfile scale is ~2.2M rows / ~150MB) -- this is husk's own cache
-// file, but a corrupt/truncated header (a racing writer's half-finished
-// temp file, plain disk corruption) must not let a garbage entryCount or
-// blobSize drive an out-of-bounds mmap read below.
+// Generous ceilings over real listfile scale (~2.2M rows / ~150MB). The
+// cache is husk's own format, but another process wrote it: a corrupt or
+// truncated header (disk corruption, a racing writer) must not let a
+// garbage entryCount or blobSize drive an out-of-bounds mmap read below.
 constexpr uint64_t kMaxEntryCount = 50'000'000;
 constexpr uint64_t kMaxBlobSize = 4ull * 1024 * 1024 * 1024;
 constexpr uint32_t kMaxSourcePathLength = 1u << 20;
 
-// Validates the common prefix against the caller's just-observed source
-// identity (path/size/mtime) -- same "any mismatch means rebuild, never a
-// silent partial read" contract listfile_cache.cpp's tryLoadCache already
-// established. Returns false for anything from "too small to hold a
-// header" to "right source, wrong format" to "stale/corrupt".
+// IN, non-critical: validates the common prefix against the caller's
+// just-observed source identity (path/size/mtime). Any mismatch means
+// rebuild, never a partial read. Returns false for anything from "too
+// small to hold a header" to "right source, wrong format" to
+// "stale/corrupt".
 //
 // `fullHeaderSize` is sizeof(SortedHeader)/sizeof(HashHeader) (the caller's
 // own format-specific header, common prefix plus its own extra fields) --
@@ -181,8 +173,7 @@ void writeAtomic(const std::string& path, const std::vector<uint8_t>& bytes) {
     }
     // rename() within one filesystem is atomic -- a concurrent reader's
     // open() either sees the old complete file or the new one, never a
-    // half-written one. See listfile_cache.cpp's writeCacheAtomic for the
-    // full concurrency rationale this mirrors.
+    // half-written one (DESIGN.md "Listfile cache").
     if (std::rename(tmpPath.c_str(), path.c_str()) != 0) {
         std::remove(tmpPath.c_str());
         throw std::runtime_error("husk: note: couldn't install listfile cache at '" + path + "'");
@@ -260,12 +251,9 @@ bool MmapSortedListfileIndex::tryLoad(const std::string& path, const std::string
                                &common)) {
         return false;
     }
-    if (mapping.size() < sizeof(SortedHeader)) return false;
     const auto* header = reinterpret_cast<const SortedHeader*>(mapping.data());
     // Bound the three variable sections against the real mapped file size
-    // before trusting their stored offsets for any pointer arithmetic --
-    // same "corrupt header must not drive an out-of-bounds read" discipline
-    // as validateCommonHeader.
+    // before trusting their stored offsets for any pointer arithmetic.
     uint64_t fdidsEnd = header->fdidsOffset + uint64_t(header->common.entryCount) * sizeof(uint32_t);
     uint64_t cumOffsetsEnd = header->cumOffsetsOffset + uint64_t(header->common.entryCount + 1) * sizeof(uint64_t);
     uint64_t blobEnd = header->blobOffset + header->common.blobSize;
@@ -391,7 +379,6 @@ bool MmapHashListfileIndex::tryLoad(const std::string& path, const std::string& 
                                &common)) {
         return false;
     }
-    if (mapping.size() < sizeof(HashHeader)) return false;
     const auto* header = reinterpret_cast<const HashHeader*>(mapping.data());
     if (header->tableSize == 0 || (header->tableSize & (header->tableSize - 1)) != 0) return false;  // must be pow2
     uint64_t slotsEnd = header->slotsOffset + header->tableSize * sizeof(MmapHashListfileIndex::Slot);
@@ -412,7 +399,7 @@ void MmapHashListfileIndex::build(const std::string& path, const std::string& so
     // 1 so an empty listfile still produces a well-formed (if degenerate)
     // table rather than a zero-sized one lookup() would need to special-case.
     uint64_t minSlots = entryCount == 0 ? 1 : uint64_t(entryCount) * 2;
-    uint64_t tableSize = nextPow2(minSlots);
+    uint64_t tableSize = std::bit_ceil(minSlots);
 
     std::vector<Slot> slots(tableSize, Slot{0, 0, 0});
     std::vector<uint8_t> blobBytes;

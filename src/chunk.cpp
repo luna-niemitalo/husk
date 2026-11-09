@@ -4,6 +4,9 @@
 
 namespace husk {
 
+// IN, critical: every chunked format's first contact with the file; a
+// chunk whose size runs past the buffer would make every later offset lie.
+// Tags are not checked: unknown chunks are kept and skipped by callers.
 std::vector<Chunk> readChunks(const uint8_t* buf, size_t size) {
     std::vector<Chunk> chunks;
     size_t pos = 0;

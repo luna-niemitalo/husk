@@ -6,7 +6,7 @@
 
 #include "m2.hpp"
 
-// .skin file parsing, per https://wowdev.wiki/M2/.skin (fetched 2026-07-24).
+// .skin file parsing, per https://wowdev.wiki/M2/.skin.
 //
 // A .skin file is one LOD/submesh "view" onto an M2's vertex list. M2 files
 // carry no triangle indices themselves (wowdev.wiki M2#Views_(LOD)) -- those
@@ -17,10 +17,8 @@
 // `vertices[indices[0]], vertices[indices[1]], vertices[indices[2]], ...`.
 //
 // Unlike M2 itself, .skin files are never chunked -- flat header, offsets
-// relative to the start of the .skin file. Only the fields needed to build
-// that triangle-index buffer are read here (magic, vertices, indices); the
-// header continues further (bones, submeshes, batches, ...) for later work
-// (per-material/per-submesh export, skinning).
+// relative to the start of the .skin file. Read: magic, vertices, indices,
+// submeshes, batches; `bones` and everything after `batches` are unread.
 namespace husk::skin {
 
 struct Header {
@@ -79,10 +77,8 @@ struct Batch {
     // Header::textureCoordCombos): documented as -1 (0xFFFF)/0/1, selecting
     // environment mapping (unhandled, falls back to UV set 0)/UV set 0/UV
     // set 1 for this batch's texture -- see src/cmd_export.cpp's fuller
-    // doc comment on this same field.
-    // TODO: Remove: a real file's table holds values outside that
-    // documented range (likely vestigial, safely ignored either way), see
-    // `WIKI_FINDINGS/M2/skin.md`.
+    // doc comment on this same field. Real tables hold values outside that
+    // documented range (`WIKI_FINDINGS/M2/skin.md`).
     uint16_t textureCoordComboIndex = 0;
     // -1 (0xFFFF) if none, else an index into M2's own `colors` array
     // (m2::Color) -- a per-batch tint/fade, see src/cmd_export.cpp.

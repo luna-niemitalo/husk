@@ -19,7 +19,7 @@ std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array&
     // doesn't know about yet, shifting this offset, looks like) must not
     // be able to make this allocate hundreds of GB before the very first
     // per-element check below ever runs.
-    // TODO: Remove: FAILURES.md #2.
+    // IN, critical: the count and offset come straight from the header.
     if (array.offset > blobSize || array.count > (blobSize - array.offset) / kVertexSize) {
         throw ParseError("vertices array claims " + std::to_string(array.count) + " records (" +
                           std::to_string(kVertexSize) + " bytes each) at offset " +
@@ -68,7 +68,7 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
     // Same up-front validation as parseVertices above, and for the same
     // reason -- a corrupted/misread count must fail with a real message
     // here, not a bare std::bad_alloc from reserve().
-    // TODO: Remove: FAILURES.md #2.
+    // IN, critical: the count and offset come straight from the header.
     if (array.offset > blobSize || array.count > (blobSize - array.offset) / kBoneSize) {
         throw ParseError("bones array claims " + std::to_string(array.count) + " records (" +
                           std::to_string(kBoneSize) + " bytes each) at offset " +

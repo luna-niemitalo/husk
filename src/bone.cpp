@@ -34,6 +34,9 @@ float readF32(const uint8_t* buf, size_t bufSize, size_t off) {
 
 }  // namespace
 
+// IN, critical: the format is reverse-engineered, so anything that doesn't
+// match the observed layout throws rather than being guessed at.
+// boneIndex is not range-checked here: the model's bone count isn't known.
 std::vector<Correction> parse(const std::vector<uint8_t>& fileBytes) {
     if (fileBytes.size() < kVersionSize) {
         throw ParseError(".bone file is " + std::to_string(fileBytes.size()) +
@@ -42,27 +45,39 @@ std::vector<Correction> parse(const std::vector<uint8_t>& fileBytes) {
     }
 
     auto chunks = readChunks(fileBytes.data() + kVersionSize, fileBytes.size() - kVersionSize);
-    auto bida = findChunk(chunks, "BIDA");
-    auto bomt = findChunk(chunks, "BOMT");
-    if (!bida || !bomt) {
+    auto foundTags = [&] {
         std::string found;
         for (const auto& c : chunks) {
             if (!found.empty()) found += ", ";
             found += c.tag;
         }
-        throw ParseError("expected BIDA and BOMT chunks in .bone file; chunks found: [" + found +
-                          "]");
+        return found;
+    };
+    auto bida = findChunk(chunks, "BIDA");
+    if (!bida) {
+        throw ParseError("expected a BIDA chunk in .bone file; chunks found: [" + foundTags() + "]");
+    }
+    auto bomt = findChunk(chunks, "BOMT");
+    if (!bomt) {
+        throw ParseError("expected a BOMT chunk in .bone file; chunks found: [" + foundTags() + "]");
     }
 
     constexpr size_t kBoneIndexSize = 2;
     constexpr size_t kMatrixSize = 64;  // 16 floats
+    if (bida->size % kBoneIndexSize != 0) {
+        throw ParseError("BIDA: expected size multiple of " + std::to_string(kBoneIndexSize) + ", got " +
+                          std::to_string(bida->size));
+    }
+    if (bomt->size % kMatrixSize != 0) {
+        throw ParseError("BOMT: expected size multiple of " + std::to_string(kMatrixSize) + ", got " +
+                          std::to_string(bomt->size));
+    }
+    // Every real file has BIDA and BOMT in lockstep; a mismatch can't be
+    // paired without guessing.
     size_t count = bida->size / kBoneIndexSize;
-    if (bida->size % kBoneIndexSize != 0 || bomt->size % kMatrixSize != 0 ||
-        count != bomt->size / kMatrixSize) {
-        throw ParseError("BIDA (" + std::to_string(bida->size) + " bytes, " + std::to_string(count) +
-                          " indices) and BOMT (" + std::to_string(bomt->size) + " bytes, " +
-                          std::to_string(bomt->size / kMatrixSize) +
-                          " matrices) don't agree on entry count");
+    if (count != bomt->size / kMatrixSize) {
+        throw ParseError("BOMT: expected " + std::to_string(count) + " matrices (one per BIDA index), got " +
+                          std::to_string(bomt->size / kMatrixSize));
     }
 
     std::vector<Correction> corrections;

@@ -26,7 +26,7 @@ ColumnType parseBaseType(const std::string& base) {
     if (base == "float") return ColumnType::Float;
     if (base == "string") return ColumnType::String;
     if (base == "locstring") return ColumnType::LocString;
-    throw ParseError("dbd: unknown column type '" + base + "'");
+    throw ParseError("dbd: expected column type int/float/string/locstring, got '" + base + "'");
 }
 
 // A foreign-key column looks like "int<Table::Col>" -- the base type is the
@@ -49,6 +49,16 @@ std::pair<ColumnType, std::optional<RelationTarget>> parseColumnType(const std::
     return {type, rel};
 }
 
+// IN, critical: a hex hash that doesn't parse would otherwise surface as a
+// bare std::stoul exception with no token or context.
+uint32_t parseHexHash(const std::string& token, const char* where) {
+    try {
+        return static_cast<uint32_t>(std::stoul(token, nullptr, 16));
+    } catch (const std::exception&) {
+        throw ParseError(std::string("dbd: ") + where + ": expected a hex hash, got '" + token + "'");
+    }
+}
+
 std::vector<uint32_t> parseHashList(const std::string& rest) {
     std::vector<uint32_t> hashes;
     std::istringstream iss(rest);
@@ -56,18 +66,16 @@ std::vector<uint32_t> parseHashList(const std::string& rest) {
     while (std::getline(iss, tok, ',')) {
         tok = trim(tok);
         if (tok.empty()) continue;
-        hashes.push_back(static_cast<uint32_t>(std::stoul(tok, nullptr, 16)));
+        hashes.push_back(parseHexHash(tok, "LAYOUT"));
     }
     return hashes;
 }
 
 // One field line inside a LAYOUT block, e.g. "$noninline,id$ID<32>",
 // "$relation$CharComponentTextureLayoutsID<32>", "TextureType<32>",
-// "Name[3]", "Name<32>[3] // comment". The annotations/name were always
-// needed for naming; <Size>/[Length] are parsed too now (declaredBits/
-// arrayLength), needed by resolveFieldNames' field_storage_info
-// cross-check -- see WoWDBDefs README.md's "Columns" section for the
-// grammar ("Size (8, 16, 32 or 64, prefixed by u if unsigned int):
+// "Name[3]", "Name<32>[3] // comment". <Size>/[Length] (declaredBits/
+// arrayLength) feed resolveFieldNames' field_storage_info cross-check --
+// see WoWDBDefs README.md's "Columns" section for the grammar ("Size (8, 16, 32 or 64, prefixed by u if unsigned int):
 // ColName<Size>", "Array: ColName[Length]", "Both: ColName<Size>[Length]").
 Field parseFieldLine(std::string line) {
     line = trim(stripComment(line));
@@ -146,6 +154,9 @@ std::optional<uint32_t> expectedElementBits(ColumnType type, const std::optional
 
 }  // namespace
 
+// IN, critical: a malformed type, annotation or hash throws.
+// IN, non-critical: a COLUMNS line with no name, and any line outside a
+// LAYOUT block, are skipped; they name nothing a layout reads.
 Table parseDbd(const std::string& text, std::string tableName) {
     Table table;
     table.tableName = std::move(tableName);
@@ -201,6 +212,9 @@ Table parseDbd(const std::string& text, std::string tableName) {
     return table;
 }
 
+// IN, non-critical: a missing manifest, unmatched hash or missing .dbd is
+// nullopt (the caller decides). IN, critical: a manifest tableHash that
+// isn't hex throws.
 std::optional<Table> loadTableForHash(const std::string& dbdDir, uint32_t tableHash) {
     std::ifstream manifestFile(dbdDir + "/manifest.json");
     if (!manifestFile) return std::nullopt;
@@ -225,7 +239,7 @@ std::optional<Table> loadTableForHash(const std::string& dbdDir, uint32_t tableH
             std::string obj = manifestText.substr(objStart, i - objStart + 1);
             std::smatch hashMatch;
             if (!std::regex_search(obj, hashMatch, kHashRe)) continue;
-            uint32_t hash = static_cast<uint32_t>(std::stoul(hashMatch[1].str(), nullptr, 16));
+            uint32_t hash = parseHexHash(hashMatch[1].str(), "manifest.json tableHash");
             if (hash != tableHash) continue;
             std::smatch nameMatch;
             if (std::regex_search(obj, nameMatch, kNameRe)) {
@@ -284,7 +298,8 @@ std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const L
         inlineFields.push_back(&f);
         result.push_back(std::move(column));
     }
-    // Field *count* mismatch -- the coarse, original safety net: a wrong
+    // IN, non-critical: a mismatch returns nullopt (names unresolved), it
+    // doesn't throw. Field *count* mismatch -- the coarse check: a wrong
     // layout hash or a stale WoWDBDefs definition can't even claim the
     // right number of slots.
     if (result.size() != fieldStorageInfo.size()) return std::nullopt;

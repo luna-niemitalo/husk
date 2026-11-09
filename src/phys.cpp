@@ -357,9 +357,8 @@ std::vector<ShoulderJoint> parseShoulderJoints(const std::vector<Chunk>& chunks)
     // sharing one chunk tag (PHYS.md's own text: "even though this chunk is
     // handled differently since version 2, it does not have a version 2*
     // chunk name"). A real file hitting both strides at once is new
-    // information, not a case to silently pick one for.
-    // TODO: Remove: checked all 86 real SHOJ chunks found this session --
-    // never both at once, see `WIKI_FINDINGS/PHYS.md`.
+    // information, not a case to silently pick one for (no real one does,
+    // `WIKI_FINDINGS/PHYS.md`).
     bool fits6c = c->size % 0x6c == 0;
     bool fits74 = c->size % 0x74 == 0;
     if (fits6c && fits74) {
@@ -457,9 +456,10 @@ std::vector<PhysV> parsePhysV(const std::vector<Chunk>& chunks) {
     });
 }
 
-// A violation here is corruption or a parser bug (see phys.hpp's file
-// doc) -- caught immediately rather than surfacing as an out-of-range read
-// somewhere downstream (dump-chunks/gltf.cpp's own extras attachment).
+// IN, critical: every cross-record index (body -> shapes, shape -> typed
+// shape, joint -> bodies, joint -> typed joint) is checked once here, so
+// consumers index without checking. A violation is corruption or a parser
+// bug (see phys.hpp's file doc).
 void validateReferences(const File& f) {
     for (size_t i = 0; i < f.bodies.size(); ++i) {
         const auto& b = f.bodies[i];
@@ -481,7 +481,7 @@ void validateReferences(const File& f) {
             case 2: targetCount = f.spheres.size(); targetName = "sphere"; break;
             case 3: targetCount = f.polytopes.size(); targetName = "polytope"; break;
             default:
-                throw ParseError("shape " + std::to_string(i) + " has unrecognized type " +
+                throw ParseError("shape " + std::to_string(i) + ": expected type 0..3, got " +
                                   std::to_string(s.type));
         }
         if (s.index < 0 || static_cast<size_t>(s.index) >= targetCount) {
@@ -493,11 +493,13 @@ void validateReferences(const File& f) {
     }
     for (size_t i = 0; i < f.joints.size(); ++i) {
         const auto& j = f.joints[i];
-        if (j.bodyA >= f.bodies.size() || j.bodyB >= f.bodies.size()) {
-            throw ParseError("joint " + std::to_string(i) + " references bodies (" +
-                              std::to_string(j.bodyA) + ", " + std::to_string(j.bodyB) +
-                              ") but this file only has " + std::to_string(f.bodies.size()) +
-                              " body/bodies");
+        if (j.bodyA >= f.bodies.size()) {
+            throw ParseError("joint " + std::to_string(i) + ": expected bodyA < " +
+                              std::to_string(f.bodies.size()) + ", got " + std::to_string(j.bodyA));
+        }
+        if (j.bodyB >= f.bodies.size()) {
+            throw ParseError("joint " + std::to_string(i) + ": expected bodyB < " +
+                              std::to_string(f.bodies.size()) + ", got " + std::to_string(j.bodyB));
         }
         size_t targetCount = 0;
         const char* targetName;
@@ -509,7 +511,7 @@ void validateReferences(const File& f) {
             case 4: targetCount = f.prismaticJoints.size(); targetName = "prismatic"; break;
             case 5: targetCount = f.distanceJoints.size(); targetName = "distance"; break;
             default:
-                throw ParseError("joint " + std::to_string(i) + " has unrecognized type " +
+                throw ParseError("joint " + std::to_string(i) + ": expected type 0..5, got " +
                                   std::to_string(j.type));
         }
         if (j.index < 0 || static_cast<size_t>(j.index) >= targetCount) {
@@ -523,6 +525,9 @@ void validateReferences(const File& f) {
 
 }  // namespace
 
+// IN, critical: the whole file; each chunk is read by its own parser, then
+// cross-record indices by validateReferences. Every chunk but PHYS is
+// optional.
 File parse(const std::vector<uint8_t>& fileBytes) {
     auto chunks = readChunks(fileBytes.data(), fileBytes.size());
     auto physChunk = findChunk(chunks, kTagPhys);

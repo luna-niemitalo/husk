@@ -294,7 +294,7 @@ TEST_CASE("phys::parse: a joint referencing an out-of-range body throws") {
     putI16(join, 0);
     appendChunk(file, "JOIN", join);
 
-    CHECK_THROWS_WITH_AS(husk::phys::parse(file), doctest::Contains("body/bodies"),
+    CHECK_THROWS_WITH_AS(husk::phys::parse(file), doctest::Contains("expected bodyA < 0, got 0"),
                          husk::phys::ParseError);
 }
 

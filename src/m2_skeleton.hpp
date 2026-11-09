@@ -5,8 +5,8 @@
 
 #include "m2_primitives.hpp"
 
-// M2 bind-pose skeleton, render-mesh vertices, and the collision mesh. See
-// m2_primitives.hpp for the module
+// M2 bind-pose skeleton, render-mesh vertices, and the collision mesh.
+// See m2_primitives.hpp for the module
 // overview (on-disk shapes, blob-resolution entry points).
 namespace husk::m2 {
 

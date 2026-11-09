@@ -148,6 +148,9 @@ constexpr size_t textureCombinerCombos = 0x130;
 constexpr size_t minHeaderSize = particleEmitters + 8;
 }  // namespace offset
 
+// IN, critical: magic and header size are checked here. Each M2Array's
+// count/offset is checked by the parse* function that resolves it, not
+// here: an array nobody reads is never judged.
 Header parseBlob(const uint8_t* blob, size_t blobSize, bool chunked) {
     uint32_t magic = readU32(blob, blobSize, offset::magic);
     if (magic != 0x3032444D /* "MD20" little-endian */) {
@@ -251,7 +254,6 @@ std::optional<std::vector<uint32_t>> findFileDataIdArrayChunk(const std::vector<
     // fixed-record-array parser in this file errors loudly on foreign data
     // that doesn't fit its own claims; silently dropping the last partial
     // entry here would be the one place that convention broke down.
-    // TODO: Remove: FAILURES.md #2, FAILURES2.md #8.
     if (chunk->size % 4 != 0) {
         throw ParseError(std::string(tag) + " chunk is " + std::to_string(chunk->size) +
                           " bytes, not a multiple of 4 (one uint32 FileDataID per entry) -- "
@@ -280,7 +282,6 @@ std::optional<std::vector<Header::AnimFileEntry>> findAnimFileIdChunk(
     // See findFileDataIdArrayChunk's identical check above -- same
     // reasoning, applied to AFID's 8-byte record instead of a flat 4-byte
     // FileDataID.
-    // TODO: Remove: FAILURES2.md #8.
     if (chunk->size % kEntrySize != 0) {
         throw ParseError(std::string(tag) + " chunk is " + std::to_string(chunk->size) +
                           " bytes, not a multiple of " + std::to_string(kEntrySize) +
@@ -334,6 +335,8 @@ struct ResolvedBlob {
 // extractBlob: either the file's bytes are already the MD20 blob, or the
 // MD21 chunk's payload is (wowdev.wiki M2#MD21). Copies the bytes out so
 // callers own a self-contained blob regardless of which case applied.
+// IN, critical: the file's outer shape; the sidecar-ID chunks (SFID/AFID/
+// BFID/...) are checked for whole-record sizes, absent ones are nullopt.
 ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
     if (fileBytes.size() < 4) {
         throw ParseError("file is only " + std::to_string(fileBytes.size()) +

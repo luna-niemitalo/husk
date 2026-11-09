@@ -11,11 +11,9 @@ namespace husk {
 
 namespace {
 
-// "when we are hammering it, it stays cached ... it only stays alive for
-// the single session it's actively working on" (Luna's own framing) --
-// a fixed idle-timeout tag file, not tied to any particular caller's
-// notion of a "session". Refreshed on every use (see touchTag), so a
-// corpus scan that never stops calling husk never sees this expire.
+// Idle timeout, not a lifetime: refreshed on every use (touchTag), so a
+// corpus scan that keeps calling husk never sees it expire
+// (DESIGN.md "Listfile cache", Staleness).
 constexpr auto kTagFreshness = std::chrono::minutes(10);
 
 const char* kSortedCacheFileName = "listfile.sorted.bin";
@@ -75,6 +73,9 @@ std::filesystem::path listfileCacheDir() {
     return std::filesystem::temp_directory_path() / "husk";
 }
 
+// IN, critical: the --listfile source (loadListfile's contract).
+// IN, non-critical: the cache file; any mismatch or failure to read or
+// write it falls back to parsing the source.
 std::unique_ptr<ListfileIndex> loadListfileCached(const std::string& path) {
     std::error_code ec;
     uint64_t sourceSize = std::filesystem::file_size(path, ec);
@@ -127,8 +128,8 @@ std::unique_ptr<ListfileIndex> loadListfileCached(const std::string& path) {
             MmapSortedListfileIndex::build(cachePath.string(), path, sourceSize, sourceMtimeTicks, fresh);
         }
     } catch (const std::exception&) {
-        // Same "cache write failure is never fatal" policy as before --
-        // the caller already has a correct in-memory result to hand back.
+        // A cache write failure is never fatal: the in-memory result is
+        // already correct.
         return std::make_unique<OwningMapListfileIndex>(std::move(fresh));
     }
     touchTag(cacheDir, tagPath);

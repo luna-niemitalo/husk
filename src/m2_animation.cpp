@@ -99,8 +99,8 @@ std::optional<Quat> readQuatFloatTrackValue(const uint8_t* data, size_t blobSize
 }
 
 // Unpacks one M2CompQuat (4x int16, x/y/z/w order) into a Quat, per
-// wowdev.wiki "Quaternion values and 2.x" -- fetched 2026-07-25, since the
-// main M2 page only links to this formula rather than inlining it:
+// wowdev.wiki "Quaternion values and 2.x", since the main M2 page only
+// links to this formula rather than inlining it:
 //   float(v < 0 ? v + 32768 : v - 32767) / 32767.0
 // applied independently to each component. The identity quaternion
 // (0,0,0,1) is wire value (32767,32767,32767,65535) -- 65535 read as a
@@ -331,7 +331,7 @@ namespace {
 // that isn't a top-level M2Array (it's an inner M2Track array instead),
 // which is otherwise the one shape parseVertices/parseBones/etc. don't
 // already cover.
-// TODO: Remove: FAILURES.md #2.
+// IN, critical: an inner M2Track array's count/offset are foreign.
 void checkInnerArrayFits(const Array& inner, size_t elementSize, size_t blobSize,
                           const char* what) {
     if (inner.offset > blobSize || inner.count > (blobSize - inner.offset) / elementSize) {

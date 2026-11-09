@@ -71,6 +71,10 @@ uint32_t readU32(const uint8_t* d, size_t off) {
     return v;
 }
 
+// IN, critical: magic, version and mip 0's offset are checked here. The
+// encoding/format/alpha-depth fields are checked where they pick a decode
+// path (dxtBlockSize, alphaByteSize, decode's switch); width/height are
+// bounded by the mip-0 slice they imply (sliceOrThrow).
 Header parseHeader(const std::vector<uint8_t>& f) {
     if (f.size() < kHeaderSize) {
         throw ParseError("BLP header is " + std::to_string(f.size()) + " bytes, need at least " +
@@ -96,6 +100,10 @@ Header parseHeader(const std::vector<uint8_t>& f) {
     h.height = readU32(f.data(), kHeightOff);
     for (size_t i = 0; i < kMipmapCount; ++i) {
         h.mipOffsets[i] = readU32(f.data(), kMipOffsetsOff + 4 * i);
+    }
+    // Only mip 0 is ever decoded; offset 0 means the level is absent.
+    if (h.mipOffsets[0] == 0) {
+        throw ParseError("mip level 0: expected a nonzero offset, got 0 (level absent)");
     }
     h.palette = f.data() + kPaletteOff;
     return h;
@@ -246,9 +254,10 @@ size_t dxtBlockSize(uint8_t preferredFormat) {
     }
 }
 
-Image decodeDxt(const Header& h, const uint8_t* data) {
+// `blockSize` is dxtBlockSize's answer, so `fmt` is already one of the
+// supported formats.
+Image decodeDxt(const Header& h, const uint8_t* data, size_t blockSize) {
     uint8_t fmt = h.preferredFormat;
-    size_t blockSize = dxtBlockSize(fmt);  // throws if unsupported
 
     Image img;
     img.width = h.width;
@@ -356,8 +365,7 @@ Image decodePalette(const Header& h, const uint8_t* indexData, const uint8_t* al
                 break;
             }
             default:
-                throw ParseError("alpha bit depth " + std::to_string(h.alphaBitDepth) +
-                                  " isn't supported");
+                std::abort();  // alphaByteSize already rejected every other depth
         }
         img.rgba[i * 4 + 3] = a;
     }
@@ -383,21 +391,18 @@ Image decodeBgra(const Header& h, const uint8_t* data) {
 
 }  // namespace
 
+// IN, critical: the whole file; see parseHeader for which check owns which
+// header field.
 Image decode(const std::vector<uint8_t>& fileBytes) {
     Header h = parseHeader(fileBytes);
-
-    constexpr int kLevel = 0;
-    uint32_t offset = h.mipOffsets[kLevel];
-    if (offset == 0) {
-        throw ParseError("mip level 0 isn't present in this file (offset 0)");
-    }
+    uint32_t offset = h.mipOffsets[0];
 
     switch (h.colorEncoding) {
         case kDxt: {
             size_t blockSize = dxtBlockSize(h.preferredFormat);
             size_t size = dxtBlockCount(h.width, h.height) * blockSize;
             const uint8_t* data = sliceOrThrow(fileBytes, offset, size, "mip level 0 (DXT)");
-            return decodeDxt(h, data);
+            return decodeDxt(h, data, blockSize);
         }
         case kPalette: {
             size_t indexSize = static_cast<size_t>(h.width) * h.height;
@@ -420,14 +425,10 @@ Image decode(const std::vector<uint8_t>& fileBytes) {
     }
 }
 
+// IN, critical: the whole file, same field ownership as decode.
 RawPayload extractRawPayload(const std::vector<uint8_t>& fileBytes) {
     Header h = parseHeader(fileBytes);
-
-    constexpr int kLevel = 0;
-    uint32_t offset = h.mipOffsets[kLevel];
-    if (offset == 0) {
-        throw ParseError("mip level 0 isn't present in this file (offset 0)");
-    }
+    uint32_t offset = h.mipOffsets[0];
 
     RawPayload out;
     out.width = h.width;
@@ -435,17 +436,14 @@ RawPayload extractRawPayload(const std::vector<uint8_t>& fileBytes) {
 
     switch (h.colorEncoding) {
         case kDxt: {
+            size_t blockSize = dxtBlockSize(h.preferredFormat);
             switch (h.preferredFormat) {
                 case kDxt1: out.encoding = RawEncoding::Bc1; break;
                 case kDxt3: out.encoding = RawEncoding::Bc2; break;
                 case kDxt5: out.encoding = RawEncoding::Bc3; break;
                 case kBc5: out.encoding = RawEncoding::Bc5; break;
-                default:
-                    throw ParseError("colorEncoding is DXT but preferredFormat " +
-                                      std::to_string(h.preferredFormat) +
-                                      " isn't a supported DXT variant (only DXT1=0, DXT3=1, DXT5=7, BC5=11 are)");
+                default: std::abort();  // dxtBlockSize already rejected every other format
             }
-            size_t blockSize = dxtBlockSize(h.preferredFormat);
             size_t size = dxtBlockCount(h.width, h.height) * blockSize;
             const uint8_t* data = sliceOrThrow(fileBytes, offset, size, "mip level 0 (DXT)");
             out.bytes.assign(data, data + size);

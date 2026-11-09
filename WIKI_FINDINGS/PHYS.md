@@ -46,6 +46,14 @@ Every cross-chunk index reference (body↔shape, shape↔shape-type-chunk,
 joint↔body, joint↔joint-type-chunk) resolves in range across all 103 files
 and 1,256 body records, zero exceptions.
 
+## Chunk coverage of the 103-file sample — verified — history §9
+
+Observed and verified: `PHYS`/`PHYT`, `BODY`/`BDY3`/`BDY4`, `SHAP`/`SHP2`,
+`CAPS`, `PLYT`, `SPHS`, `JOIN`, `WELJ`/`WLJ2`, `SHOJ` (0x74), `REVJ`, `PHYV`.
+Transcribed from the wiki only, never observed in the sample: `BDY2`,
+`BOXS`, `WLJ3`, `SHOJ` (0x6c)/`SHJ2`, `REV2`, `SPHJ`, `PRSJ`/`PRS2`,
+`DSTJ`. husk parses these too; their offsets are the wiki's, unverified.
+
 ## Not resolved by this investigation
 
 What several `unk`-tagged fields actually mean (`SHOJ`'s `motorMode`,

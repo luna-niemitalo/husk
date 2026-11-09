@@ -5,8 +5,8 @@
 #include <stdexcept>
 #include <vector>
 
-// .bone file parsing -- NOT documented on wowdev.wiki (as of this writing,
-// the M2#BFID section only describes the FileDataID *array* an M2/.skel's
+// .bone file parsing -- NOT documented on wowdev.wiki (the M2#BFID section
+// only describes the FileDataID *array* an M2/.skel's
 // BFID chunk holds, nothing about what's inside the files those ids point
 // at). Reverse-engineered from real Legion+ character files (see
 // tests/test_bone.cpp for the exact fixtures/reasoning) rather than a spec

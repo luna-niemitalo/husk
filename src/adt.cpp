@@ -127,6 +127,9 @@ void readVertexData(const uint8_t* d, size_t n, uint32_t off, LiquidInstance& in
     }
 }
 
+// IN, critical: every offset is chunk-relative and bounds-checked by
+// read(); an instance rect outside its 8x8 cell or an unrecognised vertex
+// layout throws.
 std::array<LiquidChunk, kChunkCount> parseMh2o(const Chunk& mh2o) {
     const uint8_t* d = mh2o.data;
     size_t n = mh2o.size;
@@ -143,6 +146,13 @@ std::array<LiquidChunk, kChunkCount> parseMh2o(const Chunk& mh2o) {
             dataOffsets.insert(offAttributes);
             out[ci].fishable = read<uint64_t>(d, n, offAttributes, "MH2O.attributes.fishable");
             out[ci].deep = read<uint64_t>(d, n, offAttributes + 8, "MH2O.attributes.deep");
+        }
+        // Checked before resize(): a foreign count would otherwise size the
+        // allocation before any read fails.
+        if (layerCount > 0 && (offInstances > n || layerCount > (n - offInstances) / kMh2oInstanceSize)) {
+            throw ParseError("MH2O chunk " + std::to_string(ci) + ": expected " + std::to_string(layerCount) +
+                             " instances at offset " + std::to_string(offInstances) + " to fit in " +
+                             std::to_string(n) + " bytes");
         }
         out[ci].instances.resize(layerCount);
         for (uint32_t k = 0; k < layerCount; ++k) {
@@ -189,6 +199,8 @@ std::array<LiquidChunk, kChunkCount> parseMh2o(const Chunk& mh2o) {
 
 }  // namespace
 
+// IN, critical: the root tile; exactly 256 MCNKs in grid order, each with
+// its MCVT/MCNR. MH2O is optional.
 RootFile parseRoot(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     RootFile out;
@@ -293,6 +305,9 @@ void requireNameIndex(uint32_t nameId, const std::vector<std::string>& names, co
 
 }  // namespace
 
+// IN, critical: name-table placements are checked against their table
+// here. MWDR ranges are checked where a placement uses them
+// (activeDoodadSets), not here.
 ObjFile parseObj(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     ObjFile out;
@@ -342,6 +357,8 @@ ObjFile parseObj(const std::vector<uint8_t>& bytes) {
     return out;
 }
 
+// IN, critical: every MCLY textureId is checked against the texture list.
+// MCAL is kept raw; decodeAlphaMap bounds its reads.
 TexFile parseTex(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     TexFile out;
@@ -403,6 +420,8 @@ TexFile parseTex(const std::vector<uint8_t>& bytes) {
     return out;
 }
 
+// IN, critical: vertex count, skirt sources, indices and band ranges are
+// all checked here, so consumers index without checking.
 LodFile parseLod(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     auto require = [&](const char* tag, size_t stride) {
@@ -467,18 +486,27 @@ LodFile parseLod(const std::vector<uint8_t>& bytes) {
     return out;
 }
 
+// IN, critical: definition/extent pairing and MLFD band ranges are checked
+// here.
 Obj1File parseObj1(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     auto readList = [&](const char* defTag, size_t defStride, const char* extentTag) {
         std::vector<DistantPlacement> out;
         std::optional<Chunk> defs = findChunk(chunks, defTag);
         std::optional<Chunk> extents = findChunk(chunks, extentTag);
+        if (defs && defs->size % defStride != 0) {
+            throw ParseError(std::string(defTag) + ": expected size multiple of " + std::to_string(defStride) +
+                             ", got " + std::to_string(defs->size));
+        }
+        if (extents && extents->size % 28 != 0) {
+            throw ParseError(std::string(extentTag) + ": expected size multiple of 28, got " +
+                             std::to_string(extents->size));
+        }
         size_t count = defs ? defs->size / defStride : 0;
         size_t extentCount = extents ? extents->size / 28 : 0;
-        if ((defs && defs->size % defStride != 0) || (extents && extents->size % 28 != 0) || count != extentCount) {
-            throw ParseError(std::string(defTag) + "/" + extentTag + ": expected one " + std::to_string(defStride) +
-                             "-byte definition per 28-byte extent, got " + std::to_string(defs ? defs->size : 0) + " and " +
-                             std::to_string(extents ? extents->size : 0) + " bytes");
+        if (count != extentCount) {
+            throw ParseError(std::string(extentTag) + ": expected " + std::to_string(count) + " extents (one per " +
+                             defTag + " definition), got " + std::to_string(extentCount));
         }
         for (size_t i = 0; i < count; ++i) {
             DistantPlacement p;
@@ -521,6 +549,8 @@ uint32_t parseWdtFlags(const std::vector<uint8_t>& bytes) {
     return read<uint32_t>(mphd->data, mphd->size, 0, "MPHD.flags");
 }
 
+// IN, critical: the WDT decides a world's tiles; every optional chunk must
+// agree with the MPHD flag that announces it.
 WdtFile parseWdt(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     WdtFile out;
@@ -596,6 +626,8 @@ WdtFile parseWdt(const std::vector<uint8_t>& bytes) {
     return out;
 }
 
+// IN, critical: `layer.offsetInMcal` and the RLE stream are foreign; every
+// byte read is bounds-checked against the MCAL copy.
 std::array<uint8_t, 64 * 64> decodeAlphaMap(const std::vector<uint8_t>& mcal, const TextureLayer& layer,
                                             bool eightBitAlpha, bool doNotFix) {
     std::array<uint8_t, 64 * 64> out{};
@@ -637,6 +669,7 @@ std::array<uint8_t, 64 * 64> decodeAlphaMap(const std::vector<uint8_t>& mcal, co
     return out;
 }
 
+// IN, critical: MWDR/MWDS from the _obj0 file, validated here at first use.
 std::vector<uint16_t> activeDoodadSets(const MapObjectPlacement& m, const ObjFile& obj) {
     if (!(m.flags & kModfUsesSetsFromMwds)) return {m.doodadSet};
     if (m.doodadSet >= obj.doodadSetRanges.size()) {

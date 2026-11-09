@@ -105,8 +105,8 @@ struct Header {
     // order? materialIndex? something else?) and this project's own
     // "verify against real bytes before implementing, don't guess at
     // semantics" discipline means an unverified index scheme doesn't ship.
-    // No corpus file sets this flag, so the layout itself is unverified
-    // against real bytes (WIKI_FINDINGS/M2.md).
+    // No real file sets this flag, so the layout is unverified against
+    // real bytes (`WIKI_FINDINGS/M2.md`).
     Array textureCombinerCombos;
 
     bool chunked = false;  // true if this file was Legion+ MD21-wrapped
@@ -143,7 +143,7 @@ struct Header {
 
     // Set only for chunked files that carry an SFID chunk (wowdev.wiki
     // M2#SFID) -- the .skin files this model actually has, as FileDataIDs,
-    // replacing what used to be filename templating
+    // replacing the pre-Legion filename templating
     // (`${basename}${view}.skin`). Deliberately undifferentiated: the
     // wiki's own `skinFileDataIDs[nViews]` + `lod_skinFileDataIDs[lodBands]`
     // split isn't reconstructed here (nViews == Header::numSkinProfiles,
@@ -165,18 +165,14 @@ struct Header {
     std::optional<uint16_t> lodCount;
 
     // Set only for chunked files that carry a BFID chunk (wowdev.wiki
-    // M2#BFID) -- `.bone` files, replacing what used to be filename
-    // templating (`${basename}_${i}.bone`). Per the wiki these hold
-    // per-bone animation track data (the same category as `.anim`, roadmap
-    // stage 6), so -- like skeletonFileId before .skel support existed --
-    // this is surfaced now but not yet resolved to actual bone-track
-    // content; husk doesn't resolve these IDs to paths itself (no
-    // CASC/listfile access, same non-goal as the other *FileDataIds
-    // above).
+    // M2#BFID) -- `.bone` files, replacing the pre-Legion filename
+    // templating (`${basename}_${i}.bone`). Each file holds per-bone
+    // correction matrices (src/bone.hpp); this is the raw FileDataID list,
+    // resolved to files by the caller.
     std::optional<std::vector<uint32_t>> boneFileDataIds;
 
     // M2's AFID entry (wowdev.wiki M2#AFID) -- one per `.anim` file this
-    // model has, replacing what used to be filename templating
+    // model has, replacing the pre-Legion filename templating
     // (`"%s%04d-%02d.anim"`). `animId`/`subAnimId` identify which
     // M2Sequence this file holds data for; `fileId` is 0 for "none" per
     // the wiki (not sparse, just possibly unset).

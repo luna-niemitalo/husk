@@ -245,7 +245,7 @@ TEST_CASE("blp::decode: BGRA channel order") {
 
 TEST_CASE("blp::decode: mip level 0 not present throws") {
     auto header = buildHeader(2, 8, 0, 4, 4);  // mipOffsets all 0
-    CHECK_THROWS_WITH_AS(husk::blp::decode(header), doctest::Contains("isn't present"),
+    CHECK_THROWS_WITH_AS(husk::blp::decode(header), doctest::Contains("level absent"),
                           husk::blp::ParseError);
 }
 
@@ -346,7 +346,7 @@ TEST_CASE("blp::extractRawPayload: Palette has no raw extraction yet -- throws a
 
 TEST_CASE("blp::extractRawPayload: mip level 0 not present throws, same as decode()") {
     auto header = buildHeader(2, 8, 0, 4, 4);  // mipOffsets all 0
-    CHECK_THROWS_WITH_AS(husk::blp::extractRawPayload(header), doctest::Contains("isn't present"),
+    CHECK_THROWS_WITH_AS(husk::blp::extractRawPayload(header), doctest::Contains("level absent"),
                           husk::blp::ParseError);
 }
 

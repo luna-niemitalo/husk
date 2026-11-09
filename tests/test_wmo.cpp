@@ -462,7 +462,7 @@ TEST_CASE("wmo::parseRoot: portal ranges and links past their tables throw with 
     CHECK_THROWS_WITH_AS(
         wmo::parseRoot(minimalRoot(2, {{"MOGI", std::vector<uint8_t>(64, 0)}, {"MOPT", std::vector<uint8_t>(20, 0)},
                                        {"MOPR", mopr}})),
-        "MOPR[0]: expected portal < 1 and group < 2, got portal 0, group 2", wmo::ParseError);
+        "MOPR[0]: expected group < 2, got 2", wmo::ParseError);
     CHECK_THROWS_WITH_AS(
         wmo::parseRoot(minimalRoot(0, {{"MOPT", std::vector<uint8_t>(40, 0)}, {"MOPE", std::vector<uint8_t>(16, 0)}})),
         "MOPE: expected one entry per MOPT portal (2), got 1", wmo::ParseError);

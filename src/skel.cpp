@@ -57,29 +57,31 @@ Chunk findRequiredChunk(const std::vector<uint8_t>& fileBytes, const char* tag) 
     return *found;
 }
 
-Chunk findSkb1(const std::vector<uint8_t>& fileBytes) { return findRequiredChunk(fileBytes, "SKB1"); }
+// IN, critical: every SKB1 reader below needs the chunk and its full
+// header; the one check for both lives here.
+Chunk findSkb1(const std::vector<uint8_t>& fileBytes) {
+    Chunk skb1 = findRequiredChunk(fileBytes, "SKB1");
+    if (skb1.size < kHeaderSize) {
+        throw ParseError("SKB1 chunk is " + std::to_string(skb1.size) +
+                          " bytes, need at least " + std::to_string(kHeaderSize) +
+                          " for its header");
+    }
+    return skb1;
+}
 
 }  // namespace
 
 BoneHeader parseBoneHeader(const std::vector<uint8_t>& fileBytes) {
     Chunk skb1 = findSkb1(fileBytes);
-    if (skb1.size < kHeaderSize) {
-        throw ParseError("SKB1 chunk is " + std::to_string(skb1.size) +
-                          " bytes, need at least " + std::to_string(kHeaderSize) +
-                          " for its header");
-    }
     BoneHeader h;
     h.bones = readArray(skb1.data, skb1.size, kBonesFieldOffset);
     return h;
 }
 
+// IN, critical: the bones array is checked against SKB1's payload by
+// m2::parseBones.
 std::vector<m2::Bone> parseBones(const std::vector<uint8_t>& fileBytes) {
     Chunk skb1 = findSkb1(fileBytes);
-    if (skb1.size < kHeaderSize) {
-        throw ParseError("SKB1 chunk is " + std::to_string(skb1.size) +
-                          " bytes, need at least " + std::to_string(kHeaderSize) +
-                          " for its header");
-    }
     m2::Array bones = readArray(skb1.data, skb1.size, kBonesFieldOffset);
     std::vector<uint8_t> chunkBlob(skb1.data, skb1.data + skb1.size);
     return m2::parseBones(chunkBlob, bones);
@@ -87,11 +89,6 @@ std::vector<m2::Bone> parseBones(const std::vector<uint8_t>& fileBytes) {
 
 std::vector<uint8_t> boneTrackBlob(const std::vector<uint8_t>& fileBytes) {
     Chunk skb1 = findSkb1(fileBytes);
-    if (skb1.size < kHeaderSize) {
-        throw ParseError("SKB1 chunk is " + std::to_string(skb1.size) +
-                          " bytes, need at least " + std::to_string(kHeaderSize) +
-                          " for its header");
-    }
     return {skb1.data, skb1.data + skb1.size};
 }
 
@@ -103,6 +100,7 @@ constexpr size_t kSequencesFieldOffset = 0x08;
 constexpr size_t kSks1HeaderSize = 0x20;
 }  // namespace
 
+// IN, critical: a .skel-linked model's sequences live only here.
 std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes) {
     Chunk sks1 = findRequiredChunk(fileBytes, "SKS1");
     if (sks1.size < kSks1HeaderSize) {
@@ -115,6 +113,8 @@ std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes) 
     return m2::parseSequences(chunkBlob, sequences);
 }
 
+// IN, critical when present; absent is a valid file (a child skeleton
+// sharing its parent's animations has no AFID).
 std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
     const std::vector<uint8_t>& fileBytes) {
     auto chunks = readChunks(fileBytes.data(), fileBytes.size());
@@ -146,6 +146,7 @@ std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
     return entries;
 }
 
+// IN, critical when present; absent is a valid file.
 std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8_t>& fileBytes) {
     auto chunks = readChunks(fileBytes.data(), fileBytes.size());
     auto bfid = findChunk(chunks, "BFID");
@@ -170,6 +171,7 @@ std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8
     return ids;
 }
 
+// IN, critical when present; absent is a valid file.
 std::optional<Attachments> findAttachments(const std::vector<uint8_t>& fileBytes) {
     auto chunks = readChunks(fileBytes.data(), fileBytes.size());
     auto ska1 = findChunk(chunks, "SKA1");

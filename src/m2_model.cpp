@@ -24,10 +24,13 @@ void tryParse(std::vector<FieldParseFailure>& failures, const char* field, Fn&& 
 
 }  // namespace
 
+// IN, critical: the header and blob -- no Model without them, so their
+// ParseError propagates.
+// IN, non-critical: each per-field array; a field that fails to parse is
+// recorded in parseFailures (with its message) and left empty, the rest
+// of the model still loads.
 Model loadModel(const std::vector<uint8_t>& fileBytes) {
     Model model;
-    // No Model without a header/blob -- propagates, matching every
-    // existing caller's own behavior for a file this broken.
     model.header = parseHeader(fileBytes);
     model.blob = extractBlob(fileBytes);
 

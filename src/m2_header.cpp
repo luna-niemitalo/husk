@@ -449,8 +449,8 @@ std::vector<Texture> parseTextures(const std::vector<uint8_t>& blob, const Array
     const uint8_t* data = blob.data();
     size_t blobSize = blob.size();
 
-    // Same up-front validation as parseVertices/parseBones, same reason.
-    // TODO: Remove: FAILURES.md #2.
+    // IN, critical: same up-front validation as parseVertices/parseBones,
+    // same reason.
     if (array.offset > blobSize || array.count > (blobSize - array.offset) / kTextureSize) {
         throw ParseError("textures array claims " + std::to_string(array.count) + " records (" +
                           std::to_string(kTextureSize) + " bytes each) at offset " +

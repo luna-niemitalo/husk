@@ -1,6 +1,6 @@
 #pragma once
 
-// M2 header parsing, per https://wowdev.wiki/M2 (fetched 2026-07-24).
+// M2 header parsing, per https://wowdev.wiki/M2.
 //
 // Two on-disk shapes:
 //  - Pre-Legion: the file *is* the MD20 header + data, starting with magic
@@ -13,8 +13,8 @@
 // Either way, once you have the MD20 blob, the header layout is identical.
 // This module resolves the outer shape first, then parses that one blob.
 //
-// This is the index/aggregate header over the five headers below, each
-// reopening namespace husk::m2 directly; callers include "m2.hpp":
+// This is the index/aggregate header over the per-concern headers below,
+// each reopening namespace husk::m2 directly:
 //  - m2_primitives.hpp: Array/Vec3/Vec2/Quat/BoundingBox/ParseError, the
 //    bounds-checked blob-read helpers, and the top-level parseHeader/
 //    loadFile/extractBlob/expansionForVersion entry points.

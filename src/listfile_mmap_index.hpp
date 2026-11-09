@@ -87,11 +87,10 @@ public:
     void forEach(const std::function<bool(uint32_t, std::string_view)>& visit) const override;
     std::unordered_map<std::string, uint32_t> fileDataIdsForPaths(const std::vector<std::string>& paths) const override;
 
-    // Validates `path`'s header against the observed source identity
-    // without loading anything else -- returns false (and the mapping is
-    // dropped) on any magic/version/source mismatch, the same "any
-    // mismatch means rebuild" contract listfile_cache.cpp's staleness gate
-    // already documents. On success, `outIndex` is left holding the
+    // IN, non-critical: validates `path`'s header against the observed
+    // source identity without loading anything else -- returns false (and
+    // the mapping is dropped) on any magic/version/source/section-bounds
+    // mismatch, and the caller rebuilds. On success, `outIndex` is left holding the
     // mapping (zero further construction: the returned object's
     // constructor only computes a handful of pointers from the header's
     // own stored byte offsets).

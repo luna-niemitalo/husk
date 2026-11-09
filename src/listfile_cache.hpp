@@ -10,11 +10,10 @@
 // A persistent, on-disk cache in front of listfile.hpp's loadListfile,
 // handed back as a ListfileIndex (listfile_index.hpp) instead of a
 // materialised std::unordered_map<uint32_t, std::string> -- see
-// DESIGN.md's "Listfile index" section for the full staleness/
-// invalidation/concurrency design (mostly unchanged from the original
-// map-based cache this replaced) and the measured case for why: a warm
-// load now mmaps a prebuilt file and answers lookups straight out of the
-// mapped bytes, with no per-process construction loop at all.
+// DESIGN.md's "Listfile cache" and "Listfile index" sections for the
+// staleness/invalidation/concurrency design and the measured case for why:
+// a warm load mmaps a prebuilt file and answers lookups straight out of
+// the mapped bytes, with no per-process construction loop at all.
 namespace husk {
 
 // $XDG_CACHE_HOME/husk (falling back to $HOME/.cache/husk, then a temp
@@ -23,9 +22,7 @@ namespace husk {
 // knows that project's layout recognizes this one. $HUSK_CACHE_DIR
 // overrides both, for tests and for a caller who wants an isolated cache
 // -- same "explicit env var beats the XDG default" shape husk_config.hpp
-// already uses for $HUSK_CONFIG. Also the knob DESIGN.md's tmpfs
-// evaluation used to point the cache at /dev/shm for comparison -- see
-// that section for the measured result.
+// already uses for $HUSK_CONFIG.
 std::filesystem::path listfileCacheDir();
 
 // Same result loadListfile(path) would produce (byte-identical path
@@ -35,8 +32,7 @@ std::filesystem::path listfileCacheDir();
 // path/size/mtime still match `path`'s current stat), this mmaps the
 // prebuilt cache file and returns an index over it directly -- no CSV
 // parse, no per-process map construction. On a miss (cold, expired, or
-// the source changed), this calls loadListfile(path) exactly as before,
-// writes a fresh cache, then mmaps that -- never slower than the
+// the source changed), this calls loadListfile(path), writes a fresh cache, then mmaps that -- never slower than the
 // uncached path, only ever faster.
 //
 // Backend selection: $HUSK_LISTFILE_BACKEND selects which on-disk format

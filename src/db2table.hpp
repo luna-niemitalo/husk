@@ -8,9 +8,8 @@
 
 // A generic, real-column-name-driven row reader built on top of db2.hpp's
 // name-agnostic WDC5 parser and dbd.hpp's WoWDBDefs name resolution --
-// closes the gap `cmd_db2.cpp`'s own per-table logic used to reimplement
-// per command, giving every DB2 consumer a real per-table C++ struct
-// instead of bespoke decode code per table.
+// gives every DB2 consumer a real per-table C++ struct instead of bespoke
+// decode code per table.
 //
 // Handles all three of WDC5's real column storage shapes transparently, by
 // real column name rather than raw field index:
@@ -20,12 +19,13 @@
 //     db2::nonInlineRelationValuesByRecord)
 //
 // Scope: readNamedColumns/readNamedStringColumns are scalar integer/
-// relation/string columns only (every column those were originally built
-// for -- ChrModelMaterial/CharComponentTextureSections/
-// ChrModelTextureLayer/CharComponentTextureLayouts -- is a plain scalar
-// int). readNamedArrayColumns (below) closes the one real gap that scope
-// note used to flag: a genuine multi-element WDC5 array field (e.g.
-// ChrCustomizationChoice.SwatchColor<32>[2]) -- see its own doc comment.
+// relation/string columns only (an array column's elements past the first
+// are dropped); readNamedArrayColumns keeps every element of a multi-
+// element WDC5 array field (e.g. ChrCustomizationChoice.SwatchColor<32>[2]).
+//
+// IN, non-critical: a requested column name that doesn't resolve against
+// the file's layout is reported to `err` and comes back nullopt for every
+// row; only an unreadable file or unresolvable layout fails the read.
 // --dbd-dir is required, not optional, for all three, since there's no
 // way to know which raw field index a semantic column name corresponds to
 // without it.
@@ -78,12 +78,10 @@ using ArrayColumnValues = std::vector<std::optional<std::vector<uint32_t>>>;
 
 // Same named-column resolution as readNamedColumns (inline field / file ID /
 // non-inline relation column, all three), except every element a resolved
-// field actually carries is kept, not just the first -- closing the gap
-// this file's own top comment used to flag: a real WDC5 array field
-// (WoWDBDefs' "ColName<Size>[Length]" annotation with Length > 1, e.g.
-// ChrCustomizationChoice's real `SwatchColor<32>[2]`) was previously
-// flattened down to one scalar by readNamedColumns, silently dropping
-// every element past the first.
+// field actually carries is kept, not just the first: a real WDC5 array
+// field (WoWDBDefs' "ColName<Size>[Length]" annotation with Length > 1,
+// e.g. ChrCustomizationChoice's real `SwatchColor<32>[2]`) comes back
+// whole, where readNamedColumns keeps only element 0.
 //
 // The ID and non-inline-relation cases are still always exactly one
 // element -- a row's own ID or a non-inline relation value is never an

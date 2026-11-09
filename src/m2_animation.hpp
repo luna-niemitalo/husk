@@ -12,7 +12,8 @@
 // rotation/scale, material color/alpha/weight/texture-transform curves,
 // particle-emitter FBlocks), and global-sequence loops. See
 // m2_primitives.hpp for the module overview (on-disk shapes, blob-
-// resolution entry points). Every M2Track<T>/FBlock<T>/M2PartTrack<T> resolver lives here,
+// resolution entry points). This is the biggest of the m2_* headers by
+// design: every M2Track<T>/FBlock<T>/M2PartTrack<T> resolver lives here,
 // regardless of which struct's field it services, since they all share the
 // same handful of byte-layout shapes.
 namespace husk::m2 {
@@ -39,13 +40,14 @@ struct Range {
 // movespeed, /*0x0C*/ flags, /*0x10*/ frequency (+2 bytes padding),
 // /*0x14*/ replay, /*0x1C*/ blendTimeIn, /*0x1E*/ blendTimeOut, /*0x20*/
 // bounds (Vec3 min + Vec3 max, 24 bytes), /*0x38*/ boundsRadius, /*0x3C*/
-// variationNext, /*0x3E*/ aliasNext.
+// variationNext, /*0x3E*/ aliasNext. 64-byte stride verified against real
+// files (`WIKI_FINDINGS/M2.md`).
 struct Sequence {
     uint16_t id = 0;             // AnimationData.dbc id -- husk has no DBC access, so this is
                                   // surfaced as a raw number, never resolved to a human name
     uint16_t variationIndex = 0; // which sub-animation in a row of same-id animations
     uint32_t duration = 0;       // milliseconds
-    float movespeed = 0;         // used to sync e.g. run-cycle animation speed to actual movement speed
+    float movespeed = 0;         // syncs e.g. run-cycle animation speed to actual movement speed
     // M2Sequence flags (wowdev.wiki M2#Animation_sequences's Flags table).
     // The two bits husk's animation export actually checks are 0x20
     // ("primary bone sequence": if set, this sequence's M2Track keyframe
@@ -68,7 +70,7 @@ struct Sequence {
     // aliasNext until an animation without 0x40 is found," which is
     // exactly what cmd_export.cpp's resolveAliasChain does to reuse the
     // terminal sequence's own keyframe data for this (otherwise-dataless)
-    // alias sequence.
+    // alias sequence. Real data: `WIKI_FINDINGS/M2.md`.
     uint16_t aliasNext = 0;
 };
 
@@ -156,7 +158,8 @@ struct TextureTransform {
 // resolveVec3TrackSequence/resolveQuatTrackSequence below for how a
 // global-sequence track is refused *by sequence index* without silently
 // mis-attributing the data to whichever M2Sequence happens to occupy index
-// 0 of the track's outer array, and resolveVec3GlobalSequenceTrack/
+// 0 of the track's outer array (a real bug this type existed to fix, not a
+// hypothetical one), and resolveVec3GlobalSequenceTrack/
 // resolveQuatGlobalSequenceTrack below for how it's actually resolved into
 // a real, independently-looping glTF clip instead -- for bone tracks; the
 // same track shape on a material's M2Color/M2TextureWeight has no glTF
@@ -219,10 +222,14 @@ std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Arr
 // order, or an empty vector -- not an error -- when `sequenceIndex` is out
 // of range for this particular track's own outer array, that entry has
 // zero keyframes, *or* the track's global_sequence isn't the "none"
-// sentinel (see TrackMeta) -- such a track has one sub-array, not one per
-// sequence, so indexing it by `sequenceIndex` would attribute its data to
-// whichever M2Sequence occupies that position; resolveVec3GlobalSequenceTrack
-// resolves it instead. Throws ParseError if interpolation_type is 2 or 3:
+// sentinel (see TrackMeta) -- husk doesn't resolve global-sequence tracks
+// into a real looping clip yet, and the old behavior of indexing straight
+// into the outer array by `sequenceIndex` anyway silently attributed a
+// global-sequence track's data to whichever M2Sequence happened to occupy
+// outer-array position `sequenceIndex` (usually 0), a real correctness
+// bug, not just a missing feature -- returning empty here is strictly more
+// correct than that, even though it means such a track currently produces
+// no animation at all. Throws ParseError if interpolation_type is 2 or 3:
 // per wowdev.wiki, cubic bezier/hermite interpolation is "only valid for
 // M2SplineKey tracks", and every M2Track this function is used for (bone
 // translation/scale, M2Color, M2TextureWeight) is declared as a plain
@@ -264,8 +271,10 @@ std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
 // exactly one sub-array (index 0), not one per M2Sequence, since the
 // keyframes loop continuously against the model's own global_sequences
 // duration table (see parseGlobalLoops) instead of being tied to any
-// specific M2Sequence's timeline; resolveVec3TrackSequence refuses such a
-// track by sequence index (see TrackMeta's doc comment).
+// specific M2Sequence's timeline. This is the real-data counterpart to
+// resolveVec3TrackSequence's own global-sequence check, which correctly
+// refuses to resolve such a track *by sequence index* (see TrackMeta's doc
+// comment), so this is the only path that resolves one.
 // Returns the same (timestamp, value) pairs
 // resolveVec3TrackSequence does, or empty (not an error) if this track is
 // *not* global-sequence-driven, or if its single outer sub-array is itself
@@ -353,7 +362,7 @@ std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntGlobalSequenceTrack(
 // M2Sequence/global-sequence to be absolute against -- exposed as raw
 // `uint16_t` here (not rescaled to 0.0..1.0), since husk hasn't found an
 // authoritative source confirming that interpretation, only strong
-// circumstantial real-data evidence (WIKI_FINDINGS/M2.md, FBlock).
+// circumstantial real-data evidence (`WIKI_FINDINGS/M2.md`, M2Particle).
 struct FBlockMeta {
     Array timestamps;
     Array keys;

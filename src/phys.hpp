@@ -10,7 +10,7 @@
 // (MoP+). Unlike .bone, this format IS documented:
 // documentation/wowdev-wiki/md/PHYS.md (wiki_revision 30458) gives byte
 // offsets for nearly every field; this parser implements that spec.
-// TODO: Remove: verified against 103 real files, see `WIKI_FINDINGS/PHYS.md`.
+// Which chunk variants real files confirm: `WIKI_FINDINGS/PHYS.md`.
 //
 // Layout: WoW's usual chunked container (husk::readChunks/findChunk, see
 // chunk.hpp), but with WMO/ADT-style *reversed* chunk tags on disk (e.g.
@@ -27,15 +27,6 @@
 // SHOJ tag is ambiguous between two strides (0x6c pre-7.0.1.20979, 0x74
 // post) -- disambiguated by which stride the chunk's own size divides
 // evenly; a real file hitting both throws rather than guessing.
-//
-// TODO: Remove: coverage verified against real files (WIKI_FINDINGS.md
-// §9): PHYS/PHYT, BODY/BDY3/BDY4, SHAP/SHP2, CAPS, PLYT, SPHS, JOIN,
-// WELJ/WLJ2, SHOJ (0x74), REVJ, PHYV confirmed against 103 real files;
-// BDY2, BOXS, WLJ3, SHOJ (0x6c)/SHJ2, REV2, SPHJ, PRSJ/PRS2, DSTJ
-// transcribed from the wiki only, never observed in that sample -- husk
-// still parses these (offsets are real, just unverified). No durable-doc
-// home found for this table (checked DESIGN.md#Boundaries and
-// M2_COMPLETENESS.md); revisit if one is added.
 namespace husk::phys {
 
 struct Vec3 {
@@ -47,7 +38,6 @@ struct Vec3 {
 // files have several type-0 bodies. `shapeBase`/`shapeCount` index into
 // File::shapes (BODY/BDY2's `shapes_base`, BDY3/BDY4's `shapeIndex` --
 // same role, different field width/name upstream).
-// TODO: Remove: `WIKI_FINDINGS/PHYS.md`.
 struct Body {
     uint16_t type = 0;
     uint16_t boneIndex = 0;
@@ -71,7 +61,7 @@ struct Shape {
     float friction = 0, restitution = 0, density = 0;
 };
 
-struct BoxShape {  // unverified -- see this file's own doc comment
+struct BoxShape {  // unverified, `WIKI_FINDINGS/PHYS.md`
     std::array<float, 12> a{};
     Vec3 c;
 };
@@ -81,7 +71,7 @@ struct CapsuleShape {
     float radius = 0;
 };
 
-struct SphereShape {  // unverified -- see this file's own doc comment
+struct SphereShape {  // unverified, `WIKI_FINDINGS/PHYS.md`
     Vec3 localPosition;
     float radius = 0;
 };
@@ -91,7 +81,6 @@ struct SphereShape {  // unverified -- see this file's own doc comment
 // data chunk, it is combining both parts"). `unk1`/`unk2`/`nodes`'
 // semantics beyond "a tree structure that connects the vertices together"
 // aren't resolved -- surfaced raw, not modeled further.
-// TODO: Remove: `WIKI_FINDINGS/PHYS.md`.
 struct PolytopeShape {
     uint32_t vertexCount = 0;
     uint32_t count10 = 0;
@@ -117,7 +106,7 @@ struct WeldJoint {
     float unk70 = 0;                                      // WLJ3 only -- unverified
 };
 
-struct SphericalJoint {  // unverified -- see this file's own doc comment
+struct SphericalJoint {  // unverified, `WIKI_FINDINGS/PHYS.md`
     Vec3 anchorA, anchorB;
     float frictionTorque = 0;
 };
@@ -130,7 +119,7 @@ struct ShoulderJoint {
     float motorFrequencyHz = 0, motorDampingRatio = 0;  // SHJ2 only -- unverified
 };
 
-struct PrismaticJoint {  // unverified -- see this file's own doc comment
+struct PrismaticJoint {  // unverified, `WIKI_FINDINGS/PHYS.md`
     std::array<float, 12> frameA{}, frameB{};
     float lowerLimit = 0, upperLimit = 0, x68 = 0, maxMotorForce = 0, x70 = 0;
     uint32_t motorMode = 0;
@@ -144,7 +133,7 @@ struct RevoluteJoint {
     float motorFrequencyHz = 0, motorDampingRatio = 0;  // REV2 only -- unverified
 };
 
-struct DistanceJoint {  // unverified -- see this file's own doc comment
+struct DistanceJoint {  // unverified, `WIKI_FINDINGS/PHYS.md`
     Vec3 localAnchorA, localAnchorB;
     float someDistanceFactor = 0;
 };

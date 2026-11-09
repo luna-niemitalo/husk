@@ -7,21 +7,18 @@
 
 #include "m2.hpp"
 
-// .skel file parsing, per https://wowdev.wiki/M2/.skel (fetched 2026-07-24
-// and again 2026-07-25 for the SKS1/AFID sections below).
+// .skel file parsing, per https://wowdev.wiki/M2/.skel.
 //
 // Legion+ (7.3+) can move an M2's `bones` array out of the M2 entirely: an
 // `SKID` chunk in the M2 (see husk::m2::Header::skeletonFileId) points at a
-// separate .skel file instead. husk doesn't resolve that FileDataID to a
-// path itself (no CASC/listfile access) -- give this module a .skel file
-// you already have a path to (e.g. via `husk export`'s optional 4th
-// argument).
+// separate .skel file instead. This module takes the .skel's bytes; finding
+// the file is the caller's job.
 //
 // A .skel file is itself chunked -- the same generic (4-byte tag, uint32
 // size, payload) container husk::readChunks already reads for M2 itself
 // (wowdev.wiki M2/.skel's own words: "These files replace some blocks from
 // the M2 MD20 data. The chunks doing that have a fixed header followed by
-// raw data, as with MD20."). This module reads three of its chunks:
+// raw data, as with MD20."). This module reads these chunks:
 //   - `SKB1` (bones): `bones` field is `M2Array<M2CompBone>`, byte-for-byte
 //     the same struct husk::m2::parseBones already reads out of an M2's own
 //     inline `bones` array -- just relocated here, with offsets relative to
@@ -45,8 +42,7 @@
 //     of `.bone` sidecar files (see src/bone.hpp), used the same way: no
 //     resolution to a real path, no default-slot selection (the
 //     customization BoneSet chain picks a slot, chrcustomization_db2.hpp)
-//     -- just the raw FileDataID list.
-//     TODO: Remove: see `WIKI_FINDINGS/BONE.md`.
+//     -- just the raw FileDataID list (`WIKI_FINDINGS/BONE.md`).
 //   - `SKA1` (attachments): see findAttachments below.
 // `SKB1`'s `key_bone_lookup` field, SKA1's `attachment_lookup`, and every
 // other .skel chunk (`SKL1`, `SKPD`), are unparsed -- see DESIGN.md's
