@@ -359,7 +359,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_dump_emitters.cpp
     tests/test_dump_phys.cpp
     tests/test_dump_chunks_misc.cpp
-    #tests/test_conformance.cpp
+    tests/test_conformance.cpp
   )
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)
   # -Wunused-function only, husk-tests-only: the shared tests/test_*_fixtures.hpp
