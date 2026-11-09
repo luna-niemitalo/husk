@@ -35,26 +35,26 @@ TEST_CASE("husk export: -i/--input and -o/--output work identically as named fla
     writeFile(dir / "flagged.m2", tinyValidM2());
     writeFile(dir / "flagged00.skin", tinyMatchingSkin());
 
-    auto outPath = dir / "explicit-out.glb";
+    auto outPath = dir / "explicit-out.bundle";
     auto result =
         runHusk("export -i " + (dir / "flagged.m2").string() + " -o " + outPath.string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(outPath));
+    CHECK(fs::exists(outPath / "manifest.json"));
 
-    auto outPath2 = dir / "explicit-out2.glb";
+    auto outPath2 = dir / "explicit-out2.bundle";
     auto result2 = runHusk("export --input " + (dir / "flagged.m2").string() + " --output " +
                             outPath2.string());
     CHECK(result2.exitCode == 0);
-    CHECK(fs::exists(outPath2));
+    CHECK(fs::exists(outPath2 / "manifest.json"));
 
     // -o given *before* the model on the command line: proves the bare
     // positional (the model path) still binds to --input regardless of
     // where a named flag sits in argv, not just when named flags trail it.
-    auto outPath3 = dir / "explicit-out3.glb";
+    auto outPath3 = dir / "explicit-out3.bundle";
     auto result3 =
         runHusk("export -o " + outPath3.string() + " " + (dir / "flagged.m2").string());
     CHECK(result3.exitCode == 0);
-    CHECK(fs::exists(outPath3));
+    CHECK(fs::exists(outPath3 / "manifest.json"));
 
     fs::remove_all(dir);
 }
@@ -63,10 +63,10 @@ TEST_CASE("husk export: every flag accepted named, in arbitrary order") {
     auto dir = defaultsDir("allflags");
     writeFile(dir / "m.m2", tinyValidM2());
     writeFile(dir / "m.skin", tinyMatchingSkin());
-    auto outPath = dir / "out.glb";
+    auto outPath = dir / "out.bundle";
 
-    // Every flag but --skin-dir/--lod (both only meaningful alongside
-    // --skin auto -- combining them with an explicit --skin path is its
+    // Every flag but --skin-dir (only meaningful alongside
+    // --skin auto -- combining it with an explicit --skin path is its
     // own rejected case, covered by its own dedicated tests above),
     // scrambled out of the order addExportOptions declares them in, proving
     // none of them depend on argv position.
@@ -74,7 +74,7 @@ TEST_CASE("husk export: every flag accepted named, in arbitrary order") {
                            " --skin " + (dir / "m.skin").string() + " -i " +
                            (dir / "m.m2").string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(outPath));
+    CHECK(fs::exists(outPath / "manifest.json"));
 
     fs::remove_all(dir);
 }
@@ -91,7 +91,7 @@ TEST_CASE("husk export --help prints CLI11's own generated help (real flag names
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("--skin") != std::string::npos);
     CHECK(result.output.find("--anim") != std::string::npos);
-    CHECK(result.output.find("--lod") != std::string::npos);
+    CHECK(result.output.find("--glb") != std::string::npos);
     CHECK(result.output.find("couldn't open") == std::string::npos);
 }
 
@@ -199,12 +199,6 @@ TEST_CASE("husk export --skel with no value fails via CLI11's own parse-time err
     auto result = runHusk("export some.m2 --skel");
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("--skel") != std::string::npos);
-}
-
-TEST_CASE("husk export --lod with no value fails via CLI11's own parse-time error") {
-    auto result = runHusk("export some.m2 --lod");
-    CHECK(result.exitCode != 0);
-    CHECK(result.output.find("--lod") != std::string::npos);
 }
 
 TEST_CASE("husk export with a 3rd bare positional fails via CLI11's ExtrasError -- only -i/-o "

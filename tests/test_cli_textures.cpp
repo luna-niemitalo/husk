@@ -1,8 +1,8 @@
 // CLI tier: `husk export`'s texture-resolution cluster -- exercises
 // husk::commands::exportBundle by spawning the real compiled binary (see
-// run_husk.hpp) against small, synthetic, on-disk fixtures. Split out of
-// tests/test_cli.cpp (FILE_SPLIT_TODO.md Item 3) -- covers fuzzy/hardcoded-
-// slot basename matching, ambiguous-slot defaulting (size/category/blend-mode
+// run_husk.hpp) against small, synthetic, on-disk fixtures, then reading the
+// written bundle's schema-checked manifest. Covers fuzzy/hardcoded-slot
+// basename matching, ambiguous-slot defaulting (size/category/blend-mode
 // ranking), .blp in-memory decode + --textures-out mirroring, --listfile/
 // --listfile-root resolution, and the '_sdr' fallback. See
 // TEST_DESIGN.md#Four-tier-architecture for how this tier relates to the
@@ -15,15 +15,63 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <tiny_gltf.h>
 #include <vector>
 
 #include "run_husk.hpp"
+#include "test_bundle_fixtures.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
 
 using husk::test::runHusk;
-namespace fs = std::filesystem;
+using Json = nlohmann::json;
+
+namespace {
+
+// A real, valid 1x1 RGBA PNG, for fixtures whose candidates get their pixel
+// dimensions read during ambiguous-slot ranking.
+const std::vector<uint8_t> kOnePixelPng = {
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+    0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+    0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+    0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+    0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+std::vector<Json> texturesInState(const Json& manifest, const std::string& state) {
+    std::vector<Json> out;
+    for (const Json& t : manifest["resources"]["textures"]) {
+        if (t["state"] == state) out.push_back(t);
+    }
+    return out;
+}
+
+// The bytes a resolved texture entry's payload points at.
+std::string payloadBytes(const fs::path& bundleDir, const Json& texture) {
+    REQUIRE(texture.contains("payload"));
+    return readTextFile(bundleDir / texture["payload"]["uri"].get<std::string>());
+}
+
+// Every resolved texture's payload bytes, concatenated: the bundle-side
+// equivalent of "this image reached the export".
+std::string allPayloadBytes(const fs::path& bundleDir, const Json& manifest) {
+    std::string all;
+    for (const Json& t : texturesInState(manifest, "resolved")) {
+        if (t.contains("payload")) all += payloadBytes(bundleDir, t);
+    }
+    return all;
+}
+
+// The texture a material's first layer draws.
+const Json& primaryLayerTexture(const Json& manifest, const Json& material) {
+    return textureAt(manifest, material["layers"][0]["texture"]);
+}
+
+std::vector<std::string> candidateNames(const Json& texture) {
+    std::vector<std::string> names;
+    for (const Json& c : texture["candidates"]) names.push_back(c["identity"]["name"].get<std::string>());
+    return names;
+}
+
+}  // namespace
 
 TEST_CASE("husk export: --textures defaults to the model's own directory -- a FileDataID-named "
           "file already sitting there is embedded without passing the flag") {
@@ -33,8 +81,15 @@ TEST_CASE("husk export: --textures defaults to the model's own directory -- a Fi
     writeFile(dir / "555.png", {1, 2, 3, 4});  // fake PNG bytes -- husk embeds raw, doesn't decode
 
     auto result = runHusk("export " + (dir / "textured.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+
+    auto bundle = dir / "textured.bundle";
+    Json manifest = parseManifest(bundle);
+    auto resolved = texturesInState(manifest, "resolved");
+    REQUIRE(resolved.size() == 1);
+    CHECK(resolved[0]["identity"]["id"]["value"] == 555);
+    CHECK(payloadBytes(bundle, resolved[0]) == std::string("\x01\x02\x03\x04", 4));
 
     fs::remove_all(dir);
 }
@@ -47,36 +102,39 @@ TEST_CASE("husk export: --textures none never embeds an image, even when a match
     writeFile(dir / "555.png", {1, 2, 3, 4});
 
     auto result = runHusk("export " + (dir / "textured.m2").string() + " --textures none");
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
+
+    auto bundle = dir / "textured.bundle";
+    Json manifest = parseManifest(bundle);
+    CHECK(texturesInState(manifest, "resolved").empty());
+    CHECK(texturesInState(manifest, "known_unresolved").size() == 1);
+    CHECK_FALSE(fs::exists(bundle / "textures"));
 
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: a hardcoded texture slot's material name includes its real semantic "
-          "type name") {
-    auto m2Path = tempPath("typename.m2");
-    writeFile(m2Path, oneTexturedModelWithType(6));  // 6 = TEX_COMPONENT_CHAR_HAIR
-    auto skinPath = tempPath("typename.skin");
-    writeFile(skinPath, oneTexturedModelSkin());
+TEST_CASE("husk export: a hardcoded texture slot's layer carries its real semantic type name") {
+    auto dir = defaultsDir("typename");
+    writeFile(dir / "typename.m2", oneTexturedModelWithType(6));  // 6 = TEX_COMPONENT_CHAR_HAIR
+    writeFile(dir / "typename00.skin", oneTexturedModelSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("typename.glb").string());
+    auto result = runHusk("export " + (dir / "typename.m2").string() + " -o " + (dir / "out").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    fs::path glbPath = tempPath("typename.glb");
-    std::ifstream glbFile(glbPath, std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
-    CHECK(text.find("char_hair") != std::string::npos);
+    Json manifest = parseManifest(dir / "out");
+    REQUIRE(manifest["resources"]["materials"].size() == 1);
+    const Json& layer = manifest["resources"]["materials"][0]["layers"][0];
+    CHECK(layer["role"] == "char_hair");
+    CHECK(layer["identity"]["name"] == "char_hair");
 
-    fs::remove(m2Path);
-    fs::remove(skinPath);
-    fs::remove(glbPath);
+    fs::remove_all(dir);
 }
 
 TEST_CASE("husk export: a hardcoded texture slot embeds the sole basename-matching file in "
-          "--textures when husk can't resolve a FileDataID, and warns that the match is "
-          "non-deterministic and has no FileDataID to cross-reference") {
+          "--textures when husk can't resolve a FileDataID, naming it as a husk-synthesized "
+          "guess with no FileDataID to cross-reference") {
     auto dir = defaultsDir("fuzzytex-sole");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
@@ -85,28 +143,42 @@ TEST_CASE("husk export: a hardcoded texture slot embeds the sole basename-matchi
     // is what this fixture needs.
     writeFile(dir / "fuzzytexfaceupper00_00.png", {1, 2, 3, 4});
 
-    auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
+    auto result = runHusk("export --explain-textures " + (dir / "fuzzytex.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
-    CHECK(result.output.find("husk: warning:") != std::string::npos);
-    CHECK(result.output.find("fuzzytexfaceupper00_00.png") != std::string::npos);
-    CHECK(result.output.find("non-deterministic basename matching") != std::string::npos);
-    CHECK(result.output.find("no FileDataID at all for this hardcoded slot") != std::string::npos);
+    CHECK(result.output.find("fuzzy-same-basename-pool HIT") != std::string::npos);
+    CHECK(result.output.find("sole type-compatible candidate") != std::string::npos);
+
+    auto bundle = dir / "fuzzytex.bundle";
+    Json manifest = parseManifest(bundle);
+    auto resolved = texturesInState(manifest, "resolved");
+    REQUIRE(resolved.size() == 1);
+    CHECK(resolved[0]["identity"]["name"] == "fuzzytexfaceupper00_00");
+    // A same-basename match is a guess, never a verified identity.
+    CHECK(resolved[0]["identity"]["name_source"] == "synthesized");
+    CHECK(resolved[0]["identity"]["id"]["kind"] == "none");
+    CHECK(payloadBytes(bundle, resolved[0]) == std::string("\x01\x02\x03\x04", 4));
 
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: a FileDataID-exact texture match prints no fuzzy-match warning "
-          "(deterministic, nothing to double-check)") {
+TEST_CASE("husk export: a FileDataID-exact texture match is resolved by the literal tier and "
+          "prints no warning (deterministic, nothing to double-check)") {
     auto dir = defaultsDir("fdid-no-warning");
     writeFile(dir / "fdidtex.m2", oneTexturedModel(1034713));
     writeFile(dir / "fdidtex00.skin", oneTexturedModelSkin());
     writeFile(dir / "1034713.png", {1, 2, 3, 4});
 
-    auto result = runHusk("export " + (dir / "fdidtex.m2").string());
+    auto result = runHusk("export --explain-textures " + (dir / "fdidtex.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
     CHECK(result.output.find("husk: warning:") == std::string::npos);
+    CHECK(result.output.find("fuzzy-same-basename-pool") == std::string::npos);
+
+    Json manifest = parseManifest(dir / "fdidtex.bundle");
+    auto resolved = texturesInState(manifest, "resolved");
+    REQUIRE(resolved.size() == 1);
+    CHECK(resolved[0]["identity"]["id"]["value"] == 1034713);
 
     fs::remove_all(dir);
 }
@@ -117,7 +189,7 @@ namespace {
 // exercise husk's own in-memory decode path (src/blp.cpp), not a stand-in
 // PNG-shaped blob like the other fixtures in this file use (husk never
 // inspects .png bytes, but a .blp file's own header/pixel data is real
-// input it now parses, so this fixture needs to actually be one).
+// input it parses, so this fixture needs to actually be one).
 std::vector<uint8_t> oneRedBlpFile() {
     std::vector<uint8_t> f(1172, 0);  // fixed header + palette region
     std::memcpy(f.data(), "BLP2", 4);
@@ -143,34 +215,35 @@ std::vector<uint8_t> oneRedBlpFile() {
 
 }  // namespace
 
-TEST_CASE("husk export: a .blp texture is decoded and embedded in-memory, no --textures-out "
-          "needed") {
+TEST_CASE("husk export: a .blp texture is rehoused as DDS with its DXT1 block verbatim, no "
+          "--textures-out needed") {
     auto dir = defaultsDir("blp-embed");
     writeFile(dir / "blptex.m2", oneTexturedModel(4242));
     writeFile(dir / "blptex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "4242.blp", oneRedBlpFile());
+    auto blp = oneRedBlpFile();
+    writeFile(dir / "4242.blp", blp);
 
     auto result = runHusk("export " + (dir / "blptex.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    auto glbPath = dir / "blptex.glb";
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, glbPath.string());
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    REQUIRE(model.images.size() == 1);
-    CHECK(model.images[0].width == 4);
-    CHECK(model.images[0].height == 4);
-    CHECK(model.images[0].component == 4);
-    // Decoded straight from the DXT1 block above: pure red, fully opaque.
-    CHECK(model.images[0].image[0] == 255);
-    CHECK(model.images[0].image[1] == 0);
-    CHECK(model.images[0].image[2] == 0);
-    CHECK(model.images[0].image[3] == 255);
+    auto bundle = dir / "blptex.bundle";
+    Json manifest = parseManifest(bundle);
+    auto resolved = texturesInState(manifest, "resolved");
+    REQUIRE(resolved.size() == 1);
+    CHECK(resolved[0]["payload"]["media_type"] == "image/vnd-ms.dds");
+    std::string dds = payloadBytes(bundle, resolved[0]);
+    REQUIRE(dds.size() >= 128 + 8);
+    CHECK(dds.substr(0, 4) == "DDS ");
+    // Width and height (DDS_HEADER offsets 12/16 after the magic).
+    uint32_t height = 0, width = 0;
+    std::memcpy(&height, dds.data() + 12, 4);
+    std::memcpy(&width, dds.data() + 16, 4);
+    CHECK(width == 4);
+    CHECK(height == 4);
+    // The one DXT1 block, byte for byte: pure red, every index 0.
+    std::string block(blp.end() - 8, blp.end());
+    CHECK(dds.substr(128, 8) == block);
 
     fs::remove_all(dir);
 }
@@ -185,8 +258,11 @@ TEST_CASE("husk export: a corrupted .blp fails to decode, warns, and embeds noth
     auto result = runHusk("export " + (dir / "badblp.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
     CHECK(result.output.find("husk: warning: failed to decode") != std::string::npos);
+
+    Json manifest = parseManifest(dir / "badblp.bundle");
+    CHECK(texturesInState(manifest, "resolved").empty());
+    CHECK(texturesInState(manifest, "known_unresolved").size() == 1);
 
     fs::remove_all(dir);
 }
@@ -202,7 +278,8 @@ TEST_CASE("husk export: --textures-out mirrors a decoded .blp as a real .png, so
                            outDir.string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+    Json manifest = parseManifest(dir / "blpout.bundle");
+    CHECK(texturesInState(manifest, "resolved").size() == 1);
 
     auto mirroredPng = outDir / "4244.png";
     REQUIRE(fs::exists(mirroredPng));
@@ -220,18 +297,8 @@ TEST_CASE("husk export: --textures-out mirrors a decoded .blp as a real .png, so
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot embed BOTH as "
-          "alternate_textures, with one arbitrary default, not neither") {
-    // A real, valid 1x1 PNG (not just arbitrary bytes) -- this test actually
-    // loads the resulting .glb via tinygltf below, which decodes embedded
-    // images and fails the whole load on genuinely invalid image data.
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-
+TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot are kept BOTH as "
+          "an ambiguous texture's candidates, not neither") {
     auto dir = defaultsDir("fuzzytex-ambiguous");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
@@ -239,86 +306,26 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     // satisfy textureTypeTagClauses' type-1 OR-of-clauses) -- neither
     // "_hd" (this model isn't an "_hd" variant, and the fuzzy pool hard-
     // partitions on that).
-    writeFile(dir / "fuzzytexfaceupper00_00.png", onePixelPng);
-    writeFile(dir / "fuzzytexskin00_00.png", onePixelPng);
+    writeFile(dir / "fuzzytexfaceupper00_00.png", kOnePixelPng);
+    writeFile(dir / "fuzzytexskin00_00.png", kOnePixelPng);
 
     auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    // Exactly one embedded baseColorTexture (the arbitrary default) --
-    // the two candidates aren't guessed *between*, but they're also no
-    // longer silently dropped.
-    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
-    CHECK(result.output.find("2 same-basename texture candidate(s)") != std::string::npos);
-    CHECK(result.output.find("alternate_textures") != std::string::npos);
-    // Since feed145 ("Group console warnings by candidate set instead of
-    // spamming per batch"), the console warning names only the arbitrarily-
-    // picked default -- the full candidate list is no longer dumped to
-    // stderr (it was 400+ lines on a real character export) since it's
-    // already embedded as real alternate_textures extras on the .glb.
-    // fuzzytexfaceupper00_00.png (the default) is still named here; the
-    // non-default fuzzytexskin00_00.png deliberately is not -- its presence
-    // is asserted for real below, against the actual .glb content instead.
-    CHECK(result.output.find("fuzzytexfaceupper00_00.png") != std::string::npos);
 
-    // Real content check: both candidates' actual bytes reached the .glb,
-    // not just the default's name in the warning text above -- this is
-    // this test's real assertion that neither candidate is silently
-    // dropped.
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "fuzzytex.glb").string()));
-    REQUIRE(model.materials.size() == 1);
-    REQUIRE(model.materials[0].extras.Has("alternate_textures"));
-    auto alt = model.materials[0].extras.Get("alternate_textures");
-    REQUIRE(alt.ArrayLen() == 2);
-    std::vector<std::string> altFilenames;
-    for (size_t i = 0; i < alt.ArrayLen(); ++i) {
-        altFilenames.push_back(alt.Get(static_cast<int>(i)).Get("filename").Get<std::string>());
+    Json manifest = parseManifest(dir / "fuzzytex.bundle");
+    REQUIRE(manifest["resources"]["materials"].size() == 1);
+    const Json& texture = primaryLayerTexture(manifest, manifest["resources"]["materials"][0]);
+    CHECK(texture["state"] == "ambiguous");
+    auto names = candidateNames(texture);
+    REQUIRE(names.size() == 2);
+    CHECK(std::find(names.begin(), names.end(), "fuzzytexfaceupper00_00.png") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "fuzzytexskin00_00.png") != names.end());
+    for (const Json& c : texture["candidates"]) {
+        CHECK(c["identity"]["name_source"] == "synthesized");
+        CHECK(c["width"] == 1);
+        CHECK(c["height"] == 1);
     }
-    CHECK(std::find(altFilenames.begin(), altFilenames.end(), "fuzzytexfaceupper00_00.png") !=
-          altFilenames.end());
-    CHECK(std::find(altFilenames.begin(), altFilenames.end(), "fuzzytexskin00_00.png") !=
-          altFilenames.end());
-    // Each candidate is a genuinely separate embedded image (not just a
-    // name reused twice) -- the primary baseColorTexture image plus the
-    // two alternate-candidate images.
-    CHECK(model.images.size() == 3);
-
-    fs::remove_all(dir);
-}
-
-TEST_CASE("husk export --debug: opts back into the pre-grouping full per-batch, full-filename-list "
-          "ambiguous-match warning dump instead of today's default one-summary-line-per-candidate-"
-          "set grouping") {
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-
-    auto dir = defaultsDir("fuzzytex-debug");
-    writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
-    writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "fuzzytexfaceupper00_00.png", onePixelPng);
-    writeFile(dir / "fuzzytexskin00_00.png", onePixelPng);
-
-    auto grouped = runHusk("export " + (dir / "fuzzytex.m2").string());
-    CHECK(grouped.exitCode == 0);
-    // Default (no --debug): the non-default candidate's own filename never
-    // appears in the console warning -- it's grouped away, only reachable
-    // via the .glb's own alternate_textures extras (see the test above).
-    CHECK(grouped.output.find("fuzzytexskin00_00.png") == std::string::npos);
-
-    auto debugRun =
-        runHusk("export " + (dir / "fuzzytex.m2").string() + " --debug -o " + (dir / "debug.glb").string());
-    CHECK(debugRun.exitCode == 0);
-    // --debug: the old per-batch shape, every candidate filename listed
-    // inline in the warning itself, not just the arbitrarily-picked default.
-    CHECK(debugRun.output.find("material '") != std::string::npos);
-    CHECK(debugRun.output.find("fuzzytexfaceupper00_00.png") != std::string::npos);
-    CHECK(debugRun.output.find("fuzzytexskin00_00.png") != std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -326,62 +333,45 @@ TEST_CASE("husk export --debug: opts back into the pre-grouping full per-batch, 
 TEST_CASE("husk export: two hardcoded slots of genuinely different M2Texture::types each only see "
           "their own type-compatible candidates from the shared fuzzy pool, not each other's "
           "(CLAUDE_HISTORY.md: a jewelry-color file must never end up offered to a skin "
-          "slot's alternate_textures just because both slots are independently ambiguous)") {
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-
+          "slot just because both slots are independently ambiguous)") {
     auto dir = defaultsDir("category-filtered-fuzzy");
     writeFile(dir / "twohard.m2", twoHardcodedTexturedModel(1, 20));  // 1=skin, 20=char_jewelry
     writeFile(dir / "twohard00.skin", twoBatchSkin());
-    writeFile(dir / "twohard_skin_color_1000.png", onePixelPng);
-    writeFile(dir / "twohard_skin_color_1001.png", onePixelPng);
-    writeFile(dir / "twohard_jewelry_color_2000.png", onePixelPng);
-    writeFile(dir / "twohard_jewelry_color_2001.png", onePixelPng);
+    writeFile(dir / "twohard_skin_color_1000.png", kOnePixelPng);
+    writeFile(dir / "twohard_skin_color_1001.png", kOnePixelPng);
+    writeFile(dir / "twohard_jewelry_color_2000.png", kOnePixelPng);
+    writeFile(dir / "twohard_jewelry_color_2001.png", kOnePixelPng);
 
     auto result = runHusk("export " + (dir / "twohard.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "twohard.glb").string()));
-    REQUIRE(model.materials.size() == 2);
+    Json manifest = parseManifest(dir / "twohard.bundle");
+    const Json& materials = manifest["resources"]["materials"];
+    REQUIRE(materials.size() == 2);
 
-    for (const auto& mat : model.materials) {
-        REQUIRE(mat.extras.Has("alternate_textures"));
-        auto alt = mat.extras.Get("alternate_textures");
-        REQUIRE(alt.ArrayLen() == 2);  // each slot's own pair, never the other slot's
-
-        // Exactly two materials in this fixture, one per textureType --
-        // "char_jewelry" (m2::textureTypeName(20)) unambiguously identifies
-        // the jewelry slot's material name, the other is the skin slot's.
-        bool isJewelry = mat.name.find("char_jewelry") != std::string::npos;
-
-        for (size_t i = 0; i < alt.ArrayLen(); ++i) {
-            std::string filename = alt.Get(i).Get("filename").Get<std::string>();
+    bool sawJewelry = false;
+    bool sawSkin = false;
+    for (const Json& mat : materials) {
+        bool isJewelry = mat["layers"][0]["role"] == "char_jewelry";
+        sawJewelry |= isJewelry;
+        sawSkin |= !isJewelry;
+        const Json& texture = primaryLayerTexture(manifest, mat);
+        REQUIRE(texture["state"] == "ambiguous");
+        auto names = candidateNames(texture);
+        REQUIRE(names.size() == 2);  // each slot's own pair, never the other slot's
+        for (const std::string& name : names) {
             if (isJewelry) {
-                CHECK(filename.find("jewelry_color") != std::string::npos);
-                CHECK(filename.find("skin_color") == std::string::npos);
+                CHECK(name.find("jewelry_color") != std::string::npos);
+                CHECK(name.find("skin_color") == std::string::npos);
             } else {
-                CHECK(filename.find("skin_color") != std::string::npos);
-                CHECK(filename.find("jewelry_color") == std::string::npos);
+                CHECK(name.find("skin_color") != std::string::npos);
+                CHECK(name.find("jewelry_color") == std::string::npos);
             }
-            // Each candidate's embedded glTF image is named after its own
-            // real source filename (stem), not left blank -- Blender's
-            // importer falls back to an auto-generated "Image_<N>" for any
-            // unnamed image, which is what prompted this.
-            int texIdx = alt.Get(i).Get("texture_index").GetNumberAsInt();
-            REQUIRE(texIdx >= 0);
-            REQUIRE(static_cast<size_t>(texIdx) < model.textures.size());
-            std::string expectedName = fs::path(filename).stem().string();
-            CHECK(model.images[model.textures[texIdx].source].name == expectedName);
         }
     }
+    CHECK(sawJewelry);
+    CHECK(sawSkin);
 
     fs::remove_all(dir);
 }
@@ -392,41 +382,30 @@ TEST_CASE("husk export: a char_jewelry (type 20) slot only offers 'jewelry_color
           "actually correct for its one char_jewelry material -- body_jewelry_3602029 turned out "
           "to be a visually distinct necklace-chain item, not a color variant of the same design, "
           "so husk has no confirmed type for it and shouldn't claim type 20 compatibility)") {
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-
     auto dir = defaultsDir("jewelry-color-only");
     writeFile(dir / "jewtest.m2", oneTexturedModelWithType(20));  // 20 = TEX_COMPONENT_CHAR_JEWELRY
     writeFile(dir / "jewtest00.skin", oneTexturedModelSkin());
-    writeFile(dir / "jewtest_jewelry_color_1000.png", onePixelPng);
-    writeFile(dir / "jewtest_jewelry_color_1001.png", onePixelPng);
-    writeFile(dir / "jewtest_body_jewelry_2000.png", onePixelPng);
-    writeFile(dir / "jewtest_bracelets_3000.png", onePixelPng);
+    writeFile(dir / "jewtest_jewelry_color_1000.png", kOnePixelPng);
+    writeFile(dir / "jewtest_jewelry_color_1001.png", kOnePixelPng);
+    writeFile(dir / "jewtest_body_jewelry_2000.png", kOnePixelPng);
+    writeFile(dir / "jewtest_bracelets_3000.png", kOnePixelPng);
 
     auto result = runHusk("export " + (dir / "jewtest.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "jewtest.glb").string()));
-    REQUIRE(model.materials.size() == 1);
-    REQUIRE(model.materials[0].extras.Has("alternate_textures"));
-    auto alt = model.materials[0].extras.Get("alternate_textures");
+    Json manifest = parseManifest(dir / "jewtest.bundle");
+    REQUIRE(manifest["resources"]["materials"].size() == 1);
+    const Json& texture = primaryLayerTexture(manifest, manifest["resources"]["materials"][0]);
+    REQUIRE(texture["state"] == "ambiguous");
     // Only the two jewelry_color candidates -- body_jewelry/bracelets
     // excluded entirely, not merely deprioritized.
-    REQUIRE(alt.ArrayLen() == 2);
-    for (size_t i = 0; i < alt.ArrayLen(); ++i) {
-        std::string filename = alt.Get(i).Get("filename").Get<std::string>();
-        CHECK(filename.find("jewelry_color") != std::string::npos);
-    }
-    CHECK(result.output.find("body_jewelry") == std::string::npos);
-    CHECK(result.output.find("bracelets") == std::string::npos);
+    auto names = candidateNames(texture);
+    REQUIRE(names.size() == 2);
+    for (const std::string& name : names) CHECK(name.find("jewelry_color") != std::string::npos);
+    std::string text = manifest.dump();
+    CHECK(text.find("body_jewelry") == std::string::npos);
+    CHECK(text.find("bracelets") == std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -457,73 +436,46 @@ TEST_CASE("husk export: an ambiguous slot's default prefers the largest real can
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "sizetest.glb").string()));
-    REQUIRE(model.materials.size() == 1);
-    // The clean display `name` is now just the texture's own semantic type
-    // name ("skin") -- which of the ambiguous candidates was actually
-    // picked lives in the `diagnostic_name` extras (the old verbose chain)
-    // and in `alternate_textures[0].filename` below, checked directly
-    // instead.
-    REQUIRE(model.materials[0].extras.Has("diagnostic_name"));
-    CHECK(model.materials[0].extras.Get("diagnostic_name").Get<std::string>().find("skin_color_1001") !=
-          std::string::npos);
-    REQUIRE(model.materials[0].extras.Has("alternate_textures"));
-    auto alt = model.materials[0].extras.Get("alternate_textures");
-    REQUIRE(alt.ArrayLen() > 0);
-    CHECK(alt.Get(0).Get("filename").Get<std::string>() == "sizetest_skin_color_1001.png");
+    Json manifest = parseManifest(dir / "sizetest.bundle");
+    REQUIRE(manifest["resources"]["materials"].size() == 1);
+    const Json& texture = primaryLayerTexture(manifest, manifest["resources"]["materials"][0]);
+    REQUIRE(texture["state"] == "ambiguous");
+    // Candidates are listed in default-preference order: the first is the
+    // one husk would pick.
+    REQUIRE(texture["candidates"].size() == 3);
+    CHECK(texture["candidates"][0]["identity"]["name"] == "sizetest_skin_color_1001.png");
+    CHECK(texture["candidates"][0]["width"] == 8);
+    CHECK(texture["candidates"][0]["height"] == 8);
 
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: an ambiguous slot's default prefers a real recognized-category candidate "
-          "over a bare/unlabeled one sharing the model's basename (real bug: bloodelffemale_hd's "
-          "own bare '<model>_<fdid>.blp' file turned out to be an unrelated small icon, not a "
-          "skin texture, while the real skin atlas was sitting under the recognized 'skin_color' "
-          "category the whole time)") {
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-
+TEST_CASE("husk export: an ambiguous slot's candidates drop a bare/unlabeled one sharing the "
+          "model's basename once a real recognized-category candidate exists (real bug: "
+          "bloodelffemale_hd's own bare '<model>_<fdid>.blp' file turned out to be an unrelated "
+          "small icon, not a skin texture, while the real skin atlas was sitting under the "
+          "recognized 'skin_color' category the whole time)") {
     auto dir = defaultsDir("bare-vs-category");
     writeFile(dir / "baretest.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
     writeFile(dir / "baretest00.skin", oneTexturedModelSkin());
     // Bare candidate -- alphabetically first (numeric sorts before letters),
-    // exactly the shape that used to win by pure alphabetical accident.
-    writeFile(dir / "baretest_1000.png", onePixelPng);
-    writeFile(dir / "baretest_skin_color_2000.png", onePixelPng);
+    // so alphabetical order alone would pick it.
+    writeFile(dir / "baretest_1000.png", kOnePixelPng);
+    writeFile(dir / "baretest_skin_color_2000.png", kOnePixelPng);
 
     auto result = runHusk("export " + (dir / "baretest.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "baretest.glb").string()));
-    REQUIRE(model.materials.size() == 1);
-    // The bare file is a real unrecognized-category candidate with no
-    // evidence behind it -- filterCandidatesForType drops it entirely from
-    // this slot's candidate set once a recognized "skin_color" candidate
-    // exists (not just deprioritized), so this narrows all the way down to
-    // a *sole* match and resolves deterministically -- no alternate_textures
-    // ambiguity left to report at all, which is an even stronger outcome
-    // than "merely preferred".
-    CHECK_FALSE(model.materials[0].extras.Has("alternate_textures"));
-    // Same as the size-ranked-default test above: the clean display `name`
-    // is just "skin" now -- the real resolved filename lives in
-    // `diagnostic_name` and the CLI's own note output, both checked
-    // directly.
-    REQUIRE(model.materials[0].extras.Has("diagnostic_name"));
-    CHECK(model.materials[0].extras.Get("diagnostic_name").Get<std::string>().find("skin_color") !=
-          std::string::npos);
-    CHECK(result.output.find("baretest_skin_color_2000.png") != std::string::npos);
-    CHECK(result.output.find("baretest_1000.png") == std::string::npos);
+    Json manifest = parseManifest(dir / "baretest.bundle");
+    REQUIRE(manifest["resources"]["materials"].size() == 1);
+    // filterCandidatesForType drops the bare file entirely once a
+    // recognized "skin_color" candidate exists, so the slot narrows to a
+    // sole match and resolves deterministically -- not ambiguous at all.
+    const Json& texture = primaryLayerTexture(manifest, manifest["resources"]["materials"][0]);
+    CHECK(texture["state"] == "resolved");
+    CHECK(texture["identity"]["name"] == "baretest_skin_color_2000");
+    CHECK(manifest.dump().find("baretest_1000") == std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -552,101 +504,76 @@ TEST_CASE("husk export: an additive-blend (blendMode > 2) batch's ambiguous slot
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "glowtest.glb").string()));
-    REQUIRE(model.materials.size() == 2);
+    Json manifest = parseManifest(dir / "glowtest.bundle");
+    const Json& materials = manifest["resources"]["materials"];
+    REQUIRE(materials.size() == 2);
 
-    for (const auto& mat : model.materials) {
-        // blend_mode extras is only ever present for blendMode > 2
-        // (gltf::Material::blendMode's own doc comment) -- its presence
-        // alone already tells the two materials in this fixture apart.
-        bool isAdditive = mat.extras.Has("blend_mode");
-        REQUIRE(mat.extras.Has("alternate_textures"));
-        auto alt = mat.extras.Get("alternate_textures");
-        REQUIRE(alt.ArrayLen() == 2);
-        std::string defaultFilename = alt.Get(0).Get("filename").Get<std::string>();
+    bool sawAdditive = false;
+    bool sawOpaque = false;
+    for (const Json& mat : materials) {
+        // M2 blendMode 4 is the additive framebuffer blend, 0 opaque.
+        bool isAdditive = mat["framebuffer_blend"] == "add";
+        sawAdditive |= isAdditive;
+        sawOpaque |= mat["framebuffer_blend"] == "opaque";
+        const Json& texture = primaryLayerTexture(manifest, mat);
+        REQUIRE(texture["state"] == "ambiguous");
+        REQUIRE(texture["candidates"].size() == 2);
+        std::string defaultName = texture["candidates"][0]["identity"]["name"].get<std::string>();
         if (isAdditive) {
-            CHECK(defaultFilename == "glowtest_blue_glow.png");
+            CHECK(defaultName == "glowtest_blue_glow.png");
         } else {
-            CHECK(defaultFilename == "glowtest_blue.png");
+            CHECK(defaultName == "glowtest_blue.png");
         }
     }
+    CHECK(sawAdditive);
+    CHECK(sawOpaque);
 
     fs::remove_all(dir);
 }
 
 TEST_CASE("husk export: two batches resolving to the exact same material (same materialIndex, "
-          "same textureComboIndex) share one gltf::Material instead of getting one each "
+          "same textureComboIndex) share one bundle material instead of getting one each "
           "(CLAUDE_HISTORY.md: real corpus models had ~500 batches producing ~500 materials "
           "where a handful of truly distinct ones would do)") {
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-
     auto dir = defaultsDir("material-dedup");
     writeFile(dir / "dedup.m2", oneTexturedModel(4242));
     writeFile(dir / "dedup00.skin", twoBatchesSameComboSkin());
-    writeFile(dir / "4242.png", onePixelPng);
+    writeFile(dir / "4242.png", kOnePixelPng);
 
     auto result = runHusk("export " + (dir / "dedup.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "dedup.glb").string()));
-    // One material, shared by both primitives -- not two content-identical
-    // ones.
-    REQUIRE(model.materials.size() == 1);
-    REQUIRE(!model.meshes.empty());
-    REQUIRE(model.meshes[0].primitives.size() == 2);
-    CHECK(model.meshes[0].primitives[0].material == 0);
-    CHECK(model.meshes[0].primitives[1].material == 0);
-    // The stored material's name describes what it is, not which batch
-    // happened to produce it first -- no "batch0_"/"batch1_" prefix.
-    CHECK(model.materials[0].name.find("batch") == std::string::npos);
+    Json manifest = parseManifest(dir / "dedup.bundle");
+    REQUIRE(manifest["resources"]["materials"].size() == 1);
+    const Json& primitives = manifest["resources"]["geometry"]["mesh"]["primitives"];
+    REQUIRE(primitives.size() == 2);
+    CHECK(primitives[0]["material_index"] == 0);
+    CHECK(primitives[1]["material_index"] == 0);
 
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: an ordinary FileDataID-resolvable material (textureType 0, the common case "
-          "for a non-character prop/weapon model, no --db2-dir/--customization data at all) falls "
-          "all the way back to the full diagnostic chain for its own display `name` -- neither a "
-          "customization choice name nor a bare textureTypeName exists to prefer for this material, "
-          "so it must not regress to an empty or generic name") {
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-
+TEST_CASE("husk export: an ordinary FileDataID-resolvable texture (textureType 0, the common case "
+          "for a non-character prop/weapon model, no --db2-dir/--customization data at all) keeps "
+          "its FileDataID as its identity and a diffuse role -- not an empty or generic one") {
     auto dir = defaultsDir("plain-fallback-name");
     writeFile(dir / "plaintex.m2", oneTexturedModel(4343));
     writeFile(dir / "plaintex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "4343.png", onePixelPng);
+    writeFile(dir / "4343.png", kOnePixelPng);
 
     auto result = runHusk("export " + (dir / "plaintex.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string err, warn;
-    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "plaintex.glb").string()));
-    REQUIRE(model.materials.size() == 1);
-    // No customization choice, no textureTypeName (type 0) -- name equals
-    // the full diagnostic chain verbatim, not merely containing it as a
-    // substring, and it also carries the real FileDataID.
-    CHECK(model.materials[0].name.find("fdid4343") != std::string::npos);
-    REQUIRE(model.materials[0].extras.Has("diagnostic_name"));
-    CHECK(model.materials[0].name == model.materials[0].extras.Get("diagnostic_name").Get<std::string>());
+    Json manifest = parseManifest(dir / "plaintex.bundle");
+    REQUIRE(manifest["resources"]["materials"].size() == 1);
+    const Json& mat = manifest["resources"]["materials"][0];
+    CHECK(mat["layers"][0]["role"] == "diffuse");
+    const Json& texture = primaryLayerTexture(manifest, mat);
+    CHECK(texture["state"] == "resolved");
+    CHECK(texture["identity"]["id"]["kind"] == "file_data_id");
+    CHECK(texture["identity"]["id"]["value"] == 4343);
 
     fs::remove_all(dir);
 }
@@ -669,24 +596,37 @@ TEST_CASE("husk export: a fdid-resolvable slot keeps its own FileDataID-named fi
     auto result = runHusk("export " + (dir / "mixedtex.m2").string());
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("2 with an embedded texture") != std::string::npos);
 
-    std::ifstream glbFile(dir / "mixedtex.glb", std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
-    // Both real images present, each exactly once -- neither slot's file
-    // got embedded into the other's material instead.
-    CHECK(text.find("FDID") != std::string::npos);
-    CHECK(text.find("NAME") != std::string::npos);
-    // The fdid-resolvable slot's own material name still carries its real
-    // FileDataID -- it wasn't renamed to the fuzzy-matched file's name.
-    CHECK(text.find("_fdid1034713") != std::string::npos);
-    CHECK(text.find("_mixedtexhairstyle00_01") != std::string::npos);
+    auto bundle = dir / "mixedtex.bundle";
+    Json manifest = parseManifest(bundle);
+    const Json& materials = manifest["resources"]["materials"];
+    REQUIRE(materials.size() == 2);
+    bool sawFdid = false;
+    bool sawNamed = false;
+    for (const Json& mat : materials) {
+        const Json& texture = primaryLayerTexture(manifest, mat);
+        REQUIRE(texture["state"] == "resolved");
+        std::string bytes = payloadBytes(bundle, texture);
+        if (mat["layers"][0]["role"] == "char_hair") {
+            sawNamed = true;
+            CHECK(bytes == "NAME");
+            CHECK(texture["identity"]["name"] == "mixedtexhairstyle00_01");
+        } else {
+            sawFdid = true;
+            CHECK(bytes == "FDID");
+            // Not renamed to the fuzzy-matched file's name.
+            CHECK(texture["identity"]["id"]["value"] == 1034713);
+        }
+    }
+    CHECK(sawFdid);
+    CHECK(sawNamed);
 
     fs::remove_all(dir);
 }
 
 TEST_CASE("husk export: a fdid-resolvable slot with no matching \"<fdid>.png\" file falls through "
-          "to a real basename-matching file instead of embedding nothing (previously: silent gap)") {
+          "to a real basename-matching file instead of embedding nothing, still recorded under its "
+          "real FileDataID") {
     auto dir = defaultsDir("fallbacktex");
     writeFile(dir / "fallbacktex.m2", oneTexturedModel(9999999));  // no 9999999.png on disk
     writeFile(dir / "fallbacktex00.skin", oneTexturedModelSkin());
@@ -694,25 +634,20 @@ TEST_CASE("husk export: a fdid-resolvable slot with no matching \"<fdid>.png\" f
     // pool hard-partitions on that.
     writeFile(dir / "fallbacktexfaceupper00_00.png", {'N', 'A', 'M', 'E'});
 
-    auto result = runHusk("export " + (dir / "fallbacktex.m2").string());
+    auto result = runHusk("export --explain-textures " + (dir / "fallbacktex.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
-    // Fell through to the fuzzy match, so it gets the same warning as any
-    // other non-deterministic match -- this time naming the resolved
-    // FileDataID it couldn't be cross-checked against, since one exists
-    // (unlike a genuinely hardcoded slot).
-    CHECK(result.output.find("husk: warning:") != std::string::npos);
-    CHECK(result.output.find("resolved FileDataID 9999999") != std::string::npos);
+    CHECK(result.output.find("fdid=9999999") != std::string::npos);
+    CHECK(result.output.find("fuzzy-same-basename-pool HIT") != std::string::npos);
 
-    std::ifstream glbFile(dir / "fallbacktex.glb", std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
-    CHECK(text.find("NAME") != std::string::npos);
-    // The real FileDataID is still recorded (material name + extras),
-    // even though the embedded bytes came from the named file, not
-    // "9999999.png" -- see gltf.hpp's Material::baseColorTextureFileDataId
-    // doc comment.
-    CHECK(text.find("_fdid9999999") != std::string::npos);
-    CHECK(text.find("texture_file_data_id") != std::string::npos);
+    auto bundle = dir / "fallbacktex.bundle";
+    Json manifest = parseManifest(bundle);
+    auto resolved = texturesInState(manifest, "resolved");
+    REQUIRE(resolved.size() == 1);
+    CHECK(payloadBytes(bundle, resolved[0]) == "NAME");
+    // The real FileDataID is still the identity, even though the bytes came
+    // from the named file, not "9999999.png".
+    CHECK(resolved[0]["identity"]["id"]["value"] == 9999999);
 
     fs::remove_all(dir);
 }
@@ -729,11 +664,13 @@ TEST_CASE("husk export: a fdid-resolvable slot with no matching \"<fdid>.png\" a
 
     auto result = runHusk("export " + (dir / "nolistfiletex.m2").string() +
                            " --textures " + corpusRoot.string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    std::ifstream glbFile(dir / "nolistfiletex.glb", std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
-    CHECK(text.find("LIST") == std::string::npos);
+    auto bundle = dir / "nolistfiletex.bundle";
+    Json manifest = parseManifest(bundle);
+    CHECK(texturesInState(manifest, "resolved").empty());
+    CHECK(allPayloadBytes(bundle, manifest).find("LIST") == std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -764,13 +701,18 @@ TEST_CASE("husk export: --listfile resolves a FileDataID to its real corpus-rela
     auto result = runHusk("export " + (dir / "listfiletex.m2").string() +
                            " --textures " + corpusRoot.string() +
                            " --listfile " + listfilePath.string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    std::ifstream glbFile(dir / "listfiletex.glb", std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
-    CHECK(text.find("LIST") != std::string::npos);
-    // Still recorded under its real FileDataID, same as the exact-match case.
-    CHECK(text.find("_fdid1018799") != std::string::npos);
+    auto bundle = dir / "listfiletex.bundle";
+    Json manifest = parseManifest(bundle);
+    auto resolved = texturesInState(manifest, "resolved");
+    REQUIRE(resolved.size() == 1);
+    CHECK(payloadBytes(bundle, resolved[0]) == "LIST");
+    // Still recorded under its real FileDataID, same as the exact-match
+    // case, and named from the listfile.
+    CHECK(resolved[0]["identity"]["id"]["value"] == 1018799);
+    CHECK(resolved[0]["identity"]["name_source"] == "listfile");
 
     fs::remove_all(dir);
 }
@@ -796,7 +738,7 @@ TEST_CASE("husk export: a --listfile that opens fine but has no usable entries (
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("warning: --listfile") != std::string::npos);
     CHECK(result.output.find("no usable entries") != std::string::npos);
-    CHECK(fs::exists(dir / "corruptlistfile.glb"));
+    CHECK(fs::exists(dir / "corruptlistfile.bundle" / "manifest.json"));
 
     fs::remove_all(dir);
 }
@@ -829,13 +771,16 @@ TEST_CASE("husk export: --listfile-root is independent of --textures -- co-locat
     auto result = runHusk("export " + (dir / "splitroottex.m2").string() +
                            " --listfile " + listfilePath.string() +
                            " --listfile-root " + corpusRoot.string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    std::ifstream glbFile(dir / "splitroottex.glb", std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    auto bundle = dir / "splitroottex.bundle";
+    Json manifest = parseManifest(bundle);
     // Both real images present -- neither root's own file was left behind.
-    CHECK(text.find("NAME") != std::string::npos);
-    CHECK(text.find("FDID") != std::string::npos);
+    CHECK(texturesInState(manifest, "resolved").size() == 2);
+    std::string all = allPayloadBytes(bundle, manifest);
+    CHECK(all.find("NAME") != std::string::npos);
+    CHECK(all.find("FDID") != std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -865,11 +810,14 @@ TEST_CASE("husk export: a '_sdr' model's hardcoded texture slot falls back to th
     writeFile(dir / "creaturemaleskin00_00.png", {'S', 'D', 'R', 'F'});
 
     auto result = runHusk("export " + (dir / "creaturemale_sdr.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    std::ifstream glbFile(dir / "creaturemale_sdr.glb", std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
-    CHECK(text.find("SDRF") != std::string::npos);
+    auto bundle = dir / "creaturemale_sdr.bundle";
+    Json manifest = parseManifest(bundle);
+    auto resolved = texturesInState(manifest, "resolved");
+    REQUIRE(resolved.size() == 1);
+    CHECK(payloadBytes(bundle, resolved[0]) == "SDRF");
 
     fs::remove_all(dir);
 }
@@ -883,11 +831,12 @@ TEST_CASE("husk export: a '_sdr' model with no non-'_sdr' fallback candidates ei
     // No candidate under either basename.
 
     auto result = runHusk("export " + (dir / "lonelymale_sdr.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
-    std::ifstream glbFile(dir / "lonelymale_sdr.glb", std::ios::binary);
-    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
-    CHECK(text.find("baseColorTexture") == std::string::npos);
+    Json manifest = parseManifest(dir / "lonelymale_sdr.bundle");
+    CHECK(texturesInState(manifest, "resolved").empty());
+    CHECK(texturesInState(manifest, "known_unresolved").size() == 1);
 
     fs::remove_all(dir);
 }
@@ -897,13 +846,7 @@ TEST_CASE("husk export --explain-textures: the resolution ledger is a read opera
     auto dir = defaultsDir("explaintextures");
     writeFile(dir / "explainmale.m2", oneTexturedModelWithType(1));
     writeFile(dir / "explainmale00.skin", oneTexturedModelSkin());
-    std::vector<uint8_t> onePixelPng = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
-        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
-        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
-    writeFile(dir / "explainmale_skin_body.png", onePixelPng);
+    writeFile(dir / "explainmale_skin_body.png", kOnePixelPng);
 
     auto quiet = runHusk("export " + (dir / "explainmale.m2").string());
     CHECK(quiet.exitCode == 0);

@@ -28,13 +28,13 @@ TEST_CASE("husk export --config: a config-supplied 'output' is used when --outpu
     auto dir = defaultsDir("config-basic");
     writeFile(dir / "alpha.m2", tinyValidM2());
     writeFile(dir / "alpha00.skin", tinyMatchingSkin());
-    auto outPath = dir / "from-config.glb";
+    auto outPath = dir / "from-config.bundle";
     auto configPath = dir / "husk-config.toml";
     writeConfig(configPath, "output = \"" + outPath.string() + "\"\n");
 
     auto result = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(outPath));
+    CHECK(fs::exists(outPath / "manifest.json"));
 
     fs::remove_all(dir);
 }
@@ -43,15 +43,15 @@ TEST_CASE("husk export --config: an explicit --output flag overrides the config 
     auto dir = defaultsDir("config-precedence");
     writeFile(dir / "alpha.m2", tinyValidM2());
     writeFile(dir / "alpha00.skin", tinyMatchingSkin());
-    auto configOut = dir / "from-config.glb";
-    auto cliOut = dir / "from-cli.glb";
+    auto configOut = dir / "from-config.bundle";
+    auto cliOut = dir / "from-cli.bundle";
     auto configPath = dir / "husk-config.toml";
     writeConfig(configPath, "output = \"" + configOut.string() + "\"\n");
 
     auto result = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
                            " --output " + cliOut.string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(cliOut));
+    CHECK(fs::exists(cliOut / "manifest.json"));
     CHECK_FALSE(fs::exists(configOut));
 
     fs::remove_all(dir);
@@ -61,14 +61,14 @@ TEST_CASE("husk export: $HUSK_CONFIG is honored when --config is not given") {
     auto dir = defaultsDir("config-envvar");
     writeFile(dir / "alpha.m2", tinyValidM2());
     writeFile(dir / "alpha00.skin", tinyMatchingSkin());
-    auto outPath = dir / "from-env-config.glb";
+    auto outPath = dir / "from-env-config.bundle";
     auto configPath = dir / "husk-config.toml";
     writeConfig(configPath, "output = \"" + outPath.string() + "\"\n");
 
     auto result = husk::test::runCommand("HUSK_CONFIG=" + configPath.string() + " " +
                                           std::string(HUSK_BINARY) + " export " + (dir / "alpha.m2").string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(outPath));
+    CHECK(fs::exists(outPath / "manifest.json"));
 
     fs::remove_all(dir);
 }
@@ -77,14 +77,14 @@ TEST_CASE("husk export: XDG_CONFIG_HOME/husk/config.toml is auto-discovered with
     auto dir = defaultsDir("config-xdg");
     writeFile(dir / "alpha.m2", tinyValidM2());
     writeFile(dir / "alpha00.skin", tinyMatchingSkin());
-    auto outPath = dir / "from-xdg-config.glb";
+    auto outPath = dir / "from-xdg-config.bundle";
     auto xdgHome = dir / "xdg-config-home";
     writeConfig(xdgHome / "husk" / "config.toml", "output = \"" + outPath.string() + "\"\n");
 
     auto result = husk::test::runCommand("XDG_CONFIG_HOME=" + xdgHome.string() + " " +
                                           std::string(HUSK_BINARY) + " export " + (dir / "alpha.m2").string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(outPath));
+    CHECK(fs::exists(outPath / "manifest.json"));
 
     fs::remove_all(dir);
 }
@@ -94,15 +94,15 @@ TEST_CASE("husk export --db2-dir none / --dbd-dir none: overrides a config-suppl
     // for a single invocation (DESIGN.md's "Three-state resolution, not
     // two"); without it a config value cannot be overridden at all. Real dirs
     // with no actual .db2/WoWDBDefs content in them, on purpose -- this
-    // test only checks whether husk *attempts* customization-choice DB2
-    // resolution at all (a real "no data resolved from '<dir>'" note),
+    // test only checks whether husk *attempts* character DB2 resolution at
+    // all (a note naming the configured directory it found nothing in),
     // not whether that resolution succeeds.
     auto dir = defaultsDir("config-db2-none");
     writeFile(dir / "alpha.m2", tinyValidM2());
     writeFile(dir / "alpha00.skin", tinyMatchingSkin());
-    // attachCustomizationChoices (the function whose stderr note this test
-    // looks for) is only reached when the model resolves real bones
-    // (cmd_export.cpp's `if (!bones.empty())` gate) -- a same-basename
+    // chartexture::build (whose stderr note this test looks for) is only
+    // reached when the model resolves real bones (cmd_export.cpp's
+    // `if (!bones.empty())` gate) -- a same-basename
     // .skel sidecar is the same external-bones convention
     // test_cli_chrmodel_id.cpp's own DB2-driven tests already use.
     writeFile(dir / "alpha.skel", boneCorrectionSkel());
@@ -114,12 +114,15 @@ TEST_CASE("husk export --db2-dir none / --dbd-dir none: overrides a config-suppl
 
     auto configHonored = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string());
     CHECK(configHonored.exitCode == 0);
-    CHECK(configHonored.output.find("DB2 data resolved from") != std::string::npos);
+    INFO("config run:\n", configHonored.output);
+    std::string db2Note = "loaded from '" + (dir / "empty-db2").string() + "'";
+    CHECK(configHonored.output.find(db2Note) != std::string::npos);
 
     auto explicitNone = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
                                  " --db2-dir none --dbd-dir none");
     CHECK(explicitNone.exitCode == 0);
-    CHECK(explicitNone.output.find("DB2 data resolved from") == std::string::npos);
+    CHECK(explicitNone.output.find(db2Note) == std::string::npos);
+    CHECK(explicitNone.output.find("empty-db2") == std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -185,14 +188,14 @@ TEST_CASE("husk export --listfile-root none: overrides a config-supplied value")
 
     auto configHonored = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
                                   " --textures " + texturesDir.string() + " --explain-textures --output " +
-                                  (dir / "config.glb").string());
+                                  (dir / "config.bundle").string());
     CHECK(configHonored.exitCode == 0);
     // The configured root doesn't have the file -- the listfile tier must miss.
     CHECK(configHonored.output.find("listfile HIT") == std::string::npos);
 
     auto explicitNone = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
                                  " --textures " + texturesDir.string() + " --listfile-root none " +
-                                 "--explain-textures --output " + (dir / "none.glb").string());
+                                 "--explain-textures --output " + (dir / "none.bundle").string());
     CHECK(explicitNone.exitCode == 0);
     // 'none' clears the configured (wrong) root, falling back to
     // --textures -- which does have the file -- so the listfile tier hits.
@@ -211,7 +214,7 @@ TEST_CASE("husk export: a nonexistent config path (autodiscovery finds nothing) 
     auto result = husk::test::runCommand("XDG_CONFIG_HOME=" + emptyXdgHome.string() + " " +
                                           std::string(HUSK_BINARY) + " export " + (dir / "alpha.m2").string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(dir / "alpha.glb"));
+    CHECK(fs::exists(dir / "alpha.bundle" / "manifest.json"));
 
     fs::remove_all(dir);
 }
