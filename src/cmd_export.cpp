@@ -21,6 +21,7 @@
 
 #include "animationdata_db2.hpp"
 #include "appearance_string.hpp"
+#include "canon_item_builder.hpp"
 #include "character_texture_context.hpp"
 #include "chunk.hpp"
 #include "cli_args.hpp"
@@ -34,12 +35,15 @@
 #include "export_transform.hpp"
 #include "gltf.hpp"
 #include "husk_config.hpp"
+#include "itemappearance_db2.hpp"
 #include "listfile.hpp"
 #include "listfile_cache.hpp"
 #include "listfile_index.hpp"
 #include "m2.hpp"
+#include "modelfiledata_db2.hpp"
 #include "skel.hpp"
 #include "skin.hpp"
+#include "texturefiledata_db2.hpp"
 #include "sources/listfile_catalog.hpp"
 #include "sources/resolved.hpp"
 
@@ -944,6 +948,75 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex
     }
 }
 
+// --appearance gear as canon items (ItemModifiedAppearance -> display ->
+// models, model textures, body-section overlays). Empty, with a note,
+// without the DB2 tables.
+std::vector<canon::Item> resolveGearItems(const std::string& db2Dir, const std::string& dbdDir,
+                                          const std::vector<appearance::GearEntry>& gear) {
+    if (gear.empty()) return {};
+    if (db2Dir.empty() || dbdDir.empty()) {
+        std::cerr << "husk: note: --appearance gear needs --db2-dir and --dbd-dir -- no items\n";
+        return {};
+    }
+    std::optional<itemappearance::Data> items = itemappearance::load(db2Dir, dbdDir, std::cerr);
+    if (!items) return {};
+    return canon::assembleEquippedItems(*items, modelfiledata::load(db2Dir, dbdDir, std::cerr),
+                                        texturefiledata::load(db2Dir, dbdDir, std::cerr), gear, std::cerr);
+}
+
+// Each gear item's model as a bundle of its own, `items/<fdid>.bundle/`
+// inside the character's bundle, textured with the item's object-skin
+// texture (type 2) when it has one. Returns each item's manifest uri
+// relative to the character bundle; empty where the model has no local
+// file or its export failed (both reported).
+std::vector<std::string> exportGearItemBundles(const std::vector<canon::Item>& gear, const ListfileIndex& listfile,
+                                               const std::string& listfileRoot, const std::string& bundleDir,
+                                               const writers::StoreLink* textureStore) {
+    std::vector<std::string> uris(gear.size());
+    for (size_t i = 0; i < gear.size(); ++i) {
+        const canon::GeometryComponent* geometry = nullptr;
+        for (const canon::Component& c : gear[i].components) {
+            if (const auto* g = std::get_if<canon::GeometryComponent>(&c)) geometry = g;
+        }
+        if (!geometry || geometry->modelFileDataIds.empty()) continue;
+        uint32_t fdid = geometry->modelFileDataIds.front();
+        std::optional<std::filesystem::path> path = sources::localFileForFileDataId(listfile, listfileRoot, fdid);
+        if (!path) {
+            std::cerr << "husk: note: gear model FileDataID " << fdid << " has no local file -- not exported\n";
+            continue;
+        }
+
+        // CLI11 takes a vector argv last-argument-first.
+        std::vector<std::string> reversedArgv;
+        for (const auto& m : geometry->materials) {
+            if (m.textureType == 2 && m.fileDataId != 0) {
+                reversedArgv = {std::to_string(m.fileDataId), "--object-skin-texture-id"};
+            }
+        }
+        // The item's own defaults, never the character's flags: its
+        // --appearance would recurse, and its textures sit beside it.
+        ExportOptions itemOpts;
+        CLI::App itemApp{"husk export (gear item model)", "husk export"};
+        addExportOptions(itemApp, itemOpts);
+        try {
+            itemApp.parse(reversedArgv);
+        } catch (const CLI::ParseError& e) {
+            std::cerr << "husk: note: gear model FileDataID " << fdid << ": " << e.what() << " -- not exported\n";
+            continue;
+        }
+        itemOpts.bundleOnly = true;
+
+        std::string uri = "items/" + std::to_string(fdid) + ".bundle";
+        std::string itemDir = (std::filesystem::path(bundleDir) / uri).string();
+        if (exportOneModel(itemOpts, itemApp, path->string(), itemDir, true, listfile, fdid, nullptr, textureStore) == 0) {
+            uris[i] = uri + "/manifest.json";
+        } else {
+            std::cerr << "husk: note: gear model FileDataID " << fdid << " failed to export\n";
+        }
+    }
+    return uris;
+}
+
 std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& opts, CLI::App& app) {
     if (!opts.bundleOnly || !app.count("--db2-dir") || !app.count("--dbd-dir")) return std::nullopt;
     if (opts.db2DirArg == "none" || opts.dbdDirArg == "none") return std::nullopt;
@@ -1009,7 +1082,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     if (!outputGiven) {
         outputPath = std::filesystem::path(modelPath).replace_extension(".glb").string();
         std::cerr << "husk: note: no output path given -- writing to '" << outputPath << "'\n";
-    } else if (std::filesystem::is_directory(outputPath)) {
+    } else if (!opts.bundleOnly && std::filesystem::is_directory(outputPath)) {
         // -o pointed at an existing directory: infer <dir>/<model-basename>.glb
         // -- the model's own filename is the obvious guess for what the user
         // wants the output named, the same way `cp foo.txt somedir/` infers
@@ -1253,11 +1326,29 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             std::vector<LodSkinPath> lodSkins =
                 opts.skinArg == "auto" && !lodGiven ? resolveLodSkinPaths(header, modelPath, skinDir, listfileRoot)
                                                     : std::vector<LodSkinPath>{};
+            BundleSidecars sidecars;
+            sidecars.listfile = &listfile;
+            sidecars.bonesDir = bonesDir;
+            if (physGiven && !physNone) {
+                sidecars.physPath = physPath;
+            } else if (!physGiven) {
+                std::filesystem::path beside = std::filesystem::path(modelPath).replace_extension(".phys");
+                std::error_code ec;
+                if (std::filesystem::exists(beside, ec)) sidecars.physPath = beside.string();
+            }
+            if (appearanceGiven) {
+                sidecars.appearance = opts.appearanceArg;
+                std::stringstream ids(customizationChoiceIdsArg);
+                for (std::string id; std::getline(ids, id, ',');) sidecars.appearanceChoiceIds.push_back(std::stoul(id));
+                sidecars.gear = resolveGearItems(db2Dir, dbdDirForChr, gearEntries);
+                sidecars.gearModelUris = exportGearItemBundles(sidecars.gear, listfile, listfileRoot, outputPath, textureStore);
+            }
             writeCanonBundleOnly(model, skinsToExport.front().second, lodSkins, catalog, modelPath,
                                  modelFileDataId ? modelFileDataId
                                                  : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
                                  objectSkinTextureFileDataId,
-                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures, textureStore);
+                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures, textureStore,
+                                 sidecars);
             std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
             return 0;
         }

@@ -175,10 +175,76 @@
         },
         "items": {
           "type": "array",
-          "description": "Items the model can wear, by identity.",
+          "description": "Items the model can wear, by identity, and what each draws when resolved.",
           "items": {
-            "$ref": "common.schema.json#/definitions/ref",
-            "description": "One item's display."
+            "type": "object",
+            "description": "One item.",
+            "properties": {
+              "ref": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "The item: an ItemDisplayInfo row (NPC equipment) or an ItemModifiedAppearance row (--appearance gear)."
+              },
+              "models": {
+                "type": "array",
+                "description": "The item's own models; uri, when set, is the item model's bundle, also listed in /references.",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/asset_ref",
+                  "description": "One model."
+                }
+              },
+              "textures": {
+                "type": "array",
+                "description": "Textures the item's models take (ItemDisplayInfoModelMatRes).",
+                "items": {
+                  "type": "object",
+                  "description": "One texture.",
+                  "properties": {
+                    "texture_type": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The item model's M2 texture type it fills."
+                    },
+                    "texture": {
+                      "$ref": "common.schema.json#/definitions/texture_index",
+                      "description": "The texture."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "texture_type",
+                    "texture"
+                  ]
+                }
+              },
+              "overlays": {
+                "type": "array",
+                "description": "Textures the item draws onto the wearer's body sections (ItemDisplayInfoMaterialRes).",
+                "items": {
+                  "type": "object",
+                  "description": "One overlay.",
+                  "properties": {
+                    "component_section": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The body section, CharComponentTextureSections.SectionType."
+                    },
+                    "texture": {
+                      "$ref": "common.schema.json#/definitions/texture_index",
+                      "description": "The texture."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "component_section",
+                    "texture"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "ref"
+            ]
           }
         },
         "customization": {
@@ -241,6 +307,12 @@
                         "geoset_id": {
                           "type": "integer",
                           "description": "Mesh geoset the choice shows; group * 100 + variant."
+                        },
+                        "correction_set": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "The .bone correction set the choice selects.",
+                          "x-index-into": "/resources/rig/correction_sets"
                         },
                         "textures": {
                           "type": "array",
@@ -502,6 +574,7 @@
                     "slot": {
                       "enum": [
                         "head",
+                        "neck",
                         "shoulder",
                         "shirt",
                         "chest",
@@ -511,9 +584,12 @@
                         "wrist",
                         "hands",
                         "tabard",
-                        "back"
+                        "back",
+                        "main_hand",
+                        "off_hand",
+                        "ranged"
                       ],
-                      "description": "The equipment slot; absent when the source's slot number has no known name."
+                      "description": "The equipment slot; absent when the source's slot has no known name."
                     },
                     "item": {
                       "type": "integer",
@@ -523,18 +599,20 @@
                     },
                     "source": {
                       "type": "object",
-                      "description": "The slot in the source's terms.",
+                      "description": "The slot in the source's terms: a number (NPC equipment) or a name (--appearance).",
                       "properties": {
                         "item_slot": {
                           "type": "integer",
                           "minimum": 0,
                           "description": "The source's slot number."
+                        },
+                        "slot_token": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The source's own slot name, as given."
                         }
                       },
-                      "additionalProperties": false,
-                      "required": [
-                        "item_slot"
-                      ]
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false,
@@ -1226,12 +1304,253 @@
                   "joints"
                 ]
               }
+            },
+            "correction_sets": {
+              "type": "array",
+              "description": "Per-joint correction matrices, one set per correction file; customization choices name the set they select. Data only: how the client applies a correction is not known.",
+              "items": {
+                "type": "object",
+                "description": "One correction file.",
+                "properties": {
+                  "ref": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The correction file."
+                  },
+                  "corrections": {
+                    "type": "array",
+                    "description": "One correction per corrected joint.",
+                    "items": {
+                      "type": "object",
+                      "description": "One joint's correction.",
+                      "properties": {
+                        "joint": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "The joint, by index."
+                        },
+                        "matrix": {
+                          "type": "array",
+                          "description": "4x4 matrix, row-major as stored; its space is not known.",
+                          "items": {
+                            "type": "number",
+                            "description": "One element."
+                          },
+                          "minItems": 16,
+                          "maxItems": 16,
+                          "x-unit": "1"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "joint",
+                        "matrix"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ref",
+                  "corrections"
+                ]
+              }
             }
           },
           "additionalProperties": false,
           "required": [
             "skeleton",
             "animation"
+          ]
+        },
+        "physics": {
+          "type": "object",
+          "description": "Rigid bodies on joints, their collision shapes and the joints between them. Data only. Values whose layout or unit is not established stay under source as stored.",
+          "properties": {
+            "bodies": {
+              "type": "array",
+              "description": "Bodies.",
+              "items": {
+                "type": "object",
+                "description": "One body.",
+                "properties": {
+                  "joint": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The skeleton joint the body follows."
+                  },
+                  "type": {
+                    "type": "integer",
+                    "description": "Body type as stored."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Body origin, model frame.",
+                    "x-unit": "yard"
+                  },
+                  "shapes": {
+                    "type": "array",
+                    "description": "The body's shapes.",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "A shape.",
+                      "x-index-into": "/resources/physics/shapes"
+                    }
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Raw body values with no established meaning.",
+                    "additionalProperties": {
+                      "type": "number",
+                      "description": "One raw value."
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "joint",
+                  "type",
+                  "position",
+                  "shapes",
+                  "source"
+                ]
+              }
+            },
+            "shapes": {
+              "type": "array",
+              "description": "Collision shapes.",
+              "items": {
+                "type": "object",
+                "description": "One shape.",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "box",
+                      "capsule",
+                      "sphere",
+                      "polytope",
+                      "unknown"
+                    ],
+                    "description": "Shape kind."
+                  },
+                  "friction": {
+                    "type": "number",
+                    "description": "Friction coefficient.",
+                    "x-unit": "1"
+                  },
+                  "restitution": {
+                    "type": "number",
+                    "description": "Restitution coefficient.",
+                    "x-unit": "1"
+                  },
+                  "density": {
+                    "type": "number",
+                    "description": "Density as stored.",
+                    "x-unit": "1"
+                  },
+                  "a": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Capsule: one end of the segment, body frame.",
+                    "x-unit": "yard"
+                  },
+                  "b": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Capsule: the other end, body frame.",
+                    "x-unit": "yard"
+                  },
+                  "radius": {
+                    "type": "number",
+                    "description": "Capsule radius.",
+                    "x-unit": "yard"
+                  },
+                  "vertices": {
+                    "type": "array",
+                    "description": "Polytope: hull vertices, body frame.",
+                    "items": {
+                      "$ref": "common.schema.json#/definitions/vec3",
+                      "description": "One vertex."
+                    },
+                    "x-unit": "yard"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Box and sphere geometry and polytope extras, as stored: their layouts are not verified.",
+                    "additionalProperties": {
+                      "description": "One raw value or array."
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "friction",
+                  "restitution",
+                  "density"
+                ]
+              }
+            },
+            "joints": {
+              "type": "array",
+              "description": "Joints between bodies.",
+              "items": {
+                "type": "object",
+                "description": "One joint.",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "spherical",
+                      "shoulder",
+                      "weld",
+                      "revolute",
+                      "prismatic",
+                      "distance",
+                      "unknown"
+                    ],
+                    "description": "Joint kind."
+                  },
+                  "body_a": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "First body.",
+                    "x-index-into": "/resources/physics/bodies"
+                  },
+                  "body_b": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Second body.",
+                    "x-index-into": "/resources/physics/bodies"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "The kind's record as stored: frames (3x4 row-major), limits, motor and spring values. The angle unit is not established.",
+                    "additionalProperties": {
+                      "description": "One raw value or array."
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "body_a",
+                  "body_b",
+                  "source"
+                ]
+              }
+            },
+            "source": {
+              "type": "object",
+              "description": "File-level values as stored: version, the type word, and the per-file vector records.",
+              "additionalProperties": {
+                "description": "One raw value or array."
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "bodies",
+            "shapes",
+            "joints",
+            "source"
           ]
         },
         "materials": {

@@ -115,6 +115,8 @@ struct Model {
     // "surface_type".
     std::vector<SurfaceType> surfaceTypes;
     CollisionMesh collision;  // empty = the model has none (M2 only)
+    std::optional<Physics> physics;            // the model's .phys, when one was found
+    std::vector<CorrectionSet> correctionSets;  // the model's .bone files that were found
     // Options (canon_options.hpp): replaceable textures material layers
     // read (MaterialLayer::slot) with what each may hold, particle colour
     // options, and the presets a source uses.
@@ -125,9 +127,10 @@ struct Model {
     // one list, in that order.
     std::vector<Definition> customization;
     std::vector<ChoiceTexture> choiceTextures;
+    std::vector<ChoiceCorrectionSet> choiceCorrectionSets;
     // Materials described as documents of their own (REFACTOR/MATERIALS.md).
     std::vector<MaterialDocument> materialDocuments;
-    std::vector<Ref> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
+    std::vector<ItemEntry> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
     std::vector<Preset> presets;
 };
 

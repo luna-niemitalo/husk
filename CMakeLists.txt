@@ -143,6 +143,7 @@ add_library(husk-lib STATIC
   src/m2_mesh_input.cpp
   src/m2_material_input.cpp
   src/m2_scene_input.cpp
+  src/m2_sidecar_input.cpp
   src/canon_model.cpp
   src/m2_canon_input.cpp
   src/canon_diff.cpp
@@ -157,6 +158,7 @@ add_library(husk-lib STATIC
   src/writers/material_writer.cpp
   src/writers/bundle_writer.cpp
   src/writers/bundle_bin_sections.cpp
+  src/writers/bundle_physics.cpp
   src/writers/terrain_bundle_writer.cpp
   src/adt.cpp
   src/wmo.cpp

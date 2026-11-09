@@ -86,12 +86,43 @@ struct ChoiceTexture {
     std::optional<CustomizationPick> onlyWith;
 };
 
+// A customization choice's .bone correction set (ChrCustomizationElement
+// -> ChrCustomizationBoneSet), when the set itself was loaded.
+struct ChoiceCorrectionSet {
+    CustomizationPick choice;
+    uint32_t set = 0;  // index into Model::correctionSets
+};
+
+// What an item draws, when resolved: its own models (each exported as a
+// model bundle beside this one, `uri` set when written), the textures
+// those models take (ItemDisplayInfoModelMatRes), and the textures it
+// draws onto the wearer's body sections (ItemDisplayInfoMaterialRes).
+struct ItemModel {
+    Ref ref;          // id = FileDataId of the item's .m2
+    std::string uri;  // the item model bundle's manifest, relative; empty = not exported
+};
+struct ItemTexture {
+    uint32_t textureType = 0;  // the item model's M2 texture type it fills
+    TextureRef texture;
+};
+struct ItemOverlay {
+    uint32_t componentSection = 0;  // CharComponentTextureSections.SectionType
+    TextureRef texture;
+};
+struct ItemEntry {
+    Ref ref;  // Db2Row: ItemDisplayInfo (NPC equipment) or ItemModifiedAppearance (--appearance gear)
+    std::vector<ItemModel> models;
+    std::vector<ItemTexture> textures;
+    std::vector<ItemOverlay> overlays;
+};
+
 // An item a preset wears. `slot`: the equipment slot's name, when the
 // source's slot number has a known one; `sourceSlot` is that number.
 struct PresetItem {
     std::optional<std::string> slot;
-    uint32_t sourceSlot = 0;
+    std::optional<uint32_t> sourceSlot;  // absent when the source names slots, not numbers (--appearance)
     uint32_t item = 0;  // index into Model::items
+    std::string sourceToken;  // the source's own slot name (--appearance); empty when it numbers slots
 };
 
 struct Preset {

@@ -1,9 +1,14 @@
 #include "cmd_export_canon.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <stdexcept>
+#include <string_view>
 
 #include "blp.hpp"              // blp::ParseError
 #include "canon_diff.hpp"
@@ -14,6 +19,7 @@
 #include "m2_animation.hpp"    // m2::extractAnimBlob
 #include "m2_canon_input.hpp"  // m2input::buildCanonModel, m2input::ExternalAnimBlobs
 #include "m2_scene_input.hpp"  // m2input::particleTextureIndices
+#include "m2_sidecar_input.hpp"
 #include "skel.hpp"             // .skel-sourced bones/sequences (AUDIT.md §7.2)
 #include "skin.hpp"
 #include "sources/listfile_catalog.hpp"
@@ -449,6 +455,71 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
     return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
 }
 
+
+// --appearance as one preset: its customization choices (as indices into
+// the model's catalogs) and its gear, each item appended to Model::items
+// with what it draws. Its model is the first of ModelResourcesID's files,
+// whatever race or sex that file is for (ComponentModelFileData isn't read).
+// The schema's preset item slot names (model.schema.json); an --appearance
+// slot token names one only when it lowercases to it.
+constexpr std::array<std::string_view, 15> kPresetSlotNames = {
+    "head", "neck", "shoulder", "shirt", "chest", "waist", "legs", "feet",
+    "wrist", "hands", "tabard", "back", "main_hand", "off_hand", "ranged"};
+
+template <typename TextureFor>
+void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, TextureFor&& textureFor) {
+    canon::Preset preset;
+    std::map<uint32_t, canon::CustomizationPick> pickByChoice;
+    uint32_t optionBase = 0;
+    for (const canon::Definition& definition : model.customization) {
+        for (size_t o = 0; o < definition.options.size(); ++o) {
+            for (size_t c = 0; c < definition.options[o].choices.size(); ++c) {
+                uint32_t row = std::get<canon::Db2Row>(definition.options[o].choices[c].ref.id).row;
+                pickByChoice[row] = {optionBase + static_cast<uint32_t>(o), static_cast<uint32_t>(c)};
+            }
+        }
+        optionBase += static_cast<uint32_t>(definition.options.size());
+    }
+    for (uint32_t choiceId : sidecars.appearanceChoiceIds) {
+        auto pick = pickByChoice.find(choiceId);
+        if (pick == pickByChoice.end()) {
+            preset.unresolved.push_back({"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, double(choiceId), std::nullopt});
+            continue;
+        }
+        preset.customization.push_back(pick->second);
+    }
+
+    for (size_t i = 0; i < sidecars.gear.size(); ++i) {
+        const canon::Item& item = sidecars.gear[i];
+        canon::ItemEntry entry;
+        entry.ref = item.identity;
+        for (const canon::Component& component : item.components) {
+            if (const auto* geometry = std::get_if<canon::GeometryComponent>(&component)) {
+                if (!geometry->modelFileDataIds.empty()) {
+                    entry.models.push_back({canon::Ref{canon::FileDataId{geometry->modelFileDataIds.front()}, "",
+                                                       canon::NameSource::None},
+                                            sidecars.gearModelUris[i]});
+                }
+                for (const auto& m : geometry->materials) entry.textures.push_back({m.textureType, textureFor(m.fileDataId)});
+            } else {
+                for (const auto& s : std::get<canon::SectionOverlayComponent>(component).sections) {
+                    entry.overlays.push_back({s.componentSection, textureFor(s.fileDataId)});
+                }
+            }
+        }
+        auto index = static_cast<uint32_t>(model.items.size());
+        model.items.push_back(std::move(entry));
+        for (const std::string& token : item.slots) {
+            std::string slot = token;
+            std::transform(slot.begin(), slot.end(), slot.begin(), [](unsigned char ch) { return std::tolower(ch); });
+            bool known = std::find(kPresetSlotNames.begin(), kPresetSlotNames.end(), slot) != kPresetSlotNames.end();
+            preset.items.push_back({known ? std::optional<std::string>(slot) : std::nullopt, std::nullopt, index, token});
+        }
+    }
+    preset.sources.push_back(
+        {canon::Ref{canon::None{}, sidecars.appearance, canon::NameSource::Synthesized}, 1.0f, 1.0f, {}});
+    model.presets.push_back(std::move(preset));
+}
 }  // namespace
 
 void runCanonExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
@@ -512,16 +583,27 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
                           uint32_t objectSkinTextureFileDataId,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir,
-                          const creaturedisplay::Data* creatures, const writers::StoreLink* textureStore) {
+                          const creaturedisplay::Data* creatures, const writers::StoreLink* textureStore,
+                          const BundleSidecars& sidecars) {
     CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes, lodSkins);
+    size_t jointCount = build.model.skeleton.joints.size();
+    if (!sidecars.physPath.empty()) build.model.physics = m2input::loadPhysics(sidecars.physPath, jointCount);
+    std::optional<std::vector<uint32_t>> boneFiles =
+        bonesAreInline ? model.header.boneFileDataIds : (haveSkel ? skel::findBoneFileDataIds(skelBytes) : std::nullopt);
+    if (boneFiles && sidecars.listfile) {
+        build.model.correctionSets = m2input::loadCorrectionSets(*boneFiles, sidecars.bonesDir, *sidecars.listfile,
+                                                                 listfileRoot, jointCount, std::cerr);
+    }
+
     writers::AssetUris textureUris;
+    auto textureFor = [&](uint32_t fdid) {
+        return fdid == 0 ? canon::TextureRef{} : optionTexture(catalog, fdid, textureStore, textureUris);
+    };
     if (creatures && modelFileDataId) {
         creatureinput::OptionsReport report;
-        creatureinput::addCreatureOptions(
-            *creatures, *modelFileDataId, build.model,
-            [&](uint32_t fdid) { return optionTexture(catalog, fdid, textureStore, textureUris); }, report);
+        creatureinput::addCreatureOptions(*creatures, *modelFileDataId, build.model, textureFor, report);
         if (!report.notes.empty()) std::cerr << report.notes;
         if (report.displays > 0) {
             std::cerr << "husk: " << build.model.presets.size() << " creature preset(s) from " << report.displays
@@ -533,6 +615,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
                          "the related choice isn't this model's)\n";
         }
     }
+    if (!sidecars.appearance.empty()) addAppearancePreset(sidecars, build.model, textureFor);
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
     writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris);
 }

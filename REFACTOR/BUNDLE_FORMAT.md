@@ -467,8 +467,8 @@ To apply preset `p` (indices are into this document unless stated):
   the two the client draws for an NPC is open (TODO/MATERIALS_TODO.md
   §10).
 - `shown_geosets`, when present, is the complete list of visible geosets.
-- `items[]` index `definition.items` (`ItemDisplayInfo` refs). Nothing in
-  the bundle draws them yet.
+- `items[]` index `definition.items` (see "Items, physics and bone
+  corrections" below). NPC equipment is a bare `ItemDisplayInfo` ref.
 - `particle_colors`, `opacity`: as named.
 - `sources[]`: the rows that use the look, with `scale`/`base_scale` and
   `users` (NPC names and titles) for labelling a list. The same look can
@@ -476,6 +476,34 @@ To apply preset `p` (indices are into this document unless stated):
 
 Choices from another ChrModel's catalog, and values husk can't place, are
 in the preset's `unresolved`. Skip or flag them; never guess them.
+
+### Items, physics and bone corrections (2026-11-09, schema 0.3.0)
+
+Moved here from the legacy glTF extras, same data:
+
+- **Items.** `definition.items[]` is `{ref, models?, textures?, overlays?}`.
+  `export --appearance` adds one preset: its customization choices and
+  its gear, each gear entry an `ItemModifiedAppearance` item that carries
+  `models` (the item's `.m2`, exported as its own model bundle at
+  `items/<fdid>.bundle/` and listed in `references`), `textures` (by the
+  item model's texture type; type 2 also textures the item bundle) and
+  `overlays` (textures for the wearer's body sections, by
+  `component_section`). Preset item `source` is `item_slot` (NPC slot
+  number) or `slot_token` (the appearance string's own slot name);
+  `slot` is set when the name is a known one. Known limits: the item
+  model is the first of its `ModelResourcesID` files whatever race or
+  sex it is for (`ComponentModelFileData` isn't read), and a second model
+  (`ModelResourcesID[1]`, the right shoulder) isn't read.
+- **Physics.** `resources.physics`: the `.phys` beside the model (or
+  `--phys`) as `bodies` (joint, position, shape indices), `shapes`
+  (capsule and polytope geometry; box and sphere layouts unverified, so
+  under `source`) and `joints` (kind, bodies, the kind's record under
+  `source`: its angle unit isn't established).
+- **Bone corrections.** `resources.rig.correction_sets`: each `.bone`
+  file the model or `.skel` names (`<bones-dir>/<fdid>.bone`, else the
+  listfile/store), a 4x4 matrix per corrected joint. A customization
+  choice names its set as `correction_set`. How a correction applies is
+  unknown (TODO/BONE_CORRECTION_APPLICATION_TODO.md).
 
 ## Embed or reference — one rule
 

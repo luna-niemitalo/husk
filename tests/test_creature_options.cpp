@@ -169,7 +169,7 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     REQUIRE(p.items.size() == 2);
     CHECK(p.items[0].slot == std::optional<std::string>("head"));
     REQUIRE(model.items.size() == 2);
-    CHECK(std::get<canon::Db2Row>(model.items[p.items[0].item].id).row == 9000);
+    CHECK(std::get<canon::Db2Row>(model.items[p.items[0].item].ref.id).row == 9000);
     CHECK_FALSE(p.items[1].slot.has_value());
     CHECK(p.items[1].sourceSlot == 11);
     REQUIRE(model.presets[1].unresolved.size() == 1);

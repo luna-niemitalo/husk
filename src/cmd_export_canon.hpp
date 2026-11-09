@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "canon_item.hpp"
 #include "creature_display_db2.hpp"
+#include "listfile_index.hpp"
 #include "skin_resolution.hpp"  // LodSkinPath
 #include "writers/texture_store.hpp"
 #include "gltf_mesh.hpp"
@@ -98,6 +100,20 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
 // straight to `bundleDir` -- no lean glTF, no legacy comparison -- plus the
 // model's mesh levels from `lodSkins` (resolveLodSkinPaths). Throws on
 // failure (unlike runCanonExport, the bundle is this mode's only output).
+// What a model bundle takes beyond the M2 itself, resolved by the caller.
+struct BundleSidecars {
+    std::string physPath;  // the .phys to read; empty = none
+    std::string bonesDir;  // tried first for '<fdid>.bone'; the listfile/store follow
+    const ListfileIndex* listfile = nullptr;
+    // --appearance: its customization choices and gear become one preset.
+    // `gearModelUris[i]` is gear[i]'s exported model bundle manifest,
+    // relative to the bundle; empty = not exported.
+    std::string appearance;
+    std::vector<uint32_t> appearanceChoiceIds;
+    std::vector<canon::Item> gear;
+    std::vector<std::string> gearModelUris;
+};
+
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath,
                           const std::vector<LodSkinPath>& lodSkins, husk::sources::Catalog& catalog,
                           const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
@@ -105,6 +121,6 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath,
                           const std::string& animDir, const std::string& listfileRoot, bool bonesAreInline, bool haveSkel,
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir,
                           const creaturedisplay::Data* creatures = nullptr,
-                          const writers::StoreLink* textureStore = nullptr);
+                          const writers::StoreLink* textureStore = nullptr, const BundleSidecars& sidecars = {});
 
 }  // namespace husk::commands

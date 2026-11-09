@@ -193,6 +193,32 @@ std::map<uint32_t, TargetSlot> addLayoutMaterials(const chrmodel::Data& tables, 
     return targets;
 }
 
+// Each choice whose bone set the model loaded (Model::correctionSets, by
+// .bone FileDataID) links to it. Resolution notes were already reported
+// by the choice-texture pass.
+void linkCorrectionSets(const creaturedisplay::Data& data, canon::Model& model) {
+    if (model.correctionSets.empty()) return;
+    std::map<uint32_t, uint32_t> setByFile;
+    for (size_t i = 0; i < model.correctionSets.size(); ++i) {
+        setByFile[std::get<canon::FileDataId>(model.correctionSets[i].ref.id).value] = static_cast<uint32_t>(i);
+    }
+    uint32_t optionBase = 0;
+    for (const canon::Definition& definition : model.customization) {
+        for (size_t o = 0; o < definition.options.size(); ++o) {
+            for (size_t c = 0; c < definition.options[o].choices.size(); ++c) {
+                uint32_t choiceId = std::get<canon::Db2Row>(definition.options[o].choices[c].ref.id).row;
+                std::ostringstream ignored;
+                std::optional<uint32_t> bone = chrcustomization::resolveChoice(data.customization, choiceId, ignored).boneFileDataId;
+                if (!bone) continue;
+                auto set = setByFile.find(*bone);
+                if (set == setByFile.end()) continue;
+                model.choiceCorrectionSets.push_back(
+                    {{optionBase + static_cast<uint32_t>(o), static_cast<uint32_t>(c)}, set->second});
+            }
+        }
+        optionBase += static_cast<uint32_t>(definition.options.size());
+    }
+}
 }  // namespace
 
 void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDataId, canon::Model& model,
@@ -272,6 +298,7 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
             optionBase += static_cast<uint32_t>(definition.options.size());
         }
     }
+    linkCorrectionSets(data, model);
     std::map<std::string, size_t> presetByChoices;
 
     auto textureOption = [&](uint32_t slot, uint32_t fdid) {
@@ -334,7 +361,7 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
                 if (item.itemDisplayInfo == 0) continue;
                 const char* name = npcItemSlotName(item.slot);
                 auto [it, added] = index.item.emplace(item.itemDisplayInfo, static_cast<uint32_t>(model.items.size()));
-                if (added) model.items.push_back(db2Ref("ItemDisplayInfo", item.itemDisplayInfo));
+                if (added) model.items.push_back({db2Ref("ItemDisplayInfo", item.itemDisplayInfo), {}, {}, {}});
                 preset.items.push_back({name ? std::optional<std::string>(name) : std::nullopt, item.slot, it->second});
                 key += "i" + std::to_string(item.slot) + ":" + std::to_string(item.itemDisplayInfo) + ";";
             }

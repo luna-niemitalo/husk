@@ -18,6 +18,7 @@
 #include "json_writer.hpp"
 #include "writers/bundle_bin_sections.hpp"
 #include "writers/bundle_common.hpp"
+#include "writers/bundle_physics.hpp"
 #include "writers/material_writer.hpp"
 #include "writers/writer_common.hpp"
 
@@ -59,10 +60,14 @@ void writeRgba(json::Writer& w, const std::array<float, 4>& rgba) {
 
 // A choice's bound textures, by (option, choice) in the flat option list.
 using ChoiceTextures = std::map<std::pair<uint32_t, uint32_t>, std::vector<const canon::ChoiceTexture*>>;
+// A choice's .bone correction set, by (option, choice): an index into
+// resources.rig.correction_sets.
+using ChoiceCorrectionSets = std::map<std::pair<uint32_t, uint32_t>, uint32_t>;
 
 // `materialBase`: the reference index of material document 0.
 void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon::Option& option, uint32_t optionIndex,
-                              const ChoiceTextures& choiceTextures, uint32_t materialBase, TextureTable& textures) {
+                              const ChoiceTextures& choiceTextures, const ChoiceCorrectionSets& correctionSets,
+                              uint32_t materialBase, TextureTable& textures) {
     w.beginObject();
     w.key("ref");
     writeRef(w, option.ref);
@@ -89,7 +94,12 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
             w.key("geoset_id");
             w.value(static_cast<int64_t>(choice.geoset->group * 100 + choice.geoset->variant));
         }
-        auto bound = choiceTextures.find({optionIndex, static_cast<uint32_t>(&choice - option.choices.data())});
+        std::pair<uint32_t, uint32_t> pick{optionIndex, static_cast<uint32_t>(&choice - option.choices.data())};
+        if (auto set = correctionSets.find(pick); set != correctionSets.end()) {
+            w.key("correction_set");
+            w.value(static_cast<int64_t>(set->second));
+        }
+        auto bound = choiceTextures.find(pick);
         if (bound != choiceTextures.end()) {
             w.key("textures");
             w.beginArray();
@@ -117,6 +127,46 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
         w.endObject();
     }
     w.endArray();
+    w.endObject();
+}
+
+// definition.items[]: the item's identity, and what it draws when resolved.
+void writeItem(json::Writer& w, const canon::ItemEntry& item, TextureTable& textures) {
+    w.beginObject();
+    w.key("ref");
+    writeRef(w, item.ref);
+    if (!item.models.empty()) {
+        w.key("models");
+        w.beginArray();
+        for (const canon::ItemModel& model : item.models) writeRef(w, model.ref, model.uri);
+        w.endArray();
+    }
+    if (!item.textures.empty()) {
+        w.key("textures");
+        w.beginArray();
+        for (const canon::ItemTexture& t : item.textures) {
+            w.beginObject();
+            w.key("texture_type");
+            w.value(static_cast<int64_t>(t.textureType));
+            w.key("texture");
+            w.value(static_cast<int64_t>(textures.add(t.texture)));
+            w.endObject();
+        }
+        w.endArray();
+    }
+    if (!item.overlays.empty()) {
+        w.key("overlays");
+        w.beginArray();
+        for (const canon::ItemOverlay& o : item.overlays) {
+            w.beginObject();
+            w.key("component_section");
+            w.value(static_cast<int64_t>(o.componentSection));
+            w.key("texture");
+            w.value(static_cast<int64_t>(textures.add(o.texture)));
+            w.endObject();
+        }
+        w.endArray();
+    }
     w.endObject();
 }
 
@@ -160,10 +210,13 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
         w.beginArray();
         ChoiceTextures choiceTextures;
         for (const canon::ChoiceTexture& t : model.choiceTextures) choiceTextures[{t.choice.option, t.choice.choice}].push_back(&t);
+        ChoiceCorrectionSets correctionSets;
+        for (const canon::ChoiceCorrectionSet& c : model.choiceCorrectionSets) correctionSets[{c.choice.option, c.choice.choice}] = c.set;
         uint32_t optionIndex = 0;
         for (const canon::Definition& definition : model.customization) {
             for (const canon::Option& option : definition.options) {
-                writeCustomizationOption(w, definition.chrModelId, option, optionIndex++, choiceTextures, materialBase, textures);
+                writeCustomizationOption(w, definition.chrModelId, option, optionIndex++, choiceTextures, correctionSets,
+                                         materialBase, textures);
             }
         }
         w.endArray();
@@ -172,7 +225,7 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
     if (!model.items.empty()) {
         w.key("items");
         w.beginArray();
-        for (const canon::Ref& item : model.items) writeRef(w, item);
+        for (const canon::ItemEntry& item : model.items) writeItem(w, item, textures);
         w.endArray();
     }
     if (model.particleColorOptions.empty()) return;
@@ -254,8 +307,14 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
                 w.value(static_cast<int64_t>(item.item));
                 w.key("source");
                 w.beginObject();
-                w.key("item_slot");
-                w.value(static_cast<int64_t>(item.sourceSlot));
+                if (item.sourceSlot) {
+                    w.key("item_slot");
+                    w.value(static_cast<int64_t>(*item.sourceSlot));
+                }
+                if (!item.sourceToken.empty()) {
+                    w.key("slot_token");
+                    w.value(item.sourceToken);
+                }
                 w.endObject();
                 w.endObject();
             }
@@ -677,6 +736,18 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
                 writeRef(rw, canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, techniqueUri(name));
                 rw.endObject();
             }
+            // Item model bundles exported beside this one (definition.items[].models).
+            for (const canon::ItemEntry& item : model.items) {
+                for (const canon::ItemModel& itemModel : item.models) {
+                    if (itemModel.uri.empty()) continue;
+                    rw.beginObject();
+                    rw.key("kind");
+                    rw.value("model");
+                    rw.key("asset");
+                    writeRef(rw, itemModel.ref, itemModel.uri);
+                    rw.endObject();
+                }
+            }
         });
 
     w.key("resources");
@@ -703,7 +774,16 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeSkeletonSection(w, model.skeleton, skeletonBin);
     w.key("animation");
     writeAnimationSection(w, model.skeleton, model.animations, animBin);
+    if (!model.correctionSets.empty()) {
+        w.key("correction_sets");
+        writeCorrectionSets(w, model.correctionSets);
+    }
     w.endObject();
+
+    if (model.physics) {
+        w.key("physics");
+        writePhysics(w, *model.physics);
+    }
 
     UvMapTable uvMaps;
     w.key("materials");

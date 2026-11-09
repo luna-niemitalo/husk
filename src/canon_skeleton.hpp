@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -61,6 +63,18 @@ struct Joint {
 
 struct Skeleton {
     std::vector<Joint> joints;
+};
+
+// One .bone file: a matrix per corrected joint. How the client applies one
+// (multiply order, space, whether children inherit it) is unknown, so a
+// set is data only (TODO/BONE_CORRECTION_APPLICATION_TODO.md).
+struct CorrectionSet {
+    Ref ref;  // id = FileDataId of the .bone
+    struct Correction {
+        uint32_t joint = 0;
+        std::array<float, 16> matrix{};  // row-major, as stored
+    };
+    std::vector<Correction> corrections;
 };
 
 }  // namespace husk::canon

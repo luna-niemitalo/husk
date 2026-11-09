@@ -210,8 +210,8 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     hair.choices = {longHair};
     customization.options = {hair};
     model.customization = {customization};
-    model.items = {canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9000}, "", canon::NameSource::None},
-                   canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9011}, "", canon::NameSource::None}};
+    model.items = {{canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9000}, "", canon::NameSource::None}, {}, {}, {}},
+                   {canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9011}, "", canon::NameSource::None}, {}, {}, {}}};
     preset.customization.push_back({0, 0});
     preset.items.push_back({"head", 0, 0});
     preset.items.push_back({std::nullopt, 11, 1});
@@ -248,13 +248,89 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(option["choices"][0]["geoset_id"] == 203);
     CHECK(p["items"][0]["slot"] == "head");
     CHECK(p["items"][1]["item"] == 1);
-    CHECK(definition["items"][1]["id"]["row"] == 9011);
+    CHECK(definition["items"][1]["ref"]["id"]["row"] == 9011);
     CHECK_FALSE(p["items"][1].contains("slot"));
     CHECK(p["items"][1]["source"]["item_slot"] == 11);
     CHECK(p["sources"][0]["ref"]["id"]["row"] == 7);
     CHECK(p["sources"][0]["scale"] == 1.5);
     CHECK(p["sources"][0]["base_scale"] == 2);
     CHECK(p["unresolved"]["fields"][0]["value"] == 99);
+}
+
+TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's models, textures and overlays") {
+    canon::Model model = buildSyntheticModel();
+    auto unresolvedTexture = [](uint32_t fdid) {
+        canon::TextureRef ref;
+        ref.state = canon::TextureRef::State::KnownUnresolved;
+        ref.resolved.id = canon::FileDataId{fdid};
+        ref.unresolvedReason = "not extracted";
+        return ref;
+    };
+    canon::Physics physics;
+    physics.bodies.push_back({0, 0, {1, 2, 3}, 0, 1, 0, 1, 0.5f, 0, 0.9f});
+    physics.shapes.push_back({1, 0, 0.5f, 0.1f, 1.0f});
+    physics.capsules.push_back({{0, 0, 0}, {0, 0, 1}, 0.25f});
+    physics.joints.push_back({0, 0, 1, 0});
+    physics.shoulderJoints.push_back({});
+    physics.shoulderJoints[0].coneAngle = 60;
+    model.physics = physics;
+
+    canon::CorrectionSet set;
+    set.ref = canon::Ref{canon::FileDataId{555}, "", canon::NameSource::None};
+    set.corrections.push_back({0, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}});
+    model.correctionSets = {set};
+    canon::Definition customization;
+    customization.chrModelId = 1;
+    canon::Option jaw;
+    jaw.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 8}, "Jaw", canon::NameSource::Db2};
+    jaw.category.ref = canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None};
+    canon::Choice wide;
+    wide.ref = canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 80}, "", canon::NameSource::None};
+    jaw.choices = {wide};
+    customization.options = {jaw};
+    model.customization = {customization};
+    model.choiceCorrectionSets = {{{0, 0}, 0}};
+
+    canon::ItemEntry item;
+    item.ref = canon::Ref{canon::Db2Row{"ItemModifiedAppearance", 15}, "", canon::NameSource::None};
+    item.models.push_back({canon::Ref{canon::FileDataId{148132}, "", canon::NameSource::None}, "items/148132.bundle/manifest.json"});
+    item.textures.push_back({2, unresolvedTexture(700)});
+    item.overlays.push_back({3, unresolvedTexture(701)});
+    model.items = {item};
+    canon::Preset preset;
+    preset.items.push_back({"main_hand", std::nullopt, 0, "MAIN_HAND"});
+    preset.sources.push_back({canon::Ref{canon::None{}, "husk-appearance/1 gear=MAIN_HAND:15", canon::NameSource::Synthesized}, 1, 1});
+    model.presets.push_back(preset);
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-sidecars";
+    fs::remove_all(dir);
+    writers::writeBundle(buildSyntheticModel(), dir / "items" / "148132.bundle", testProvenance());
+    writers::writeBundle(model, dir, testProvenance());
+    nlohmann::json manifest = parseManifest(dir);
+
+    const auto& p = manifest["resources"]["physics"];
+    CHECK(p["bodies"][0]["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
+    CHECK(p["bodies"][0]["shapes"] == nlohmann::json::array({0}));
+    CHECK(p["shapes"][0]["kind"] == "capsule");
+    CHECK(p["shapes"][0]["radius"] == 0.25);
+    CHECK(p["joints"][0]["kind"] == "shoulder");
+    CHECK(p["joints"][0]["source"]["cone_angle"] == 60);
+
+    CHECK(manifest["resources"]["rig"]["correction_sets"][0]["ref"]["id"]["value"] == 555);
+    CHECK(manifest["resources"]["rig"]["correction_sets"][0]["corrections"][0]["matrix"].size() == 16);
+    CHECK(manifest["definition"]["customization"]["options"][0]["choices"][0]["correction_set"] == 0);
+
+    const auto& i = manifest["definition"]["items"][0];
+    CHECK(i["models"][0]["uri"] == "items/148132.bundle/manifest.json");
+    CHECK(i["textures"][0]["texture_type"] == 2);
+    CHECK(i["overlays"][0]["component_section"] == 3);
+    bool referenced = false;
+    for (const auto& r : manifest["references"]) referenced |= r["asset"].value("uri", "") == "items/148132.bundle/manifest.json";
+    CHECK(referenced);
+    const auto& pi = manifest["selection"]["presets"][0]["items"][0];
+    CHECK(pi["slot"] == "main_hand");
+    CHECK(pi["source"]["slot_token"] == "MAIN_HAND");
+    CHECK_FALSE(pi["source"].contains("item_slot"));
 }
 
 TEST_CASE("writeBundle: a model without options writes no texture_slots, particle_colors or presets") {
