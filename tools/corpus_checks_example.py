@@ -49,8 +49,14 @@ def process_file(path: str, bar: tqdm.tqdm) -> None:
 	cc.test_fidelity(path)
 	cc.test_finite(path)
 	cc.test_mesh_completeness(path)
-	cc.run_gltf_validator(cc.scratch_glb_path(path))
-	shutil.copyfile(cc.status_path(path), path + ".status.json")
+	cc.run_bundle_validator(cc.scratch_bundle_path(path))
+	cc.test_validate(path)
+	# Beside the .m2 when the corpus is writable; the corpus mount is
+	# read-only, and the status json under STATUS_DIR is the real output.
+	try:
+		shutil.copyfile(cc.status_path(path), path + ".status.json")
+	except OSError:
+		pass
 
 	cc.cleanup(path)
 
