@@ -87,10 +87,14 @@ verbatim).
   - Docs consolidated: README design/implementation split, DESIGN.md
     trimmed (canon designs in `REFACTOR/CANON_DESIGN.md`), root cleanup,
     stale claims fixed.
-  - `~/docs` conformance pass: flake package sets and ccache path fixed;
-    this file reshaped. Proposed, not started (waiting on Luna): splitting
-    the canon-path files over 1000 lines, a sweep of history/`TODO:
-    Remove` comments, IN/OUT contract annotations in the parsers.
+  - `~/docs` conformance pass done (outside the legacy glTF path): flake
+    named sets and ccache path, this file in the template's shape, five
+    files split under 1000 lines, history/`TODO: Remove` comments swept,
+    IN/OUT contract annotations in every parser. Larger boundary gaps it
+    found are `STYLE_CLEANUP.md` item 4.
+  - Legacy glTF pruning: another session (husk-01) deletes the code
+    (stage 1 bdec5ce, bundle ports 0b24a19, stage 2 in progress); the docs
+    side comes here once it sends the removal list.
 - **Next step** (pick one; each names where its detail lives):
   - MantleCore migration to the current format:
     `REFACTOR/MANTLECORE_MIGRATION.md` (placement sets, tile-local frames,

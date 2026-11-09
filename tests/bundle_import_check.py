@@ -97,8 +97,8 @@ def build_mesh(bundle_dir, mesh_json, materials):
     for mat in materials:
         mesh.materials.append(mat)
 
-    # Each primitive's own "material_index" (writeMeshSection's doc
-    # comment) is already resolved via canon::resolveMaterialIndex into
+    # Each primitive's own "material_index" (src/writers/bundle_writer.hpp's
+    # header comment) is already resolved via canon::resolveMaterialIndex into
     # resources.materials -- a plain per-face-range assignment, one
     # contiguous polygon range per primitive (index_start/index_count are
     # in units of the flat triangle-index buffer, /3 for polygon indices).

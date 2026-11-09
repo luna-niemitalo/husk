@@ -1,6 +1,7 @@
 # STYLE_CLEANUP.md
 
-Open punch list from a style/compliance audit against `~/nix/claude-rules`.
+Open punch list from style/compliance audits against `~/docs` (Luna's
+rules: READABILITY, FOREIGN_DATA, CODE_COMMENTS, FILE_SIZE, CLI).
 Fixed items get removed outright — git history is the record, not this
 file. Renamed from `CLEANUP.md` 2026-09-16 — the old name collided with
 the unrelated `TODO/CLEANUP_TODO.md` (a project-specific code-hygiene/
@@ -29,9 +30,33 @@ once it was down to one item), causing real confusion about which file a
 3. **Finish the `// TODO: Remove` sweep.** Each marker is history
    narrative: delete it, keep any why/hazard, move a fact found nowhere
    else into WIKI_FINDINGS/DESIGN.md (`git grep -n "TODO: Remove" -- src
-   tests`). Remaining only in files other sessions owned during the
-   2026-11 sweep: `cmd_dump.cpp`, `cmd_info.cpp`, `gltf*`, `m2_*.cpp`,
-   `phys.*`, `skel.hpp`, `skin.*`, `test_conformance.cpp`,
-   `test_gltf_math.cpp`, `test_integration.cpp` (the legacy glTF ones may
-   just be deleted). Dated narrative also remains in `canon_diff.hpp`
-   ("closed 2026-09-15/16" notes).
+   tests`). Remaining only in the legacy glTF path, which is being deleted:
+   `cmd_dump.cpp`, `cmd_info.cpp`, `gltf*`, `test_conformance.cpp`,
+   `test_gltf_math.cpp`, `test_integration.cpp`; dated narrative in
+   `canon_diff.hpp`. Whatever survives the deletion gets swept.
+
+4. **Foreign-data boundary gaps (FOREIGN_DATA.md), found in the 2026-11
+   contract pass, each larger than a local fix:**
+   - `db2.cpp` `decodeField`/`decodeOffsetMapRecord` re-check per record
+     what `parse` should check once (fieldStructures coverage, element
+     width, `readBits` 1..64); `db2.hpp` says nothing downstream re-checks.
+     Moving them into `parse` changes when a bad file fails.
+   - `db2.cpp` `rowIdForRecord`/`recordId` fall back to the record index
+     when `header.idIndex` is out of range; `idIndex` is never validated.
+   - `db2.cpp` `decodeOffsetMapRecord`'s CommonData case scans `commonData`
+     linearly instead of using `commonDataByField`: two implementations of
+     one lookup.
+   - `dbd.cpp` `resolveFieldNames` returns a bare nullopt on a layout
+     mismatch, no expected/actual (needs a return-type change).
+   - `listfile_mmap_index.cpp`: `cumOffsets_`, hash slot offsets/lengths
+     and `pathOrder_` rows are never checked against the blob or entry
+     count at load; a corrupt cache can read out of bounds (an O(n) scan in
+     `tryLoad` would fix it). Its header's `MmapFile` doc says an open
+     failure is an I/O error, but `tryLoad` treats it as a cache miss.
+   - `adt.cpp`: MWDR ranges are validated lazily in `activeDoodadSets`, not
+     in `parseObj`; in `parseMh2o`, `end - off` can underflow for a vertex
+     offset past the chunk (still throws, with a misleading message).
+   - `listfile.cpp` skips malformed lines silently (DESIGN.md: intended);
+     FOREIGN_DATA's no-silent-tolerance rule wants at least a count.
+   - `m2_canon_input.cpp:246`: an interior re-check of what `assembleMesh`
+     already threw on.
