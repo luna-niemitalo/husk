@@ -246,6 +246,32 @@ TEST_CASE("husk export --glb: real M2 + .skin produces a lean glb the Khronos gl
 }
 #endif
 
+
+#ifdef HUSK_GLTF_VALIDATOR
+// 10 of this weapon's 15 bones are roots: the lean projection gives them
+// one non-joint parent, which the validator's common-root rule needs.
+TEST_CASE("husk export --glb: a real multi-root-bone-forest weapon produces a lean glb the Khronos "
+          "glTF-Validator accepts with zero errors" *
+          doctest::skip(testWeaponParticleB().empty())) {
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-conformance-multiroot.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-conformance-multiroot.glb";
+    exportWithGlb(testWeaponParticleB(), "", bundleDir, glbPath);
+
+    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + glbPath.string() + "\"");
+    INFO("gltf_validator output:\n", validation.output);
+    CHECK(validation.exitCode == 0);
+    CHECK(validation.output.find("Errors: 0,") != std::string::npos);
+
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
+}
+#else
+TEST_CASE("husk export --glb: a real multi-root-bone-forest weapon produces a lean glb the Khronos "
+          "glTF-Validator accepts with zero errors" *
+          doctest::skip(true)) {
+    // see TEST_DESIGN.md#Conformance-gating
+}
+#endif
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
 TEST_CASE("husk export --glb: real M2 + .skin imports into Blender (headless) with bone/vertex/"
           "animation counts matching tinygltf's reading and the M2 header; the bundle carries the "

@@ -329,6 +329,7 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
     // --- Nodes: mesh node (0) + one per joint ---------------------------
     tinygltf::Node meshNode;
     meshNode.mesh = 0;
+    meshNode.name = model.subject.name;
     int meshNodeIdx = 0;
     out.nodes.push_back(meshNode);
 
@@ -351,10 +352,22 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
 
     out.scenes.emplace_back();
     out.scenes[0].nodes.push_back(meshNodeIdx);
+    std::vector<int> rootNodes;
     for (size_t i = 0; i < skeleton.joints.size(); ++i) {
-        if (skeleton.joints[i].parent == -1) {
-            out.scenes[0].nodes.push_back(jointNodeBase + static_cast<int>(i));
-        }
+        if (skeleton.joints[i].parent == -1) rootNodes.push_back(jointNodeBase + static_cast<int>(i));
+    }
+    // glTF wants a skin's joints under one common root; a model with several
+    // root bones (a third of the corpus) gets a non-joint parent for them.
+    int skeletonRoot = rootNodes.size() == 1 ? rootNodes[0] : -1;
+    if (rootNodes.size() > 1) {
+        tinygltf::Node parent;
+        parent.name = "skeleton";
+        parent.children = rootNodes;
+        skeletonRoot = static_cast<int>(out.nodes.size());
+        out.nodes.push_back(parent);
+        out.scenes[0].nodes.push_back(skeletonRoot);
+    } else if (skeletonRoot >= 0) {
+        out.scenes[0].nodes.push_back(skeletonRoot);
     }
     out.defaultScene = 0;
 
@@ -380,6 +393,7 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
         for (size_t i = 0; i < skeleton.joints.size(); ++i) {
             skin.joints.push_back(jointNodeBase + static_cast<int>(i));
         }
+        skin.skeleton = skeletonRoot;
         out.skins.push_back(skin);
         out.nodes[static_cast<size_t>(meshNodeIdx)].skin = 0;
     }
