@@ -36,8 +36,8 @@ TEST_CASE("husk export --from-list: exports every listed model into --output-dir
 
     auto result = runHusk("export --from-list " + listPath.string() + " --output-dir " + outDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(outDir / "alpha.glb"));
-    CHECK(fs::exists(outDir / "beta.glb"));
+    CHECK(fs::exists(outDir / "alpha.bundle" / "manifest.json"));
+    CHECK(fs::exists(outDir / "beta.bundle" / "manifest.json"));
     CHECK(result.output.find("[1/2]") != std::string::npos);
     CHECK(result.output.find("[2/2]") != std::string::npos);
     CHECK(result.output.find("2 succeeded, 0 failed (of 2)") != std::string::npos);
@@ -61,8 +61,8 @@ TEST_CASE("husk export --from-list: one bad entry is reported and skipped, not f
 
     auto result = runHusk("export --from-list " + listPath.string() + " --output-dir " + outDir.string());
     CHECK(result.exitCode != 0);
-    CHECK(fs::exists(outDir / "good.glb"));
-    CHECK_FALSE(fs::exists(outDir / "missing.glb"));
+    CHECK(fs::exists(outDir / "good.bundle" / "manifest.json"));
+    CHECK_FALSE(fs::exists(outDir / "missing.bundle"));
     CHECK(result.output.find("export failed") != std::string::npos);
     CHECK(result.output.find("1 succeeded, 1 failed (of 2)") != std::string::npos);
 
@@ -89,8 +89,8 @@ TEST_CASE("husk export --from-list: two entries sharing a basename disambiguate 
 
     auto result = runHusk("export --from-list " + listPath.string() + " --output-dir " + outDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(fs::exists(outDir / "model.glb"));
-    CHECK(fs::exists(outDir / "orc_model.glb"));
+    CHECK(fs::exists(outDir / "model.bundle" / "manifest.json"));
+    CHECK(fs::exists(outDir / "orc_model.bundle" / "manifest.json"));
 
     fs::remove_all(dir);
 }
@@ -107,7 +107,7 @@ TEST_CASE("husk export --from-list: --output and --input are both rejected as mu
     }
 
     auto withOutput =
-        runHusk("export --from-list " + listPath.string() + " --output " + (dir / "x.glb").string() +
+        runHusk("export --from-list " + listPath.string() + " --output " + (dir / "x.bundle").string() +
                  " --output-dir " + (dir / "out").string());
     CHECK(withOutput.exitCode != 0);
     CHECK(withOutput.output.find("mutually exclusive") != std::string::npos);
