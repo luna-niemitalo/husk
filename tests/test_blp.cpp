@@ -462,7 +462,7 @@ TEST_CASE("blp::extractRawPayload + encodeDds: a real 512x512 DXT5 fixture's blo
     std::vector<uint8_t> ddsBlocks(dds.begin() + 4 + 124, dds.end());
     CHECK(ddsBlocks == payload.bytes);
 
-    // Verified interactively this session (not part of the automated
+    // Verified by hand (not part of the automated
     // assertions above, Pillow isn't a C++ test dependency): saving `dds`
     // to disk and opening it with Pillow 12.3.0 (a real, independent,
     // public DDS reader) decodes a real 512x512 RGBA image whose bytes are

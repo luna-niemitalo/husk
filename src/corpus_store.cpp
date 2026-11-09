@@ -246,7 +246,7 @@ Store::Put Store::putFile(const fs::path& source) const {
     fs::create_directories(staged.parent_path());
     Md5 written = copyHashing(source, staged);
     // A mismatch is a file still being written or a read that went wrong
-    // (one unchanged file hashed two ways on 2026-10-12, cause unknown): a
+    // (an unchanged file has hashed two ways, cause unknown): a
     // third read that agrees with one of the two settles which.
     if (written != key) {
         Md5 third = md5File(source);

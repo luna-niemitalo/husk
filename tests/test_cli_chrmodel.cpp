@@ -198,10 +198,10 @@ TEST_CASE("husk export --db2-dir/--dbd-dir/--chr-model-id, no --char-layout-id: 
     writeTextFile(dbdDir / "definitions" / "CharComponentTextureLayouts.dbd",
                   "COLUMNS\nint ID\nint Width\nint Height\n\n"
                   "LAYOUT 54545454\nBUILD 1.0.0.1\n$id$ID<32>\nWidth<32>\nHeight<32>\n");
-    // Real ChrModel.db2 shape this session's own fix reads: ID/DisplayID
+    // Real ChrModel.db2 shape: ID/DisplayID
     // (used elsewhere for --chr-model-id auto derivation) plus
     // CharComponentTextureLayoutID -- the column this test exists to
-    // verify --char-layout-id can now be derived from.
+    // verify --char-layout-id can be derived from.
     writeTextFile(dbdDir / "definitions" / "ChrModel.dbd",
                   "COLUMNS\nint ID\nint DisplayID\nint CharComponentTextureLayoutID\n\n"
                   "LAYOUT 56565656\nBUILD 1.0.0.1\n$id$ID<32>\nDisplayID<32>\n"

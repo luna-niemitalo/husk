@@ -1,11 +1,11 @@
 // CLI tier: `husk export --chr-model-id` -- exercises the real compiled
 // binary (see run_husk.hpp) against small, synthetic, on-disk M2/.skin/
-// .skel fixtures plus a small synthetic WoWDBDefs/.db2 fixture set. Split
-// out of tests/test_cli_chrcustomization.cpp (FILE_SPLIT_TODO.md Item 5) --
-// covers --chr-model-id's own default-choice auto-selection, the `auto`
+// .skel fixtures plus a small synthetic WoWDBDefs/.db2 fixture set.
+// Covers --chr-model-id's own default-choice auto-selection, the `auto`
 // derivation chain (filename race+sex fallback, the primary --listfile
 // FileDataID chain, genuine-ambiguity/no-match reporting), and the `none`
-// opt-out -- distinct from that file's own --customization-choice-ids scope,
+// opt-out -- distinct from tests/test_cli_chrcustomization.cpp's
+// --customization-choice-ids scope,
 // same "different flag, different file" rule tests/test_cli_chrmodel.cpp
 // already exists for --char-layout-id. See src/chrrace_db2.hpp.
 
@@ -582,8 +582,8 @@ TEST_CASE("husk export --chr-model-id auto: a genuinely ambiguous race+sex match
     writeFile(db2Dir / "chrcustomizationboneset.db2", buildFlatDb2(0x63636363, 0xe3e3e3e3, {}));
     writeFile(db2Dir / "chrraces.db2", buildChrRacesDb2(0x66666666, 0xe6e6e6e6, {{52, "Dracthyr"}}));
     // Two distinct real ChrModelIDs (89 dragon form, 127 Visage form) for
-    // the same real (race, sex) -- the actual shape found in real local
-    // data this session.
+    // the same real (race, sex) -- the actual shape of the real ChrRaceXChrModel
+    // data.
     writeFile(db2Dir / "chrracexchrmodel.db2",
               buildFlatDb2(0x67676767, 0xe7e7e7e7, {{1, 52, 0, 89}, {2, 52, 0, 127}}));
 

@@ -249,18 +249,14 @@ TEST_CASE("parseSubmeshes: reads vertexStart/vertexCount/indexStart/indexCount f
 }
 
 // `Level` (offset 0x02) is NOT LOD/culling metadata despite the field name
-// and its own doc comment's earlier assumption -- confirmed against a real,
+// -- confirmed against a real,
 // independent implementation (wow.export's Skin.js:
 // `triangleStart += level << 16`). It's the high 16 bits of `indexStart`,
 // needed for any model whose resolved triangle-index buffer exceeds 65,535
 // entries (`indexStart`/`triangleStart` on disk is only 16 bits) -- real,
 // not rare: confirmed on `bloodelffemale_hd.m2`'s own 136,254-entry buffer,
-// where 77 of 114 submeshes need this correction.
-// TODO: Remove: CLAUDE_HISTORY.md -- this field being silently
-// discarded (no correction applied) meant husk sliced the *wrong* region
-// of the triangle-index buffer for any submesh needing it, aliased into
-// the first 65,536 entries, with no error or crash -- discovered via a
-// real interactive Blender render showing missing body geometry.
+// where 77 of 114 submeshes need this correction. Dropping it silently
+// slices the wrong region of the index buffer, with no error.
 TEST_CASE("parseSubmeshes: Level (offset 0x02) is folded into indexStart's high 16 bits, not "
           "discarded") {
     std::vector<uint8_t> file(500, 0);

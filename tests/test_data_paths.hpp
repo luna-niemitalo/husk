@@ -111,7 +111,6 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // end to end against real '.bone' bytes, not that any particular slot is
 // semantically correct. Returns "" if skelPath is empty, has no BFID chunk,
 // or none of the expected same-basename '_NN.bone' files exist next to it.
-// TODO: Remove: cites `WIKI_FINDINGS/BONE.md`.
 inline std::string autoBonesDir(const std::string& skelPath) {
     if (const char* env = std::getenv("HUSK_TEST_BONES_DIR")) {
         return std::string(env);
@@ -176,7 +175,6 @@ constexpr const char* kLodDoodad = "world/doodads/dr_cup_02/dr_cup_02.m2";
 // The real bloodelffemale_hd_*.anim files (AFSB-shaped) sit right next to
 // the .m2/.skin/.skel above -- same directory, not a separate one, since
 // that's exactly the layout a real casc-tool extraction produces.
-// TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`.
 constexpr const char* kAnimDir = "character/bloodelf/female";
 // Real weapon models with ribbon/particle emitters, under this repo's own
 // gitignored test_data/item/objectcomponents/weapon/ (Luna's own
@@ -188,8 +186,6 @@ constexpr const char* kAnimDir = "character/bloodelf/female";
 // 0 ribbons, the largest real file available, for a multi-emitter stress
 // check. All four are Cataclysm+ (version 272/274), at or above
 // kMinVerifiedParticleVersion.
-// TODO: Remove: cites WIKI_FINDINGS.md's particle/ribbon section; chosen via
-// a full 4112-file corpus scan.
 constexpr const char* kWeaponRibbon = "item/objectcomponents/weapon/sword_2h_ashbringer_a_01.m2";
 constexpr const char* kWeaponParticleA =
     "item/objectcomponents/weapon/sword_1h_artifactskywall_d_06.m2";
@@ -202,9 +198,6 @@ constexpr const char* kWeaponParticleStress = "item/objectcomponents/weapon/mace
 // range, real but apparently vestigial data), chosen to prove the
 // textureCoordComboIndex+layer path is exercised (not just skipped via the
 // empty-table fast path) and still resolves safely.
-// TODO: Remove: cites `WIKI_FINDINGS/M2/skin.md`;
-// found via a full ~287k-file .skin scan (226,294 textureCount>1 hits) and
-// a ~130k-file .m2 scan (3 nonzero textureCoordCombos hits).
 constexpr const char* kMultiTextureLayerM2 =
     "world/replaceabletextureprops/guild/pennant_guild_alliance_a_01.m2";
 constexpr const char* kMultiTextureLayerSkin =
@@ -218,8 +211,6 @@ constexpr const char* kTextureCoordComboSkin =
 // weapon fixtures had a real .skin sibling committed alongside them, only
 // .m2+.phys). 10 real physics bodies, boneIndex values {0..9} of 17 real
 // bones.
-// TODO: Remove: narrative ("extracted into test_data/ this session"); cites
-// `WIKI_FINDINGS/PHYS.md`.
 constexpr const char* kWeaponPhys = "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_01.m2";
 constexpr const char* kWeaponPhysSkin =
     "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_0100.skin";
@@ -227,7 +218,6 @@ constexpr const char* kWeaponPhysSkin =
 // against real bytes and lock in the BLP2/listfile-mismatch anomaly's
 // correct-throw behavior. Sit under test_data/verification/, same
 // gitignored convention as every other fixture here.
-// TODO: Remove: cites `WIKI_FINDINGS/M2.md`.
 constexpr const char* kExp2VerificationM2 = "verification/exp2_126382.m2";
 constexpr const char* kPfdcVerificationM2 = "verification/pfdc_1003471.m2";
 constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
@@ -235,14 +225,12 @@ constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
 // of 2,354 real PCOL-bearing files found in the local corpus, chosen for
 // its small chunk size (2,016 bytes: 40 vertices, 74 triangles) while
 // still real, extracted data.
-// TODO: Remove: cites `WIKI_FINDINGS/M2.md`'s corrected count.
 constexpr const char* kPcolVerificationM2 = "verification/pcol_pa_kite_lamp_creature.m2";
 // A real quadruped creature (a base wolf.m2, 66 bones/557 vertices):
 // pipeline coverage for a body plan/hierarchy shape bloodelffemale.m2
 // doesn't represent, not orientation-correctness coverage (the synthetic
 // axis-probe in test_conformance.cpp already covers that for any asset
 // type, by construction -- see its own doc comment).
-// TODO: Remove: cites TRANSFORM_TRIAGE.md §5e.
 constexpr const char* kQuadrupedM2 = "creature/wolf/wolf.m2";
 constexpr const char* kQuadrupedSkin = "creature/wolf/wolf00.skin";
 // A real login-screen "glue" model with real M2Light records carrying
@@ -250,7 +238,6 @@ constexpr const char* kQuadrupedSkin = "creature/wolf/wolf00.skin";
 // creature/item fixture above, which all have lights.count == 0) --
 // found via a real corpus scan of interface/glues/models/ui_mainmenu_*.
 // 2 lights, type 0 (directional), real per-sequence keyframes.
-// TODO: Remove: this session's own light-animation-curve work.
 constexpr const char* kLightM2 = "interface/glues/models/ui_mainmenu_pandaria/ui_mainmenu_pandaria.m2";
 constexpr const char* kLightSkin =
     "interface/glues/models/ui_mainmenu_pandaria/ui_mainmenu_pandaria00.skin";

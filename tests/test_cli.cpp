@@ -6,25 +6,12 @@
 // specific, previously-confirmed-broken behavior; if any of these start
 // failing again, it's a real regression, not a flake.
 //
-// TODO: Remove: this file exists because of a real, confirmed gap
-// (FAILURES.md #5) -- cmd_info.cpp/cmd_export.cpp, the only place several
-// bugs actually lived (FAILURES.md #1-#4), had zero committed test
-// coverage that didn't require a personal WoW install.
-//
-// --skin/--skin-dir/--lod, --anim/.skel-sourced animation, --skel/
-// --bones-dir, and --phys cases moved to tests/test_cli_skin.cpp/
-// test_cli_anim.cpp/test_cli_skel.cpp/test_cli_phys.cpp respectively
-// (FILE_SPLIT_TODO.md Item 5, CLI-flag-shaped, not module-shaped). `husk
-// info`-only output cases moved to tests/test_cli_info.cpp, corrupted/
-// adversarial-input "fails cleanly" cases to tests/test_cli_errors.cpp, and
-// argv-grammar cases (--help/--version/named-vs-positional/argc guards) to
-// tests/test_cli_argv.cpp (FILE_SPLIT_TODO.md's post-completion audit --
-// this file was still over the 1000-line hard limit after Item 5's own
-// split; see those three files' own doc comments for their exact scope).
-// The texture-resolution cluster (fuzzy/hardcoded-slot basename matching,
-// ambiguous-slot size/category/blend-mode ranking, .blp decode, --listfile/
-// --listfile-root, the '_sdr' fallback) moved to tests/test_cli_textures.cpp
-// (FILE_SPLIT_TODO.md Item 3). What's left here is `husk export`'s own
+// Sibling files, split by CLI flag: --skin/--skin-dir/--lod in
+// test_cli_skin.cpp, --anim/.skel-sourced animation in test_cli_anim.cpp,
+// --skel/--bones-dir in test_cli_skel.cpp, --phys in test_cli_phys.cpp,
+// `husk info` output in test_cli_info.cpp, corrupted/adversarial input in
+// test_cli_errors.cpp, argv grammar in test_cli_argv.cpp, texture
+// resolution in test_cli_textures.cpp. This file covers `husk export`'s own
 // default-resolution and general-flag behavior on well-formed input:
 // same-basename .skin/output defaulting, --collision, geoset/multi-texture-
 // layer/global-sequence/animated-tint/UV-transform notes. Shared
@@ -427,7 +414,6 @@ TEST_CASE("husk export: a model with no global-sequence-driven tracks gains no e
 // material's baseColorFactor at all, so there's no real clip to build.
 // These tests confirm husk says so instead of silently exporting the batch
 // as if the track were the ordinary constant-value case.
-// TODO: Remove: FINDINGS.md §3.2/FAILURES2.md #7.
 
 TEST_CASE("husk export: an animated (non-constant) M2Color track is dropped with a note, not "
           "silently treated as constant") {
@@ -484,7 +470,6 @@ TEST_CASE("husk export: a constant (non-animated) M2Color track gets no animated
 // M2TextureTransform gets noted and exported as inert extras, not silently
 // dropped -- see gltf.hpp's TextureTransform doc comment for why it's
 // never applied to the actual render.
-// TODO: Remove: FINDINGS.md §3.1.
 
 TEST_CASE("husk export: a batch referencing a texture transform gets a note, and husk info "
           "counts texture_transforms") {

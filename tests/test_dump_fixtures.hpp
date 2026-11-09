@@ -1,9 +1,7 @@
 // Shared byte-builder helpers for tests/test_dump*.cpp -- factored out here
 // because tempPath/writeFile/putU32/putU16/putF32/putU32At/putU16At/putTag/
-// minimalMd20/wrapChunked/countOccurrences are each used by 3+ of the split
-// files (see FILE_SPLIT_TODO.md Item 5). Anonymous namespace: each including
-// TU gets its own private copy, same as when these lived inline in the
-// pre-split tests/test_dump.cpp.
+// minimalMd20/wrapChunked/countOccurrences are each used by 3+ test_dump*
+// files. Anonymous namespace: each including TU gets its own private copy.
 #pragma once
 
 #include <cstdint>

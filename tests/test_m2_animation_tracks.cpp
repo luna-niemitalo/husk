@@ -4,13 +4,8 @@
 // (flat, non-sequence-indexed) resolver family (readFBlockMeta/
 // resolveFBlockVec3/Vec2/Fixed16/Uint16), parseGlobalLoops, and
 // extractAnimBlob.
-// Split out of the former tests/test_m2.cpp (FILE_SPLIT_TODO.md Item 5),
-// then split further out of tests/test_m2_animation.cpp itself
-// (FILE_SPLIT_TODO.md's post-completion audit -- that file was still over
-// the 1000-line hard limit after Item 5's own split): the outer struct-
-// array parsers (parseColors/parseTextureWeights/parseTextureTransforms/
-// parseSequences) stayed in test_m2_animation.cpp -- see that file's own
-// doc comment.
+// The outer struct-array parsers (parseColors/parseTextureWeights/
+// parseTextureTransforms/parseSequences) are tested in test_m2_animation.cpp.
 
 #include "test_m2_fixtures.hpp"
 

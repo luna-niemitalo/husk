@@ -54,8 +54,7 @@ int db2Info(int argc, char** args);
 int db2Export(int argc, char** args);
 
 // `db2-build` -- builds husk's own verified knowledge-base SQLite database
-// (design history: git log -p TODO/KNOWLEDGE_BASE_DESIGN.md, deleted
-// 2026-09-16; live follow-up in TODO/TEXTURE_POOL_RECALL_TODO.md) from
+// (open follow-up in TODO/TEXTURE_POOL_RECALL_TODO.md) from
 // --db2-dir + --dbd-dir + --listfile:
 // the DB2 tables today's resolved joins need, a 'models' table (FileDataID
 // -> real path), one resolved join table per known "model needs X"

@@ -1,15 +1,12 @@
 // CLI tier: inline-M2 animation-sequence resolution -- exercises
 // husk::commands::exportGlb by spawning the real compiled binary (see
-// run_husk.hpp) against small, synthetic, on-disk fixtures. Split out of the
-// original tests/test_cli.cpp (FILE_SPLIT_TODO.md Item 5), then split
-// further out of tests/test_cli_anim.cpp itself (FILE_SPLIT_TODO.md's
-// post-completion audit -- that file was still over the 1000-line hard
-// limit after Item 5's own split): this file covers a model's own inline
+// run_husk.hpp) against small, synthetic, on-disk fixtures. This file
+// covers a model's own inline
 // (flags&0x20) sequences, pure-alias (flags&0x40) chain resolution, and
 // --anim <dir>'s FileDataID-vs-basename-convention resolution for a model
 // with no .skel. .skel-sourced (SKS1/AFSB) external-sequence resolution and
-// keyframe-data validation (NaN, non-monotonic, duplicate timestamps) moved
-// to tests/test_cli_anim_skel.cpp -- see that file's own doc comment. See
+// keyframe-data validation (NaN, non-monotonic, duplicate timestamps) live
+// in tests/test_cli_anim_skel.cpp -- see that file's own doc comment. See
 // TEST_DESIGN.md#Four-tier-architecture for how this tier relates to the
 // others.
 
@@ -119,7 +116,6 @@ TEST_CASE("husk export: an external sequence with no matching --anim <dir> file 
 // array convention, same as tinyAnimatedM2), so any *other* sequence that
 // produces a clip at all can only be getting there via alias-chain
 // resolution borrowing index 0's data, not its own.
-// TODO: Remove: former M2_GAPS_TODO.md Item 1 / `WIKI_FINDINGS/M2.md`.
 struct AliasSeqSpec {
     uint16_t id;
     uint16_t variationIndex;
@@ -204,9 +200,8 @@ TEST_CASE("husk export: a multi-hop alias chain (pure alias -> pure alias -> rea
 
 TEST_CASE("husk export: a sequence flagged both inline (0x20) AND alias (0x40) resolves against "
           "its own sequence index, not the (possibly invalid) alias chain") {
-    // TODO: Remove: this priority rule was forced by real data -- 31/38 real
-    // alias sequences in bloodelffemale_hd.skel also carry 0x20
-    // (`WIKI_FINDINGS/M2.md`'s follow-up).
+    // Real data forces this priority: 31/38 alias sequences in
+    // bloodelffemale_hd.skel also carry 0x20 (WIKI_FINDINGS/M2.md).
     auto m2Path = tempPath("alias-both-flags.m2");
     // seq1 has both 0x20 and 0x40 set, and a deliberately out-of-range
     // aliasNext (99, only 2 sequences exist) that would throw immediately
@@ -271,7 +266,6 @@ TEST_CASE("husk export: a pure-alias sequence's out-of-range aliasNext fails cle
 // note) -- these four cases cover its three-way priority (FileDataID file,
 // basename file, neither) against the same tinyExternalAnimM2 fixture the
 // two tests above already use.
-// TODO: Remove: `WIKI_FINDINGS/M2/anim.md`.
 
 TEST_CASE("husk export: --anim <dir> resolves via the basename convention when the model has no "
           "AFID chunk at all") {

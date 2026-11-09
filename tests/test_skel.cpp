@@ -267,7 +267,6 @@ TEST_CASE("findBoneFileDataIds: no BFID chunk returns nullopt, not an error") {
 
 // Same discipline as findAnimFileIds above, applied to BFID's
 // 4-byte-per-entry shape instead of AFID's 8-byte one.
-// TODO: Remove: FAILURES2.md #8.
 TEST_CASE("findBoneFileDataIds: BFID chunk with a byte length not a multiple of 4 throws, "
           "rather than silently dropping the trailing partial entry") {
     std::vector<uint8_t> file;

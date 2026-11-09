@@ -9,20 +9,8 @@
 
 // REFACTOR/RESOURCE_CATALOG.md's `Resolved<T>` -- the return shape every
 // `sources::Catalog` surface (`textureBytes`, `modelPath`,
-// `fileDataIdForPath`, `sidecar`, ...) is meant to use once that object
-// exists (RESOURCE_CATALOG.md: "not a bare optional... carries HOW the
-// answer was reached").
-//
-// This file is pure scaffolding, landed ahead of the Catalog object itself
-// for the same reason src/sources/db2_cache.hpp landed ahead of it
-// (REFACTOR_LOG.md's 2026-08-28 "Stage 1/2 prep" entry): it carries no
-// resolution-policy risk, so it doesn't need the "resolution ledger diff on
-// real fixtures" gate the real §1.1/§1.2 consolidation is waiting on
-// (REFACTOR_LOG.md's "Stage 1/2 follow-up" entry). Nothing in this codebase
-// constructs a Resolved<T> yet -- that starts once a real tier (§1.1's
-// texture resolution, or the remaining two §1.2 forward-lookup sites) is
-// migrated to report its own provenance through this type instead of a bare
-// optional/bool.
+// `fileDataIdForPath`, `sidecar`, ...) uses (RESOURCE_CATALOG.md: "not a
+// bare optional... carries HOW the answer was reached").
 namespace husk::sources {
 
 // Which of RESOURCE_CATALOG.md's texture tiers (or a sidecar/FileDataID

@@ -1,7 +1,6 @@
 // CLI tier: --skin/--skin-dir/--lod resolution -- exercises
 // husk::commands::exportGlb by spawning the real compiled binary (see
-// run_husk.hpp) against small, synthetic, on-disk fixtures. Split out of the
-// original tests/test_cli.cpp (FILE_SPLIT_TODO.md Item 5) -- covers 'auto'
+// run_husk.hpp) against small, synthetic, on-disk fixtures. Covers 'auto'
 // resolution order (SFID vs. same-basename scan), --skin-dir none/default,
 // --skin explicit/none conflicts, and --lod <n>/all tier selection. See
 // TEST_DESIGN.md#Four-tier-architecture for how this tier relates to the

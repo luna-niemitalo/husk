@@ -14,9 +14,7 @@
 //
 // Same db2table.hpp-backed thin-wrapper pattern as chrmodel_db2.hpp/
 // chrcustomization_db2.hpp. Deliberately an *exact*, case-insensitive match
-// only (Luna, 2026-08-20): "if user opens file 'dracthyrfemale' match it to
-// a dracthyr female... if the user opens file 'dwagon_biddies_69' that's
-// not gonna match dracthyr female no matter how hard you try". No fuzzy/
+// only, Luna's call: no fuzzy/
 // substring matching -- a basename that doesn't parse into a real
 // <race><sex> shape, or a race token that doesn't exactly match a real
 // ChrRaces.ClientFileString, derives nothing rather than guessing.

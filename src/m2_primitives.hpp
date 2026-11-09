@@ -6,8 +6,7 @@
 #include <vector>
 
 // M2 primitive types and blob-parsing entry points, per
-// https://wowdev.wiki/M2 (fetched 2026-07-24) -- split out of the former
-// monolithic m2.hpp/m2.cpp (see FILE_SPLIT_TODO.md Item 2). This is the
+// https://wowdev.wiki/M2 (fetched 2026-07-24). This is the
 // base module every other m2_*.hpp builds on: the plain (count, offset)/
 // vector/quaternion primitives every struct elsewhere is made of, the
 // bounds-checked blob-read helpers every parse* function elsewhere calls,
@@ -70,12 +69,7 @@ struct ParseError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-// Bounds-checked blob-read primitives shared across every m2_*.cpp file --
-// were file-local (anonymous namespace) helpers in the pre-split m2.cpp;
-// promoted to real declarations here so m2_header.cpp/m2_skeleton.cpp/
-// m2_animation.cpp/m2_scene.cpp can all call them across the TU boundary
-// (same pattern used for export_transform.hpp's scanDirOrWarn precedent,
-// see FILE_SPLIT_TODO.md).
+// Bounds-checked blob-read primitives shared across every m2_*.cpp file.
 uint32_t readU32(const uint8_t* blob, size_t blobSize, size_t off);
 uint16_t readU16(const uint8_t* blob, size_t blobSize, size_t off);
 uint8_t readU8(const uint8_t* blob, size_t blobSize, size_t off);
@@ -123,13 +117,10 @@ std::string expansionForVersion(uint32_t version);
 // from an older-client extraction) would be silently decoded at the wrong
 // byte stride: not necessarily a bounds error, just quiet wrong data, the
 // same failure shape a wrong stride guess always risks (see Sequence's doc
-// comment in m2_animation.hpp for one such case this parser already had to
-// correct). Callers that resolve these three arrays (cmd_info.cpp,
-// cmd_export.cpp) check `header.version < kMinVerifiedRecordStrideVersion`
+// comment in m2_animation.hpp). Callers that resolve these three arrays
+// check `header.version < kMinVerifiedRecordStrideVersion`
 // and warn loudly rather than silently trusting output this parser was
 // never confirmed to read correctly for that version.
-// TODO: Remove: WIKI_FINDINGS.md / FAILURES2.md #3 citations for this
-// policy's origin.
 constexpr uint32_t kMinVerifiedRecordStrideVersion = 264;
 
 }  // namespace husk::m2

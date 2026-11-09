@@ -9,8 +9,8 @@
 
 // Small bounds-checked read primitives and JSON-writer helpers shared
 // across `husk dump-chunks`'s split-out dumpers (dump_emitters.cpp,
-// dump_phys.cpp, dump_chunks_misc.cpp, cmd_dump.cpp itself) -- see
-// FILE_SPLIT_TODO.md's Item 4. No shared state, just leaf helpers.
+// dump_phys.cpp, dump_chunks_misc.cpp, cmd_dump.cpp itself). No shared
+// state, just leaf helpers.
 namespace husk::commands {
 
 // Bounds-checked read primitives, same discipline as every other parser in
@@ -55,7 +55,6 @@ void writeRawIntAsIs(json::Writer& w, uint32_t raw);
 // 1.0, neither of which makes sense under fixed16's linear scaling
 // (0x231c/32767 would be ~0.276, 0x3c00/32767 would be > 1.0 and get
 // clamped, matching neither observed constant).
-// TODO: Remove: confirmed against real bytes, `WIKI_FINDINGS/M2.md`.
 float readHalfFloat(uint16_t bits);
 
 // PFDC (wowdev.wiki M2#PFDC, >= 9.0.1.33978): inline physics data, byte-
@@ -70,12 +69,6 @@ float readHalfFloat(uint16_t bits);
 // sequence husk::readChunks does but stops cleanly (rather than throwing)
 // once fewer than 8 bytes remain -- exactly the shape PADDING[6] produces.
 // See M2_COMPLETENESS.md.
-// TODO: Remove: confirmed empirically (tests/test_dump.cpp) against a real
-// committed .phys fixture wrapped in a synthetic PFDC chunk. husk's local
-// extraction corpus has zero PFDC-bearing files (a local-extraction gap,
-// not a real absence) -- a live-CASC scan found 2,430 real PFDC files, one
-// pulled directly (FileDataID 1003471) decodes cleanly, see
-// `WIKI_FINDINGS/PHYS.md`.
 size_t physPayloadRealLength(const uint8_t* d, size_t n);
 
 }  // namespace husk::commands

@@ -362,10 +362,8 @@ TEST_CASE("husk db2-export: synthetic WDC5 file, no --dbd-dir, writes real SQLit
 
 TEST_CASE("husk db2-export --dir: a 3rd stray positional after the output path is rejected, "
           "not silently ignored") {
-    // Regression: the CLI11 migration (the since-deleted TODO/CLEANUP_TODO.md's former #3) initially only checked that
-    // exactly one positional followed --dir, forgetting to also check that no *second* stray
-    // positional had been accepted -- "db2-export --dir <dir> <out> <extra>" silently exported
-    // anyway, dropping "extra" instead of erroring.
+    // Checking only that one positional follows --dir is not enough: "db2-export --dir <dir>
+    // <out> <extra>" must error, not export and drop "extra".
     fs::path dir = fs::temp_directory_path() / "husk-test-db2export-dir-extras";
     fs::create_directories(dir);
     fs::path dbPath = dir / "test.db2";
@@ -562,7 +560,7 @@ TEST_CASE("husk db2-export --dir: a $noninline,relation$ field gets a real colum
     // annotated $noninline,relation$ in the LAYOUT block -- it occupies no
     // field-array slot in the .db2 file itself, matching real
     // ChrModelTextureLayer.dbd's own CharComponentTextureLayoutsID shape
-    // under the layout this session verified against real data.
+    // under the layout verified against real data.
     std::ofstream childDbd(definitionsDir / "Child.dbd");
     childDbd << "COLUMNS\n"
              << "int ID\n"
@@ -803,9 +801,8 @@ TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
     fs::remove_all(dir);
 }
 
-// `db2-info`/`db2-build`'s own CLI11 migration (the since-deleted TODO/CLEANUP_TODO.md's former #3) --
-// written alongside it, since neither command had any CLI-tier coverage
-// before. db2-build's real functional behavior needs a 7-file --db2-dir
+// `db2-info`/`db2-build` CLI-tier coverage. db2-build's real functional
+// behavior needs a 7-file --db2-dir
 // fixture (kKbSourceTables, cmd_db2.cpp) out of scope here; these only cover
 // the argv grammar itself.
 

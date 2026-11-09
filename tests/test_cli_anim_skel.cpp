@@ -1,16 +1,13 @@
 // CLI tier: .skel-sourced external animation-sequence resolution and
 // keyframe-data validation -- exercises husk::commands::exportGlb by
 // spawning the real compiled binary (see run_husk.hpp) against small,
-// synthetic, on-disk fixtures. Split out of the original tests/test_cli.cpp
-// (FILE_SPLIT_TODO.md Item 5), then split further out of
-// tests/test_cli_anim.cpp itself (FILE_SPLIT_TODO.md's post-completion
-// audit -- that file was still over the 1000-line hard limit after Item 5's
-// own split): this file covers a .skel's own SKS1 sequences (inline and
+// synthetic, on-disk fixtures. This file covers a .skel's own SKS1
+// sequences (inline and
 // external, including AFSB-tagged/mixed-chunk --anim <dir> files),
 // --anim's model-own-directory default, keyframe-data validation (NaN,
 // non-monotonic, duplicate timestamps), and the --anim auto/inline/none
 // flag-value tests. A model's own inline-M2 sequence/alias resolution (no
-// .skel involved) moved to tests/test_cli_anim.cpp -- see that file's own
+// .skel involved) lives in tests/test_cli_anim.cpp -- see that file's own
 // doc comment. See TEST_DESIGN.md#Four-tier-architecture for how this tier
 // relates to the others.
 
@@ -138,7 +135,6 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
           "resolves a real animation clip, end to end -- SKB1's own per-sequence (count,offset) "
           "descriptors point directly into the AFSB payload, same mechanism as an AFM2-shaped "
           "external file just pointed at a different blob") {
-    // TODO: Remove: `WIKI_FINDINGS/M2/anim.md`'s follow-up.
     size_t boneOff = 0;
     auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
     size_t transOff = boneOff + 0x10;
@@ -430,10 +426,10 @@ TEST_CASE("husk export: a non-monotonic (out-of-order) translation keyframe time
 // files -- world bosses, base character rigs, one world doodad, all on
 // `rotation`) has an exact-duplicate keyframe timestamp -- a genuinely-
 // authored "hard cut" pose (two values meant to apply at the same instant),
-// not corruption. This used to be rejected identically to real disorder (a
-// timestamp genuinely *decreasing*, still covered by the test above); it's
-// now repaired instead (the later duplicate nudged forward 1ms) so both
-// authored values survive, rather than collapsing one away.
+// not corruption. Unlike real disorder (a timestamp genuinely *decreasing*,
+// covered by the test above) it's repaired (the later duplicate nudged
+// forward 1ms) so both authored values survive, rather than collapsing one
+// away.
 TEST_CASE("husk export: an exact-duplicate keyframe timestamp is repaired (nudged forward 1ms), "
           "not rejected like genuine disorder") {
     auto b = tinyValidM2();

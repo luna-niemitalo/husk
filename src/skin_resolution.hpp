@@ -7,8 +7,7 @@
 #include "m2.hpp"
 
 // Resolves --skin/--skin-dir/--lod ('auto', a same-basename numbered scan,
-// or an explicit --lod selection) into concrete .skin file paths -- split
-// out of cmd_export.cpp per FILE_SPLIT_TODO.md's Item 1.
+// or an explicit --lod selection) into concrete .skin file paths.
 namespace husk::commands {
 
 // Shared by every resolveAutoSkinPaths mode below: husk's own non-goal (no

@@ -12,7 +12,7 @@
 #include "dbd.hpp"
 
 // Shared surface between cmd_db2.cpp (db2-info/db2-export) and
-// cmd_db2_build.cpp (db2-build) -- split out per FILE_SPLIT_TODO.md's Item 2.
+// cmd_db2_build.cpp (db2-build).
 // `LoadedFile`/`loadOneFile`/`writeFileTable` are cmd_db2.cpp's own real
 // definitions (single-file and `--dir` multi-file export share this exact
 // shape, per LoadedFile's own doc comment); `sqliteCheck` is a small shared

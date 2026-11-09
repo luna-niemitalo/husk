@@ -1,11 +1,6 @@
 // Tests for src/sources/listfile_catalog.hpp/.cpp -- two slices of
-// REFACTOR/RESOURCE_CATALOG.md's FileDataID<->path surface.
-// fileDataIdForPath was previously unexercised directly (only reachable
-// via CLI-level --chr-model-id auto tests) since it lived as a
-// file-private static in export_extras.cpp. pathForFileDataId
-// (REFACTOR/AUDIT.md #1.2's forward direction) is new this session,
-// consolidated out of export_materials.cpp's texture-tier listfile
-// fallback and cmd_export.cpp's exportGearAuxItemModels.
+// REFACTOR/RESOURCE_CATALOG.md's FileDataID<->path surface:
+// fileDataIdForPath and pathForFileDataId (REFACTOR/AUDIT.md #1.2).
 
 #include <doctest/doctest.h>
 

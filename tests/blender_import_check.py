@@ -81,7 +81,6 @@ def main():
     # local-space offset land where a correct Z-up -> Y-up -> (Blender's
     # own Y-up -> Z-up import) round trip says it should," independent of
     # what any real WoW asset's own orientation convention happens to be.
-    # TODO: Remove: cites TRANSFORM_TRIAGE.md §5c.
     for arm in armatures:
         for bone in arm.data.bones:
             if not bone.name.startswith("husk_probe_"):
@@ -98,7 +97,6 @@ def main():
     # synthetic probe's own math-only result -- never the primary
     # orientation check (that's the probe above, which works for any
     # asset, not just a humanoid with this specific bone tagged).
-    # TODO: Remove: cites TRANSFORM_TRIAGE.md §5c.
     for arm in armatures:
         bone = arm.data.bones.get("_Name")
         if bone is not None:

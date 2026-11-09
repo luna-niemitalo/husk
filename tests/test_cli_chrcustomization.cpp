@@ -6,8 +6,8 @@
 // TODO/BONE_CORRECTION_APPLICATION_TODO.md, src/chrcustomization_db2.hpp. The
 // `--chr-model-id auto` derivation tests (lowest-OrderIndex default-choice
 // selection, the filename race+sex fallback, the primary --listfile
-// FileDataID chain, and the `none` opt-out) moved to
-// tests/test_cli_chrmodel_id.cpp (FILE_SPLIT_TODO.md Item 5) -- a different
+// FileDataID chain, and the `none` opt-out) live in
+// tests/test_cli_chrmodel_id.cpp -- a different
 // flag, same "different flag, different file" rule
 // tests/test_cli_chrmodel.cpp already exists for --char-layout-id.
 
@@ -306,12 +306,9 @@ std::vector<uint8_t> buildOptionOrChoiceDb2(uint32_t tableHash, uint32_t layoutH
 
 // One row for buildOptionWithCategoryDb2 -- ChrCustomizationOption with a
 // real ChrCustomizationCategoryID column, which buildOptionOrChoiceDb2's
-// own fixed 4-field shape (id, fk, orderIndex, name) has no room for. A
-// separate, purpose-built builder rather than widening
-// buildOptionOrChoiceDb2 itself -- that one's two existing call sites use
-// their own already-passing bespoke DBD text this session deliberately
-// doesn't touch (see the module-level "no extensive alteration beyond the
-// task's own scope" convention).
+// own fixed 4-field shape (id, fk, orderIndex, name) has no room for.
+// Separate from buildOptionOrChoiceDb2 because that one's two call sites
+// pair it with their own bespoke DBD text.
 struct OptionWithCategoryRow {
     uint32_t id;
     uint32_t chrModelId;

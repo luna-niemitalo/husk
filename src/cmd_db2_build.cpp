@@ -19,12 +19,9 @@
 #include "listfile_cache.hpp"
 
 // `husk db2-build` -- builds husk's own verified knowledge-base SQLite
-// database (design history: git log -p TODO/KNOWLEDGE_BASE_DESIGN.md,
-// deleted 2026-09-16 once resolved; live follow-up in
-// TODO/TEXTURE_POOL_RECALL_TODO.md), split out of cmd_db2.cpp per
-// FILE_SPLIT_TODO.md's Item 2: a distinct sub-feature (the knowledge-base
-// builder) sharing only loadOneFile/writeFileTable/sqliteCheck with
-// cmd_db2.cpp's own db2-export/db2-info (see cmd_db2_shared.hpp).
+// database (open follow-up in TODO/TEXTURE_POOL_RECALL_TODO.md). Shares
+// only loadOneFile/writeFileTable/sqliteCheck with cmd_db2.cpp's own
+// db2-export/db2-info (see cmd_db2_shared.hpp).
 namespace husk::commands {
 
 namespace {
@@ -277,8 +274,7 @@ int db2Build(int argc, char** args) {
                                   nullptr, nullptr, nullptr),
                     db, "CREATE TABLE model_object_skin_candidates");
         // Without these, the joins below are a nested-loop scan across
-        // 131k x 72k x 141k x 214k rows -- minutes, not seconds (measured
-        // directly this session before adding indexes the first time).
+        // 131k x 72k x 141k x 214k rows -- minutes, not seconds (measured).
         sqliteCheck(sqlite3_exec(db, "CREATE INDEX idx_mfd_fid ON ModelFileData(FileDataID)", nullptr,
                                   nullptr, nullptr),
                     db, "CREATE INDEX idx_mfd_fid");

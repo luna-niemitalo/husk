@@ -8,8 +8,8 @@
 // The ~30 small, independent per-tag `dumpXxx(Writer&, Chunk&)` dumpers
 // `husk dump-chunks` uses for Legion+ chunk tags with no shared state
 // beyond dump_writer_utils.hpp's small read/write helpers -- see
-// FILE_SPLIT_TODO.md's Item 4 and cmd_dump.cpp's own top doc comment for
-// the full "why these chunks, why JSON not glTF" rationale.
+// cmd_dump.cpp's own top doc comment for the full "why these chunks, why
+// JSON not glTF" rationale.
 namespace husk::commands {
 
 // TXAC (wowdev.wiki M2#TXAC), a flat array of 2-byte records, count =
@@ -72,8 +72,6 @@ void dumpFileDataIdArrayChunk(json::Writer& w, const Chunk& c);
 // names/order for the rest transcribed verbatim from the wiki; most are
 // documented only as "passed directly to fragment shader" with no further
 // meaning given.
-// TODO: Remove: 64-byte variant found across all 9 real corpus hits, see
-// `WIKI_FINDINGS/M2.md`.
 void dumpWfv3(json::Writer& w, const Chunk& c);
 
 // NERF (wowdev.wiki M2#NERF): one fixed 8-byte struct, `C2Vector coefs`.
@@ -93,9 +91,6 @@ void dumpDboc(json::Writer& w, const Chunk& c);
 // TEXL (wowdev.wiki M2#TEXL, Midnight/12.0+): 16-byte records, one per
 // `lights.count` entry -- an unambiguous wiki struct (two floats, then an
 // index into TXID for the light cookie texture, then one more unknown int).
-// TODO: Remove: was a complete blind spot before (FAILURES2.md #5) -- known
-// to cmd_info.cpp's chunk-tag list but absent from this file's own dump
-// tables, so real TEXL data was invisible everywhere, not just unparsed.
 void dumpTexl(json::Writer& w, const Chunk& c);
 
 // AFRA (wowdev.wiki M2#AFRA -- no wiki struct documented). Every real
@@ -105,9 +100,6 @@ void dumpTexl(json::Writer& w, const Chunk& c);
 // semantic like "alpha") -- the wiki gives no name for this chunk's field,
 // and the filenames it turns up on (aura/void-portal VFX doodads) only
 // weakly suggest an opacity-like role, not enough to assert as fact.
-// TODO: Remove: byte-decoded from scratch against 32 real corpus hits
-// (afra_files_for_exploration.txt); wiki said "not observed in any files
-// yet" as of the 2026-07-25 fetch, see WIKI_FINDINGS.md's AFRA section.
 void dumpAfra(json::Writer& w, const Chunk& c);
 
 // DPIV (wowdev.wiki M2#DPIV): chunk size is always an exact multiple of 32
@@ -121,9 +113,6 @@ void dumpAfra(json::Writer& w, const Chunk& c);
 // small-integer-as-float denormals (raw bits 1 or 2), suggesting it may
 // actually be an integer count/type rather than a float; exposed as a
 // plain float here rather than guessing its real type.
-// TODO: Remove: byte-decoded from scratch against 2,632 real corpus hits
-// (dpiv_files_for_exploration.txt, 2,951 records); wiki said "seemingly
-// always 32 bytes, mostly empty," see WIKI_FINDINGS.md's DPIV section.
 void dumpDpiv(json::Writer& w, const Chunk& c);
 
 // WFV1 (wowdev.wiki M2#WFV1 -- no struct documented). A genuinely thin,
@@ -132,9 +121,6 @@ void dumpDpiv(json::Writer& w, const Chunk& c);
 // confirm field boundaries against. Decodes as one real float32 (10.0) at
 // offset 0x00 followed by 12 zero bytes -- same shape as AFRA, generic
 // field names for the same reason.
-// TODO: Remove: byte-decoded from scratch against both real corpus hits
-// (wfv1_files_for_exploration.txt); wiki said "// unknown" as of the
-// 2026-07-25 fetch.
 void dumpWfv1(json::Writer& w, const Chunk& c);
 
 // WFV2 (wowdev.wiki M2#WFV2 -- no struct documented). Same 2-file,
@@ -147,7 +133,6 @@ void dumpWfv1(json::Writer& w, const Chunk& c);
 // a small-integer-as-float denormal pattern (raw bits = 3) also seen in
 // DPIV's field_3 -- exposed here as plain floats rather than guessing a
 // color/int reinterpretation from a 2-file sample.
-// TODO: Remove: wiki said "// unknown" as of the 2026-07-25 fetch.
 void dumpWfv2(json::Writer& w, const Chunk& c);
 
 // DETL (wowdev.wiki M2#DETL, >= 9.0.1.34365): per-light shadow-RT-scale/
@@ -163,14 +148,6 @@ void dumpWfv2(json::Writer& w, const Chunk& c);
 // alignment padding happens to be >= 12 bytes (real corpus data: a real
 // 3-light file pads to 48 bytes, and 48 / 12 == 4, not 3). The padding
 // itself is never read as data.
-// TODO: Remove: real stride and the chunk's own 16-byte alignment padding
-// both confirmed against all 1,043 real DETL-bearing files in the corpus,
-// `WIKI_FINDINGS/M2.md`. Follow-up (`WIKI_FINDINGS/M2.md`'s DETL §17 entry):
-// `scale`/`diffuseColorMultiplier`/`unk0`/`unk1` are identical constants in
-// every one of those files' 1,386 records -- `flags` (0x0000/0x0008) is the
-// only field that ever varies, and correlates with light-emitting
-// decorative props (torches/braziers/chandeliers), plausibly a real
-// shadow-casting toggle -- inferred, not confirmed. No parser change.
 void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount);
 
 // PFDC (wowdev.wiki M2#PFDC, >= 9.0.1.33978): inline physics data, byte-
@@ -192,8 +169,7 @@ void dumpPfdc(json::Writer& w, const Chunk& c);
 // when both are present (wiki: "if EXP2 doesn't exist, the client tries
 // to reconstruct it with data from the EXPT chunk"): zSource/colorMult/
 // alphaMult are duplicated here rather than living only in EXPT, plus the
-// new alphaCutoff curve EXPT has no room for at all. Unverified against
-// any real file -- see ExtendedParticle's own doc comment in m2.hpp.
+// new alphaCutoff curve EXPT has no room for at all.
 void dumpExp2(json::Writer& w, const Chunk& c);
 
 // PCOL (wowdev.wiki M2#PCOL, >= 11.1.7.60520): player-housing collision
@@ -217,10 +193,6 @@ void dumpExp2(json::Writer& w, const Chunk& c);
 // same class as EXP2/PFDC/DETL: no glTF slot, since this is War Within
 // 11.1.7+ player-housing furniture collision data, not core render
 // geometry -- see M2_COMPLETENESS.md.
-// TODO: Remove: confirmed empirically against all 2,354 real PCOL-bearing
-// files (every region in-bounds, every index in range, indexCount ==
-// faceNormCount * 3) -- corrected from an earlier scanner bug's false
-// "zero real files," see `WIKI_FINDINGS/M2.md`.
 void dumpPcol(json::Writer& w, const Chunk& c);
 
 }  // namespace husk::commands

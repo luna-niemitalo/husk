@@ -4,9 +4,7 @@
 // .skin/.skel/.phys/.bone/.anim shape for one particular family of tests
 // (materials/animated-tint, inline/external-sequence animation, hardcoded-
 // vs-FileDataID texture resolution, bone/phys correction data), each used
-// by only 1-2 of the split .cpp files -- see FILE_SPLIT_TODO.md's post-
-// completion audit for why this file exists (test_cli_fixtures.hpp was
-// still over the 1000-line hard limit after Item 5's own split). Depends on
+// by only 1-2 test_cli*.cpp files. Depends on
 // test_cli_fixtures.hpp's primitives (tinyValidM2/putU16/putArrayAt/
 // fillTrack/vec3Bytes/appendChunkTo/buildSkel/etc.) -- always include that
 // header first. Anonymous namespace, same rationale as that file's own doc
@@ -74,7 +72,6 @@ std::vector<uint8_t> materialsFixtureM2(uint32_t materialCount, uint32_t colorCo
 // m2::trackHasAnimatedData's outer.count > 1 case). Content of the two
 // claimed sub-arrays is irrelevant; trackHasAnimatedData only inspects
 // outer.count once it's already > 1. Requires colorCount >= 1.
-// TODO: Remove: FINDINGS.md §3.2.
 void patchColorTrackAnimated(std::vector<uint8_t>& b) {
     uint32_t colorOff;
     std::memcpy(&colorOff, b.data() + 0x048 + 4, 4);
@@ -106,7 +103,6 @@ void patchWeightTrackAnimated(std::vector<uint8_t>& b) {
 // textureTransformCombos table pointing at it -- the export-side
 // regression test fixture below. Pair with
 // oneBatchSkin({.textureTransformComboIndex = 0}).
-// TODO: Remove: FINDINGS.md §3.1.
 std::vector<uint8_t> oneTextureTransformM2() {
     auto b = tinyValidM2();
 
@@ -720,7 +716,6 @@ std::vector<uint8_t> buildPhysFile(uint16_t boneIndex, float x, float y, float z
 // filename), and a 1-entry textureCombos table pointing at it -- the
 // minimum an M2 needs for a batch's textureComboIndex to resolve at all.
 // Used by the multi-texture-batch regression test in tests/test_cli.cpp.
-// TODO: Remove: FAILURES2.md #6.
 std::vector<uint8_t> oneTextureOneMaterialM2() {
     auto b = tinyValidM2();
 
@@ -746,7 +741,6 @@ std::vector<uint8_t> oneTextureOneMaterialM2() {
 // wowdev.wiki M2/.skin#Texture_units, a real second texture layer (e.g. an
 // env-mapped "shine" pass), which husk only ever resolves the first of.
 // Pairs with oneTextureOneMaterialM2().
-// TODO: Remove: FAILURES2.md #6.
 std::vector<uint8_t> oneBatchTwoTexturesSkin() {
     std::vector<uint8_t> b;
     putTag(b, "SKIN");

@@ -4,9 +4,7 @@
 // game files or HUSK_TEST_* env vars needed. See TEST_DESIGN.md#Four-tier-
 // architecture for how this tier relates to the others.
 //
-// Split out of tests/test_cli.cpp (FILE_SPLIT_TODO.md's post-completion
-// audit -- the original file was still over the 1000-line hard limit after
-// Item 5's own split): every case here is about *how flags are spelled and
+// Every case here is about *how flags are spelled and
 // combined on the command line*, success or failure alike -- named vs.
 // positional -i/-o, every flag accepted named in arbitrary order, --help/
 // -h/--version/-V, the no-command/unknown-command/no-arguments usage paths,
@@ -167,13 +165,9 @@ TEST_CASE("husk with an unknown command fails cleanly, not a crash") {
     CHECK(result.output.find("unknown command") != std::string::npos);
 }
 
-// Remaining CLI argv edge cases: every subcommand's argc guard is now real
-// CLI11 machinery (RequiredError/ExtrasError, CLI11's own named exit codes --
-// see CLI::ExitCodes in /nix/store/*-cli11-*/include/CLI/Error.hpp), not a
-// hand-written usage-text fallback -- info/dump-chunks migrated to a real
-// CLI::App alongside export's own earlier migration (the since-deleted
-// TODO/CLEANUP_TODO.md's former #3).
-// TODO: Remove: FINDINGS.md §4.3.
+// Remaining CLI argv edge cases: every subcommand's argc guard is CLI11
+// machinery (RequiredError/ExtrasError, CLI11's own named exit codes --
+// see CLI::ExitCodes in /nix/store/*-cli11-*/include/CLI/Error.hpp).
 
 TEST_CASE("husk export with no arguments at all fails via CLI11's RequiredError (--input is "
           "required), not the old hand-written usage text") {
@@ -250,10 +244,3 @@ TEST_CASE("husk dump-chunks with more than one argument fails via CLI11's Extras
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("not expected") != std::string::npos);
 }
-
-// Adversarial/out-of-range coverage for buildMaterialsAndPrimitives
-// (cmd_export.cpp): six real bounds checks chaining batch -> submesh ->
-// material -> color/textureWeight/texture/textureCoord. A real mismatched
-// .skin/.m2 pairing hits exactly these paths.
-// TODO: Remove: FINDINGS.md §4.2.
-

@@ -6,9 +6,7 @@
 // targets one specific, previously-confirmed-broken behavior; if any of
 // these start failing again, it's a real regression, not a flake.
 //
-// Split out of tests/test_cli.cpp (FILE_SPLIT_TODO.md's post-completion
-// audit -- the original file was still over the 1000-line hard limit after
-// Item 5's own split): every case whose whole point is "this corrupted/
+// Every case whose whole point is "this corrupted/
 // adversarial/malformed model-file *content* must fail cleanly (a real
 // diagnostic message and a controlled exit), not crash, hang, or silently
 // misread" lives here -- corrupted chunk/count/index data, bone-parent
@@ -19,7 +17,7 @@
 // tests/test_cli_argv.cpp instead, grouped with the rest of that file's
 // argument-grammar cases rather than here by failure shape -- see that
 // file's own doc comment. `husk info`/`husk export` cases that instead
-// prove a *well-formed* file prints the right output moved to
+// prove a *well-formed* file prints the right output live in
 // tests/test_cli_info.cpp/test_cli.cpp -- see those files' own doc
 // comments. Shared byte-builder helpers live in tests/test_cli_fixtures.hpp,
 // included by all test_cli*.cpp files.
@@ -75,7 +73,6 @@ TEST_CASE("husk info: generic non-M2 garbage fails cleanly, not a crash") {
     // mid-header", using nothing more exotic than a wrong magic and
     // zero-filled padding. This is the realistic case: pointing husk at the
     // wrong file entirely, not a hand-crafted one.
-    // TODO: Remove: FAILURES.md #1.
     std::vector<uint8_t> bytes;
     putTag(bytes, "XXXX");
     bytes.resize(300, 0);
@@ -472,7 +469,6 @@ TEST_CASE("husk export: no .skin path given and none found next to the model fai
 // (cmd_export.cpp): six real bounds checks chaining batch -> submesh ->
 // material -> color/textureWeight/texture/textureCoord. A real mismatched
 // .skin/.m2 pairing hits exactly these paths.
-// TODO: Remove: FINDINGS.md §4.2.
 
 TEST_CASE("husk export: batch skinSectionIndex out of range for submeshes fails cleanly") {
     auto dir = defaultsDir("badskinsection");

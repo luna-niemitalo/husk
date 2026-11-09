@@ -45,7 +45,7 @@ struct WmoInputs {
 // The lights buildCanonWmo leaves out (root MNLD/MOLT, group MOLS/MOLP): any
 // of their numbers is not finite, so they can't be placed or lit
 // (brewerydungeon_main01's light 61 holds a NaN position). Dropped by
-// Luna's call, 2026-10-11; a caller notes them.
+// Luna's call; a caller notes them.
 std::vector<canon::SourceRecord> droppedLights(const WmoInputs& in);
 
 // Every LiquidType row the groups' MLIQ liquids resolve to, in first-seen

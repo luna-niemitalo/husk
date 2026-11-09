@@ -1,5 +1,4 @@
 // Tests for husk::m2's scene module (src/m2_scene.hpp/.cpp): parseAttachments/parseEvents/parseLights/parseRibbons/parseParticles.
-// Split out of the former tests/test_m2.cpp -- see FILE_SPLIT_TODO.md Item 5.
 
 #include "test_m2_fixtures.hpp"
 

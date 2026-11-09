@@ -7,8 +7,7 @@
 #include "m2_primitives.hpp"
 
 // M2 world-placement/gameplay records -- attachment points, animation
-// events, lights, ribbon trails, and particle emitters -- split out of the
-// former monolithic m2.hpp/m2.cpp (see FILE_SPLIT_TODO.md Item 2). See
+// events, lights, ribbon trails, and particle emitters. See
 // m2_primitives.hpp for the module overview (on-disk shapes, blob-
 // resolution entry points).
 namespace husk::m2 {
@@ -186,10 +185,6 @@ struct ParticleEmitter {
 // indexing convention TXAC/EXPT/RPID/GPID/PGD1 already use) -- not
 // cross-checked here, same "trust this chunk's own byte length" policy
 // dumpTxac already uses.
-// TODO: Remove: verification history -- a live-CASC corpus scan found
-// 17,065 real EXP2-bearing files (local extraction had none); 2 pulled
-// files decoded cleanly with no parser changes needed. See
-// WIKI_FINDINGS.md/M2_COMPLETENESS.md.
 struct ExtendedParticle {
     float zSource = 0;
     float colorMult = 0;

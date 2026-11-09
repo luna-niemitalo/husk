@@ -1,9 +1,8 @@
 // CLI tier: `husk export --slim-textures` -- exercises husk::commands::exportGlb
 // by spawning the real compiled binary (see run_husk.hpp) against a small,
-// synthetic, on-disk fixture with a real, decodable PNG texture. Split out
-// of tests/test_cli_textures.cpp's own file per FILE_SPLIT_TODO.md's
-// convention (one focused .cpp per feature cluster), since this is a new
-// flag rather than a texture-resolution-cluster addition.
+// synthetic, on-disk fixture with a real, decodable PNG texture. Kept apart
+// from tests/test_cli_textures.cpp (one focused .cpp per feature cluster):
+// a flag of its own, not part of texture resolution.
 
 #include <cstdint>
 #include <doctest/doctest.h>

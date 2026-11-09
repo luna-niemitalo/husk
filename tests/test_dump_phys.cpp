@@ -159,8 +159,6 @@ TEST_CASE("husk dump-chunks: a .phys file (byte-reversed tags, no MD20/MD21 magi
 // trimmed before handing the bytes to phys::parse, or husk::readChunks
 // throws on the short trailing header -- this proves both the happy path
 // and that the padding-trim logic doesn't eat real data.
-// TODO: Remove: reuses husk's real-file-verified .phys parser, see
-// `WIKI_FINDINGS/PHYS.md`.
 TEST_CASE("husk dump-chunks: PFDC (inline physics, same byte-for-byte .phys container a standalone "
           "file uses) dumps the same body/shape data, trailing zero padding tolerated") {
     auto pfdcPayload = buildMinimalPhysBytes();

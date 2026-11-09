@@ -1,8 +1,7 @@
 // Shared byte-buffer-building helpers for tests/test_m2_*.cpp -- factored
 // out here because buildMd20Blob/appendChunk/putU32-family are each used by
-// 3+ of the split files (see FILE_SPLIT_TODO.md Item 5). Anonymous
-// namespace: each including TU gets its own private copy, same as when
-// this lived inline in the pre-split tests/test_m2.cpp.
+// 3+ test_m2_*.cpp files. Anonymous namespace: each including TU gets its
+// own private copy.
 //
 // See TEST_DESIGN.md#Independent-transcription-convention -- offsets below
 // are typed out fresh from https://wowdev.wiki/M2 "Header" and "Chunks"

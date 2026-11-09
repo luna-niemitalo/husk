@@ -219,7 +219,7 @@ TEST_CASE("husk export --appearance: a case-1 (standalone-geometry) gear entry r
     // Same real-shaped chain as tests/test_cli_appearance.cpp's own case-1
     // test: ItemModifiedAppearanceID 15 -> ItemAppearanceID 154 ->
     // ItemDisplayInfoID 1542 -> ModelResourcesID 160 -> real .m2 FileDataID
-    // 370361 (confirmed against real local DB2 data this session --
+    // 370361 (confirmed against real local DB2 data --
     // creature/pygmy/pygmyshaman.m2), MaterialResourcesID 22758 -> real
     // texture FileDataID 148134.
     writeFile(db2Dir / "itemmodifiedappearance.db2", buildFlatDb2(0xa0000001, 0xb0000001, {{15, 154}}));

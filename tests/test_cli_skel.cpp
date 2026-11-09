@@ -1,7 +1,6 @@
 // CLI tier: --skel/--bones-dir resolution -- exercises
 // husk::commands::exportGlb by spawning the real compiled binary (see
-// run_husk.hpp) against small, synthetic, on-disk fixtures. Split out of the
-// original tests/test_cli.cpp (FILE_SPLIT_TODO.md Item 5) -- covers
+// run_husk.hpp) against small, synthetic, on-disk fixtures. Covers
 // --bones-dir default/none/BFID resolution, out-of-range .bone corrections,
 // --skel none, and multi-root .skel skeletons (alone and combined with
 // --lod all/--bones-dir). See TEST_DESIGN.md#Four-tier-architecture for how

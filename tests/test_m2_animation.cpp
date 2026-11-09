@@ -1,15 +1,10 @@
 // Tests for husk::m2's animation module (src/m2_animation.hpp/.cpp): the
 // outer struct-array parsers -- parseColors/parseTextureWeights/
 // parseTextureTransforms/parseSequences.
-// Split out of the former tests/test_m2.cpp (FILE_SPLIT_TODO.md Item 5),
-// then split further out of tests/test_m2_animation.cpp itself
-// (FILE_SPLIT_TODO.md's post-completion audit -- that file was still over
-// the 1000-line hard limit after Item 5's own split): this file keeps the
-// "parse a whole M2Array of records" struct parsers; the per-track/per-
-// curve keyframe *resolver* functions (resolveVec3TrackSequence and its
-// Quat/Float/RawInt/GlobalSequence/FBlock siblings, TrackMeta) and
-// extractAnimBlob moved to tests/test_m2_animation_tracks.cpp -- see that
-// file's own doc comment.
+// The per-track/per-curve keyframe *resolver* functions
+// (resolveVec3TrackSequence and its Quat/Float/RawInt/GlobalSequence/FBlock
+// siblings, TrackMeta) and extractAnimBlob are tested in
+// tests/test_m2_animation_tracks.cpp.
 
 #include "test_m2_fixtures.hpp"
 
@@ -19,10 +14,8 @@
 // left zeroed here since this helper is only used for the 4-field
 // happy-path/throw tests below; putSequenceFull (below) covers every
 // field. The 0x40 stride itself (not just these 4 fields) is the part
-// worth getting right -- see Sequence's doc comment in m2.hpp for the
-// real-data story of why it's 64 bytes, not the 36 a naive reading of the
-// wiki struct listing suggests.
-// TODO: Remove: former M2_GAPS_TODO.md Item 1 citation.
+// worth getting right -- see WIKI_FINDINGS/M2.md for why it's 64 bytes,
+// not the 36 a naive reading of the wiki struct listing suggests.
 void putSequence(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_t variationIndex,
                   uint32_t duration, uint32_t flags) {
     if (buf.size() < off + 0x40) buf.resize(off + 0x40, 0);
@@ -301,11 +294,10 @@ TEST_CASE("parseSequences: reads id/variationIndex/duration/flags for every entr
 }
 
 // Writes every field of one M2Sequence record, at the exact offsets
-// m2.hpp's Sequence doc comment gives: /*0x08*/ movespeed, /*0x10*/
+// m2_animation.hpp's Sequence doc comment gives: /*0x08*/ movespeed, /*0x10*/
 // frequency, /*0x14*/ replay (2x u32), /*0x1C*/ blendTimeIn/Out, /*0x20*/
 // bounds (2x Vec3), /*0x38*/ boundsRadius, /*0x3C*/ variationNext,
 // /*0x3E*/ aliasNext.
-// TODO: Remove: former M2_GAPS_TODO.md Item 1 citation.
 void putSequenceFull(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_t variationIndex,
                       uint32_t duration, uint32_t flags, float movespeed, int16_t frequency,
                       uint32_t replayMin, uint32_t replayMax, uint16_t blendTimeIn,

@@ -6,13 +6,11 @@
 // specific, previously-confirmed-broken behavior; if any of these start
 // failing again, it's a real regression, not a flake.
 //
-// Split out of tests/test_cli.cpp (FILE_SPLIT_TODO.md's post-completion
-// audit -- the original file was still over the 1000-line hard limit after
-// Item 5's own split): every `husk info`-only case that prints header/
+// Every `husk info`-only case that prints header/
 // chunk/texture/material/sidecar-FileDataID detail on a well-formed (or at
 // least well-formed-enough-to-parse) file lives here. `husk info`/`husk
 // export` cases that exist to prove a *crash or corrupted-data path* fails
-// cleanly instead moved to tests/test_cli_errors.cpp -- see that file's own
+// cleanly instead live in tests/test_cli_errors.cpp -- see that file's own
 // doc comment for the exact split rationale. Shared byte-builder helpers
 // live in tests/test_cli_fixtures.hpp, included by all test_cli*.cpp files.
 
@@ -83,7 +81,6 @@ TEST_CASE("husk info: global_flags with no bits set prints \"(none set)\", not a
 // a real header past minimalMd20()'s own 0x130-byte end: the array
 // descriptor at 0x130 pointing at 3 real uint16 values appended right
 // after it.
-// TODO: Remove: former RO_COMPLETENESS_TODO.md Item 2b.
 TEST_CASE("husk info: textureCombinerCombos is read and printed when "
           "flag_use_texture_combiner_combos is set") {
     auto b = minimalMd20();
@@ -319,8 +316,7 @@ TEST_CASE("husk info: prints per-texture type/flags/filename, per-material flags
 }
 
 // The five uint16 lookup arrays (sequence/bone/texture/attachment/camera)
-// used to be parsed into Array descriptors and never dereferenced anywhere
-// (a since-closed, since-deleted TODO_correctness.md item). Builds a real header with all five
+// are dereferenced, not just parsed into Array descriptors. Builds a real header with all five
 // populated -- each with one resolvable entry and one 0xFFFF ("-1", "not
 // used") sentinel -- past minimalMd20()'s 0x130-byte end, and points each
 // Array descriptor at its own two-entry payload.

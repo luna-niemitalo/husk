@@ -8,8 +8,7 @@
 #include "m2_primitives.hpp"
 
 // M2 top-level header, texture/material records, and their named-flag
-// tables -- split out of the former monolithic m2.hpp/m2.cpp (see
-// FILE_SPLIT_TODO.md Item 2). See m2_primitives.hpp for the module
+// tables. See m2_primitives.hpp for the module
 // overview (on-disk shapes, blob-resolution entry points).
 namespace husk::m2 {
 
@@ -106,8 +105,8 @@ struct Header {
     // order? materialIndex? something else?) and this project's own
     // "verify against real bytes before implementing, don't guess at
     // semantics" discipline means an unverified index scheme doesn't ship.
-    // TODO: Remove: a full 130,576-file local-corpus scan found zero real
-    // files with this flag set, so the layout itself is unverified against real bytes.
+    // No corpus file sets this flag, so the layout itself is unverified
+    // against real bytes (WIKI_FINDINGS/M2.md).
     Array textureCombinerCombos;
 
     bool chunked = false;  // true if this file was Legion+ MD21-wrapped

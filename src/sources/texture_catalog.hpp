@@ -13,9 +13,7 @@
 // merge `RESOURCE_CATALOG.md` describes (that needs the real
 // `sources::Catalog` object's tier-order/ranking design, still not built),
 // just this one tier's existing, unchanged behavior reporting *why* it hit
-// or missed instead of a bare `optional`. See `REFACTOR_LOG.md`'s
-// 2026-08-28 "first real tier through Resolved<T>" entry for why this is
-// being done one tier at a time.
+// or missed instead of a bare `optional`.
 namespace husk::sources {
 
 // Tier 1 of `RESOURCE_CATALOG.md`'s "Normative tier order": a literal

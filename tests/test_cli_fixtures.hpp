@@ -1,16 +1,13 @@
 // Shared byte-builder primitives for tests/test_cli*.cpp -- factored out
 // here because nearly every one of these (tempPath/defaultsDir/writeFile/
 // putU32/putU16/putF32/putTag/minimalMd20/tinyValidM2/buildSkel/fillTrack/
-// etc.) is used by 3+ of the split files (see FILE_SPLIT_TODO.md Item 5).
-// Anonymous namespace: each including TU gets its own private copy, same as
-// when these lived inline in the pre-split tests/test_cli.cpp. `runHusk`
+// etc.) is used by 3+ test_cli*.cpp files.
+// Anonymous namespace: each including TU gets its own private copy. `runHusk`
 // itself is NOT re-exported here -- each .cpp still does its own
 // `#include "run_husk.hpp"` / `using husk::test::runHusk;`, since these
 // builders never call it.
 //
-// Split further (FILE_SPLIT_TODO.md's post-completion audit -- this file
-// was still over the 1000-line hard limit after Item 5's own split) into
-// this file (true cross-cutting primitives: raw byte builders, and the
+// Split between this file (true cross-cutting primitives: raw byte builders, and the
 // minimal M2/.skin fixtures nearly every test_cli*.cpp file builds on) and
 // tests/test_cli_fixtures_scenes.hpp (composite, scenario-specific
 // fixtures -- one real M2+.skin shape for one particular family of tests --
@@ -177,8 +174,6 @@ std::vector<uint8_t> solidColorPng(uint32_t width, uint32_t height, uint8_t r, u
 // M2 field semantics -- only that parseHeader gets past the header
 // successfully so a test can target one specific field beyond it. The
 // REQUIRE guards against silently building the wrong-sized fixture.
-// TODO: Remove: the exact mistake this generator's ad-hoc predecessor made
-// during manual testing, see FAILURES.md's history.
 std::vector<uint8_t> minimalMd20(uint32_t version = 274) {
     std::vector<uint8_t> b;
     putTag(b, "MD20");
@@ -352,7 +347,6 @@ std::vector<uint8_t> outOfRangeVertexSkin() {
 // skinSectionId/geoset regression test below -- needs two real vertices
 // (one per submesh) and at least one material for two batches to resolve
 // against.
-// TODO: Remove: FAILURES2.md #1.
 std::vector<uint8_t> twoVertexOneMaterialM2() {
     auto b = minimalMd20();
     uint32_t vertCount = 2;
@@ -375,7 +369,6 @@ std::vector<uint8_t> twoVertexOneMaterialM2() {
 // degenerate triangle, referencing material 0 -- the minimal shape that
 // exercises cmd_export.cpp's distinct-geoset-count note without needing any
 // texture/color/weight combo tables.
-// TODO: Remove: FAILURES2.md #1.
 std::vector<uint8_t> twoGeosetSkin() {
     std::vector<uint8_t> b;
     putTag(b, "SKIN");
@@ -457,7 +450,6 @@ std::vector<uint8_t> twoGeosetSkin() {
 // must pass for a later one to even be reached, so each test below keeps
 // every field before the one under test valid and deliberately breaks
 // only that one.
-// TODO: Remove: FINDINGS.md §4.2.
 struct BatchFields {
     uint16_t skinSectionIndex = 0;
     uint16_t colorIndex = 0xFFFF;

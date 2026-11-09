@@ -1,5 +1,4 @@
 // Tests for husk::m2's primitives module (src/m2_primitives.hpp/.cpp): parseHeader/expansionForVersion/extractBlob.
-// Split out of the former tests/test_m2.cpp -- see FILE_SPLIT_TODO.md Item 5.
 
 #include "test_m2_fixtures.hpp"
 
@@ -223,8 +222,6 @@ TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has textureFileDataId
 // partial entry with no error and no count mismatch a caller could
 // notice -- same class of foreign-data mismatch every other
 // fixed-record-array parser in this codebase already fails loudly on.
-// TODO: Remove: FAILURES2.md #8/FAILURES.md #2 (the findings this is a
-// regression test for).
 
 TEST_CASE("parseHeader: TXID chunk with a byte length not a multiple of 4 throws, rather than "
           "silently dropping the trailing partial entry") {
@@ -404,7 +401,6 @@ TEST_CASE("parseHeader: no AFID chunk leaves animFileIds empty") {
 }
 
 // AFID's 8-byte-record version of the TXID test above.
-// TODO: Remove: FAILURES2.md #8 citation.
 
 TEST_CASE("parseHeader: AFID chunk with a byte length not a multiple of 8 throws, rather than "
           "silently dropping the trailing partial entry") {

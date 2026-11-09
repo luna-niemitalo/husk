@@ -1,7 +1,6 @@
 // CLI tier: --phys resolution -- exercises husk::commands::exportGlb by
 // spawning the real compiled binary (see run_husk.hpp) against small,
-// synthetic, on-disk fixtures. Split out of the original tests/test_cli.cpp
-// (FILE_SPLIT_TODO.md Item 5) -- covers same-basename/explicit-path/none
+// synthetic, on-disk fixtures. Covers same-basename/explicit-path/none
 // resolution and out-of-range .phys body bone corrections. See
 // TEST_DESIGN.md#Four-tier-architecture for how this tier relates to the
 // others.

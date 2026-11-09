@@ -1,8 +1,7 @@
 // Synthetic-buffer tests for the WDC5 proof-of-concept parser's offset-map
-// ("sparse") section support (src/db2.hpp/.cpp) -- split out of
-// tests/test_db2.cpp (FILE_SPLIT_TODO.md Item 4): the offset_map_id_list/
+// ("sparse") section support (src/db2.hpp/.cpp): the offset_map_id_list/
 // relationship_map reordering case (flags & 0x02) and every
-// db2::decodeOffsetMapRecord test, distinct from the rest of that file's
+// db2::decodeOffsetMapRecord test, distinct from tests/test_db2.cpp's
 // fixed-width-section coverage. Byte layout constructed by hand from
 // documentation/wowdev-wiki/md/DB2.md's WDC5 structure, same convention as
 // test_db2.cpp's own header comment.
@@ -224,9 +223,9 @@ TEST_CASE("db2::parse reorders offset_map_id_list before relationship_map when f
 }
 
 // db2::decodeOffsetMapRecord -- real per-field decode of offset-map
-// ("sparse") records, added this session. Verified against 5 real local
+// ("sparse") records. Verified against 5 real local
 // files (conversationline.db2, scenescripttext.db2, the three
-// collectablesource*sparse.db2 tables -- see CLAUDE_HISTORY.md); these
+// collectablesource*sparse.db2 tables); these
 // synthetic fixtures cover the same three shapes by hand: a plain numeric
 // record, a record with a real inline string, and a genuinely corrupt
 // offset_map entry.

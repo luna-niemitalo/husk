@@ -83,8 +83,8 @@ IndexResult buildIndex(const fs::path& tree) {
     parallelFor(manifests.size(), 0, [&](size_t i) {
         Rows local;
         std::string model = manifests[i].lexically_relative(tree).generic_string();
-        // One re-read before failing: a manifest that failed to parse once
-        // (2026-10-12) parsed fine on the next run, and a second read tells
+        // One re-read before failing: a manifest has failed to parse once
+        // and parsed fine on the next run, and a second read tells
         // a failure of the read from a bad file.
         try {
             indexManifest(readIndexedParts(manifests[i]), model, local);

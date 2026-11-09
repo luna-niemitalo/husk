@@ -13,10 +13,8 @@
 // Either way, once you have the MD20 blob, the header layout is identical.
 // This module resolves the outer shape first, then parses that one blob.
 //
-// This is the index/aggregate header -- was a single 1175-line file until
-// FILE_SPLIT_TODO.md Item 2 split it by concern into the five headers
-// below, each reopening namespace husk::m2 directly, so every existing
-// `#include "m2.hpp"` caller (src/, tests/) keeps working unchanged:
+// This is the index/aggregate header over the five headers below, each
+// reopening namespace husk::m2 directly; callers include "m2.hpp":
 //  - m2_primitives.hpp: Array/Vec3/Vec2/Quat/BoundingBox/ParseError, the
 //    bounds-checked blob-read helpers, and the top-level parseHeader/
 //    loadFile/extractBlob/expansionForVersion entry points.

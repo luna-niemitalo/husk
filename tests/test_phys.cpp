@@ -4,7 +4,6 @@
 // byte-reversed on disk (WMO/ADT convention) -- appendChunk below takes
 // the wiki's own, un-reversed tag spelling and reverses it before writing,
 // so every test case reads naturally against the wiki text.
-// TODO: Remove: verified against 103 real files, see `WIKI_FINDINGS/PHYS.md`.
 
 #include <cstring>
 #include <doctest/doctest.h>

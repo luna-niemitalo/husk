@@ -233,9 +233,6 @@ TEST_CASE("husk dump-chunks: DBOC (16-byte records sized by chunk byte length) r
 // exactly the shape of a silent transcription bug. Every field gets a
 // distinct value so a field landing at the wrong offset shows up as a
 // specific wrong number, not a coincidental pass.
-// TODO: Remove: WFV3 was the highest-risk untested dumper before this test
-// existed (FINDINGS.md §4.4); precedent for this transcription-bug shape is
-// WIKI_FINDINGS.md's M2Sequence-is-64-not-36-bytes investigation.
 TEST_CASE("husk dump-chunks: WFV3 (one fixed 80-byte struct) reads every field at its own "
           "documented offset") {
     std::vector<uint8_t> wfv3;
@@ -316,10 +313,8 @@ TEST_CASE("husk dump-chunks: WFV3 (one fixed 80-byte struct) reads every field a
 
 // Regression test: real corpus files (Shadowlands waterfall doodads) carry
 // a 64-byte WFV3 chunk, missing exactly the trailing unk1-unk4 floats the
-// wiki's own struct listing always includes. dumpWfv3 used to assume 80
-// bytes unconditionally, so every field read past 0x40 threw a bounds
-// error and failed the whole dump-chunks run for these files.
-// TODO: Remove: see `WIKI_FINDINGS/M2.md`'s WFV3 entry (9 real files).
+// wiki's own struct listing always includes; reading them unconditionally
+// throws a bounds error and fails the whole dump-chunks run for these files.
 TEST_CASE("husk dump-chunks: WFV3's real 64-byte short variant reads every documented field and "
           "emits null for the missing unk1-unk4, instead of throwing") {
     std::vector<uint8_t> wfv3;
@@ -398,8 +393,6 @@ TEST_CASE("husk dump-chunks: TEXL (light-cookie texture lookups) reads its four 
 // WFV1/WFV2/DPIV/AFRA have no wowdev.wiki struct at all -- their layout
 // was byte-decoded from real corpus files instead, and they get real
 // structural parsing, not a raw-hex-dump fallback.
-// TODO: Remove: this was former RO_COMPLETENESS_TODO.md Item 3, see
-// WIKI_FINDINGS.md's WFV1/WFV2/DPIV/AFRA section.
 TEST_CASE("husk dump-chunks: AFRA (a single fixed 16-byte struct) round-trips its float field") {
     std::vector<uint8_t> afra;
     putF32(afra, 0.6f);
@@ -486,8 +479,6 @@ TEST_CASE("husk dump-chunks: DPIV (a real record array, chunk.size/32 records, n
 // exactly 1.0) used directly rather than made-up numbers, so this test
 // also proves readHalfFloat decodes the exact bit patterns real files
 // carry, not just some arbitrary half-float.
-// TODO: Remove: stride/padding confirmed against 1,043 real corpus files,
-// see `WIKI_FINDINGS/M2.md`.
 TEST_CASE("husk dump-chunks: DETL decodes real corpus half-float constants and ignores its own "
           "16-byte alignment padding") {
     auto md20 = minimalMd20();
@@ -616,7 +607,6 @@ TEST_CASE("husk dump-chunks: EXP2 (M2Array<M2ExtendedParticle>, chunk-local head
 // prove the dumper reads each region via its own offset rather than
 // assuming they're packed back-to-back. indices/flags include a negative
 // value each to lock in the signed int16 (not uint16) read.
-// TODO: Remove: a real file was found with an 8-byte gap between regions.
 TEST_CASE("husk dump-chunks: PCOL (four independent, non-contiguous M2Array-shaped regions) "
           "reads vertex_positions/face_normals/indices/flags via their own offsets") {
     std::vector<uint8_t> pcol(32, 0);  // header, filled in below
@@ -696,8 +686,6 @@ TEST_CASE(
 // field_1/field_2, confirming dumpDpiv's record-array parsing against real
 // bytes rather than only a synthetic fixture. Values hand-checked against
 // a fresh dump-chunks run at test-writing time.
-// TODO: Remove: this was former RO_COMPLETENESS_TODO.md Item 3, see
-// WIKI_FINDINGS.md.
 TEST_CASE(
     "husk dump-chunks: real DPIV data (same pa_kite_lamp_creature.m2 fixture as the PCOL "
     "regression test) decodes one record with real nonzero field_1/field_2 values" *
@@ -713,7 +701,6 @@ TEST_CASE(
 // real-data regression coverage for EXP2/PFDC, pulled directly from a live
 // CASC install rather than a synthetic fixture. exp2_126382.m2 carries
 // EXP2 only, no PFDC.
-// TODO: Remove: see `WIKI_FINDINGS/M2.md`.
 TEST_CASE(
     "husk dump-chunks: real EXP2-only file (exp2_126382.m2, pulled from live CASC) decodes 9 "
     "particle emitters each with default zSource/colorMult/alphaMult and an empty alphaCutoff "

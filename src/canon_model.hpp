@@ -27,28 +27,16 @@
 // `assembleModel` is pure composition and takes ONLY canon:: values --
 // no m2::/skin:: type appears anywhere in its signature. That is the
 // architectural point of this file, not an incidental detail: canon:: is
-// the internal representation, format-agnostic by construction (Luna's own
-// framing, 2026-09-15 -- "cannon is not dependant on m2, and cannon is not
-// exclusive to m2, m2 is just 1 input format to cannon"). Deciding *how*
+// the internal representation, format-agnostic by construction: M2 is one
+// input format among others. Deciding *how*
 // to turn one specific input format's bytes into a Mesh/Skeleton/Material
 // list/AnimationClip list is entirely that format's own input-module's
 // job -- for M2, that's `husk::m2input::buildCanonModel`
-// (m2_canon_input.hpp), which calls the same assembleMesh/assembleSkeleton/
-// assembleMaterial/assembleBoneAnimation functions this file used to call
-// directly, then hands the results here.
-//
-// This split is itself a real correction, not the original design: earlier
-// revisions of this file had `assembleModel` accept `m2::Model`/
-// `skin::Batch`/`skin::Submesh` directly and walk them itself -- silently
-// making the composition root a second m2-input-module in disguise.
-// Nothing in REFACTOR/CANONICAL_MODEL.md's I1 ("what canon must not
-// contain") technically forbade it -- I1 only constrains canon:: struct
-// *fields* (no paths/tinygltf/bpy/GPU types), not assembly *function
-// signatures* -- so it never tripped any written rule, and every
-// convergence test happened to feed it m2 data anyway, so nothing forced
-// the boundary to be honest until it was pointed out directly. Fixed here;
-// REFACTOR/CANONICAL_MODEL.md's I1 was also extended with an explicit
-// clause to name this so it can't drift back in unnoticed.
+// (m2_canon_input.hpp), which calls assembleMesh/assembleSkeleton/
+// assembleMaterial/assembleBoneAnimation, then hands the results here.
+// Don't widen this signature to take m2::/skin:: types: that turns the
+// composition root into a second M2 input module (REFACTOR/
+// CANONICAL_MODEL.md, I1).
 namespace husk::canon {
 
 // One M2Sequence's worth of assembled bone animation, gathered across every

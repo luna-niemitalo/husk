@@ -1,5 +1,4 @@
 // Tests for husk::m2's header module (src/m2_header.hpp/.cpp): parseTextures/parseMaterials/billboardModeName.
-// Split out of the former tests/test_m2.cpp -- see FILE_SPLIT_TODO.md Item 5.
 
 #include "test_m2_fixtures.hpp"
 

@@ -178,7 +178,7 @@ int exportWorld(int argc, char** args) {
     try {
         // The casc-tool mount answers every lookup through its `live` link
         // by re-reading its tag files; with every thread reading, that was
-        // the whole cost of the run (12.1.0 export, 2026-10-12). Resolve the
+        // the whole cost of a 12.1.0 run. Resolve the
         // links once and read by the real path.
         // The DB2 directory too: through `live` it would be read from
         // whichever build the tag names at the time, and recorded in

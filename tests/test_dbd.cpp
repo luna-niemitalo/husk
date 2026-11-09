@@ -265,8 +265,8 @@ TEST_CASE(
 TEST_CASE(
     "dbd::resolveFieldNames: bitpacked storage may use fewer bits than the .dbd's declared size, "
     "never more") {
-    // Real files (chrmodelmaterial.db2, this session's own verification --
-    // see the real-data test further below) routinely bitpack a <32>-declared
+    // Real files (chrmodelmaterial.db2 -- see the real-data test further
+    // below) routinely bitpack a <32>-declared
     // int down to a handful of bits. That's real compression, not a
     // mismatch -- only a bitpacked width *larger* than the declared type
     // can't be a legitimate compression of it.
@@ -299,7 +299,7 @@ TEST_CASE(
     "declared [Length]") {
     // Real chrmodeltexturelayer.db2 (layout D0583FB4) has exactly this
     // shape: a [3]-declared field decoding as bitpacked_indexed_array with
-    // array_count 3 (this session's own real-data verification).
+    // array_count 3.
     std::string text =
         "COLUMNS\n"
         "int ID\n"
