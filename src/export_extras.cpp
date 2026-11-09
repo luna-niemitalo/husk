@@ -88,9 +88,8 @@ void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, boo
     if (found > 0) {
         std::cerr << "husk: note: attached " << found << "/" << boneFileDataIds->size()
                   << " '.bone' correction set(s) from '" << bonesDir
-                  << "' as inert glTF extras (not applied to the render -- which slot is "
-                     "'correct' for a given character depends on client-side "
-                     "customization-choice data husk doesn't have)\n";
+                  << "' as inert glTF extras (not applied to the render; "
+                     "--customization-choice-ids marks the set those choices select)\n";
     }
 }
 

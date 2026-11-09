@@ -239,6 +239,16 @@ forever builds; details in `WIKI_FINDINGS/FOREVER.md`.
   chunked, a serialized blob starting `u16 4, u16 3`) are not read; husk
   reads `_mpv.wdt` only.
 
+Unverified claims, open as TODOs:
+
+- **Legacy glTF attachment nodes may sit at twice their offset**: written
+  as the model-space position under their bone, never compared against the
+  M2's real position (`TODO/RENDER_QUALITY_TODO.md` §6 has the check).
+- **Two gear-resolution results predate the DB2 pallet fix** (706c8b6):
+  the 2026-08-21 "verified end to end" gear export and the
+  "ModelMaterialResourcesID resolves to unrelated textures" finding both
+  need re-running (`TODO/INVESTIGATIONS_TODO.md` #19).
+
 Real source-data defects husk reports instead of guessing (missing `.skin`
 FileDataIDs, 0-byte files, `.skin`/batch indices past the model's own
 arrays): `corpus_reports/REPORT.md`.

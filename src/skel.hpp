@@ -43,9 +43,9 @@
 //   - `BFID`: same flat-uint32-FileDataID-array shape as an M2's own BFID
 //     chunk (husk::m2::Header::boneFileDataIds) -- this .skel's own table
 //     of `.bone` sidecar files (see src/bone.hpp), used the same way: no
-//     resolution to a real path, no default-slot selection -- that's
-//     client-side customization-choice data husk doesn't have -- just the
-//     raw FileDataID list.
+//     resolution to a real path, no default-slot selection (the
+//     customization BoneSet chain picks a slot, chrcustomization_db2.hpp)
+//     -- just the raw FileDataID list.
 //     TODO: Remove: see `WIKI_FINDINGS/BONE.md`.
 //   - `SKA1` (attachments): see findAttachments below.
 // `SKB1`'s `key_bone_lookup` field, SKA1's `attachment_lookup`, and every

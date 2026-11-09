@@ -179,15 +179,14 @@ formulas live instead in technique documents (`techniques/`,
 from the client's compiled shaders (`WIKI_FINDINGS/M2/rendering.md`),
 which materials reference by name.
 
-**The "four base functions" claim is UNVERIFIED.** It is Luna's recollection
-of a different AI session's dig through `references/wow_shaders`, not a
-result of this project. Check first: wowdev.wiki's
-`Pixel_shader_logic_for_mixing_colors.wiki` (pseudo-verified formulas,
-`SHADER_SCAN_FINDINGS.md`), `reference/wow.export`-adjacent tooling, and
-the captured dumps via `shader_pattern_search/` (`TOOLS.md`). The
-hypothesis: most `Combiners_*` reduce to **alpha clip, alpha blend,
-additive overlay, multiplicative overlay** plus parameters, the
-multiplicative tint source varying (white, black, an environment sample).
+**The formulas are settled; the "four base functions" grouping is not.**
+Every combiner's formula is read from the client's own shader bytecode
+(`WIKI_FINDINGS/M2/rendering.md` "Formulas", carried as data in
+`techniques/m2_pixel_shader/`); the wiki's formulas are only a cross-check
+there. Still unchecked is the hypothesis that most `Combiners_*` reduce to
+**alpha clip, alpha blend, additive overlay, multiplicative overlay** plus
+parameters, the multiplicative tint source varying (white, black, an
+environment sample). That table is where to test it.
 
 - Two tiers if it holds (`BaseFunction` + per-formula `ShadingFunction`);
   degrades to one `ShadingFunction` per formula with no shared base if not.

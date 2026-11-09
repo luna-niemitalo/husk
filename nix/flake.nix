@@ -87,11 +87,29 @@
             sourceProvenance = with sourceTypes; [ binaryNativeCode ];
           };
         };
-        cpp = with pkgs; [
+        # What packages.default builds with; the dev shell has these too.
+        buildTools = with pkgs; [
           cmake
           ninja
-          mold
           pkg-config
+        ];
+
+        # Linked into husk. fuse3: `husk mount` (mounting itself goes through
+        # NixOS's setuid /run/wrappers/bin/fusermount3, not anything here).
+        buildLibs = with pkgs; [
+          tinygltf
+          cli11
+          sqlite
+          # schema/: the bundle format's JSON Schema definitions, validated
+          # by tests and `husk validate-bundle`.
+          nlohmann_json
+          nlohmann_json_schema_validator
+          fuse3
+        ];
+
+        # Dev shell only: compiler tooling, tests, and the corpus/shader tools.
+        devTools = with pkgs; [
+          mold
           gcc
           gdb
           ccache
@@ -100,16 +118,9 @@
           # dev-shell only, gcc stays the actual build compiler.
           clang-tools
           doctest
-          tinygltf
-          cli11
-          # schema/: the bundle format's JSON Schema definitions, validated
-          # by tests and `husk validate-bundle`.
-          nlohmann_json
-          nlohmann_json_schema_validator
           casc-tool.packages.${pkgs.system}.default
           gltf-validator
           blender
-          sqlite
           # vkd3d-compiler/vkd3d-dxbc: disassemble the captured DXBC shader
           # blobs in references/wow_shaders/ (PIXEL_SHADER_FORMULAS_TODO.md's
           # matching pass) -- dev-shell only, not part of the husk binary.
@@ -125,12 +136,6 @@
           # correlates new wow_shader_dump captures with in-game location.
           inotify-tools
           libnotify
-        ];
-
-        # Linked by `husk mount`. Mounting itself goes through NixOS's
-        # setuid /run/wrappers/bin/fusermount3, not anything from here.
-        libs = with pkgs; [
-          fuse3
         ];
 
         # blp/: BLP2 -> PNG texture conversion (roadmap stage 4). uv manages
@@ -165,19 +170,8 @@
           version = HUSK_VERSION;
           HUSK_ENV_VERSION = HUSK_VERSION;
 
-          nativeBuildInputs = [
-            pkgs.cmake
-            pkgs.ninja
-            pkgs.pkg-config
-          ];
-
-          buildInputs = libs ++ [
-            pkgs.tinygltf
-            pkgs.cli11
-            pkgs.sqlite
-            pkgs.nlohmann_json
-            pkgs.nlohmann_json_schema_validator
-          ];
+          nativeBuildInputs = buildTools;
+          buildInputs = buildLibs;
 
           cmakeFlags = [ "-DHUSK_BUILD_TESTS=OFF" ];
 
@@ -196,13 +190,14 @@
 
         devShells.default = pkgs.mkShell {
           packages = lib.concatLists [
-            cpp
-            libs
+            buildTools
+            buildLibs
+            devTools
             python
             webtest
           ];
 
-          CCACHE_DIR = "/media/luna/cache/ccache";
+          CCACHE_DIR = "/media/luna/work/cache/ccache";
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
 

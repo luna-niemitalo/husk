@@ -105,8 +105,8 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // '<FileDataID>.bone' naming convention a real casc-tool extraction would
 // produce. HUSK_TEST_BONES_DIR, if set explicitly, still overrides this
 // entirely. The NN -> BFID[NN] positional assignment is arbitrary for test
-// purposes, not a claimed real slot mapping -- that mapping is exactly the
-// client-side customization-choice data husk doesn't have access to -- this
+// purposes, not a claimed real slot mapping (that comes from the
+// customization BoneSet chain, chrcustomization_db2.hpp) -- this
 // fixture only needs to prove the resolution/parse/extras pipeline works
 // end to end against real '.bone' bytes, not that any particular slot is
 // semantically correct. Returns "" if skelPath is empty, has no BFID chunk,
