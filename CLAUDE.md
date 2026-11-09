@@ -112,6 +112,13 @@ verbatim).
     `TODO/INVESTIGATIONS_TODO.md`.
 - **Hazards** (standing facts, not narrative — see `CLAUDE_HISTORY.md` for
   the sessions that established each one):
+  - **Hardware facts live outside this file**: crashes, RAM faults and GPU
+    behaviour on fox_nest are in `/media/luna/data/rvii_documentation/`
+    (canonical, per `~/.claude/CLAUDE.md`); check there, not here or in
+    memory. Blender renders with EEVEE (`tests/terrain_bundle_import_check.py
+    --render`, `tools/render_lean_glb.py`) are GPU runs and follow
+    `~/.claude/rules/gpu-lock.md`; the test suite's Blender step only
+    imports (`--background`, no render) and needs no lock.
   - **Legacy glTF path is deprecated (Luna, 2026-11-09)**: don't refactor,
     extend or polish it; conformance work skips it.
   - **A stored build needs a clean producer**: a `-dirty` husk version
