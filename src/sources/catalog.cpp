@@ -105,7 +105,15 @@ Resolved<EncodedTexture> Catalog::resolveLiteralTier(uint32_t fdid) const {
     if (!r.found()) return Resolved<EncodedTexture>::miss(ResolutionTier::Literal, r.reason);
     EncodedTexture et;
     et.bytes = std::move(*r.value);
-    et.imageName = std::to_string(fdid);
+    et.fileDataId = fdid;
+    // The bytes are found by FileDataID; the listfile, when it knows the
+    // file, gives it its real name.
+    if (auto named = listfileTargetPath(fdid)) {
+        et.imageName = named->stem().string();
+        et.nameFromListfile = true;
+    } else {
+        et.imageName = std::to_string(fdid);
+    }
     if (auto p = existingTexturePath(std::filesystem::path(texturesDir_) / std::to_string(fdid))) {
         et.sourcePath = *p;
     }
@@ -137,6 +145,8 @@ Resolved<EncodedTexture> Catalog::resolveListfileTier(uint32_t fdid) const {
     EncodedTexture et;
     et.bytes = std::move(*bytes);
     et.imageName = stem.filename().string();
+    et.fileDataId = fdid;
+    et.nameFromListfile = true;
     if (auto p = existingTexturePath(stem)) et.sourcePath = *p;
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Listfile, stem.string() + ".{png,blp}");
 }
@@ -160,6 +170,7 @@ Resolved<EncodedTexture> Catalog::resolveStoreTier(uint32_t fdid) const {
     EncodedTexture et;
     et.bytes = std::move(*bytes);
     et.imageName = std::to_string(fdid);
+    et.fileDataId = fdid;
     et.sourcePath = *path;
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Store, path->string());
 }

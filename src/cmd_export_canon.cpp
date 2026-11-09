@@ -78,10 +78,15 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
     if (!resolved.found()) {
         ref.state = canon::TextureRef::State::KnownUnresolved;
         ref.unresolvedReason = resolved.reason;
+        // Which file wasn't found is what a consumer needs to fetch it.
+        if (fdid != 0) ref.resolved.id = canon::FileDataId{fdid};
         return ref;
     }
     ref.state = canon::TextureRef::State::Resolved;
-    if (fdid != 0) ref.resolved.id = canon::FileDataId{fdid};
+    // The tier's own FileDataID wins: the DB2-character tier answers a slot
+    // whose own FileDataID is 0 with the file the DB2 named.
+    uint32_t identity = resolved.value->fileDataId != 0 ? resolved.value->fileDataId : fdid;
+    if (identity != 0) ref.resolved.id = canon::FileDataId{identity};
     ref.resolved.name = resolved.value->imageName;
 
     // Fetch-and-embed, not reference-only -- this orchestrator's own choice
@@ -149,6 +154,7 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
             ref.resolved.source = canon::NameSource::Synthesized;
             break;
     }
+    if (resolved.value->nameFromListfile) ref.resolved.source = canon::NameSource::Listfile;
     return ref;
 }
 

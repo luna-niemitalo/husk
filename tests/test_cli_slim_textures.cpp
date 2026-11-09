@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <doctest/doctest.h>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 #include "run_husk.hpp"
@@ -72,6 +73,50 @@ TEST_CASE("husk export: two materials whose slots share one pool image write tha
     size_t written = 0;
     for ([[maybe_unused]] const auto& entry : fs::directory_iterator(bundle / "textures")) ++written;
     CHECK(written == 1);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a texture found by its FileDataID-named file takes the listfile's name, and the "
+          "written file is named after it") {
+    auto dir = defaultsDir("bundletex-listfile");
+    writeFile(dir / "textured.m2", oneTexturedModel(5050505));
+    writeFile(dir / "textured00.skin", oneTexturedModelSkin());
+    writeFile(dir / "5050505.png", solidColorPng(8, 8, 1, 2, 3));
+    std::string listfile = "5050505;character/human/male/deathknighteyeglow.blp\n";
+    writeFile(dir / "listfile.csv", std::vector<uint8_t>(listfile.begin(), listfile.end()));
+
+    auto bundle = dir / "out";
+    auto result = runHusk("export " + (dir / "textured.m2").string() + " -o " + bundle.string() + " --listfile " +
+                           (dir / "listfile.csv").string() + " --listfile-root " + dir.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+
+    Json manifest = parseManifest(bundle);
+    const Json& texture = manifest["resources"]["textures"][0];
+    REQUIRE(texture["state"] == "resolved");
+    CHECK(texture["identity"]["id"]["value"] == 5050505);
+    CHECK(texture["identity"]["name"] == "deathknighteyeglow");
+    CHECK(texture["identity"]["name_source"] == "listfile");
+    CHECK(texture["payload"]["uri"] == "textures/deathknighteyeglow.png");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a texture no tier finds keeps the FileDataID it was asked for") {
+    auto dir = defaultsDir("bundletex-missing");
+    writeFile(dir / "textured.m2", oneTexturedModel(7777777));
+    writeFile(dir / "textured00.skin", oneTexturedModelSkin());
+
+    auto bundle = dir / "out";
+    auto result = runHusk("export " + (dir / "textured.m2").string() + " -o " + bundle.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+
+    Json manifest = parseManifest(bundle);
+    const Json& texture = manifest["resources"]["textures"][0];
+    CHECK(texture["state"] == "known_unresolved");
+    CHECK(texture["identity"]["id"]["value"] == 7777777);
 
     fs::remove_all(dir);
 }

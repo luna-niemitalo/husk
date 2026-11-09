@@ -62,6 +62,12 @@ struct EncodedTexture {
     // Not part of I8's {bytes, encoding} pair: this is provenance, not
     // payload.
     std::filesystem::path sourcePath;
+    // The FileDataID these bytes are, when the tier knows one (literal,
+    // listfile, store, and the DB2-character tier through them); 0 for a
+    // fuzzy-pool guess.
+    uint32_t fileDataId = 0;
+    // `imageName` is the listfile's name for the file, not a stand-in.
+    bool nameFromListfile = false;
 };
 
 // Everything `texture()` needs to know about the model asking, beyond the
