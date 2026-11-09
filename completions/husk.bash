@@ -46,6 +46,10 @@ _husk_completions() {
                     compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
                     return
                     ;;
+                --glb)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
                 --skin-dir)
                     COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
                     return
@@ -56,10 +60,6 @@ _husk_completions() {
                     ;;
                 --skel)
                     COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -f -- "$cur"))
-                    return
-                    ;;
-                --lod)
-                    COMPREPLY=($(compgen -W "all" -- "$cur"))
                     return
                     ;;
                 --bones-dir)
@@ -94,10 +94,6 @@ _husk_completions() {
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
                     ;;
-                --creature-display-id)
-                    COMPREPLY=($(compgen -f -- "$cur"))
-                    return
-                    ;;
                 --object-skin-texture-id)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
@@ -116,7 +112,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --explain-textures --debug --export-canon --bundle-only --slim-textures --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --appearance --chr-model-id --creature-display-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --glb --explain-textures --skin-dir --anim -a --skel --bones-dir --phys --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --appearance --chr-model-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

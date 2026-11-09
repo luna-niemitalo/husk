@@ -49,25 +49,19 @@ _husk() {
                 '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
                 '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
                 '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
+                '--glb[--glb]:value:_files' \
                 '--explain-textures[--explain-textures]' \
-                '--debug[--debug]' \
-                '--export-canon[--export-canon]' \
-                '--bundle-only[--bundle-only]' \
-                '--slim-textures[write textures as external files instead of embedding]' \
                 '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \
                 '(-a --anim)'{-a,--anim}'[auto, inline, none, or a directory]:value:_husk_anim_value' \
                 '--skel[external .skel path, or none]:value:_husk_file_or_none_value' \
-                '--lod[LOD index, or all]:value:(all)' \
                 '--bones-dir[bone-correction directory, or none]:value:_husk_dir_or_none_value' \
                 '--phys[external .phys path, or none]:value:_husk_file_or_none_value' \
-                '--collision[include the collision mesh (off by default)]' \
                 '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_or_none_value' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
                 '--char-layout-id[a real CharComponentTextureLayoutsID]:value:_files' \
                 '--customization-choice-ids[comma-separated ChrCustomizationChoiceID(s)]:value:_files' \
                 '--appearance[--appearance]:value:_files' \
                 '--chr-model-id[--chr-model-id]:value:_files' \
-                '--creature-display-id[--creature-display-id]:value:_files' \
                 '--object-skin-texture-id[--object-skin-texture-id]:value:_files' \
                 '--knowledge-db[--knowledge-db]:value:_files' \
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
