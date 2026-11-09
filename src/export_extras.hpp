@@ -10,6 +10,7 @@
 #include "gltf.hpp"
 #include "listfile_index.hpp"
 #include "m2.hpp"
+#include "read_file.hpp"
 
 // The attachX() helper group -- each attaches one kind of inert glTF
 // `extras` metadata to the exported skin, called once each from
@@ -18,13 +19,6 @@
 // in an anonymous namespace nested in husk::commands) since they're now
 // called cross-TU from cmd_export.cpp.
 namespace husk::commands {
-
-// Small shared utility -- reads a whole file into memory, throwing a
-// descriptive runtime_error (with strerror()) on any open/read failure.
-// Declared here (rather than staying file-local) since both this file's own
-// attachX functions and cmd_export.cpp's own remaining pipeline code
-// (resolveBones, buildLodTierMeshes, exportOneModel) need it.
-std::vector<uint8_t> readFileBytes(const std::string& path);
 
 // --bones-dir: resolves each of the model's/.skel's BFID-declared
 // FileDataIDs to a real '<bonesDir>/<id>.bone' file, if present (silently

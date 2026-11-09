@@ -201,6 +201,8 @@ add_library(husk-lib STATIC
   src/surface_db2.cpp
   src/surface_input.cpp
   src/volume_condition_db2.cpp
+  src/character_texture_context.cpp
+  src/read_file.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
   src/cmd_db2.cpp
@@ -217,9 +219,10 @@ add_library(husk-lib STATIC
   src/export_transform.cpp
   src/export_skeleton.cpp
   src/export_animation.cpp
-  src/export_texture_resolution.cpp
+  src/sources/texture_resolution.cpp
+  src/sources/dir_listing.cpp
   src/export_materials.cpp
-  src/export_skin_resolution.cpp
+  src/skin_resolution.cpp
   src/export_extras.cpp
   src/cmd_export.cpp
   src/cmd_export_canon.cpp

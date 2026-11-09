@@ -128,6 +128,28 @@ std::unordered_map<uint32_t, CustomizationNameEntry> buildCustomizationNameLooku
 // convention as buildCustomizationNameLookup above.
 sources::CharacterTextureContext buildCharacterTextureContext(const gltf::Skeleton& skeleton);
 
+// M2 blend mode -> glTF alphaMode: 0 OPAQUE, 1 (alpha key) MASK, every
+// other mode BLEND, the closest core-glTF approximation.
+gltf::Material::AlphaMode alphaModeForBlend(uint16_t blendMode);
+
+// An animated M2Color::color (Vec3) track as one curve per sequence with
+// inline data, plus a global-sequence curve (sequenceIndex -1).
+std::vector<gltf::Material::AnimatedColorCurve> resolveAnimatedColorCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount);
+
+// The same for an M2TextureTransform::rotation track (raw-float quats,
+// not M2CompQuat).
+std::vector<gltf::Material::AnimatedQuatCurve> resolveAnimatedRawQuatCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount);
+
+// The same for an M2Color::alpha or M2TextureWeight::weight track (fixed16).
+std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount);
+
+// A built material's content signature, excluding its per-batch `name`:
+// equal keys mean one material can serve both batches.
+std::string materialDedupKey(const gltf::Material& gm);
+
 // Everything buildMaterialsAndPrimitives needs out of the M2 itself (as
 // opposed to the .skin file's own submeshes/batches) to resolve one batch
 // into a real glTF material -- bundled since the M2 side alone is seven
@@ -213,13 +235,5 @@ BuiltMaterials buildMaterialsAndPrimitives(
     uint32_t objectSkinTextureFileDataId = 0,
     const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {});
 
-// A directory scan finding zero matches looks identical to "the directory
-// doesn't exist"/"can't be read" unless this distinguishes them. Shared by
-// buildMaterialsAndPrimitives's fuzzy-texture-pool scan and
-// findSameBasenameSkins's (export_skin_resolution.cpp) same-basename .skin
-// scan -- both need the same missing-vs-unreadable-vs-wrong-type
-// diagnostic. Listings are kept per directory and modification time: a
-// corpus export asks for the same large directories once per model.
-const std::vector<std::filesystem::directory_entry>& scanDirOrWarn(const std::string& dir, const char* purpose);
 
 }  // namespace husk::commands

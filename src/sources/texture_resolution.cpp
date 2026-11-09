@@ -1,4 +1,6 @@
-#include "export_texture_resolution.hpp"
+#include "texture_resolution.hpp"
+
+#include "dir_listing.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,12 +12,9 @@
 #include <unordered_map>
 
 #include "blp.hpp"
-#include "export_materials.hpp"
-#include "export_transform.hpp"
-#include "m2_animation.hpp"
 #include "input_log.hpp"
 
-namespace husk::commands {
+namespace husk::sources {
 
 namespace {
 
@@ -41,19 +40,6 @@ void writeTextureOutCopy(const std::filesystem::path& path, const std::string& t
         return;
     }
     out.write(reinterpret_cast<const char*>(pngBytes.data()), static_cast<std::streamsize>(pngBytes.size()));
-}
-
-// Decodes one raw fixed16 wire value (as resolveRawIntTrackSequence/
-// resolveRawIntGlobalSequenceTrack return it, zero-extended into a
-// uint32_t) into a 0.0..1.0 float -- the same conversion m2.cpp's
-// readFixed16TrackValue uses for the constant-value case (wowdev.wiki
-// M2#Colors_and_transparency's own "0 - transparent, 0x7FFF - opaque"
-// scale).
-float decodeFixed16(uint32_t bits) {
-    auto b = static_cast<uint16_t>(bits);
-    int16_t raw;
-    std::memcpy(&raw, &b, sizeof(raw));
-    return std::clamp(static_cast<float>(raw) / 32767.0f, 0.0f, 1.0f);
 }
 
 // Category token -> the M2Texture::type values (m2::textureTypeName) it's
@@ -402,43 +388,6 @@ std::optional<std::vector<uint8_t>> resolveTextureBytes(const std::filesystem::p
     return readTextureFileBytes(blpPath, texturesDir, texturesOutDir);
 }
 
-gltf::Material::AlphaMode alphaModeForBlend(uint16_t blendMode) {
-    switch (blendMode) {
-        case 0: return gltf::Material::AlphaMode::Opaque;
-        case 1: return gltf::Material::AlphaMode::Mask;
-        default: return gltf::Material::AlphaMode::Blend;
-    }
-}
-
-std::vector<gltf::Material::AnimatedColorCurve> resolveAnimatedColorCurve(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedColorCurve>(
-        blob, trackOffset, sequenceCount, m2::resolveVec3TrackSequence, m2::resolveVec3GlobalSequenceTrack,
-        [](const m2::Vec3& v) { return gltf::Vec3{v.x, v.y, v.z}; });
-}
-
-std::vector<gltf::Material::AnimatedQuatCurve> resolveAnimatedRawQuatCurve(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedQuatCurve>(
-        blob, trackOffset, sequenceCount, m2::resolveRawQuatTrackSequence,
-        m2::resolveRawQuatGlobalSequenceTrack,
-        [](const m2::Quat& q) { return std::array<float, 4>{q.x, q.y, q.z, q.w}; });
-}
-
-std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    auto resolveSeq = [](const std::vector<uint8_t>& b, uint32_t off, uint32_t si,
-                          const std::vector<uint8_t>* ext) {
-        return m2::resolveRawIntTrackSequence(b, off, si, /*elementSize=*/2, ext);
-    };
-    auto resolveGlobal = [](const std::vector<uint8_t>& b, uint32_t off, const std::vector<uint8_t>* ext) {
-        return m2::resolveRawIntGlobalSequenceTrack(b, off, /*elementSize=*/2, ext);
-    };
-    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedScalarCurve>(
-        blob, trackOffset, sequenceCount, resolveSeq, resolveGlobal,
-        [](uint32_t bits) { return decodeFixed16(bits); });
-}
-
 std::string lowercaseModelBasename(const std::string& modelPath) {
     std::string basename = std::filesystem::path(modelPath).stem().string();
     std::transform(basename.begin(), basename.end(), basename.begin(),
@@ -669,49 +618,4 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
     return pool;
 }
 
-std::string materialDedupKey(const gltf::Material& gm) {
-    std::ostringstream key;
-    key << static_cast<int>(gm.alphaMode) << '|' << gm.doubleSided << '|' << gm.unlit << '|';
-    for (float c : gm.baseColorFactor) key << c << ',';
-    key << '|' << gm.baseColorImageName << '|' << gm.baseColorImagePng.size() << '|'
-        << gm.baseColorTexCoord << '|' << gm.textureType << '|' << gm.baseColorTextureFileDataId
-        << '|';
-    for (const auto& layer : gm.additionalTextureLayers) {
-        key << layer.fileDataId << ':' << layer.texCoord << ':' << layer.imagePng.size() << ';';
-    }
-    key << '|';
-    if (gm.textureTransform) {
-        const auto& t = *gm.textureTransform;
-        key << t.constant << ':' << t.translation.x << ',' << t.translation.y << ','
-            << t.translation.z << ':';
-        for (float r : t.rotation) key << r << ',';
-        key << ':' << t.scaling.x << ',' << t.scaling.y << ',' << t.scaling.z;
-    }
-    key << '|';
-    for (const auto& cand : gm.alternateTextureCandidates) {
-        key << cand.filename << ':' << cand.category << ';';
-    }
-    key << '|';
-    auto appendColorCurves = [&](const auto& curves) {
-        for (const auto& curve : curves) {
-            key << curve.sequenceIndex << '[';
-            for (const auto& [t, v] : curve.keyframes) key << t << ':' << v.x << ',' << v.y << ',' << v.z << ';';
-            key << ']';
-        }
-        key << '|';
-    };
-    auto appendScalarCurves = [&](const auto& curves) {
-        for (const auto& curve : curves) {
-            key << curve.sequenceIndex << '[';
-            for (const auto& [t, v] : curve.keyframes) key << t << ':' << v << ';';
-            key << ']';
-        }
-        key << '|';
-    };
-    appendColorCurves(gm.tintAnimation);
-    appendScalarCurves(gm.alphaFadeAnimation);
-    appendScalarCurves(gm.weightFadeAnimation);
-    return key.str();
-}
-
-}  // namespace husk::commands
+}  // namespace husk::sources

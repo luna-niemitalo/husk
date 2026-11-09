@@ -8,25 +8,10 @@
 #include <string>
 #include <vector>
 
-#include "gltf.hpp"
-
-// Texture-candidate resolution (embedded-filename/FileDataID/fuzzy-
-// basename-pool/listfile matching, category classification, default-pick
-// ordering) and the M2Track-to-glTF-curve resolvers for genuinely-animated
-// tint/fade/texture-transform data -- split out of export_materials.cpp
-// per the since-deleted TODO/CLEANUP_TODO.md's former Item 1 (that file was the largest in `src/`,
-// two genuinely separate concerns bundled into one translation unit: this
-// one answers "which real bytes does a texture slot resolve to," the
-// remaining buildMaterialsAndPrimitives in export_materials.cpp answers
-// "how does one .skin batch become a glTF material/primitive," calling
-// into these functions rather than duplicating them.
-//
-// Not part of the public husk::commands API surface (export_materials.hpp
-// doesn't re-declare any of this) -- same "cross-file helper gets
-// promoted out of an anonymous namespace, but stays internal to this
-// feature area" pattern as gltf_mesh_internal.hpp/gltf_skeleton_internal.hpp
-// (FILE_SPLIT_TODO.md Item 2's precedent).
-namespace husk::commands {
+// Texture-candidate resolution behind sources::Catalog: reading and
+// decoding texture files, and the same-basename fuzzy pool (category
+// classification, tag matching, default-pick ordering).
+namespace husk::sources {
 
 // Reads a texture file's embeddable PNG bytes directly -- `.png` as-is,
 // `.blp` decoded and PNG-re-encoded in memory (see src/blp.hpp). Never
@@ -45,35 +30,6 @@ std::optional<std::vector<uint8_t>> readTextureFileBytes(const std::filesystem::
 std::optional<std::vector<uint8_t>> resolveTextureBytes(const std::filesystem::path& stemPath,
                                                           const std::string& texturesDir,
                                                           const std::string& texturesOutDir);
-
-// WoW's M2BLEND_* blend modes (wowdev.wiki M2/Rendering#M2BLEND) collapsed
-// to glTF's three-way alphaMode: 0 (OPAQUE) maps directly, 1 (ALPHA_KEY,
-// alpha-tested) maps to MASK, and everything else -- 2 (a real alpha
-// blend), plus the additive/multiply modes 3+ that glTF's core material
-// model has no equivalent for -- maps to BLEND as the closest
-// approximation.
-gltf::Material::AlphaMode alphaModeForBlend(uint16_t blendMode);
-
-// Resolves a genuinely-animated M2Color::color (or equivalent Vec3) track
-// into real (seconds, rgb) keyframes -- one gltf::Material::AnimatedColorCurve
-// per M2Sequence that has real inline data for this track, plus a
-// synthetic global-sequence entry (sequenceIndex left at -1) when the
-// track loops independently of any M2Sequence instead.
-std::vector<gltf::Material::AnimatedColorCurve> resolveAnimatedColorCurve(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount);
-
-// Same shape as resolveAnimatedColorCurve, but for a genuinely-animated
-// M2TextureTransform::rotation track (M2Track<C4Quaternion>, raw floats --
-// see m2::TextureTransform::rotation's own doc comment for why this needs
-// the raw-quat resolver, not the M2CompQuat-decompressing one).
-std::vector<gltf::Material::AnimatedQuatCurve> resolveAnimatedRawQuatCurve(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount);
-
-// Same shape as resolveAnimatedColorCurve, but for a genuinely-animated
-// M2Color::alpha or M2TextureWeight::weight track (both M2Track<fixed16>) --
-// shared by both since only the source field differs.
-std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount);
 
 // Shared by scanFuzzyTexturePool (which files belong to this model's pool
 // at all) and classifyCandidateCategory (parsing a category token out of
@@ -229,12 +185,4 @@ std::optional<std::filesystem::path> claimSoleFuzzyTextureCandidate(FuzzyTexture
 // with no basename at all.
 FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std::string& modelPath);
 
-// Real content-equality signature for a fully-built gltf::Material,
-// deliberately excluding `name` (unique per batch by construction,
-// meaningless for identity) -- every *other* field that actually affects
-// what the material looks like or carries as metadata.
-// `buildMaterialsAndPrimitives`'s dedup loop uses this to decide "reuse an
-// existing gltf::Material" vs. "this is genuinely a new one".
-std::string materialDedupKey(const gltf::Material& gm);
-
-}  // namespace husk::commands
+}  // namespace husk::sources

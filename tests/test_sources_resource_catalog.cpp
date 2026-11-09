@@ -10,7 +10,7 @@
 #include <fstream>
 
 #include "../src/export_materials.hpp"
-#include "../src/export_texture_resolution.hpp"
+#include "../src/sources/texture_resolution.hpp"
 #include "../src/listfile_index.hpp"
 #include "../src/sources/catalog.hpp"
 #include "test_adt_fixtures.hpp"  // adtfx::oneBlockBlp
@@ -267,23 +267,23 @@ TEST_CASE("Catalog::describe() names every resolved slot -- I4's ledger, a read 
 TEST_CASE("extractTextureTags finds real vocabulary tokens run together with no separator -- the "
           "exact real-corpus shape (e.g. \"...nakedtorsoskin00_105_hd.blp\") the old startswith-"
           "basename pool gate could never reach at all") {
-    auto tags = husk::commands::extractTextureTags("bloodelffemalenakedtorsoskin00_105_hd");
+    auto tags = husk::sources::extractTextureTags("bloodelffemalenakedtorsoskin00_105_hd");
     CHECK(tags.count("naked") == 1);
     CHECK(tags.count("torso") == 1);
     CHECK(tags.count("skin") == 1);
     // No spurious matches -- a file with none of the vocabulary words
     // reports an empty set, not a false positive.
-    CHECK(husk::commands::extractTextureTags("tempmonktexture").empty());
+    CHECK(husk::sources::extractTextureTags("tempmonktexture").empty());
 }
 
 TEST_CASE("filenameCarriesHdToken requires a real delimited '_hd' token, not a bare substring") {
-    CHECK(husk::commands::filenameCarriesHdToken("bloodelffemale_hd"));
-    CHECK(husk::commands::filenameCarriesHdToken("bloodelffemaleskin00_00_hd"));
-    CHECK_FALSE(husk::commands::filenameCarriesHdToken("bloodelffemale"));
+    CHECK(husk::sources::filenameCarriesHdToken("bloodelffemale_hd"));
+    CHECK(husk::sources::filenameCarriesHdToken("bloodelffemaleskin00_00_hd"));
+    CHECK_FALSE(husk::sources::filenameCarriesHdToken("bloodelffemale"));
     // "hd" only as a substring inside a longer token (not its own
     // delimited piece) must not count -- otherwise an ordinary word could
     // false-positive the `_hd` partition.
-    CHECK_FALSE(husk::commands::filenameCarriesHdToken("shadow"));
+    CHECK_FALSE(husk::sources::filenameCarriesHdToken("shadow"));
 }
 
 TEST_CASE("filterCandidatesByTextureTag: type 20 (char_jewelry) requires 'jewelry' AND 'color' "
@@ -294,7 +294,7 @@ TEST_CASE("filterCandidatesByTextureTag: type 20 (char_jewelry) requires 'jewelr
         "jewtest_jewelry_color_1000.png",  // real jewelry mesh texture -- both tags
         "jewtest_body_jewelry_2000.png",   // skin/skin_extra overlay -- "jewelry" only
     };
-    auto matching = husk::commands::filterCandidatesByTextureTag(files, /*textureType=*/20);
+    auto matching = husk::sources::filterCandidatesByTextureTag(files, /*textureType=*/20);
     REQUIRE(matching.has_value());
     REQUIRE(matching->size() == 1);
     CHECK(matching->front() == "jewtest_jewelry_color_1000.png");
@@ -304,8 +304,8 @@ TEST_CASE("filterCandidatesByTextureTag returns nullopt for a texture type with 
           "tag mapping -- object_skin(2) and every non-character replaceable type stay on the "
           "older filterCandidatesForType path, never silently admit everything") {
     std::vector<std::filesystem::path> files = {"anything_at_all.png"};
-    CHECK_FALSE(husk::commands::filterCandidatesByTextureTag(files, /*textureType=*/2).has_value());
-    CHECK_FALSE(husk::commands::filterCandidatesByTextureTag(files, /*textureType=*/11).has_value());
+    CHECK_FALSE(husk::sources::filterCandidatesByTextureTag(files, /*textureType=*/2).has_value());
+    CHECK_FALSE(husk::sources::filterCandidatesByTextureTag(files, /*textureType=*/11).has_value());
 }
 
 TEST_CASE("Catalog::texture: a tag-carrying candidate with no name relation to the model "

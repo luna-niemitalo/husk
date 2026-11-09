@@ -5,7 +5,7 @@
 #include <sstream>
 #include <tuple>
 
-#include "../export_texture_resolution.hpp"
+#include "texture_resolution.hpp"
 #include "listfile_catalog.hpp"
 #include "texture_catalog.hpp"
 
@@ -14,7 +14,7 @@ namespace husk::sources {
 namespace {
 
 // Real on-disk path for `stem` under the same "`.png` wins, `.blp` falls
-// back" priority `husk::commands::resolveTextureBytes` already applies when
+// back" priority `husk::sources::resolveTextureBytes` already applies when
 // reading bytes -- duplicated here as a pure existence check (no bytes
 // read) rather than changing that function's signature, since only
 // EncodedTexture::sourcePath needs a path back, not a second copy of the
@@ -65,7 +65,7 @@ Catalog::ModelState& Catalog::stateForModel(const TextureModelContext& model) {
     auto& state = modelStates_[model.modelPath];
     if (state.poolInitialized) return state;
 
-    state.pool = husk::commands::scanFuzzyTexturePool(texturesDir_, model.modelPath);
+    state.pool = husk::sources::scanFuzzyTexturePool(texturesDir_, model.modelPath);
     // A same-basename fuzzy candidate whose own trailing FileDataID matches
     // one of this exact M2's own texture-array entries is never a
     // plausible guess for an unrelated hardcoded slot -- it's already a
@@ -80,11 +80,11 @@ Catalog::ModelState& Catalog::stateForModel(const TextureModelContext& model) {
     // convention -- moved verbatim out of export_materials.cpp's own
     // pre-Catalog pool setup, same exclusion, same reasoning.
     if (!model.ownTextureFileDataIds.empty()) {
-        std::string basenameLower = husk::commands::lowercaseModelBasename(model.modelPath);
+        std::string basenameLower = husk::sources::lowercaseModelBasename(model.modelPath);
         state.pool.files.erase(
             std::remove_if(state.pool.files.begin(), state.pool.files.end(),
                             [&](const std::filesystem::path& p) {
-                                auto fdid = husk::commands::fuzzyCandidateFileDataId(p, basenameLower);
+                                auto fdid = husk::sources::fuzzyCandidateFileDataId(p, basenameLower);
                                 return fdid && std::find(model.ownTextureFileDataIds.begin(),
                                                           model.ownTextureFileDataIds.end(),
                                                           *fdid) != model.ownTextureFileDataIds.end();
@@ -128,7 +128,7 @@ Resolved<EncodedTexture> Catalog::resolveListfileTier(uint32_t fdid) const {
     }
     auto stem = *target;
     stem.replace_extension();
-    auto bytes = husk::commands::resolveTextureBytes(stem, listfileRoot_, texturesOutDir_);
+    auto bytes = husk::sources::resolveTextureBytes(stem, listfileRoot_, texturesOutDir_);
     if (!bytes) {
         return Resolved<EncodedTexture>::miss(
             ResolutionTier::Listfile, "listfile names '" + stem.string() + "' for FileDataID " +
@@ -152,7 +152,7 @@ Resolved<EncodedTexture> Catalog::resolveStoreTier(uint32_t fdid) const {
         return Resolved<EncodedTexture>::miss(ResolutionTier::Store, "no '_by_fdid/" + std::to_string(fdid) +
                                                                         "' under '" + listfileRoot_ + "'");
     }
-    auto bytes = husk::commands::readTextureFileBytes(*path, listfileRoot_, texturesOutDir_);
+    auto bytes = husk::sources::readTextureFileBytes(*path, listfileRoot_, texturesOutDir_);
     if (!bytes) {
         return Resolved<EncodedTexture>::miss(ResolutionTier::Store,
                                                "'" + path->string() + "' exists but failed to read/decode");
@@ -256,13 +256,13 @@ Resolved<EncodedTexture> Catalog::resolveDb2CharacterTier(uint32_t textureType) 
 // this object existed).
 Resolved<EncodedTexture> Catalog::resolveFuzzyTier(ModelState& state, uint32_t textureType,
                                                     const std::string& modelPath, bool preferGlowVariant) {
-    std::string basenameLower = husk::commands::lowercaseModelBasename(modelPath);
+    std::string basenameLower = husk::sources::lowercaseModelBasename(modelPath);
     // A real tag-conjunction query when textureType has one
     // (filterCandidatesByTextureTag doesn't need -- and doesn't use -- the
     // modelBasename-prefix filterCandidatesForType's own classification
     // requires), falling back to the older category classifier for every
     // type that table has no established tag for.
-    auto tagMatching = husk::commands::filterCandidatesByTextureTag(state.pool.files, textureType);
+    auto tagMatching = husk::sources::filterCandidatesByTextureTag(state.pool.files, textureType);
     std::vector<std::filesystem::path> matching;
     if (tagMatching) {
         matching = std::move(*tagMatching);
@@ -280,7 +280,7 @@ Resolved<EncodedTexture> Catalog::resolveFuzzyTier(ModelState& state, uint32_t t
         std::vector<std::filesystem::path> narrowFiles;
         std::copy_if(state.pool.files.begin(), state.pool.files.end(), std::back_inserter(narrowFiles),
                      [&](const std::filesystem::path& p) { return state.pool.narrowAdmitted.count(p) != 0; });
-        matching = husk::commands::filterCandidatesForType(narrowFiles, textureType, basenameLower);
+        matching = husk::sources::filterCandidatesForType(narrowFiles, textureType, basenameLower);
     }
 
     if (matching.empty()) {
@@ -292,7 +292,7 @@ Resolved<EncodedTexture> Catalog::resolveFuzzyTier(ModelState& state, uint32_t t
     if (matching.size() == 1) {
         auto claimed = matching.front();
         state.pool.files.erase(std::find(state.pool.files.begin(), state.pool.files.end(), claimed));
-        auto bytes = husk::commands::readTextureFileBytes(claimed, texturesDir_, texturesOutDir_);
+        auto bytes = husk::sources::readTextureFileBytes(claimed, texturesDir_, texturesOutDir_);
         if (!bytes) {
             return Resolved<EncodedTexture>::miss(
                 ResolutionTier::FuzzySameBasenamePool,
@@ -308,22 +308,22 @@ Resolved<EncodedTexture> Catalog::resolveFuzzyTier(ModelState& state, uint32_t t
             "claimed '" + claimed.string() + "' as the pool's sole type-compatible candidate");
     }
 
-    husk::commands::orderCandidatesForDefault(matching, texturesDir_, texturesOutDir_, basenameLower,
+    husk::sources::orderCandidatesForDefault(matching, texturesDir_, texturesOutDir_, basenameLower,
                                                ambiguousCandidateCache_, preferGlowVariant);
     std::vector<Alternate> alternates;
     alternates.reserve(matching.size());
     for (const auto& candidatePath : matching) {
         auto cached = ambiguousCandidateCache_.find(candidatePath);
         if (cached == ambiguousCandidateCache_.end()) {
-            auto bytes = husk::commands::readTextureFileBytes(candidatePath, texturesDir_, texturesOutDir_);
+            auto bytes = husk::sources::readTextureFileBytes(candidatePath, texturesDir_, texturesOutDir_);
             if (!bytes) continue;  // unreadable candidate -- skip, don't fail the whole slot
             cached = ambiguousCandidateCache_.emplace(candidatePath, std::move(*bytes)).first;
         }
         Alternate alt;
         alt.filename = candidatePath.filename().string();
         alt.category =
-            husk::commands::classifyCandidateCategory(candidatePath, basenameLower).value_or(std::string());
-        std::tie(alt.width, alt.height) = husk::commands::pngDimensions(cached->second);
+            husk::sources::classifyCandidateCategory(candidatePath, basenameLower).value_or(std::string());
+        std::tie(alt.width, alt.height) = husk::sources::pngDimensions(cached->second);
         alt.imagePng = cached->second;
         alternates.push_back(std::move(alt));
     }

@@ -21,7 +21,7 @@ namespace husk::sources {
 // Tier 1 of `RESOURCE_CATALOG.md`'s "Normative tier order": a literal
 // `<texturesDir>/<FileDataID>.png`, falling back to `.blp` (decoded via
 // husk::blp), PNG winning when both exist -- delegates to
-// `husk::commands::resolveTextureBytes` for the actual read/decode, this
+// `husk::sources::resolveTextureBytes` for the actual read/decode, this
 // wrapper only adds the tier/reason reporting `AUDIT.md` §1.1's three
 // implementations don't uniformly have today (I4's "expected vs. actual on
 // failure").
@@ -41,7 +41,7 @@ struct ListfileTextureResult {
 // <real content path>` for `fdid`, read via the same `.png`-then-`.blp`
 // resolution tier 1 uses. Delegates to `pathForFileDataId`
 // (`listfile_catalog.hpp`, `AUDIT.md` §1.2's already-consolidated forward
-// lookup) for the path, then `husk::commands::resolveTextureBytes` for the
+// lookup) for the path, then `husk::sources::resolveTextureBytes` for the
 // bytes -- this wrapper adds only the `Resolved<T>` provenance, no new
 // lookup logic.
 Resolved<ListfileTextureResult> resolveListfileTextureBytes(uint32_t fdid, const husk::ListfileIndex& listfile,

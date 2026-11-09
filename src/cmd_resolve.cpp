@@ -8,9 +8,9 @@
 
 #include "cli_args.hpp"
 #include "commands.hpp"
-#include "export_extras.hpp"  // readFileBytes
-#include "export_materials.hpp"
-#include "export_skin_resolution.hpp"
+#include "cmd_export_canon.hpp"  // buildTextureResolutions
+#include "skin_resolution.hpp"
+#include "read_file.hpp"
 #include "json_writer.hpp"
 #include "listfile.hpp"
 #include "listfile_cache.hpp"
@@ -42,15 +42,14 @@
 // `--explain-textures` would force exactly that cost back onto them to get
 // a machine-readable answer. `husk resolve` instead runs only as much of
 // `export`'s own pipeline as answers "where did every batch's texture
-// resolve": M2 header + material/texture arrays, each exported .skin's
-// submeshes/batches, and `sources::Catalog::texture()` -- via the *same*
-// `buildMaterialsAndPrimitives`/`resolveSkinsToExport` functions `export`
+// resolve": the loaded M2, each exported .skin's batches, and
+// `sources::Catalog::texture()` -- via the *same*
+// `buildTextureResolutions`/`resolveSkinsToExport` functions `export`
 // itself calls (I2: one implementation), never a second, simplified mirror
-// of which slots are "used." What it skips, on purpose: `m2::parseVertices`
-// (materials/textures never need vertex data), the skeleton/bone/animation/
-// DB2-character pipeline, mesh-accessor/glTF assembly, and the final .glb
-// write -- none of those affect which tier answers a texture slot, and
-// they're the actual expense the tasks above are avoiding.
+// of which slots are "used." What it skips, on purpose: the skeleton/bone/
+// animation/DB2-character pipeline, canon assembly and the bundle write --
+// none of those affect which tier answers a texture slot, and they're the
+// actual expense the tasks above are avoiding.
 //
 // Output is JSON only (stdout), one array entry per (skin, texture slot)
 // resolved -- same shape as `dump-chunks`, no prose twin to keep in sync,
@@ -141,28 +140,6 @@ void writeLedgerEntryJson(json::Writer& w, const husk::sources::Catalog::LedgerE
     w.endObject();
 }
 
-// Redirects std::cout into an internal buffer for its own scope, restoring
-// the real buffer on destruction -- including via an exception unwinding
-// through it, which a bare rdbuf()-swap-and-restore pair wouldn't survive.
-// See its own call site's doc comment for why this exists at all:
-// buildMaterialsAndPrimitives prints one real diagnostic straight to
-// std::cout, which would otherwise land ahead of `resolve`'s own JSON on
-// the one stream a machine consumer reads.
-class CoutToStderrGuard {
-public:
-    CoutToStderrGuard() : realBuf_(std::cout.rdbuf(captured_.rdbuf())) {}
-    ~CoutToStderrGuard() {
-        std::cout.rdbuf(realBuf_);
-        if (!captured_.str().empty()) std::cerr << captured_.str();
-    }
-    CoutToStderrGuard(const CoutToStderrGuard&) = delete;
-    CoutToStderrGuard& operator=(const CoutToStderrGuard&) = delete;
-
-private:
-    std::ostringstream captured_;
-    std::streambuf* realBuf_;
-};
-
 }  // namespace
 
 int resolve(int argc, char** args) {
@@ -244,65 +221,18 @@ int resolve(int argc, char** args) {
     }
 
     try {
-        auto modelBytes = readFileBytes(opts.model);
-        auto header = m2::parseHeader(modelBytes);
-        auto blob = m2::extractBlob(modelBytes);
-
-        M2MaterialInputs m2Inputs;
-        m2Inputs.materials = m2::parseMaterials(blob, header.materials);
-        m2Inputs.textures = m2::parseTextures(blob, header.textures);
-        m2Inputs.textureCombos = m2::parseUint16Array(blob, header.textureCombos);
-        m2Inputs.textureCoordCombos = m2::parseUint16Array(blob, header.textureCoordCombos);
-        m2Inputs.colors = m2::parseColors(blob, header.colors);
-        m2Inputs.textureWeights = m2::parseTextureWeights(blob, header.textureWeights);
-        m2Inputs.textureWeightCombos = m2::parseUint16Array(blob, header.textureWeightCombos);
-        m2Inputs.textureTransforms = m2::parseTextureTransforms(blob, header.textureTransforms);
-        m2Inputs.textureTransformCombos = m2::parseUint16Array(blob, header.textureTransformCombos);
-        m2Inputs.textureFileDataIds = header.textureFileDataIds;
-        m2Inputs.blob = &blob;
-        m2Inputs.sequenceCount = header.sequences.count;
-
-        auto skinsToExport = resolveSkinsToExport(header, opts.model, skinDir, listfileRoot, skinDirNone,
+        m2::Model model = m2::loadModel(readFileBytes(opts.model));
+        auto skinsToExport = resolveSkinsToExport(model.header, opts.model, skinDir, listfileRoot, skinDirNone,
                                                     lodGiven, opts.lodArg, opts.skinArg);
 
         husk::sources::Catalog catalog(texturesDir, listfile, listfileRoot, texturesOutDir);
 
+        // The export's own texture resolution, run for its catalog.texture()
+        // calls only: the ledger they fill is the output.
         for (const auto& [lodName, path] : skinsToExport) {
-            (void)lodName;  // LOD label, not needed here -- the ledger keys by modelPath+slot only
             auto skinBytes = readFileBytes(path);
-            auto skinHeader = skin::parseHeader(skinBytes);
-            auto triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
-            auto submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
-            auto batches = skin::parseBatches(skinBytes, skinHeader.batches);
-
-            // Runs the real per-batch resolution (same function `export`
-            // calls, buildLodTierMeshes) purely for its catalog.texture()
-            // side effects on the shared ledger -- the returned
-            // BuiltMaterials (gltf::Material/Primitive objects, never
-            // otherwise emitted here) is intentionally discarded.
-            //
-            // buildMaterialsAndPrimitives itself prints one real diagnostic
-            // straight to std::cout on a non-empty leftover fuzzy pool (see
-            // its own trailing "N texture file(s) ... share this model's
-            // basename" note, export_materials.cpp) -- fine for `export`,
-            // whose stdout has no other contract, but fatal here: `resolve`'s
-            // entire reason to exist is a clean, single-JSON-document
-            // stdout stream a real parser can trust (found live, not
-            // assumed -- a real 218-candidate corpus run prepended this
-            // exact note before the JSON and broke `jq .` outright). Rather
-            // than touching the shared function's own behavior (which
-            // `export` still depends on unchanged), CoutToStderrGuard
-            // redirects std::cout for the duration of this one call and
-            // re-emits whatever it captured on stderr instead -- the
-            // information isn't lost, it just never reaches the stream a
-            // machine consumer reads.
-            {
-                CoutToStderrGuard coutGuard;
-                (void)buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs, catalog,
-                                                   texturesDir, opts.model, texturesOutDir, listfile,
-                                                   listfileRoot.empty() ? texturesDir : listfileRoot,
-                                                   objectSkinTextureFileDataId);
-            }
+            auto batches = skin::parseBatches(skinBytes, skin::parseHeader(skinBytes).batches);
+            (void)buildTextureResolutions(model, batches, catalog, opts.model, objectSkinTextureFileDataId);
         }
 
         json::Writer w(std::cout);

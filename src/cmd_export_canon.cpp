@@ -10,7 +10,7 @@
 #include "canon_model.hpp"
 #include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
 #include "creature_options_input.hpp"
-#include "export_extras.hpp"   // readFileBytes
+#include "read_file.hpp"
 #include "m2_animation.hpp"    // m2::extractAnimBlob
 #include "m2_canon_input.hpp"  // m2input::buildCanonModel, m2input::ExternalAnimBlobs
 #include "m2_scene_input.hpp"  // m2input::particleTextureIndices
@@ -163,17 +163,8 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
     return ref;
 }
 
-// One catalog.texture() call per distinct M2 texture-array index actually
-// referenced by any of `batches`' real texture units (layer i's combo
-// index is `textureComboIndex + i`, m2_material_input.hpp's own
-// convention) -- mirrors buildMaterialsAndPrimitives's own per-layer
-// resolution (export_materials.cpp) closely enough that both go through the
-// identical catalog answer for the same (modelPath, textureSlotIndex), but
-// does not replicate its embedded-filename tier (pre-Cataclysm inline
-// texture bytes, a real M2 field canon::TextureRef has no shape for) --
-// a texture unit with no real fdid AND an embedded filename is left absent
-// from the returned map (falls back to canon::TextureRef's own default
-// KnownUnresolved, same as an unresolved caller-omitted slot).
+}  // namespace
+
 m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, const std::vector<skin::Batch>& batches,
                                                    sources::Catalog& catalog, const std::string& modelPath,
                                                    uint32_t objectSkinTextureFileDataId) {
@@ -220,6 +211,8 @@ m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, cons
     }
     return result;
 }
+
+namespace {
 
 // Zero-pads `value` to at least `width` digits (e.g. zeroPad(69, 4) ==
 // "0069") -- same tiny helper export_animation.cpp's own

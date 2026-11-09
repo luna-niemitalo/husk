@@ -36,22 +36,6 @@
 // comments on each of these (preserved there verbatim, not duplicated here).
 namespace husk::commands {
 
-std::vector<uint8_t> readFileBytes(const std::string& path) {
-    errno = 0;
-    std::ifstream f(path, std::ios::binary);
-    if (!f) {
-        throw std::runtime_error("couldn't open '" + path + "' for reading: " + std::strerror(errno));
-    }
-    errno = 0;
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
-                                std::istreambuf_iterator<char>());
-    if (!f.good() && !f.eof()) {
-        throw std::runtime_error("error reading '" + path + "': " + std::strerror(errno));
-    }
-    inputs::use(path, bytes);
-    return bytes;
-}
-
 void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, bool haveSkel,
                             const m2::Header& header, const std::vector<uint8_t>& skelBytes,
                             gltf::Skeleton& skeleton) {

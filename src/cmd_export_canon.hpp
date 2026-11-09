@@ -6,11 +6,13 @@
 #include <vector>
 
 #include "creature_display_db2.hpp"
-#include "export_skin_resolution.hpp"  // LodSkinPath
+#include "skin_resolution.hpp"  // LodSkinPath
 #include "writers/texture_store.hpp"
 #include "gltf_mesh.hpp"
 #include "gltf_skeleton.hpp"
 #include "m2.hpp"
+#include "m2_material_input.hpp"  // m2input::TextureResolutions
+#include "skin.hpp"
 #include "sources/catalog.hpp"
 
 // husk::commands: `husk export --export-canon`'s own path -- REFACTOR/
@@ -18,6 +20,15 @@
 // doc comment for the full rationale; this header only declares the one
 // entry point cmd_export.cpp calls.
 namespace husk::commands {
+
+// One catalog.texture() call per distinct M2 texture-array index a batch
+// layer or an emitter references (layer i's combo index is
+// `textureComboIndex + i`). An index with no FileDataID but an embedded
+// filename (pre-Cataclysm inline names) is left out: canon::TextureRef has
+// no shape for it, so it stays KnownUnresolved.
+m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, const std::vector<skin::Batch>& batches,
+                                                   sources::Catalog& catalog, const std::string& modelPath,
+                                                   uint32_t objectSkinTextureFileDataId);
 
 // Runs m2input::buildCanonModel against the SAME already-parsed `model` and
 // the FIRST resolved skin tier (re-parsed here from `skinPath`,

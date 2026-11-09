@@ -1,6 +1,9 @@
 #include "export_materials.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstring>
+#include <sstream>
 #include <iostream>
 #include <mutex>
 #include <set>
@@ -8,7 +11,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "export_texture_resolution.hpp"
+#include "export_transform.hpp"
+#include "m2_animation.hpp"
+#include "sources/texture_resolution.hpp"
 #include "m2_shader_names.hpp"
 #include "sources/listfile_catalog.hpp"
 #include "sources/texture_catalog.hpp"
@@ -37,52 +42,6 @@ constexpr uint16_t kMaterialUnlitFlag = 0x01;
 constexpr uint16_t kMaterialTwoSidedFlag = 0x04;
 
 }  // namespace
-
-const std::vector<std::filesystem::directory_entry>& scanDirOrWarn(const std::string& dir, const char* purpose) {
-    static const std::vector<std::filesystem::directory_entry> none;
-    std::error_code statEc;
-    auto st = std::filesystem::status(dir, statEc);
-    if (statEc) {
-        std::cerr << "husk: warning: " << purpose << " '" << dir << "': " << statEc.message() << "\n";
-        return none;
-    }
-    if (st.type() == std::filesystem::file_type::not_found) {
-        std::error_code linkEc;
-        auto lst = std::filesystem::symlink_status(dir, linkEc);
-        bool brokenSymlink = !linkEc && lst.type() == std::filesystem::file_type::symlink;
-        std::cerr << "husk: warning: " << purpose << " '" << dir << "': "
-                  << (brokenSymlink ? "broken symlink (target doesn't exist)" : "no such directory")
-                  << "\n";
-        return none;
-    }
-    if (st.type() != std::filesystem::file_type::directory) {
-        std::cerr << "husk: warning: " << purpose << " '" << dir << "': not a directory\n";
-        return none;
-    }
-    // A changed directory gets a new key, never a replaced listing, so a
-    // returned reference stays valid; node-based for the same reason.
-    std::error_code timeEc;
-    std::string key = dir + '\0' + std::to_string(std::filesystem::last_write_time(dir, timeEc).time_since_epoch().count());
-    static std::unordered_map<std::string, std::vector<std::filesystem::directory_entry>> listings;
-    static std::shared_mutex mutex;
-    if (!timeEc) {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        auto it = listings.find(key);
-        if (it != listings.end()) return it->second;
-    }
-
-    std::vector<std::filesystem::directory_entry> entries;
-    std::error_code iterEc;
-    for (std::filesystem::directory_iterator it(dir, iterEc), end; !iterEc && it != end; it.increment(iterEc)) {
-        entries.push_back(*it);
-    }
-    if (iterEc) {
-        std::cerr << "husk: warning: " << purpose << " '" << dir << "': " << iterEc.message() << "\n";
-        return none;
-    }
-    std::unique_lock<std::shared_mutex> lock(mutex);
-    return listings.try_emplace(key, std::move(entries)).first->second;
-}
 
 std::unordered_map<uint32_t, CustomizationNameEntry> buildCustomizationNameLookup(
     const gltf::Skeleton& skeleton) {
@@ -392,7 +351,7 @@ BuiltMaterials buildMaterialsAndPrimitives(
             std::optional<std::vector<uint8_t>> embeddedBytes;
             if (!embeddedFilename.empty() && !texturesDir.empty()) {
                 embeddedStem = std::filesystem::path(embeddedFilename).stem().string();
-                embeddedBytes = resolveTextureBytes(std::filesystem::path(texturesDir) / embeddedStem,
+                embeddedBytes = sources::resolveTextureBytes(std::filesystem::path(texturesDir) / embeddedStem,
                                                      texturesDir, texturesOutDir);
             }
 
@@ -656,4 +615,103 @@ BuiltMaterials buildMaterialsAndPrimitives(
     return result;
 }
 
+
+namespace {
+
+// Decodes one raw fixed16 wire value (as resolveRawIntTrackSequence/
+// resolveRawIntGlobalSequenceTrack return it, zero-extended into a
+// uint32_t) into a 0.0..1.0 float -- the same conversion m2.cpp's
+// readFixed16TrackValue uses for the constant-value case (wowdev.wiki
+// M2#Colors_and_transparency's own "0 - transparent, 0x7FFF - opaque"
+// scale).
+float decodeFixed16(uint32_t bits) {
+    auto b = static_cast<uint16_t>(bits);
+    int16_t raw;
+    std::memcpy(&raw, &b, sizeof(raw));
+    return std::clamp(static_cast<float>(raw) / 32767.0f, 0.0f, 1.0f);
+}
+
+}  // namespace
+
+gltf::Material::AlphaMode alphaModeForBlend(uint16_t blendMode) {
+    switch (blendMode) {
+        case 0: return gltf::Material::AlphaMode::Opaque;
+        case 1: return gltf::Material::AlphaMode::Mask;
+        default: return gltf::Material::AlphaMode::Blend;
+    }
+}
+
+std::vector<gltf::Material::AnimatedColorCurve> resolveAnimatedColorCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedColorCurve>(
+        blob, trackOffset, sequenceCount, m2::resolveVec3TrackSequence, m2::resolveVec3GlobalSequenceTrack,
+        [](const m2::Vec3& v) { return gltf::Vec3{v.x, v.y, v.z}; });
+}
+
+std::vector<gltf::Material::AnimatedQuatCurve> resolveAnimatedRawQuatCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedQuatCurve>(
+        blob, trackOffset, sequenceCount, m2::resolveRawQuatTrackSequence,
+        m2::resolveRawQuatGlobalSequenceTrack,
+        [](const m2::Quat& q) { return std::array<float, 4>{q.x, q.y, q.z, q.w}; });
+}
+
+std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    auto resolveSeq = [](const std::vector<uint8_t>& b, uint32_t off, uint32_t si,
+                          const std::vector<uint8_t>* ext) {
+        return m2::resolveRawIntTrackSequence(b, off, si, /*elementSize=*/2, ext);
+    };
+    auto resolveGlobal = [](const std::vector<uint8_t>& b, uint32_t off, const std::vector<uint8_t>* ext) {
+        return m2::resolveRawIntGlobalSequenceTrack(b, off, /*elementSize=*/2, ext);
+    };
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedScalarCurve>(
+        blob, trackOffset, sequenceCount, resolveSeq, resolveGlobal,
+        [](uint32_t bits) { return decodeFixed16(bits); });
+}
+
+std::string materialDedupKey(const gltf::Material& gm) {
+    std::ostringstream key;
+    key << static_cast<int>(gm.alphaMode) << '|' << gm.doubleSided << '|' << gm.unlit << '|';
+    for (float c : gm.baseColorFactor) key << c << ',';
+    key << '|' << gm.baseColorImageName << '|' << gm.baseColorImagePng.size() << '|'
+        << gm.baseColorTexCoord << '|' << gm.textureType << '|' << gm.baseColorTextureFileDataId
+        << '|';
+    for (const auto& layer : gm.additionalTextureLayers) {
+        key << layer.fileDataId << ':' << layer.texCoord << ':' << layer.imagePng.size() << ';';
+    }
+    key << '|';
+    if (gm.textureTransform) {
+        const auto& t = *gm.textureTransform;
+        key << t.constant << ':' << t.translation.x << ',' << t.translation.y << ','
+            << t.translation.z << ':';
+        for (float r : t.rotation) key << r << ',';
+        key << ':' << t.scaling.x << ',' << t.scaling.y << ',' << t.scaling.z;
+    }
+    key << '|';
+    for (const auto& cand : gm.alternateTextureCandidates) {
+        key << cand.filename << ':' << cand.category << ';';
+    }
+    key << '|';
+    auto appendColorCurves = [&](const auto& curves) {
+        for (const auto& curve : curves) {
+            key << curve.sequenceIndex << '[';
+            for (const auto& [t, v] : curve.keyframes) key << t << ':' << v.x << ',' << v.y << ',' << v.z << ';';
+            key << ']';
+        }
+        key << '|';
+    };
+    auto appendScalarCurves = [&](const auto& curves) {
+        for (const auto& curve : curves) {
+            key << curve.sequenceIndex << '[';
+            for (const auto& [t, v] : curve.keyframes) key << t << ':' << v << ';';
+            key << ']';
+        }
+        key << '|';
+    };
+    appendColorCurves(gm.tintAnimation);
+    appendScalarCurves(gm.alphaFadeAnimation);
+    appendScalarCurves(gm.weightFadeAnimation);
+    return key.str();
+}
 }  // namespace husk::commands

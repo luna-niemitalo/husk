@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../export_texture_resolution.hpp"  // FuzzyTexturePool
+#include "texture_resolution.hpp"  // FuzzyTexturePool
 #include "../listfile_index.hpp"
 #include "resolved.hpp"
 
@@ -28,7 +28,7 @@ namespace husk::sources {
 // I8/BUNDLE_FORMAT.md's "Texture encoding": the catalog hands back whatever
 // payload it read, tagged, never silently assuming one shape. Every real
 // tier today still decodes BLP -> PNG before the bytes ever reach this type
-// (`husk::commands::readTextureFileBytes`, unchanged by this file) -- so in
+// (`husk::sources::readTextureFileBytes`, unchanged by this file) -- so in
 // practice every `EncodedTexture` this catalog produces is currently tagged
 // `Png`. `Blp` exists so the type can represent the un-decoded payload once
 // that decode is moved to a writer (I8: "convert on output, never on
@@ -246,7 +246,7 @@ public:
 
 private:
     struct ModelState {
-        husk::commands::FuzzyTexturePool pool;
+        husk::sources::FuzzyTexturePool pool;
         bool poolInitialized = false;
         std::unordered_map<uint16_t, Resolved<EncodedTexture>> slotCache;
     };

@@ -21,6 +21,7 @@
 
 #include "animationdata_db2.hpp"
 #include "appearance_string.hpp"
+#include "character_texture_context.hpp"
 #include "chunk.hpp"
 #include "cli_args.hpp"
 #include "cmd_export_canon.hpp"
@@ -29,7 +30,7 @@
 #include "export_extras.hpp"
 #include "export_materials.hpp"
 #include "export_skeleton.hpp"
-#include "export_skin_resolution.hpp"
+#include "skin_resolution.hpp"
 #include "export_transform.hpp"
 #include "gltf.hpp"
 #include "husk_config.hpp"
@@ -1241,12 +1242,11 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                                          std::to_string(skinsToExport.size()));
             }
             if (!bones.empty()) {
-                gltf::Skeleton skeleton = buildSkeleton(bones);
-                attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, modelPath, listfile,
-                                         listfileRoot, skeleton);
-                attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, chrModelIdArg, modelPath,
-                                            listfile, listfileRoot, skeleton);
-                catalog.setCharacterTextureContext(buildCharacterTextureContext(skeleton));
+                chartexture::Args charArgs{db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg,
+                                           customizationChoiceIdsArg};
+                if (auto ctx = chartexture::build(charArgs, modelPath, listfile, listfileRoot, std::cerr)) {
+                    catalog.setCharacterTextureContext(std::move(*ctx));
+                }
             }
             // A tier without geometry still exports: a model that only emits
             // (steam, a spell impact) is its effects and skeleton.

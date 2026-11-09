@@ -1,6 +1,6 @@
 #include "m2_animation_input.hpp"
 
-#include "export_transform.hpp"  // repairDuplicateTimestampsAndValidate
+#include "keyframe_validation.hpp"
 #include "m2_animation.hpp"      // readTrackMeta, resolveVec3TrackSequence, resolveQuatTrackSequence
 
 namespace husk::m2input {
@@ -51,9 +51,9 @@ std::optional<canon::BoneAnimationCurves> assembleBoneAnimation(const std::vecto
         return std::nullopt;
     }
 
-    commands::repairDuplicateTimestampsAndValidate(translation, boneIndex, "translation");
-    commands::repairDuplicateTimestampsAndValidate(rotation, boneIndex, "rotation");
-    commands::repairDuplicateTimestampsAndValidate(scale, boneIndex, "scale");
+    repairDuplicateTimestampsAndValidate(translation, boneIndex, "translation");
+    repairDuplicateTimestampsAndValidate(rotation, boneIndex, "rotation");
+    repairDuplicateTimestampsAndValidate(scale, boneIndex, "scale");
 
     canon::BoneAnimationCurves curves;
     curves.translation = toVecCurve(std::move(translation), toInterpolation(blob, bone.translationTrackOffset),
@@ -85,9 +85,9 @@ std::optional<canon::BoneAnimationCurves> assembleBoneAnimationGlobal(const std:
         return std::nullopt;
     }
 
-    commands::repairDuplicateTimestampsAndValidate(translation, boneIndex, "translation");
-    commands::repairDuplicateTimestampsAndValidate(rotation, boneIndex, "rotation");
-    commands::repairDuplicateTimestampsAndValidate(scale, boneIndex, "scale");
+    repairDuplicateTimestampsAndValidate(translation, boneIndex, "translation");
+    repairDuplicateTimestampsAndValidate(rotation, boneIndex, "rotation");
+    repairDuplicateTimestampsAndValidate(scale, boneIndex, "scale");
 
     canon::BoneAnimationCurves curves;
     curves.translation = toVecCurve(std::move(translation), toInterpolation(blob, bone.translationTrackOffset),

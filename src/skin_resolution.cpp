@@ -1,4 +1,4 @@
-#include "export_skin_resolution.hpp"
+#include "skin_resolution.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <tuple>
 
-#include "export_materials.hpp"  // scanDirOrWarn
+#include "sources/dir_listing.hpp"
 #include "sources/listfile_catalog.hpp"
 
 namespace husk::commands {
@@ -133,7 +133,7 @@ std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string
     // for the "prefer 2 digits" rule below, then discarded.
     std::vector<std::tuple<int, std::string, size_t>> found;
     for (const auto& entry :
-         scanDirOrWarn(dir.string(), "model's own directory (for same-basename .skin resolution)")) {
+         sources::scanDirOrWarn(dir.string(), "model's own directory (for same-basename .skin resolution)")) {
         if (!entry.is_regular_file()) continue;
         std::string name = entry.path().filename().string();
         if (name.size() <= baseName.size() || name.compare(0, baseName.size(), baseName) != 0) {
