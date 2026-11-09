@@ -134,11 +134,10 @@ TEST_CASE("husk export: corrupted huge vertex count fails with a real message, n
     auto m2Path = tempPath("huge-vertices.m2");
     writeFile(m2Path, m2);
 
-    // m2::parseVertices runs (and, pre-fix, would have OOM'd) before
-    // cmd_export.cpp ever opens the .skin file, so this path doesn't need
-    // to exist or be valid.
+    // m2::parseVertices runs before cmd_export.cpp ever opens the .skin
+    // file, so this path doesn't need to exist or be valid.
     auto result = runHusk("export " + m2Path.string() + " --skin /nonexistent.skin -o " +
-                           tempPath("huge-vertices.glb").string());
+                           tempPath("huge-vertices.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
     CHECK(result.output.find("vertices array claims") != std::string::npos);
@@ -160,7 +159,7 @@ TEST_CASE("husk export: corrupted huge bone count fails with a real message, not
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("huge-bones.glb").string());
+                           tempPath("huge-bones.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
     CHECK(result.output.find("bones array claims") != std::string::npos);
@@ -204,7 +203,7 @@ TEST_CASE("husk export: a malformed inline bones array is reported even when a r
     writeFile(skelPath, buildSkel({{-1, -1}}));
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("malformed-bones-with-skel.glb").string() + " --skel " +
+                           tempPath("malformed-bones-with-skel.bundle").string() + " --skel " +
                            skelPath.string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
@@ -215,51 +214,14 @@ TEST_CASE("husk export: a malformed inline bones array is reported even when a r
     fs::remove(skelPath);
 }
 
-// Same split 4c hazard as the bones test above, for resolveAnimationsForModel's
-// own "sequences" check: a malformed inline sequences array must not be
-// silently read as "no animations for this model" (model.sequences empty
-// due to a recorded FieldParseFailure, indistinguishable from "genuinely
-// no sequences" without canon::enforcePartialFailurePolicy firing first).
-TEST_CASE("husk export: a malformed inline sequences array fails cleanly, not silently exported "
-          "with zero animations") {
-    auto m2 = tinyAnimatedM2();  // 1 vertex, 1 inline bone, 1 real sequence
-    uint32_t count = 0xFFFFFFF0;
-    uint32_t off = 0;
-    std::memcpy(m2.data() + 0x01C, &count, 4);  // offset::sequences
-    std::memcpy(m2.data() + 0x020, &off, 4);
-    auto m2Path = tempPath("malformed-sequences-export.m2");
-    writeFile(m2Path, m2);
-
-    auto skinPath = tempPath("malformed-sequences-export.skin");
-    writeFile(skinPath, tinyMatchingSkin());
-
-    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("malformed-sequences-export.glb").string());
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("bad_alloc") == std::string::npos);
-    CHECK(result.output.find("sequences array claims") != std::string::npos);
-
-    fs::remove(m2Path);
-    fs::remove(skinPath);
-}
-
-// Regression coverage for the REFACTOR/AUDIT.md §2.1 m2::Model migration's
-// split 4b (REFACTOR_LOG.md's entry for this task): before it,
-// attachEmitterAnchors/attachPlacementNodes/appendCollisionMesh called
-// m2::parseRibbons/parseAttachments/parseEvents/parseLights/
-// parseCollisionMesh directly, so a malformed array threw straight through
-// and aborted the export. Under m2::loadModel, a malformed array yields an
-// empty vector plus a recorded FieldParseFailure instead of throwing (see
-// m2_model.hpp's doc comment) -- reading that field without
-// canon::enforcePartialFailurePolicy firing first would silently attach *fewer* placement
-// anchors than the file actually has, no error at all (the same
-// silent-misread class as the bones hazard, just quieter). These three
-// cases (one per migrated function) prove the fail-fast behavior survived
-// the migration -- not exhaustive over all six fields (ribbon_emitters/
-// particle_emitters/attachments/events/lights/collision_mesh), since
-// events/lights share attachPlacementNodes' exact same code shape as
-// attachments and particle_emitters shares attachEmitterAnchors' shape as
-// ribbon_emitters.
+// Under m2::loadModel, a malformed array yields an empty vector plus a
+// recorded FieldParseFailure instead of throwing (see m2_model.hpp's doc
+// comment) -- reading that field without canon::enforcePartialFailurePolicy
+// firing first would silently export *fewer* emitters/attachments/collision
+// triangles than the file actually has, no error at all (the same
+// silent-misread class as the bones hazard, just quieter). One case per
+// field family: events/lights are read like attachments, particle_emitters
+// like ribbon_emitters.
 TEST_CASE("husk export: a malformed ribbon_emitters array beyond an otherwise-valid, skinned "
           "model fails cleanly, not silently attaching fewer placement anchors than the file "
           "actually has") {
@@ -275,7 +237,7 @@ TEST_CASE("husk export: a malformed ribbon_emitters array beyond an otherwise-va
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("malformed-ribbons-export.glb").string());
+                           tempPath("malformed-ribbons-export.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
     CHECK(result.output.find("ribbonEmitters array claims") != std::string::npos);
@@ -299,7 +261,7 @@ TEST_CASE("husk export: a malformed attachments array beyond an otherwise-valid,
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("malformed-attachments-export.glb").string());
+                           tempPath("malformed-attachments-export.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
     CHECK(result.output.find("attachments array claims") != std::string::npos);
@@ -308,8 +270,8 @@ TEST_CASE("husk export: a malformed attachments array beyond an otherwise-valid,
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export --collision: a malformed collision_positions array fails cleanly, not "
-          "silently exporting an empty/wrong collision mesh") {
+TEST_CASE("husk export: a malformed collision_positions array fails cleanly, not silently "
+          "exporting an empty/wrong collision mesh") {
     auto m2 = tinyValidM2WithCollision();  // real 3-position/3-index/1-face-normal triangle
     uint32_t count = 0xFFFFFFF0;
     uint32_t off = 0;
@@ -322,7 +284,7 @@ TEST_CASE("husk export --collision: a malformed collision_positions array fails 
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("malformed-collision-export.glb").string() + " --collision");
+                           tempPath("malformed-collision-export.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
     CHECK(result.output.find("array claims") != std::string::npos);
@@ -353,7 +315,7 @@ TEST_CASE("husk export: .skin file with a corrupted huge indices count fails wit
     writeFile(skinPath, skin);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("huge-skin-indices.glb").string());
+                           tempPath("huge-skin-indices.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
     CHECK(result.output.find("uint16 entries") != std::string::npos);
@@ -375,7 +337,7 @@ TEST_CASE("husk export: a 2-cycle in the bones' parent chain is rejected, not si
     writeFile(skelPath, buildSkel({{-1, 1}, {-1, 0}}));
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("cycle.glb").string() + " --skel " + skelPath.string());
+                           tempPath("cycle.bundle").string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("loops back") != std::string::npos);
 
@@ -386,15 +348,6 @@ TEST_CASE("husk export: a 2-cycle in the bones' parent chain is rejected, not si
 
 TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still rejected, "
           "guarded against regressing while fixing the longer-cycle case above") {
-    // A self-parent is the degenerate 1-node case of a bone-parent-chain
-    // cycle. It was already caught before this fix, by a dedicated check
-    // in gltf::writeGlb -- cmd_export.cpp's new checkNoBoneCycles() (in
-    // buildSkeleton(), which runs first) now catches it too and throws
-    // its own "loops back on itself" first, so writeGlb's check never
-    // gets a chance to fire for this particular caller. That's fine --
-    // writeGlb's check is still live for any caller that skips
-    // buildSkeleton() -- but it does mean this test should expect the
-    // newer message, not the older one.
     auto m2Path = tempPath("self-parent.m2");
     writeFile(m2Path, tinyValidM2());
     auto skinPath = tempPath("self-parent.skin");
@@ -403,7 +356,7 @@ TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still 
     writeFile(skelPath, buildSkel({{-1, 0}}));
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("self-parent.glb").string() + " --skel " + skelPath.string());
+                           tempPath("self-parent.bundle").string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("loops back") != std::string::npos);
 
@@ -413,7 +366,7 @@ TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still 
 }
 
 TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not silently baked "
-          "into the glb") {
+          "into the bundle") {
     auto m2 = tinyValidM2();
     size_t vertexOff = m2.size() - 0x30;
     uint32_t nanBits = 0x7FC00000;  // quiet NaN
@@ -426,7 +379,7 @@ TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not si
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("nan-vertex.glb").string());
+                           tempPath("nan-vertex.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("non-finite") != std::string::npos);
 
@@ -434,10 +387,9 @@ TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not si
     fs::remove(skinPath);
 }
 
-// Regression test for the second fix above: a wrong-
-// .skin pairing references hundreds of out-of-range vertex indices in real
-// corpus files, not one -- the error message now names how many and the
-// worst offender, not just the first index iteration happened to hit.
+// A wrong-.skin pairing references hundreds of out-of-range vertex indices
+// in real corpus files, not one -- the error names how many and the worst
+// offender, not just the first index iteration happened to hit.
 TEST_CASE("husk export: a .skin referencing multiple out-of-range M2 vertices reports the count "
           "and the worst offender, not just the first") {
     auto dir = defaultsDir("outofrangevtx");
@@ -445,10 +397,11 @@ TEST_CASE("husk export: a .skin referencing multiple out-of-range M2 vertices re
     writeFile(dir / "mismatch00.skin", outOfRangeVertexSkin());
 
     auto result = runHusk("export " + (dir / "mismatch.m2").string());
+    INFO(result.output);
     CHECK(result.exitCode == 1);
-    CHECK(result.output.find("references 6 out-of-range M2 vertex index(es)") != std::string::npos);
+    CHECK(result.output.find("references 6 vertex index(es)") != std::string::npos);
     CHECK(result.output.find("up to 6") != std::string::npos);
-    CHECK(result.output.find("only has 1 vertices") != std::string::npos);
+    CHECK(result.output.find("below the M2's 1 vertices") != std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -465,10 +418,12 @@ TEST_CASE("husk export: no .skin path given and none found next to the model fai
     fs::remove_all(dir);
 }
 
-// Adversarial/out-of-range coverage for buildMaterialsAndPrimitives
-// (cmd_export.cpp): six real bounds checks chaining batch -> submesh ->
-// material -> color/textureWeight/texture/textureCoord. A real mismatched
-// .skin/.m2 pairing hits exactly these paths.
+// Adversarial/out-of-range coverage for the batch -> submesh -> material ->
+// color/textureWeight/texture/textureCoord bounds checks
+// (m2_material_input.cpp). A real mismatched .skin/.m2 pairing hits exactly
+// these paths. The color and texture-weight cases use a textured batch
+// (one real texture, combo and coordinate combo): those fields belong to
+// its texture layer.
 
 TEST_CASE("husk export: batch skinSectionIndex out of range for submeshes fails cleanly") {
     auto dir = defaultsDir("badskinsection");
@@ -513,8 +468,8 @@ TEST_CASE("husk export: batch materialIndex out of range for materials fails cle
 
 TEST_CASE("husk export: batch colorIndex out of range for colors fails cleanly") {
     auto dir = defaultsDir("badcolor");
-    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 0, 0, 0, 0));  // 1 material, 0 colors
-    writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0}));
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 0, 1, 1, 1));  // 1 material, 0 colors
+    writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0, .textureCount = 1}));
 
     auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
@@ -526,8 +481,8 @@ TEST_CASE("husk export: batch colorIndex out of range for colors fails cleanly")
 TEST_CASE("husk export: batch textureWeightComboIndex out of range for textureWeightCombos "
           "fails cleanly") {
     auto dir = defaultsDir("badweightcombo");
-    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 0, 0, 0));  // 1 textureWeightCombos entry
-    writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 5}));
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 1, 1, 1));  // 1 textureWeightCombos entry
+    writeFile(dir / "m.skin", oneBatchSkin({.textureCount = 1, .textureWeightComboIndex = 5}));
 
     auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
@@ -541,8 +496,8 @@ TEST_CASE("husk export: batch texture weight, resolved via textureWeightCombos, 
           "for textureWeights fails cleanly") {
     auto dir = defaultsDir("badweightresolved");
     // textureWeightCombos[0] = 99, but there are 0 real textureWeights.
-    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 0, 0, 0, /*textureWeightCombo0=*/99));
-    writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 0}));
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 1, 1, 1, /*textureWeightCombo0=*/99));
+    writeFile(dir / "m.skin", oneBatchSkin({.textureCount = 1, .textureWeightComboIndex = 0}));
 
     auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);

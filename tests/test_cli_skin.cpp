@@ -1,10 +1,10 @@
-// CLI tier: --skin/--skin-dir/--lod resolution -- exercises
+// CLI tier: --skin/--skin-dir resolution and LOD skins -- exercises
 // husk::commands::exportBundle by spawning the real compiled binary (see
 // run_husk.hpp) against small, synthetic, on-disk fixtures. Covers 'auto'
 // resolution order (SFID vs. same-basename scan), --skin-dir none/default,
-// --skin explicit/none conflicts, and --lod <n>/all tier selection. See
-// TEST_DESIGN.md#Four-tier-architecture for how this tier relates to the
-// others.
+// --skin explicit/none conflicts, and the LOD skins that fill the bundle's
+// mesh levels. See TEST_DESIGN.md#Four-tier-architecture for how this tier
+// relates to the others.
 
 #include <cstdint>
 #include <cstring>
@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "run_husk.hpp"
+#include "test_bundle_fixtures.hpp"
 #include "test_cli_fixtures.hpp"
 
 using husk::test::runHusk;
@@ -25,7 +26,7 @@ TEST_CASE("husk export: --skin auto (explicit) without --skin-dir defaults to th
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {12345}));
 
     auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
-                           tempPath("auto-no-skindir.glb").string());
+                           tempPath("auto-no-skindir.bundle").string());
     CHECK(result.exitCode == 1);
     // --skin-dir now defaults to the model's own directory (same one
     // tempPath() writes m2Path into) rather than being required -- since no
@@ -43,7 +44,7 @@ TEST_CASE("husk export: --skin omitted resolves identically to --skin auto expli
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {12345}));
 
     auto result = runHusk("export " + m2Path.string() + " -o " +
-                           tempPath("auto-omitted.glb").string());
+                           tempPath("auto-omitted.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("wasn't found at the expected path") != std::string::npos);
     CHECK(result.output.find("12345.skin") != std::string::npos);
@@ -85,7 +86,7 @@ TEST_CASE("husk export: 'auto' reads the SFID FileDataID from --listfile-root's 
     writeFile(root / "item" / "storeskin00.skin", tinyMatchingSkin());
 
     auto result = runHusk("export " + (root / "item" / "storeskin.m2").string() + " --listfile-root " +
-                          root.string() + " -o " + (root / "out.glb").string());
+                          root.string() + " -o " + (root / "out.bundle").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("_by_fdid/" + std::to_string(fileDataId) + "' (SFID entry 0") !=
           std::string::npos);
@@ -120,7 +121,7 @@ TEST_CASE("husk export: 'auto' on a model with no SFID chunk fails cleanly, nami
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {}));  // no SFID chunk at all
 
     auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
-                           tempPath("auto-no-sfid.glb").string() + " --skin-dir " +
+                           tempPath("auto-no-sfid.bundle").string() + " --skin-dir " +
                            fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("no SFID chunk") != std::string::npos);
@@ -144,7 +145,7 @@ TEST_CASE("husk export: --skin-dir given while --skin is an explicit path (not '
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("skindir-without-auto.glb").string() + " --skin-dir " +
+                           tempPath("skindir-without-auto.bundle").string() + " --skin-dir " +
                            fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("--skin-dir") != std::string::npos);
@@ -152,20 +153,6 @@ TEST_CASE("husk export: --skin-dir given while --skin is an explicit path (not '
 
     fs::remove(m2Path);
     fs::remove(skinPath);
-}
-
-TEST_CASE("husk export: --lod combined with --skin-dir none is its own explicit conflict -- "
-          "--lod needs the SFID-based resolution stage --skin-dir 'none' disables") {
-    auto m2Path = tempPath("lod-skindir-none-conflict.m2");
-    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111}));
-
-    auto result = runHusk("export " + m2Path.string() + " --skin-dir none --lod 1");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("--lod") != std::string::npos);
-    CHECK(result.output.find("--skin-dir") != std::string::npos);
-    CHECK(result.output.find("'none'") != std::string::npos);
-
-    fs::remove(m2Path);
 }
 
 TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detail LOD) and "
@@ -181,20 +168,16 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detai
     auto skinPath = skinDir / (std::to_string(fileDataId) + ".skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto outPath = tempPath("auto-resolve.glb");
+    auto outPath = tempPath("auto-resolve.bundle");
     auto result = runHusk("export " + m2Path.string() + " --skin auto -o " + outPath.string() +
                            " --skin-dir " + skinDir.string());
     CHECK(result.exitCode == 0);
-    // resolveSkin's own success note is "'auto' resolved '<path>' (SFID
-    // entry 0, ...)" -- note the word order (unlike the --lod-given path's
-    // "resolved 'auto' -> ..." in exportBundle, these two success messages are
-    // phrased differently for what's conceptually the same event).
     CHECK(result.output.find("'auto' resolved") != std::string::npos);
     CHECK(result.output.find(std::to_string(fileDataId)) != std::string::npos);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
-    fs::remove(outPath);
+    fs::remove_all(outPath);
 }
 
 TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing the resolved "
@@ -203,7 +186,7 @@ TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing t
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {999999999}));
 
     auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
-                           tempPath("auto-missing-file.glb").string() + " --skin-dir " +
+                           tempPath("auto-missing-file.bundle").string() + " --skin-dir " +
                            fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
     // resolveSkin falls back to the same-basename scan (which also finds
@@ -217,96 +200,55 @@ TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing t
     fs::remove(m2Path);
 }
 
-TEST_CASE("husk export: --lod given while --skin is an explicit path (not 'auto') fails "
-          "cleanly") {
-    auto m2Path = tempPath("lod-without-auto.m2");
-    writeFile(m2Path, tinyValidM2());
-    auto skinPath = tempPath("lod-without-auto.skin");
-    writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("lod-without-auto.glb").string() + " --lod 1");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("--lod") != std::string::npos);
-    CHECK(result.output.find("'auto'") != std::string::npos);
+// The bundle carries every level of detail; these replace choosing one
+// with a flag. The SFID entries past the model's numSkinProfiles view skins
+// are its LOD skins (REFACTOR/BUNDLE_FORMAT.md "Levels of detail").
+namespace {
+std::vector<uint8_t> lodModel(const std::vector<uint32_t>& skinFileDataIds) {
+    auto md20 = tinyValidM2();
+    uint32_t viewSkins = 1;
+    std::memcpy(md20.data() + 0x044, &viewSkins, 4);  // numSkinProfiles
+    return chunkedM2WithSfid(md20, skinFileDataIds);
+}
+}  // namespace
 
-    fs::remove(m2Path);
-    fs::remove(skinPath);
+TEST_CASE("husk export: SFID entries past the view skins become the bundle's mesh levels 1..n, "
+          "each from its own FileDataID-named skin") {
+    auto dir = defaultsDir("lodlevels");
+    std::vector<uint32_t> ids = {888001, 888002, 888003};
+    writeFile(dir / "lodlevels.m2", lodModel(ids));
+    for (uint32_t id : ids) writeFile(dir / (std::to_string(id) + ".skin"), tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "lodlevels.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "lodlevels.bundle");
+    const nlohmann::json& lod = m["resources"]["geometry"]["lod"];
+    REQUIRE(lod["max_level"] == 2);
+    REQUIRE(lod["levels"].size() == 3);
+    CHECK(lod["levels"][1]["source"]["file"]["id"]["value"] == ids[1]);
+    CHECK(lod["levels"][2]["source"]["file"]["id"]["value"] == ids[2]);
+
+    fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: --lod <n> resolves SFID entry n instead of always 0") {
-    auto m2Path = tempPath("lod-n.m2");
-    uint32_t entry1FileDataId = 777222;
-    // Entry 0 (777111) deliberately has no matching file on disk -- this
-    // only passes if --lod 1 actually picked entry 1, not entry 0.
-    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {777111, entry1FileDataId}));
+TEST_CASE("husk export: a LOD skin missing on disk ends the bundle's levels before it, with a "
+          "note naming the level and FileDataID") {
+    auto dir = defaultsDir("lodmissing");
+    std::vector<uint32_t> ids = {889001, 889002, 889003};
+    writeFile(dir / "lodmissing.m2", lodModel(ids));
+    writeFile(dir / "889001.skin", tinyMatchingSkin());
+    writeFile(dir / "889002.skin", tinyMatchingSkin());
 
-    auto skinDir = fs::temp_directory_path();
-    auto skinPath = skinDir / (std::to_string(entry1FileDataId) + ".skin");
-    writeFile(skinPath, tinyMatchingSkin());
+    auto result = runHusk("export " + (dir / "lodmissing.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(result.output.find("LOD skin 2 (FileDataID 889003) not found") != std::string::npos);
+    nlohmann::json m = parseManifest(dir / "lodmissing.bundle");
+    const nlohmann::json& lod = m["resources"]["geometry"]["lod"];
+    CHECK(lod["max_level"] == 1);
+    CHECK(lod["levels"].size() == 2);
 
-    auto outPath = tempPath("lod-n.glb");
-    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " + outPath.string() +
-                           " --skin-dir " + skinDir.string() + " --lod 1");
-    CHECK(result.exitCode == 0);
-    CHECK(result.output.find(std::to_string(entry1FileDataId)) != std::string::npos);
-
-    fs::remove(m2Path);
-    fs::remove(skinPath);
-    fs::remove(outPath);
+    fs::remove_all(dir);
 }
-
-TEST_CASE("husk export: --lod <n> out of range for the SFID chunk fails cleanly, naming the "
-          "entry count") {
-    auto m2Path = tempPath("lod-oor.m2");
-    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111, 222222}));  // 2 entries
-
-    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
-                           tempPath("lod-oor.glb").string() + " --skin-dir " +
-                           fs::temp_directory_path().string() + " --lod 5");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("out of range") != std::string::npos);
-    CHECK(result.output.find("2") != std::string::npos);
-
-    fs::remove(m2Path);
-}
-
-TEST_CASE("husk export: --lod given a non-numeric, non-'all' value fails cleanly") {
-    auto m2Path = tempPath("lod-nan.m2");
-    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111}));
-
-    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
-                           tempPath("lod-nan.glb").string() + " --skin-dir " +
-                           fs::temp_directory_path().string() + " --lod banana");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("--lod") != std::string::npos);
-
-    fs::remove(m2Path);
-}
-
-TEST_CASE("husk export: --lod all resolves every SFID entry and exports one named node per LOD "
-          "tier") {
-    auto m2Path = tempPath("lod-all.m2");
-    uint32_t id0 = 888001, id1 = 888002;
-    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {id0, id1}));
-
-    auto skinDir = fs::temp_directory_path();
-    auto skinPath0 = skinDir / (std::to_string(id0) + ".skin");
-    auto skinPath1 = skinDir / (std::to_string(id1) + ".skin");
-    writeFile(skinPath0, tinyMatchingSkin());
-    writeFile(skinPath1, tinyMatchingSkin());
-
-    auto outPath = tempPath("lod-all.glb");
-    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " + outPath.string() +
-                           " --skin-dir " + skinDir.string() + " --lod all");
-    CHECK(result.exitCode == 0);
-    CHECK(result.output.find("2 LOD tier(s)") != std::string::npos);
-    CHECK(result.output.find("lod0") != std::string::npos);
-    CHECK(result.output.find("lod1") != std::string::npos);
-
-    fs::remove(m2Path);
-    fs::remove(skinPath0);
-    fs::remove(skinPath1);
-    fs::remove(outPath);
-}
-
