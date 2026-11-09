@@ -276,7 +276,7 @@ TEST_CASE("m2input::assembleMaterial: a real multi-texture-layer fixture's addit
 }
 
 TEST_CASE("m2input::assembleMaterial: real texture-transform curves reflect each track's own "
-          "Animated flag (only the animated, non-empty-for-this-sequence case resolves a curve)" *
+          "Animated flag (an animated track with keys, or a non-identity constant, resolves a curve)" *
           doctest::skip(test::testTextureTransformRotationM2().empty() ||
                         test::testTextureTransformRotationSkin().empty())) {
     m2::Model model = m2::loadModel(readFile(test::testTextureTransformRotationM2()));
@@ -305,32 +305,32 @@ TEST_CASE("m2input::assembleMaterial: real texture-transform curves reflect each
         REQUIRE(!result.layers.empty());
         const auto& layer0 = result.layers.front();
 
-        // Independently derived expectation, straight from the same raw
-        // M2Track resolvers assembleMaterial itself calls (not from
-        // assembleMaterial's own output) -- real brewfestmount data has a
-        // mix of constant (rotationAnimated == false throughout the whole
-        // file, per this fixture's own tracks) and per-sequence-animated
-        // (scaling, for several transform indices) tracks, so this checks
-        // each of the three components on its own honest terms rather than
-        // assuming one fixed shape for the whole file.
+        // Independently derived expectation, from the raw M2Track
+        // resolvers: an animated component is present when its track has
+        // keys (read as its global loop when a global sequence drives
+        // it), a constant one when its value isn't the identity.
+        auto animatedHasKeys = [&](uint32_t offset, auto perSequence, auto global) {
+            bool isGlobal = m2::readTrackMeta(model.blob, offset).globalSequence != m2::TrackMeta::kNoGlobalSequence;
+            return isGlobal ? !global(model.blob, offset, nullptr).empty()
+                            : !perSequence(model.blob, offset, sequenceIndex, nullptr).empty();
+        };
+        auto isVec = [](const m2::Vec3& v, float x, float y, float z) { return v.x == x && v.y == y && v.z == z; };
         bool expectTranslation =
-            xf.translationAnimated &&
-            !m2::resolveVec3TrackSequence(model.blob, xf.translationTrackOffset, sequenceIndex).empty();
+            xf.translationAnimated
+                ? animatedHasKeys(xf.translationTrackOffset, m2::resolveVec3TrackSequence, m2::resolveVec3GlobalSequenceTrack)
+                : xf.translation && !isVec(*xf.translation, 0, 0, 0);
         bool expectRotation =
-            xf.rotationAnimated &&
-            !m2::resolveRawQuatTrackSequence(model.blob, xf.rotationTrackOffset, sequenceIndex).empty();
+            xf.rotationAnimated
+                ? animatedHasKeys(xf.rotationTrackOffset, m2::resolveRawQuatTrackSequence,
+                                  m2::resolveRawQuatGlobalSequenceTrack)
+                : xf.rotation && !(xf.rotation->x == 0 && xf.rotation->y == 0 && xf.rotation->z == 0 &&
+                                   xf.rotation->w == 1);
         bool expectScaling =
-            xf.scalingAnimated &&
-            !m2::resolveVec3TrackSequence(model.blob, xf.scalingTrackOffset, sequenceIndex).empty();
+            xf.scalingAnimated
+                ? animatedHasKeys(xf.scalingTrackOffset, m2::resolveVec3TrackSequence, m2::resolveVec3GlobalSequenceTrack)
+                : xf.scaling && !isVec(*xf.scaling, 1, 1, 1);
 
         if (!expectTranslation && !expectRotation && !expectScaling) {
-            // A real, intentional gap: canon::MaterialLayer has no field
-            // for a *constant* UV transform value, only the animated
-            // shape -- see m2_material_input.hpp's own doc comment on
-            // the analogous tint/alphaFade gap. A constant-only transform
-            // (this file's own real rotationAnimated == false case)
-            // correctly surfaces no uvAnimation at all, not a
-            // misrepresented "no transform".
             CHECK_FALSE(layer0.uvAnimation.has_value());
         } else {
             REQUIRE(layer0.uvAnimation.has_value());

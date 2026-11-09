@@ -21,15 +21,11 @@ using Json = nlohmann::json;
 
 }  // namespace
 
-// brewfestmount.m2's transform index 0 carries real per-sequence
-// translation/scaling tracks whose values all happen to be identity -- a
-// structured-but-trivial track (m2_animation.cpp's trackHasAnimatedData
-// distinguishes it from "no track at all"), which a cruder scan
-// (tools/find_texture_transform_files.py) reported as constant. Its
-// values are the animation of a sequence, so the bundle must carry them as
-// a sequence's curve rather than dropping or folding them.
-TEST_CASE("husk export: brewfestmount.m2's structurally per-sequence texture transform, every "
-          "value identity, is carried as a sequence's uv_map transform curve" *
+// brewfestmount.m2: global-sequence-driven UV scrolling (many keys), a
+// constant 180-degree rotation, and a structured-but-trivial scaling track
+// (m2_animation.cpp's trackHasAnimatedData tells it from "no track").
+TEST_CASE("husk export: brewfestmount.m2's texture transforms -- global-loop scrolling, "
+          "a constant rotation, a trivial scaling -- are each carried as uv_map curves" *
           doctest::skip(testTextureTransformRotationM2().empty() ||
                          testTextureTransformRotationSkin().empty())) {
     auto bundle = fs::temp_directory_path() / "husk-test-texture-transform-rot.bundle";
@@ -41,23 +37,34 @@ TEST_CASE("husk export: brewfestmount.m2's structurally per-sequence texture tra
     REQUIRE(result.exitCode == 0);
 
     Json manifest = parseManifest(bundle);
-    bool foundIdentityScaling = false;
+    bool foundScaling = false;
+    bool foundConstantRotation = false;
+    bool foundGlobalTranslation = false;
     for (const Json& uvMap : manifest["resources"]["uv_maps"]) {
         if (!uvMap.contains("transform")) continue;
-        for (const auto& [property, curve] : uvMap["transform"].items()) {
-            INFO(property);
-            CHECK(curve["sequence_kind"] == "sequence");
-            CHECK(curve["sequence_index"] == 0);
+        const Json& transform = uvMap["transform"];
+        if (transform.contains("scaling")) {
+            const Json& keyframes = transform["scaling"]["keyframes"];
+            const Json& value = keyframes[0][1];
+            foundScaling |= keyframes.size() == 1 && value[0] == 1.0 && value[1] == 1.0 && value[2] == 0.0;
         }
-        if (!uvMap["transform"].contains("scaling")) continue;
-        const Json& keyframes = uvMap["transform"]["scaling"]["keyframes"];
-        if (keyframes.size() != 1) continue;
-        const Json& value = keyframes[0][1];
-        if (keyframes[0][0] == 0 && value[0] == 1.0 && value[1] == 1.0 && value[2] == 0.0) {
-            foundIdentityScaling = true;
+        // The constant 180-degree Z rotation: one step key.
+        if (transform.contains("rotation")) {
+            const Json& rotation = transform["rotation"];
+            const Json& value = rotation["keyframes"][0][1];
+            foundConstantRotation |= rotation["keyframes"].size() == 1 && rotation["interpolation"] == "step" &&
+                                     value == Json::array({0.0, 0.0, -1.0, 0.0});
+        }
+        // Scrolling driven by a global sequence: its loop, many keys.
+        if (transform.contains("translation")) {
+            const Json& translation = transform["translation"];
+            foundGlobalTranslation |= translation["sequence_kind"] == "global_sequence" &&
+                                      translation["keyframes"].size() > 2;
         }
     }
-    CHECK(foundIdentityScaling);
+    CHECK(foundScaling);
+    CHECK(foundConstantRotation);
+    CHECK(foundGlobalTranslation);
 
     fs::remove_all(bundle);
 }

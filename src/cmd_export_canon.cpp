@@ -504,6 +504,11 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, modelFileDataId,
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes, lodSkins);
+    // Checked after assembly so a malformed sidecar reports its own error
+    // first. An emitter-only model has bones (its emitters' anchors).
+    if (build.model.mesh.positions.empty() && build.model.skeleton.joints.empty()) {
+        throw std::runtime_error("'" + modelPath + "' has no vertices and no bones -- nothing to export");
+    }
     if (sidecars.noAnimation) build.model.animations.clear();
     for (canon::AnimationClip& clip : build.model.animations) {
         if (!clip.info) continue;

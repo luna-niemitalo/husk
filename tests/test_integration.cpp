@@ -159,7 +159,7 @@ AnimationSanityResult checkAllClipsSane(const fs::path& bundleDir, const nlohman
 
 // The sequence indices (into the model's own or its .skel's sequence
 // array) that the bundle carries a clip for.
-std::set<int> clipSequenceIndices(const nlohmann::json& manifest) {
+std::set<int> sequenceClipIndices(const nlohmann::json& manifest) {
     std::set<int> indices;
     for (const auto& clip : manifest["resources"]["rig"]["animation"]) {
         if (clip["sequence_kind"] == "sequence") indices.insert(clip["sequence_index"].get<int>());
@@ -317,7 +317,7 @@ TEST_CASE("husk export: a .skel-sourced model's external AFSB-shaped .anim files
     int anim69v1 = sequenceIndexFor(sequences, 69, 1);
     REQUIRE(anim69v0 >= 0);
     REQUIRE(anim69v1 >= 0);
-    std::set<int> clipped = clipSequenceIndices(manifest);
+    std::set<int> clipped = sequenceClipIndices(manifest);
     CHECK(clipped.count(anim69v0) == 1);
     CHECK(clipped.count(anim69v1) == 1);
 
@@ -350,7 +350,7 @@ TEST_CASE("husk export: bloodelffemale_hd's real alias sequences don't change th
     CHECK(manifest["resources"]["rig"]["animation"].size() == 338);
 
     std::vector<m2::Sequence> sequences = skel::parseSequences(readFile(testSkel()));
-    std::set<int> clipped = clipSequenceIndices(manifest);
+    std::set<int> clipped = sequenceClipIndices(manifest);
 
     // anim 804 variation 0: flags 0x60 (both inline AND alias) -- its
     // keyframes come from its own inline tracks (0x20 wins).

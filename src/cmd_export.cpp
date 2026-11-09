@@ -745,11 +745,6 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // A malformed inline sequences array parses empty; unchecked, that
         // reads as "no animations" instead of an error.
         if (bonesAreInline) canon::enforcePartialFailurePolicy(model, "sequences", kExportPartialFailurePolicy);
-        // An emitter-only model has bones (its emitters' anchors); a model
-        // with neither vertices nor bones has nothing to export.
-        if (model.vertices.empty() && bones.empty()) {
-            throw std::runtime_error("'" + modelPath + "' has no vertices and no bones -- nothing to export");
-        }
 
         if (!bones.empty()) {
             chartexture::Args charArgs{db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, customizationChoiceIdsArg};
