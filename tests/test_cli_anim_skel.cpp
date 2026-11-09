@@ -1,7 +1,9 @@
 // CLI tier: .skel-sourced external animation-sequence resolution and
 // keyframe-data validation -- exercises husk::commands::exportBundle by
 // spawning the real compiled binary (see run_husk.hpp) against small,
-// synthetic, on-disk fixtures. This file covers a .skel's own SKS1
+// synthetic, on-disk fixtures, then reading the clips back from the
+// bundle's resources.rig.animation (source frame, Z-up; times in seconds,
+// the fixtures' millisecond timestamps / 1000). This file covers a .skel's own SKS1
 // sequences (inline and
 // external, including AFSB-tagged/mixed-chunk --anim <dir> files),
 // --anim's model-own-directory default, keyframe-data validation (NaN,
@@ -20,11 +22,52 @@
 #include <vector>
 
 #include "run_husk.hpp"
+#include "test_bundle_read.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
 
 using husk::test::runHusk;
 namespace fs = std::filesystem;
+
+namespace {
+
+nlohmann::json clipsIn(const fs::path& bundle) { return parseManifest(bundle)["resources"]["rig"]["animation"]; }
+
+// The one clip every external-sequence fixture here resolves: tinyAnimFile()'s
+// (9,9,9) translation keyframe at 5000ms, on joint 0 of sequence 0.
+void checkSingleTinyAnimFileClip(const fs::path& bundle) {
+    auto clips = clipsIn(bundle);
+    REQUIRE(clips.size() == 1);
+    CHECK(clips[0]["sequence_index"] == 0);
+    CHECK(clips[0]["sequence_kind"] == "sequence");
+    REQUIRE(clips[0]["joints"].size() == 1);
+    const auto& joint = clips[0]["joints"][0];
+    CHECK(joint["joint_index"] == 0);
+    checkF32Slice(bundle, joint["translation"]["times"], {5.0f});
+    checkF32Slice(bundle, joint["translation"]["values"], {9, 9, 9});
+}
+
+// tinyAnimatedM2()'s one inline clip: sequence 0, joint 0, translation
+// (0,0,0) -> (1,2,3) over 0..1000ms.
+void checkSingleTinyAnimatedClip(const fs::path& bundle) {
+    auto clips = clipsIn(bundle);
+    REQUIRE(clips.size() == 1);
+    CHECK(clips[0]["sequence_index"] == 0);
+    CHECK(clips[0]["sequence_kind"] == "sequence");
+    REQUIRE(clips[0]["joints"].size() == 1);
+    const auto& joint = clips[0]["joints"][0];
+    CHECK(joint["joint_index"] == 0);
+    checkF32Slice(bundle, joint["translation"]["times"], {0.0f, 1.0f});
+    checkF32Slice(bundle, joint["translation"]["values"], {0, 0, 0, 1, 2, 3});
+}
+
+void checkNoClips(const fs::path& bundle, int64_t expectedJoints) {
+    auto manifest = parseManifest(bundle);
+    CHECK(manifest["resources"]["rig"]["animation"].empty());
+    CHECK(manifest["resources"]["rig"]["skeleton"]["joint_count"] == expectedJoints);
+}
+
+}  // namespace
 
 TEST_CASE("husk export: a .skel with no SKS1 chunk at all gets no animation clips, not an "
           "error (a .skel isn't required to carry sequences, same as skel::findAnimFileIds "
@@ -42,20 +85,22 @@ TEST_CASE("husk export: a .skel with no SKS1 chunk at all gets no animation clip
     writeFile(skinPath, tinyMatchingSkin());
     auto skelPath = tempPath("skel-no-sks1.skel");
     writeFile(skelPath, buildSkel({{-1, -1}}));  // SKB1 only, no SKS1
+    auto out = tempPath("skel-no-sks1.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("skel-no-sks1.glb").string() + " --skel " + skelPath.string());
+                           out.string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("animation(s)") == std::string::npos);
-    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+    checkNoClips(out, 1);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: a .skel with an inline (flags&0x20) SKS1 sequence and real SKB1 track "
-          "data produces a real glTF animation, end to end") {
+          "data produces a real bundle animation clip, end to end") {
     size_t boneOff = 0;
     auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
     fillTrack(skb1Payload, boneOff + 0x10, {0, 1000}, {vec3Bytes(0, 0, 0), vec3Bytes(1, 2, 3)});
@@ -72,15 +117,18 @@ TEST_CASE("husk export: a .skel with an inline (flags&0x20) SKS1 sequence and re
     writeFile(skinPath, tinyMatchingSkin());
     auto skelPath = tempPath("skel-inline-anim.skel");
     writeFile(skelPath, skel);
+    auto out = tempPath("skel-inline-anim.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("skel-inline-anim.glb").string() + " --skel " + skelPath.string());
+                           out.string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    checkSingleTinyAnimatedClip(out);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence resolves via "
@@ -117,18 +165,20 @@ TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence
     auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-anim-dir";
     fs::create_directories(animDir);
     writeFile(animDir / "777.anim", tinyAnimFile());
+    auto out = tempPath("skel-external-anim.bundle");
+    fs::remove_all(out);
 
     auto result =
         runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                tempPath("skel-external-anim.glb").string() + " --skel " + skelPath.string() +
-                " --anim " + animDir.string());
+                out.string() + " --skel " + skelPath.string() + " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    checkSingleTinyAnimFileClip(out);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
     fs::remove_all(animDir);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFSB-tagged "
@@ -160,7 +210,7 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
 
     // globalFlags |= 0x200000 -- "chunked .anim files" (wowdev.wiki's
     // flag_unk_0x200000) -- needed for the AFM2-vs-AFSB sniff to run at
-    // all (see buildAnimations's doc comment); a flat-.anim model has no
+    // all (see resolveExternalAnimBlobForCanon, cmd_export_canon.cpp); a flat-.anim model has no
     // AFSB shape to begin with.
     auto m2 = tinyValidM2();
     uint32_t globalFlags = 0x200000;
@@ -177,18 +227,20 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
     std::vector<uint8_t> afsbFile;
     appendChunkTo(afsbFile, "AFSB", tinyAnimFile());  // real [timestamp][Vec3] payload
     writeFile(animDir / "888.anim", afsbFile);
+    auto out = tempPath("skel-afsb-anim.bundle");
+    fs::remove_all(out);
 
     auto result =
         runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                tempPath("skel-afsb-anim.glb").string() + " --skel " + skelPath.string() +
-                " --anim " + animDir.string());
+                out.string() + " --skel " + skelPath.string() + " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    checkSingleTinyAnimFileClip(out);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
     fs::remove_all(animDir);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: a .skel external sequence's --anim <dir> file with BOTH a small AFM2 "
@@ -236,18 +288,20 @@ TEST_CASE("husk export: a .skel external sequence's --anim <dir> file with BOTH 
     appendChunkTo(mixedFile, "AFM2", {0, 0, 0, 0});    // tiny stub, not real track data
     appendChunkTo(mixedFile, "AFSB", tinyAnimFile());  // the real data
     writeFile(animDir / "999.anim", mixedFile);
+    auto out = tempPath("skel-afm2-stub-afsb-anim.bundle");
+    fs::remove_all(out);
 
     auto result =
         runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                tempPath("skel-afm2-stub-afsb-anim.glb").string() + " --skel " + skelPath.string() +
-                " --anim " + animDir.string());
+                out.string() + " --skel " + skelPath.string() + " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    checkSingleTinyAnimFileClip(out);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
     fs::remove_all(animDir);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: a .skel external sequence's chunked --anim <dir> file with neither an "
@@ -280,19 +334,20 @@ TEST_CASE("husk export: a .skel external sequence's chunked --anim <dir> file wi
     std::vector<uint8_t> unknownFile;
     appendChunkTo(unknownFile, "ZZZZ", {1, 2, 3, 4});  // some future chunk shape, not AFM2/AFSB
     writeFile(animDir / "1111.anim", unknownFile);
+    auto out = tempPath("skel-neither-afm2-afsb.bundle");
+    fs::remove_all(out);
 
     auto result =
         runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                tempPath("skel-neither-afm2-afsb.glb").string() + " --skel " + skelPath.string() +
-                " --anim " + animDir.string());
+                out.string() + " --skel " + skelPath.string() + " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("animation(s)") == std::string::npos);
-    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+    checkNoClips(out, 1);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
     fs::remove_all(animDir);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: --anim defaults to the model's own directory -- an external sequence's "
@@ -316,7 +371,7 @@ TEST_CASE("husk export: --anim defaults to the model's own directory -- an exter
 
     auto result = runHusk("export " + (dir / "extanim.m2").string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    checkSingleTinyAnimFileClip(dir / "extanim.bundle");
 
     fs::remove_all(dir);
 }
@@ -331,7 +386,7 @@ TEST_CASE("husk export: --anim defaults to the model's own directory -- an exter
 // (see its own doc comment), just with the translation track's second
 // keyframe corrupted one way at a time.
 TEST_CASE("husk export: a non-finite (NaN) translation keyframe value fails with a real message, "
-          "not a silently-invalid .glb") {
+          "not a silently-invalid bundle") {
     auto b = tinyValidM2();
     uint32_t seqOff = static_cast<uint32_t>(b.size());
     uint32_t seqCount = 1;
@@ -364,7 +419,7 @@ TEST_CASE("husk export: a non-finite (NaN) translation keyframe value fails with
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("nan-keyframe.glb").string());
+                           tempPath("nan-keyframe.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("non-finite (NaN/Inf) value") != std::string::npos);
     CHECK(result.output.find("bone 0's translation keyframe 1") != std::string::npos);
@@ -408,7 +463,7 @@ TEST_CASE("husk export: a non-monotonic (out-of-order) translation keyframe time
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("nonmonotonic-keyframe.glb").string());
+                           tempPath("nonmonotonic-keyframe.bundle").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("isn't strictly greater than") != std::string::npos);
     CHECK(result.output.find("bone 0's translation keyframe 1") != std::string::npos);
@@ -419,8 +474,7 @@ TEST_CASE("husk export: a non-monotonic (out-of-order) translation keyframe time
 
 // The ordinary (finite, ascending) case -- tinyAnimatedM2() itself -- must
 // keep working; already covered by other tests in this file (e.g. "husk
-// export: end-to-end animated model produces a real glTF animation clip"),
-// not repeated here.
+// export: --anim auto (explicit) ..."), not repeated here.
 
 // Regression test: real shipped Blizzard data (5 real
 // files -- world bosses, base character rigs, one world doodad, all on
@@ -464,15 +518,23 @@ TEST_CASE("husk export: an exact-duplicate keyframe timestamp is repaired (nudge
     writeFile(m2Path, b);
     auto skinPath = tempPath("duplicate-keyframe.skin");
     writeFile(skinPath, tinyMatchingSkin());
+    auto out = tempPath("duplicate-keyframe.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("duplicate-keyframe.glb").string());
+                           out.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("isn't strictly greater than") == std::string::npos);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    auto clips = clipsIn(out);
+    REQUIRE(clips.size() == 1);
+    REQUIRE(clips[0]["joints"].size() == 1);
+    const auto& rotation = clips[0]["joints"][0]["rotation"];
+    checkF32Slice(out, rotation["times"], {0.0f, 0.5f, 0.501f});
+    CHECK(rotation["values"]["count"] == 3);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+    fs::remove_all(out);
 }
 
 // A genuine 3-way cascading duplicate run (T, T, T) must repair cleanly
@@ -512,21 +574,24 @@ TEST_CASE("husk export: a 3-way cascading duplicate keyframe timestamp run repai
     writeFile(m2Path, b);
     auto skinPath = tempPath("cascading-duplicate-keyframe.skin");
     writeFile(skinPath, tinyMatchingSkin());
+    auto out = tempPath("cascading-duplicate-keyframe.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("cascading-duplicate-keyframe.glb").string());
+                           out.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("isn't strictly greater than") == std::string::npos);
     CHECK(result.output.find("couldn't be repaired") == std::string::npos);
+    auto clips = clipsIn(out);
+    REQUIRE(clips.size() == 1);
+    REQUIRE(clips[0]["joints"].size() == 1);
+    checkF32Slice(out, clips[0]["joints"][0]["rotation"]["times"], {0.0f, 0.5f, 0.501f, 0.502f});
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+    fs::remove_all(out);
 }
 
-// A .skin file whose submeshes carry different skinSectionId ("geoset ID")
-// values -- the normal shape for a real character model bundling multiple
-// selectable hairstyles/gear geosets in one file. husk doesn't filter
-// geosets (that's a separate, bigger feature), but it must say so loudly.
 TEST_CASE("husk export: --anim auto (explicit) produces the identical clip count as the "
           "default (omitted) case -- 'auto' is genuinely the default, not merely documented as "
           "one") {
@@ -534,14 +599,17 @@ TEST_CASE("husk export: --anim auto (explicit) produces the identical clip count
     writeFile(m2Path, tinyAnimatedM2());
     auto skinPath = tempPath("animated-anim-auto.skin");
     writeFile(skinPath, tinyMatchingSkin());
+    auto out = tempPath("animated-anim-auto.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("animated-anim-auto.glb").string() + " --anim auto");
+                           out.string() + " --anim auto");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    checkSingleTinyAnimatedClip(out);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: --anim inline still resolves a model's own inline + global-sequence "
@@ -550,14 +618,17 @@ TEST_CASE("husk export: --anim inline still resolves a model's own inline + glob
     writeFile(m2Path, tinyAnimatedM2());
     auto skinPath = tempPath("anim-inline-still-inline.skin");
     writeFile(skinPath, tinyMatchingSkin());
+    auto out = tempPath("anim-inline-still-inline.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("anim-inline-still-inline.glb").string() + " --anim inline");
+                           out.string() + " --anim inline");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+    checkSingleTinyAnimatedClip(out);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: --anim inline skips external-directory resolution entirely -- an "
@@ -581,42 +652,53 @@ TEST_CASE("husk export: --anim inline skips external-directory resolution entire
     auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-inline-dir";
     fs::create_directories(animDir);
     writeFile(animDir / "777.anim", tinyAnimFile());
+    auto out = tempPath("anim-inline-ignores-external.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("anim-inline-ignores-external.glb").string() +
-                           " --anim inline");
+                           out.string() + " --anim inline");
     CHECK(result.exitCode == 0);
-    // Same model/skin/AFID/anim-dir fixture as the "--anim <dir> resolves
-    // an external sequence" test above, which asserts "1 animation(s)" for
+    // Same model/skin/AFID/anim-dir fixture as test_cli_anim.cpp's "--anim
+    // <dir> resolves an external sequence" test, which gets one clip for
     // the exact same file layout with --anim <dir> instead -- the only
     // difference here is the flag value, proving --anim inline really does
     // suppress the external lookup rather than happening to find nothing.
-    CHECK(result.output.find("animation(s)") == std::string::npos);
-    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+    checkNoClips(out, 1);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove_all(animDir);
+    fs::remove_all(out);
 }
 
 TEST_CASE("husk export: --anim none produces zero animation clips, but JOINTS_0/WEIGHTS_0 (the "
           "bind-pose skin) are still present when the model has bones") {
+    auto m2 = tinyAnimatedM2();  // has 1 bone + 1 real inline sequence
+    // Its one vertex fully weighted to joint 0 (M2Vertex bone_weights[0] at
+    // +0x0C): a mesh whose vertices carry no weight at all is written
+    // unskinned whatever --anim says.
+    uint32_t vertexOff = 0;
+    std::memcpy(&vertexOff, m2.data() + 0x040, 4);
+    m2[vertexOff + 0x0C] = 255;
     auto m2Path = tempPath("anim-none.m2");
-    writeFile(m2Path, tinyAnimatedM2());  // has 1 bone + 1 real inline sequence
+    writeFile(m2Path, m2);
     auto skinPath = tempPath("anim-none.skin");
     writeFile(skinPath, tinyMatchingSkin());
+    auto out = tempPath("anim-none.bundle");
+    fs::remove_all(out);
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("anim-none.glb").string() + " --anim none");
+                           out.string() + " --anim none");
     CHECK(result.exitCode == 0);
-    // Bones (and thus JOINTS_0/WEIGHTS_0 -- buildSkinning runs whenever
-    // bones aren't empty, unconditionally on --anim) still print; only the
-    // animation-clip resolution that --anim none suppresses is gone.
-    CHECK(result.output.find("1 bones") != std::string::npos);
-    CHECK(result.output.find("animation(s)") == std::string::npos);
-    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+    // The skeleton and skinning don't depend on --anim; only the clips
+    // --anim none suppresses are gone.
+    checkNoClips(out, 1);
+    const auto mesh = parseManifest(out)["resources"]["geometry"]["mesh"];
+    CHECK(mesh.contains("joints0"));
+    CHECK(mesh.contains("weights0"));
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+    fs::remove_all(out);
 }
 
