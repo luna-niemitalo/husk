@@ -9,7 +9,7 @@
 #   <out>/models/<fdid>.canon.bundle/manifest.json
 #
 # husk export-terrain only references models; producing them is husk
-# export --bundle-only's job, one process per model, so the loop lives here.
+# export's job, one process per model, so the loop lives here.
 
 def main [
     out: string            # scene directory to write
@@ -40,7 +40,7 @@ def main [
             if ($m.path | is-empty) { return {fdid: $m.fdid, reason: "not in listfile"} }
             let src = $"($corpus_root)/($m.path)"
             if not ($src | path exists) { return {fdid: $m.fdid, reason: $"not extracted: ($m.path)"} }
-            let r = (^$husk_bin export $src $bundle --bundle-only --listfile $listfile --listfile-root $corpus_root | complete)
+            let r = (^$husk_bin export $src $bundle --listfile $listfile --listfile-root $corpus_root | complete)
             if $r.exit_code != 0 or not ($bundle | path exists) {
                 {fdid: $m.fdid, path: $m.path, reason: ($r.stderr | lines | last 1 | str join)}
             }

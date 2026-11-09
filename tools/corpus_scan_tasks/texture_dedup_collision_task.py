@@ -4,7 +4,7 @@ frequency: how often does a real .m2 file contain two texture slots whose
 `textureCount > 1` batch (the shape that actually matters -- see below)?
 
 Motivating bug (commit cd11c85, `creature/ladywaycrest/ladywaycrest.m2`):
-`render_glb.py`'s `fix_multi_texture_layers()` looked up a multi-texture
+a Blender render script's multi-texture fix looked up a multi-texture
 batch's 2nd texture layer by its raw FileDataID as a Blender `Image`
 datablock name. Blender's glTF importer merges byte-identical *embedded*
 images into a single datablock and keeps only one name -- so whenever a

@@ -1,34 +1,17 @@
 """Headless Blender script: import ONE .glb with zero husk-specific
 post-processing and render one deterministic still PNG.
 
-This is deliberately NOT `tools/corpus_scan_tasks/render_glb.py` (which
-applies a long list of husk-extras-driven fixups: additive-material
-rebuilds, multi-texture-layer combiner formulas, geoset switch defaults,
-billboard alignment, animated texture-transform/tint/fade curves -- all of
-it keyed off husk's own glTF `extras`). `src/writers/gltf_lean.hpp`'s
-canon:: writer deliberately emits NONE of those extras (its whole point is
-proving canon::Model can feed a strictly spec-compliant glTF with nothing
-smuggled in via extras) -- running the extras-heavy script against a
-`.canon.glb` would silently no-op every fixup and produce a materially
-different-looking render than the same file's legacy `.glb` sibling, for
-reasons that have nothing to do with whether canon:: itself is correct.
-
-Rendering BOTH sides of a `--export-canon` pair through this same
-minimal, extras-blind script instead means both get the exact same
-treatment -- whatever a bare glTF importer does with core mesh/skin/
-material/animation data, nothing more. A real difference here reflects a
-real difference in the two files' own core glTF content (the thing
-`husk export --export-canon` is meant to catch), not a missing Blender-side
-enrichment pass that was never in scope for canon:: today.
+Meant for `husk export --glb`'s lean projection (src/writers/gltf_lean.hpp):
+whatever a bare glTF importer does with core mesh/skin/material/animation
+data, nothing more. That projection carries no options, presets or effects,
+so the render is a geometry/skin/base-material preview, not the in-game look.
 
 Usage:
     blender --background --factory-startup --python render_lean_glb.py -- <in.glb> <out.png>
 
-Always renders the model's bind/rest pose (frame 1, no animation
-scrubbing) -- the geometry/skin/material comparison this exists for needs
-one fixed, reproducible state, not an arbitrary animated frame. Exits
-nonzero (bare exception, Blender's own traceback to stderr) on failure,
-same convention as render_glb.py.
+Always renders the bind/rest pose (frame 1, no animation scrubbing): one
+fixed, reproducible state. Exits nonzero (Blender's own traceback to
+stderr) on failure.
 """
 
 import math
@@ -38,7 +21,7 @@ import bpy
 import mathutils
 
 RESOLUTION = (640, 480)
-EEVEE_SAMPLES = 32  # higher than render_glb.py's corpus-throughput-tuned 16 -- accuracy matters more than speed for a two-file comparison
+EEVEE_SAMPLES = 32  # a preview of one file: accuracy over throughput
 
 
 def _world_bbox(mesh_objs):
@@ -53,12 +36,6 @@ def _world_bbox(mesh_objs):
 
 
 def _create_camera(radius: float, center: "mathutils.Vector"):
-    # Same framing recipe as render_glb.py's create_normal_camera -- kept
-    # independent (not imported) since that file is corpus-scan production
-    # tooling and this script's whole point is having no shared surface
-    # with husk-specific behavior; the bbox-fit math itself is generic
-    # Blender camera-framing, not husk-specific, so duplicating this one
-    # small function is the honest tradeoff, not an oversight.
     cam_data = bpy.data.cameras.new("cam")
     cam_obj = bpy.data.objects.new("cam", cam_data)
     bpy.context.scene.collection.objects.link(cam_obj)

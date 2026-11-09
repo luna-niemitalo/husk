@@ -160,11 +160,11 @@ public:
     // a DB2-derived fdid instead of the slot's own M2 one.
     //
     // Deliberately does NOT include:
-    // - Tier 4 (parent-directory same-basename). Blender-script-only today
-    //   (`husk_blender_geoset_mask.py:1575-1596`); porting it changes real
-    //   resolution outcomes for real files and needs its own ledger run --
-    //   out of this object's first pass. `RESOURCE_CATALOG.md`'s "Where the
-    //   two unordered tiers sit" is where it goes once it lands.
+    // - Tier 4 (parent-directory same-basename). Not implemented anywhere;
+    //   adding it changes real resolution outcomes for real files and needs
+    //   its own ledger run -- out of this object's first pass.
+    //   `RESOURCE_CATALOG.md`'s "Where the two unordered tiers sit" is
+    //   where it goes once it lands.
     // - Tier 5 (knowledge base). `resolveObjectSkinTextureFromKb`
     //   (`cmd_export.cpp`) answers a genuinely different question --
     //   "which FileDataID should stand in for this model's object-skin

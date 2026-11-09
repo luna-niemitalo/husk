@@ -15,11 +15,10 @@ additive-only file's own primary texture (same three-tier resolution
 unfillable_texture_task.py already mirrors -- literal FileDataID, then
 --listfile, then same-basename fuzzy) and check its *actual* decoded pixel
 brightness. A `.blp` match is converted to `.png` via `husk blp-export`,
-cached by FileDataID under the system temp dir (mirrors render_glb.py's
-own `_convert_blp_to_png_cached`) -- decoding a raw `.blp` directly isn't
-implemented in Python anywhere in this repo, and re-implementing DXT/
-palette decode here would duplicate `blp/`'s own real decoder for no
-reason.
+cached by FileDataID under the system temp dir -- decoding a raw
+`.blp` directly isn't implemented in Python anywhere in this repo, and
+re-implementing DXT/palette decode here would duplicate `blp/`'s own real
+decoder for no reason.
 
 Deliberately approximate, like particle_only_task.py before it: only the
 *first* resolved used-texture slot is checked, not every material's own
