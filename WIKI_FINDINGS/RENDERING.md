@@ -2,7 +2,7 @@
 
 Current, correct facts only, read from the 12.1.0 client's compiled
 shaders (container format: `BLS.md`). Full evidence trail:
-`../WIKI_FINDINGS_HISTORY.md` §19, §20. husk exports none of this yet; it is
+`HISTORY.md` §19, §20. husk exports none of this yet; it is
 recorded for the world renderer (`WORLD_COMPLETENESS.md`).
 
 ## Confirmed — verified

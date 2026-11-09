@@ -291,7 +291,13 @@ docstring — read the script for the real detail, not this list:
   over the whole corpus via fresh directory discovery (not a stale
   pre-generated file list), honoring a `.renderignore` file (gitignore-style
   subset) at the repo root. Resume-safe, same convention as
-  `corpus_scan_tasks/render_sample_driver.py`.
+  `corpus_scan_tasks/render_sample_driver.py`. Replaced subtracting a
+  scan's flagged-file CSV from a static file list: a scan bug or stale
+  snapshot silently produced a wrong exclusion list, while `.renderignore`
+  states category-level exclusions a human chose (e.g. `character/`,
+  structurally DB2-dependent). Fresh `rglob` discovery costs ~1-2 s for
+  130k files. Both entry points share `run_render_pipeline(paths,
+  render_dir)`, one copy of the concurrency/resume/logging logic.
 - `export_hd_characters.nu` — batch-exports every real `*_hd.m2` player
   character model to `.glb` via a loop over `husk export` (husk itself has
   no batch mode built in yet for this shape).

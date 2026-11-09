@@ -17,13 +17,10 @@ std::optional<uint32_t> fileDataIdForPath(const husk::ListfileIndex& listfile, c
     std::transform(relPath.begin(), relPath.end(), relPath.begin(),
                     [](unsigned char c) { return std::tolower(c); });
 
-    std::optional<uint32_t> found;
-    listfile.forEach([&](uint32_t fdid, std::string_view path) {
-        if (path != relPath) return true;  // keep scanning
-        found = fdid;
-        return false;  // match found -- stop
-    });
-    return found;
+    std::unordered_map<std::string, uint32_t> found = listfile.fileDataIdsForPaths({relPath});
+    auto it = found.find(relPath);
+    if (it == found.end()) return std::nullopt;
+    return it->second;
 }
 
 std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex& listfile,
@@ -103,16 +100,14 @@ std::unordered_map<std::string, uint32_t> fileDataIdsForGamePaths(const husk::Li
     std::unordered_map<std::string, std::vector<const std::string*>> wanted;
     for (const std::string& p : gamePaths) wanted[listfileSpelling(p)].push_back(&p);
 
+    std::vector<std::string> spellings;
+    for (const auto& [spelling, originals] : wanted) spellings.push_back(spelling);
+    std::unordered_map<std::string, uint32_t> found = listfile.fileDataIdsForPaths(spellings);
+
     std::unordered_map<std::string, uint32_t> out;
-    if (wanted.empty()) return out;
-    size_t remaining = wanted.size();
-    listfile.forEach([&](uint32_t fdid, std::string_view path) {
-        auto it = wanted.find(std::string(path));
-        if (it == wanted.end() || it->second.empty()) return true;
-        for (const std::string* original : it->second) out.emplace(*original, fdid);
-        it->second.clear();  // first listfile row wins, like fileDataIdForPath
-        return --remaining > 0;
-    });
+    for (const auto& [spelling, fdid] : found) {
+        for (const std::string* original : wanted.at(spelling)) out.emplace(*original, fdid);
+    }
     return out;
 }
 

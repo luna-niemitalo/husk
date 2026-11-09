@@ -22,6 +22,7 @@
 #include "parallel.hpp"
 #include "sources/listfile_catalog.hpp"
 #include "sources/texture_payload.hpp"
+#include "uuid.hpp"
 #include "version.hpp"
 
 namespace husk::commands::world {
@@ -243,22 +244,28 @@ void nameModelRefs(canon::Terrain& terrain, const ListfileIndex& listfile) {
 
 std::string modelBundleName(uint32_t fdid) { return std::to_string(fdid) + ".canon.bundle"; }
 
-std::pair<std::optional<uint32_t>, std::optional<uint32_t>> mapTextureIds(const TileName& tile, const adt::WdtFile* wdt,
-                                                                          const ListfileIndex* listfile) {
+TileTextureIds tileTextureIds(const TileName& tile, const adt::WdtFile* wdt, const ListfileIndex* listfile) {
+    // A WDT with MAID is the authority: its map without MAI2 has no flow
+    // maps. Only without one is the listfile consulted.
     if (wdt && wdt->tileFileDataIds) {
-        const adt::TileFileDataIds& ids = (*wdt->tileFileDataIds)[tile.y * 64 + tile.x];
+        size_t index = tile.y * 64 + tile.x;
         auto nonzero = [](uint32_t id) { return id != 0 ? std::optional<uint32_t>(id) : std::nullopt; };
-        return {nonzero(ids.mapTexture), nonzero(ids.mapTextureN)};
+        const adt::TileFileDataIds& ids = (*wdt->tileFileDataIds)[index];
+        std::optional<uint32_t> flow;
+        if (wdt->liquidFlowFileDataIds) flow = nonzero((*wdt->liquidFlowFileDataIds)[index]);
+        return {nonzero(ids.mapTexture), nonzero(ids.mapTextureN), flow};
     }
     if (!listfile) return {};
-    std::string stem = "world/maptextures/" + tile.map + "/" + tile.map + "_" + std::to_string(tile.x) + "_" +
-                       std::to_string(tile.y);
-    std::unordered_map<std::string, uint32_t> ids = sources::fileDataIdsForGamePaths(*listfile, {stem + ".blp", stem + "_n.blp"});
+    std::string tileStem = tile.map + "/" + tile.map + "_" + std::to_string(tile.x) + "_" + std::to_string(tile.y);
+    std::string mapStem = "world/maptextures/" + tileStem;
+    std::string flowPath = "world/liquidflow/" + tileStem + ".blp";
+    std::unordered_map<std::string, uint32_t> listed =
+        sources::fileDataIdsForGamePaths(*listfile, {mapStem + ".blp", mapStem + "_n.blp", flowPath});
     auto find = [&](const std::string& path) {
-        auto it = ids.find(path);
-        return it != ids.end() ? std::optional<uint32_t>(it->second) : std::nullopt;
+        auto it = listed.find(path);
+        return it != listed.end() ? std::optional<uint32_t>(it->second) : std::nullopt;
     };
-    return {find(stem + ".blp"), find(stem + "_n.blp")};
+    return {find(mapStem + ".blp"), find(mapStem + "_n.blp"), find(flowPath)};
 }
 
 // IN, critical when found: a WMO group file at `level` (GFID row), by its
@@ -578,8 +585,8 @@ AreaChunks countAreas(const canon::Terrain& terrain) {
 
 // Every area a chunk names, plus the areas those lie in (a zone whose
 // ground is all subzones still has an extent), in first-seen order.
-std::vector<canon::Zone> buildZones(const std::vector<canon::WorldCell>& cells, const std::vector<AreaChunks>& perCell,
-                                    const areadb::Data* areas) {
+std::vector<canon::Zone> buildZones(const std::string& map, const std::vector<canon::WorldCell>& cells,
+                                    const std::vector<AreaChunks>& perCell, const areadb::Data* areas) {
     std::vector<canon::Zone> zones;
     std::map<uint32_t, size_t> index;
     std::function<size_t(uint32_t)> zoneOf = [&](uint32_t id) -> size_t {
@@ -588,6 +595,7 @@ std::vector<canon::Zone> buildZones(const std::vector<canon::WorldCell>& cells, 
         index[id] = k;  // before the parent walk, so a cyclic parent chain ends here
         canon::Zone zone;
         zone.ref.id = canon::Db2Row{"AreaTable", id};
+        zone.id = nameUuid("zone/" + map + "/AreaTable/" + std::to_string(id));
         const areadb::Row* row = nullptr;
         if (areas) {
             if (auto it = areas->find(id); it != areas->end()) row = &it->second;
@@ -674,7 +682,7 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& 
         }
     });
     if (failure) std::rethrow_exception(failure);
-    world.zones = buildZones(world.cells, cellAreas, areas);
+    world.zones = buildZones(map, world.cells, cellAreas, areas);
     for (canon::PlacementSet& set : loadMapEffects(mapDir, listfile, listfileRoot, lights, conditions)) world.placements.push_back(std::move(set));
     return world;
 }

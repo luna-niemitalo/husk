@@ -4,6 +4,11 @@
   "title": "Shared definitions",
   "description": "Shapes every husk document kind uses: identity, links to data, byte ranges, the contract header's parts, vectors and curves.",
   "definitions": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A stable id: a lowercase canonical UUID, the same across re-exports and edits. Objects in arrays that can grow large carry one and are referenced by it, never by array position."
+    },
     "identity": {
       "description": "What the thing structurally is. The kind says which identity space the value belongs to; values from different kinds never compare equal.",
       "oneOf": [
@@ -637,6 +642,52 @@
             },
             "required": [
               "frames",
+              "source"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "waves": {
+          "type": "array",
+          "description": "Optional. The FFT ocean-wave spectra the type animates its surface with, in source order. Absent when the source has none (every source before WoW Forever 1.60.1 / 12.1.7).",
+          "items": {
+            "type": "object",
+            "description": "One spectrum. Its fields are not named by any public definition yet, so they are carried raw.",
+            "properties": {
+              "identity": {
+                "$ref": "#/definitions/ref",
+                "description": "The FFTTile row."
+              },
+              "source": {
+                "type": "object",
+                "description": "Source-specific raw values.",
+                "properties": {
+                  "field_0": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "FFTTile field 0 as stored (16 to 512 seen; likely the FFT grid size)."
+                  },
+                  "values": {
+                    "type": "array",
+                    "minItems": 9,
+                    "maxItems": 9,
+                    "description": "FFTTile fields 1 to 9 as stored, f32; units unverified.",
+                    "x-unit": "1",
+                    "items": {
+                      "type": "number",
+                      "description": "One field."
+                    }
+                  }
+                },
+                "required": [
+                  "field_0",
+                  "values"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "identity",
               "source"
             ],
             "additionalProperties": false

@@ -168,6 +168,7 @@ struct Linter {
         }
         if (node.contains("const") && node["const"].is_string()) checkWords(pointer + "/const", node["const"], "constant");
         if (node.contains("x-index-into")) checkIndex(pointer, node["x-index-into"], objects);
+        if (node.contains("x-id-in")) checkIdTarget(pointer, node["x-id-in"]);
         if (node.contains("properties")) {
             if (node.value("additionalProperties", true) != false) {
                 fail(pointer, "object is open: set additionalProperties to false so an undocumented key fails validation");
@@ -207,6 +208,26 @@ struct Linter {
         rawParent = key == "source" || key == "unresolved";
         walk(sub, pointer, objects, definition);
         rawParent = savedRaw;
+    }
+
+    // x-id-in names an array of objects that each carry an `id`, so it is
+    // always absolute: a stable id is the same wherever it is read from.
+    void checkIdTarget(const std::string& pointer, const json& target) {
+        std::string t = target;
+        if (stem == "common") return;
+        if (!t.starts_with("/")) {
+            fail(pointer, "x-id-in '" + t + "' must be an absolute pointer");
+            return;
+        }
+        const json* found = followSchema(stem, &root, splitPointer(t));
+        if (!found || found->value("type", "") != "array") {
+            fail(pointer, "x-id-in '" + t + "' names no array in the " + stem + " schema");
+            return;
+        }
+        const json& item = (*found)["items"];
+        if (!item.contains("properties") || !item["properties"].contains("id")) {
+            fail(pointer, "x-id-in '" + t + "' names an array whose items have no 'id'");
+        }
     }
 
     void checkIndex(const std::string& pointer, const json& target, const std::vector<const json*>& objects) {
@@ -302,6 +323,7 @@ struct DocumentChecker {
               std::vector<const json*>& objects) {
         std::string refName = refTarget(*schema);
         if (schema->contains("x-index-into")) checkIndex(value, (*schema)["x-index-into"], pointer, objects);
+        if (schema->contains("x-id-in")) checkId(value, (*schema)["x-id-in"], pointer);
         schema = resolveRef(stem, schema);
         if (refName == "buffer_slice") checkSlice(value, pointer);
         if ((refName == "payload" || refName == "asset_ref") && value.contains("uri")) checkUri(value["uri"], pointer + "/uri");
@@ -314,6 +336,30 @@ struct DocumentChecker {
         } else if (value.is_array() && schema->contains("items")) {
             for (size_t i = 0; i < value.size(); ++i) walk(value[i], &(*schema)["items"], stem, pointer + "/" + std::to_string(i), objects);
         }
+    }
+
+    // Ids already checked unique, by target: each array is scanned once.
+    std::set<std::string> uniqueChecked;
+
+    void checkId(const json& value, const std::string& target, const std::string& pointer) {
+        if (!value.is_string()) return;
+        json::json_pointer p(target);
+        if (!document.contains(p) || !document.at(p).is_array()) {
+            fail(pointer, "expected an id of an entry of '" + target + "', which the document doesn't hold");
+            return;
+        }
+        const json& array = document.at(p);
+        if (uniqueChecked.insert(target).second) {
+            std::set<std::string> seen;
+            for (size_t i = 0; i < array.size(); ++i) {
+                if (!array[i].contains("id")) continue;
+                std::string id = array[i]["id"];
+                if (!seen.insert(id).second) fail(target + "/" + std::to_string(i) + "/id", "expected a unique id, '" + id + "' repeats");
+            }
+        }
+        std::string wanted = value;
+        bool found = std::any_of(array.begin(), array.end(), [&](const json& e) { return e.contains("id") && e["id"] == wanted; });
+        if (!found) fail(pointer, "expected the id of an entry of '" + target + "', got '" + wanted + "'");
     }
 
     void checkIndex(const json& value, const std::string& target, const std::string& pointer, const std::vector<const json*>& objects) {

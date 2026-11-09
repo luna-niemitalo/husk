@@ -1,6 +1,6 @@
 # wowdev.wiki findings — `.bone` (`BONE` page, referenced from `M2`/`M2/.skel`'s `BFID`)
 
-Current, correct facts only. Full evidence trail: `../WIKI_FINDINGS_HISTORY.md`
+Current, correct facts only. Full evidence trail: `HISTORY.md`
 §4.
 
 **Note on this investigation's own history**: an earlier pass claimed
@@ -67,8 +67,8 @@ DB2 chain, confirmed against Luna's own local `casc-tool` extraction (same
 --customization-choice-ids` (`src/chrcustomization_db2.hpp`/`.cpp`) —
 matching this section's own "plausibly facial specifically, a
 customization-choice lookup" prediction. `ChrCustomizationOption`/
-`ChrCustomizationChoice` (needed to enumerate real choices without the
-caller supplying an ID directly) are still 0 bytes in the current local
-extraction — a real extraction gap, not a design wall. See
+`ChrCustomizationChoice` are present in the 12.1.5 extraction and read
+(`chrcustomization::load`), so choices can be enumerated without the
+caller supplying an ID. See
 `TODO/BONE_CORRECTION_APPLICATION_TODO.md` for the current state, including
 the still-open question of the correction matrix's own application semantics.

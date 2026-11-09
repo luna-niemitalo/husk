@@ -361,6 +361,22 @@ TEST_CASE("adt::parseWdt: MAIN tiles and MAID root ids, indexed tileY * 64 + til
     CHECK_FALSE(wdt.mapObject.has_value());
 }
 
+TEST_CASE("adt::parseWdt: MAI2 field 0 is each tile's liquid flow map, indexed like MAID") {
+    WdtSpec spec;
+    spec.flags = 0x204;
+    CHECK_FALSE(adt::parseWdt(wdtFile(spec)).liquidFlowFileDataIds.has_value());
+
+    spec.flowIds = {{{32, 49}, 7792205}};
+    adt::WdtFile wdt = adt::parseWdt(wdtFile(spec));
+    REQUIRE(wdt.liquidFlowFileDataIds.has_value());
+    CHECK((*wdt.liquidFlowFileDataIds)[49 * 64 + 32] == 7792205);
+    CHECK((*wdt.liquidFlowFileDataIds)[32 * 64 + 49] == 0);
+
+    spec.mai2Size = 64 * 64 * 32 - 4;
+    CHECK_THROWS_WITH_AS(adt::parseWdt(wdtFile(spec)), doctest::Contains("WDT MAI2: expected 131072 bytes, got 131068"),
+                         adt::ParseError);
+}
+
 TEST_CASE("adt::parseWdt: a map without terrain places one WMO, by FileDataID or by MWMO name") {
     WdtSpec byId;
     byId.flags = 0x1;

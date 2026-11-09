@@ -104,12 +104,12 @@ def main() -> int:
             continue
 
     for tag_str, records in hits.items():
-        out_txt = REPO_ROOT / f"{tag_str.lower()}_files_for_exploration.txt"
+        out_txt = REPO_ROOT / "corpus_reports" / f"{tag_str.lower()}_files_for_exploration.txt"
         paths = [r["path"] for r in records]
         out_txt.write_text("\n".join(paths) + ("\n" if paths else ""))
         print(f"{tag_str}: {len(records)} hit(s) -> {out_txt}")
 
-    report_path = REPO_ROOT / "m2_unknown_chunks_report.json"
+    report_path = REPO_ROOT / "corpus_reports" / "m2_unknown_chunks_report.json"
     report_path.write_text(json.dumps(hits, indent=2))
     print(f"full report -> {report_path}")
     print(f"({non_chunked} non-chunked/flat files skipped, {unreadable} unreadable/skipped)")

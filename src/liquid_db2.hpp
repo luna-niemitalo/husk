@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <ostream>
@@ -33,24 +34,37 @@ struct TextureSlot {
     int32_t kind = -1;             // LiquidTypeXTexture.Type of its first frame, as stored
 };
 
+// An FFTTile row: an ocean-wave spectrum. WoWDBDefs names none of its
+// columns yet (WIKI_FINDINGS/FOREVER.md), so they stay raw.
+struct WaveSpectrumRow {
+    uint32_t field0 = 0;           // u32; 16..512 in 1.60.1, likely the FFT grid size
+    std::array<float, 9> values{};  // fields 1..9
+};
+
 struct TypeRow {
     std::string name;
     uint32_t flags = 0;
     uint32_t materialId = 0;
     std::vector<TextureSlot> slots;
+    std::vector<uint32_t> waveSpectra;  // FFTTile rows, in LiquidTypeXFFTTile ID order
 };
 
 struct Data {
     std::unordered_map<uint32_t, ObjectRow> objects;
     std::unordered_map<uint32_t, TypeRow> types;
     std::unordered_map<uint32_t, MaterialRow> materials;
+    std::unordered_map<uint32_t, WaveSpectrumRow> waveSpectra;  // by FFTTile ID
 };
 
 // Loads liquidobject/liquidtype/liquidmaterial/liquidtypextexture.db2 from
-// `db2Dir`. nullopt, with the reason on `err`, when a file or its layout
-// can't be read. Throws std::runtime_error on rows that contradict the
-// tables' own shape: a row without an ID, or a type whose texture rows
-// don't fill its slots (see liquid_db2.cpp).
+// `db2Dir`, and fftTile/liquidtypexffttile.db2 when both exist (WoW
+// Forever 1.60.1, retail 12.1.7+). nullopt, with the reason on `err`,
+// when a required file or its layout can't be read; unreadable wave
+// tables are reported on `err` and leave every type without waves.
+// Throws std::runtime_error on rows that contradict the tables' own
+// shape: a row without an ID, a type whose texture rows don't fill its
+// slots (see liquid_db2.cpp), or a type naming an FFTTile row that
+// doesn't exist.
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err);
 
 }  // namespace husk::liquiddb

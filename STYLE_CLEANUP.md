@@ -47,3 +47,15 @@ once it was down to one item), causing real confusion about which file a
    that's built (or the idea is rejected), the subsystem stays exactly as
    disabled/non-default as it is now — don't wire `--knowledge-db` into any
    real export path on the strength of the idea alone.
+
+3. **Before v1: sweep every `// TODO: Remove` comment out of `src/`/
+   `tests/`.** A full inline-comment audit (`~/nix/claude-rules/
+   CODE_COMMENT_RULES.md`) marked ~150 comment blocks citing dev-trace docs
+   (`WIKI_FINDINGS.md`, deleted TODO files' item numbers, dated "this
+   session" narrative); they stay until v1 ships by design. The handful in
+   `src/` citing `DESIGN.md`/`README.md` stay, tightened to a heading
+   anchor rather than a bare filename (README's "roadmap stage N" and
+   "Design notes" are now one-line pointers; cite `DESIGN.md`/
+   `M2_COMPLETENESS.md` directly instead). Test-design rationale is
+   already in `TEST_DESIGN.md`; the scattered inline copies in test files
+   still need trimming to one-line pointers.

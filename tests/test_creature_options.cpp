@@ -54,6 +54,7 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     creaturedisplay::Display c = display(12, {101, 200, 0, 400});
     c.alpha = 51;
     data.displaysByModelData[1] = {a, b, c};
+    data.creaturesByDisplay[10] = {{7, "Stormwind Guard", ""}, {8, "", "Innkeeper"}};
 
     canon::Model model = modelWithGeosets({0, 101});
     std::vector<uint32_t> asked;
@@ -78,6 +79,14 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     REQUIRE(first.sources.size() == 2);
     CHECK(first.sources[0].scale == 1.5f);
     CHECK(first.sources[0].baseScale == 2.0f);
+    // Display 10's creatures ride on its source; display 11 has none.
+    REQUIRE(first.sources[0].users.size() == 2);
+    CHECK(std::get<canon::Db2Row>(first.sources[0].users[0].ref.id).table == "Creature");
+    CHECK(first.sources[0].users[0].ref.name == "Stormwind Guard");
+    CHECK(first.sources[0].users[0].ref.source == canon::NameSource::Db2);
+    CHECK(first.sources[0].users[1].ref.source == canon::NameSource::None);
+    CHECK(first.sources[0].users[1].title == "Innkeeper");
+    CHECK(first.sources[1].users.empty());
     CHECK_FALSE(first.shownGeosets.has_value());
     const canon::Preset& second = model.presets[1];
     CHECK(second.textures[0].option == 1);

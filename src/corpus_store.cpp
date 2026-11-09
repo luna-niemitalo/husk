@@ -576,4 +576,109 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
     return result;
 }
 
+namespace {
+
+struct ListedFile {
+    std::string path;
+    Md5 key;
+};
+
+// Rows of a build's files.tsv: the header and rows without a valid md5 are skipped.
+std::vector<ListedFile> listedFiles(const fs::path& filesTsv) {
+    std::vector<ListedFile> out;
+    std::ifstream in(filesTsv);
+    std::string line;
+    while (std::getline(in, line)) {
+        size_t tab = line.rfind('\t');
+        if (tab == std::string::npos) continue;
+        if (auto key = parseHex(line.substr(tab + 1))) out.push_back({line.substr(0, tab), *key});
+    }
+    return out;
+}
+
+}  // namespace
+
+std::vector<BuildId> supersededBuilds(const Store& store) {
+    std::set<std::string> tagged;
+    for (const auto& [name, id] : store.tags()) tagged.insert(id.path());
+    std::vector<BuildId> out;
+    for (const std::string& game : store.games()) {
+        std::optional<BuildId> newest = store.newest(game);
+        for (const std::string& husk : store.huskBuilds(game)) {
+            BuildId id{game, husk};
+            if (tagged.count(id.path()) || (newest && newest->path() == id.path())) continue;
+            out.push_back(id);
+        }
+    }
+    return out;
+}
+
+PrunePlan planPrune(const Store& store, const std::vector<BuildId>& drop) {
+    PrunePlan plan;
+    plan.drop = drop;
+
+    std::set<std::string> tagged;
+    for (const auto& [name, id] : store.tags()) tagged.insert(id.path());
+    std::set<std::string> dropping;
+    for (const BuildId& id : drop) {
+        if (!fs::exists(store.buildDir(id) / "files.tsv"))
+            throw std::runtime_error("expected a complete build (with files.tsv) at " + store.buildDir(id).string() +
+                                     ", found none");
+        if (tagged.count(id.path()))
+            throw std::runtime_error("build " + id.path() + " is named by a tag; move the tag first");
+        dropping.insert(id.path());
+    }
+
+    // A run is a file naming its tree (Store::beginRun), not a directory.
+    std::error_code ec;
+    for (const std::string& game : subdirectories(store.root() / "runs"))
+        for (const auto& run : fs::directory_iterator(store.root() / "runs" / game, ec))
+            plan.busy = "run in progress: " + game + "/" + run.path().filename().string();
+    for (const std::string& game : subdirectories(store.root() / "builds"))
+        for (const std::string& husk : subdirectories(store.root() / "builds" / game))
+            if (!fs::exists(store.buildDir({game, husk}) / "files.tsv"))
+                plan.busy = "build being stored: " + game + "/" + husk;
+
+    std::vector<Md5> kept;
+    std::set<Md5> droppedManifests;
+    for (const std::string& game : store.games()) {
+        for (const std::string& husk : store.huskBuilds(game)) {
+            BuildId id{game, husk};
+            bool dropped = dropping.count(id.path()) > 0;
+            for (const ListedFile& file : listedFiles(store.buildDir(id) / "files.tsv")) {
+                if (!dropped) {
+                    kept.push_back(file.key);
+                } else if (fs::path(file.path).filename() == "manifest.json") {
+                    droppedManifests.insert(file.key);
+                }
+            }
+        }
+    }
+    std::sort(kept.begin(), kept.end());
+
+    for (const auto& entry : fs::recursive_directory_iterator(store.root() / "objects", ec)) {
+        if (!entry.is_regular_file()) continue;
+        std::optional<Md5> key = parseHex(entry.path().filename().string());
+        if (!key || std::binary_search(kept.begin(), kept.end(), *key)) continue;
+        plan.orphans.push_back({*key, entry.file_size(), droppedManifests.count(*key) > 0});
+    }
+    return plan;
+}
+
+void applyPrune(const Store& store, const PrunePlan& plan) {
+    if (!plan.busy.empty())
+        throw std::runtime_error("the store is not idle (" + plan.busy + "): its unlisted objects are not orphans");
+    fs::path staging = store.root() / "tmp";
+    fs::create_directories(staging);
+    std::vector<fs::path> staged;
+    for (const BuildId& id : plan.drop) {
+        fs::path target = staging / ("pruned-" + id.game + "-" + id.husk);
+        fs::remove_all(target);
+        fs::rename(store.buildDir(id), target);
+        staged.push_back(target);
+    }
+    for (const PrunePlan::Orphan& orphan : plan.orphans) fs::remove(store.objectPath(orphan.key));
+    for (const fs::path& dir : staged) fs::remove_all(dir);
+}
+
 }  // namespace husk::corpus

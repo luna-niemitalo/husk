@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <numeric>
 #include <stdexcept>
 #include <vector>
 
@@ -90,17 +91,22 @@ static_assert(offsetof(CommonHeader, sourceSize) % 8 == 0);
 static_assert(offsetof(CommonHeader, sourceMtimeTicks) % 8 == 0);
 static_assert(offsetof(CommonHeader, blobSize) % 8 == 0);
 
+// tools/listfile_index.py reads the sorted format (header, magic, version)
+// from Python for the corpus scans: change it there too.
 constexpr char kSortedMagic[8] = {'H', 'U', 'S', 'K', 'L', 'F', 'A', '1'};  // 'A' -- sorted Array
 constexpr char kHashMagic[8] = {'H', 'U', 'S', 'K', 'L', 'F', 'H', '1'};    // 'H' -- Hash table
-constexpr uint32_t kFormatVersion = 1;
+// 2: the sorted format gained pathOrderOffset (path -> FileDataID by binary
+// search). Shared with the hash format, whose caches simply rebuild once.
+constexpr uint32_t kFormatVersion = 2;
 
 struct SortedHeader {
     CommonHeader common;
     uint64_t fdidsOffset;
     uint64_t cumOffsetsOffset;
     uint64_t blobOffset;
+    uint64_t pathOrderOffset;
 };
-static_assert(sizeof(SortedHeader) == sizeof(CommonHeader) + 24);
+static_assert(sizeof(SortedHeader) == sizeof(CommonHeader) + 32);
 static_assert(offsetof(SortedHeader, fdidsOffset) % 8 == 0);
 
 struct HashHeader {
@@ -207,6 +213,7 @@ MmapSortedListfileIndex::MmapSortedListfileIndex(detail::MmapFile mapping) : map
     entryCount_ = header->common.entryCount;
     fdids_ = reinterpret_cast<const uint32_t*>(mapping_.data() + header->fdidsOffset);
     cumOffsets_ = reinterpret_cast<const uint64_t*>(mapping_.data() + header->cumOffsetsOffset);
+    pathOrder_ = reinterpret_cast<const uint32_t*>(mapping_.data() + header->pathOrderOffset);
     blob_ = reinterpret_cast<const char*>(mapping_.data() + header->blobOffset);
 }
 
@@ -215,10 +222,21 @@ std::optional<std::string_view> MmapSortedListfileIndex::lookup(uint32_t fdid) c
     const uint32_t* end = fdids_ + entryCount_;
     const uint32_t* it = std::lower_bound(begin, end, fdid);
     if (it == end || *it != fdid) return std::nullopt;
-    auto i = static_cast<size_t>(it - begin);
-    uint64_t offset = cumOffsets_[i];
-    uint64_t length = cumOffsets_[i + 1] - offset;
-    return std::string_view(blob_ + offset, length);
+    return pathAt(static_cast<uint32_t>(it - begin));
+}
+
+std::unordered_map<std::string, uint32_t> MmapSortedListfileIndex::fileDataIdsForPaths(
+    const std::vector<std::string>& paths) const {
+    std::unordered_map<std::string, uint32_t> out;
+    const uint32_t* end = pathOrder_ + entryCount_;
+    for (const std::string& path : paths) {
+        // lower_bound lands on the first of equal paths: the lowest
+        // FileDataID, the row forEach would have reached first.
+        const uint32_t* it = std::lower_bound(pathOrder_, end, std::string_view(path),
+                                              [&](uint32_t row, std::string_view key) { return pathAt(row) < key; });
+        if (it != end && pathAt(*it) == path) out.emplace(path, fdids_[*it]);
+    }
+    return out;
 }
 
 void MmapSortedListfileIndex::forEach(const std::function<bool(uint32_t, std::string_view)>& visit) const {
@@ -251,8 +269,14 @@ bool MmapSortedListfileIndex::tryLoad(const std::string& path, const std::string
     uint64_t fdidsEnd = header->fdidsOffset + uint64_t(header->common.entryCount) * sizeof(uint32_t);
     uint64_t cumOffsetsEnd = header->cumOffsetsOffset + uint64_t(header->common.entryCount + 1) * sizeof(uint64_t);
     uint64_t blobEnd = header->blobOffset + header->common.blobSize;
-    if (fdidsEnd > mapping.size() || cumOffsetsEnd > mapping.size() || blobEnd > mapping.size()) return false;
-    if (header->fdidsOffset % 4 != 0 || header->cumOffsetsOffset % 8 != 0) return false;
+    uint64_t pathOrderEnd = header->pathOrderOffset + uint64_t(header->common.entryCount) * sizeof(uint32_t);
+    if (fdidsEnd > mapping.size() || cumOffsetsEnd > mapping.size() || blobEnd > mapping.size() ||
+        pathOrderEnd > mapping.size()) {
+        return false;
+    }
+    if (header->fdidsOffset % 4 != 0 || header->cumOffsetsOffset % 8 != 0 || header->pathOrderOffset % 4 != 0) {
+        return false;
+    }
 
     outIndex = std::make_unique<MmapSortedListfileIndex>(std::move(mapping));
     return true;
@@ -270,10 +294,16 @@ void MmapSortedListfileIndex::build(const std::string& path, const std::string& 
     uint64_t afterFdids = roundUp8(fdidsOffset + uint64_t(entryCount) * sizeof(uint32_t));
     uint64_t cumOffsetsOffset = afterFdids;
     uint64_t afterCumOffsets = cumOffsetsOffset + uint64_t(entryCount + 1) * sizeof(uint64_t);
-    uint64_t blobOffset = afterCumOffsets;
+    uint64_t pathOrderOffset = afterCumOffsets;
+    uint64_t blobOffset = roundUp8(pathOrderOffset + uint64_t(entryCount) * sizeof(uint32_t));
 
     uint64_t blobSize = 0;
     for (const auto& kv : sorted) blobSize += kv.second->size();
+
+    std::vector<uint32_t> pathOrder(entryCount);
+    std::iota(pathOrder.begin(), pathOrder.end(), 0u);
+    std::stable_sort(pathOrder.begin(), pathOrder.end(),
+                     [&](uint32_t a, uint32_t b) { return *sorted[a].second < *sorted[b].second; });
 
     std::vector<uint8_t> out(blobOffset + blobSize, 0);
 
@@ -288,8 +318,10 @@ void MmapSortedListfileIndex::build(const std::string& path, const std::string& 
     header.fdidsOffset = fdidsOffset;
     header.cumOffsetsOffset = cumOffsetsOffset;
     header.blobOffset = blobOffset;
+    header.pathOrderOffset = pathOrderOffset;
     std::memcpy(out.data(), &header, sizeof(header));
     std::memcpy(out.data() + headerSize, sourcePath.data(), sourcePath.size());
+    std::memcpy(out.data() + pathOrderOffset, pathOrder.data(), pathOrder.size() * sizeof(uint32_t));
 
     auto* fdidsOut = reinterpret_cast<uint32_t*>(out.data() + fdidsOffset);
     auto* cumOffsetsOut = reinterpret_cast<uint64_t*>(out.data() + cumOffsetsOffset);

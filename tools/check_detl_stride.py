@@ -96,7 +96,7 @@ def main() -> int:
         r["divides_0x0c"] = count > 0 and size % 0x0C == 0 and size // 0x0C == count
         r["stride_if_0x0a"] = size / count if count else None
 
-    out_path = REPO_ROOT / "detl_stride_report.json"
+    out_path = REPO_ROOT / "corpus_reports" / "detl_stride_report.json"
     out_path.write_text(json.dumps(records, indent=2))
     print(f"full report -> {out_path}")
 

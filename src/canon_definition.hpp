@@ -9,11 +9,9 @@
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's Definition layer (I5) -- "what exists and what is
-// valid," scoped to one real ChrModelID. A pure value type, no consumers
-// wired to it yet (gltf_skeleton.hpp's CustomizationOption/
-// CustomizationChoice stay exactly as they are; migrating them onto this,
-// and building the Selection/Resources layers this doc also names, is
-// separate, later work).
+// valid," scoped to one real ChrModelID. A pure value type: the bundle
+// writer consumes it (canon::Model::customization); the legacy glTF path
+// keeps its own gltf_skeleton.hpp CustomizationOption/CustomizationChoice.
 namespace husk::canon {
 
 // One ChrCustomizationCategory row -- the real UI section header

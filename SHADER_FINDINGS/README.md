@@ -195,7 +195,8 @@ indices that `combiners_uber_*` switch on, formulas in `WIKI_FINDINGS/M2/renderi
 | UV transform anim | 36,586 batches | Known |
 | Colour/alpha anim (`colorIndex`) | 70,531 batches | Known |
 | Batch `flags2` 0x1, 0x2 (projected), 0x4, 0x8 (EDGF), 0x10–0x80 | 27k, 20k, 11k, 21k, small | 0x2 and 0x8 known; **the rest unknown** |
-| Texture types 19, 20, 24, 25, 26 | 59, 22, 834, 8, 2 | **Unknown** (not in the wiki's type list) |
+| Texture types 19, 20 | 59, 22 | Named (wiki `M2#Textures`, SL+: Character Eyes, Character Jewelry // Accessory), unvalidated |
+| Texture types 24, 25, 26 | 834, 8, 2 | **Unknown** (the wiki lists them with no name; 25/26 "seen in DracthyrDragon.m2") |
 
 ### 3.4 Particles and ribbons
 
@@ -298,8 +299,9 @@ These are on disk; this pass had no asset-side references to cross-check.
 - **Sky:** `dn*` (sky, clouds, planet, glare).
 - **Outline / highlight:** `outline_*`, `xrayhighlight`, `highlight_fill`,
   `objectfill`.
-- **Special materials:** `skin` (subsurface; `498e864b92fcf1b0` in the
-  capture), `anima*`, `azerite`, `fel`, `leyline`, `mercury`, `magma`,
+- **Special materials:** `skin` (called subsurface here, but
+  `notes/model_effects.md`'s bytecode decode has no subsurface term —
+  unresolved; `498e864b92fcf1b0` in the capture), `anima*`, `azerite`, `fel`, `leyline`, `mercury`, `magma`,
   `barrier`, `lightning*`, `edgeglow`, `litsphere_*`.
 - **Decals:** `decal`, `edgedecal`, `proj_*`, `projtex2d`.
 
@@ -318,7 +320,7 @@ FidelityFX Parallel Sort, VALAR and Slug (`dxil_names.md`). UI, `anima*`,
 
 Done: the standalone combiners, the `combiners_uber_*` indexing (a
 runtime switch, not permutations), the multi-texture particle combine and
-the ribbon formula (`WIKI_FINDINGS_HISTORY.md` §19, §20). Open:
+the ribbon formula (`WIKI_FINDINGS/HISTORY.md` §19, §20). Open:
 
 1. Particle `blendingType` 5–7: run the corpus data test in
    `notes/reconciliation.md` §5 (texture premultiplication, co-occurrence

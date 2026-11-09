@@ -41,6 +41,8 @@ import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import listfile_index  # tools/ is this script's own directory, so always importable
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CORPUS = Path("/media/luna/wow_export/live")
 DEFAULT_OUTPUT = REPO_ROOT / "example_exports" / "shaders"
@@ -354,7 +356,7 @@ def default_listfile() -> Path | None:
 	if not config.exists():
 		return None
 	value = tomllib.loads(config.read_text()).get("listfile")
-	return Path(value) if value else None
+	return listfile_index.latest_listfile(Path(value)) if value else None
 
 
 def shader_fdids(listfile: Path | None) -> dict[str, int]:

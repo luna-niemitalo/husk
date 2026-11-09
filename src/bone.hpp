@@ -21,9 +21,10 @@
 // flat array of 4x4 row-major float matrices, one per BIDA entry, always
 // observed with (0,0,0,1) as its last column and a near-identity 3x3 --
 // i.e. a small corrective delta transform for that bone, not a full
-// replacement pose. Which LOD/context each `.bone` file (of the several a
-// single model's BFID array lists) applies to isn't documented or inferred
-// here -- husk surfaces the raw (boneIndex, matrix) pairs and stops there.
+// replacement pose. Which `.bone` file (of the several a single model's
+// BFID array lists) applies is a customization choice's BoneSet
+// (`chrcustomization_db2.hpp`), not this file's concern -- this parser
+// surfaces the raw (boneIndex, matrix) pairs and stops there.
 namespace husk::bone {
 
 struct Correction {

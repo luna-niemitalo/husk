@@ -31,6 +31,7 @@
 #include "skin.hpp"
 #include "test_data_paths.hpp"
 #include "map_scene_input.hpp"
+#include "uuid.hpp"
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_writer.hpp"
 #include "writers/texture_store.hpp"
@@ -173,7 +174,7 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     nlohmann::json manifest = parseManifest(dir);
     CHECK(manifest["format"] == "husk-bundle");
     CHECK(manifest["kind"] == "model");
-    CHECK(manifest["schema_version"] == "0.2.2");
+    CHECK(manifest["schema_version"] == "0.3.0");
     CHECK(manifest["space"]["length_unit"] == "yard");
     CHECK(manifest["provenance"]["producer"] == "husk test");
     CHECK_FALSE(manifest["provenance"].contains("exported_at"));
@@ -957,6 +958,50 @@ TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets wit
     CHECK_FALSE(fs::exists(dir / "world.bin"));
 
     CHECK_THROWS(writers::writeWorldBundle(world, root / "mismatch.bundle", provenance, {""}));
+}
+
+TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id") {
+    canon::World world;
+    world.subject = canon::Ref{canon::FileDataId{775971}, "azeroth", canon::NameSource::Listfile};
+    world.cells.push_back({32, 49, canon::Ref{canon::None{}, "azeroth_32_49", canon::NameSource::Listfile}, {}, {}});
+    canon::Zone elwynn;
+    elwynn.id = nameUuid("zone/azeroth/AreaTable/12");
+    elwynn.ref = canon::Ref{canon::Db2Row{"AreaTable", 12}, "Elwynn Forest", canon::NameSource::Db2};
+    canon::Zone northshire;
+    northshire.id = nameUuid("zone/azeroth/AreaTable/9");
+    northshire.ref = canon::Ref{canon::Db2Row{"AreaTable", 9}, "Northshire", canon::NameSource::Db2};
+    northshire.parent = 0;
+    northshire.cells.push_back({32, 49, 0.5f});
+    world.zones = {elwynn, northshire};
+
+    fs::path root = fs::temp_directory_path() / "husk-test-world-zones";
+    fs::remove_all(root);
+    fs::path dir = root / "azeroth.world.bundle";
+    writers::writeWorldBundle(world, dir, testProvenance(), {""});
+    nlohmann::json manifest = parseManifest(dir);
+
+    const auto& zones = manifest["zones"];
+    REQUIRE(zones.size() == 2);
+    CHECK(zones[0]["id"] == nameUuid("zone/azeroth/AreaTable/12"));
+    CHECK_FALSE(zones[0].contains("parent"));
+    CHECK(zones[1]["parent"] == zones[0]["id"]);
+
+    // A parent that names no zone's id fails validation, wherever it sits in the array.
+    manifest["zones"][1]["parent"] = nameUuid("zone/azeroth/AreaTable/999");
+    std::ofstream(dir / "manifest.json") << manifest.dump();
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
+    REQUIRE_FALSE(problems.empty());
+    CHECK(problems[0].where.find("/zones/1/parent") != std::string::npos);
+}
+
+TEST_CASE("nameUuid: deterministic version-3 UUID text") {
+    std::string a = nameUuid("zone/azeroth/AreaTable/12");
+    CHECK(a == nameUuid("zone/azeroth/AreaTable/12"));
+    CHECK(a != nameUuid("zone/azeroth/AreaTable/13"));
+    REQUIRE(a.size() == 36);
+    CHECK(a[8] == '-');
+    CHECK(a[14] == '3');
+    CHECK(std::string("89ab").find(a[19]) != std::string::npos);
 }
 
 TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set written once") {

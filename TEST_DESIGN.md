@@ -64,6 +64,13 @@ Adding a new real-data test: add the env var + default to `test_data_paths.hpp`,
 gate the `TEST_CASE` with `doctest::skip(!std::filesystem::exists(path))`, and add
 the path to `test_main.cpp`'s banner. Don't invent a second resolution convention.
 
+`blp/` (the Python reference decoder) has its own suite with the same two-tier
+shape: synthetic `test_header.py`/`test_decode.py` always run; real-file
+`test_integration.py` skips unless `HUSK_TEST_BLP_DXT1`/`HUSK_TEST_BLP_DXT5`/
+`HUSK_TEST_BLP_PALETTE` point at real files (`cd blp && uv sync && uv run pytest`).
+`tests/test_blp.cpp` ports `blp/tests/test_decode.py`'s fixtures, so the C++
+decoder is checked against the same expected pixels.
+
 ## Conformance gating (`HUSK_GLTF_VALIDATOR`/`HUSK_BLENDER`)
 
 `test_conformance.cpp`'s cases are gated on two build-time `#ifdef`s

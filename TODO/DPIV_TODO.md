@@ -2,7 +2,7 @@
 
 **Status: an open punch list, not a historical record.** Fixed items get
 removed outright once closed — git history is the record of what was fixed
-and when, not this file. See `../WIKI_FINDINGS_HISTORY.md` §10 and
+and when, not this file. See `../WIKI_FINDINGS/HISTORY.md` §10 and
 `../WIKI_FINDINGS/M2.md`'s Legion+ misc-chunk section for what's already
 confirmed; this file only tracks the open semantic gap.
 

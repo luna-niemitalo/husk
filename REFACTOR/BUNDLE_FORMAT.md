@@ -163,7 +163,7 @@ alongside for exactly that reason.
 
 ## Document kinds and the contract header — agreed 2026-10-10
 
-Every husk document is one of four **kinds**, decided by what the document
+Every husk document is one of six **kinds**, decided by what the document
 has to do, not by which WoW file it came from:
 
 | Kind | What it is | Examples |
@@ -172,6 +172,7 @@ has to do, not by which WoW file it came from:
 | `placement_set` | No content of its own: instances of other documents, each with a transform and the selection that instance makes. | a WMO's doodad sets, a tile's doodads and buildings |
 | `world` | The root: nothing places it. Holds the tile grid, off-grid placements and the objects owned by the place as a whole. | a map |
 | `effect` | A behaviour with declared inputs, placed by placement-set instances that supply them (`EFFECTS.md`). | a WMO's fog spheres (`classic_local_fog`) |
+| `material` | How a surface looks: image inputs, layers combined by named functions, and textures that may be composites (`MATERIALS.md`). | a character's skin atlas canvas |
 | `technique` | How the source game computes one drawing step, as data (below, "Techniques"). | `m2_pixel_shader/Combiners_Mod_Add`, `framebuffer_blend/alpha` |
 
 A character, an item, a WMO and a doodad are all models; they differ in
@@ -218,8 +219,16 @@ source of truth; prose like this file explains it but does not define it.
 
 - **Instance check** (`husk validate-bundle`, and every test that writes a
   bundle): the JSON Schema, then what a schema can't say. That covers
-  BufferSlice arithmetic, that files exist, `x-index-into` ranges, and
-  referenced placement sets, validated recursively.
+  BufferSlice arithmetic, that files exist, `x-index-into` ranges,
+  `x-id-in` references (the id must belong to an entry of the named array,
+  and the array's ids must be unique), and referenced placement sets,
+  validated recursively.
+- **Stable ids** (Luna, 2026-10-28): an array that can hold more than about
+  50-100 entries gets an `id` per entry (a `uuid`, `common.schema.json`),
+  and references use `x-id-in`, not `x-index-into`. Only `zones` has been
+  converted; the other large arrays (`references`, mesh `parts`,
+  `light_params`, `surface_types`, `textures`) still use indices until
+  each is audited.
 - **Schema lint** (a test over `schema/` itself) rejects known antipatterns:
   - no storage opinions: a key, enum value or constant naming a container
     or API (`dds`, `png`, `blp`, `glb`, `gltf`, `vk`, `bpy`, ...) fails.
@@ -406,7 +415,10 @@ the same as customization choices.
 `selection.presets` saves the combinations a source is known to use: slot
 choices (`{slot, option}`), the geosets shown (`shown_geosets`, a closed
 list; absent = not chosen), a particle colour option, opacity, and the
-source rows that use it, each with the scale it draws the model at.
+source rows that use it, each with the scale it draws the model at and
+its named `users` (since 2026-11-09: the `Creature` rows listing that
+display, name in the ref, plus `title`; absent when the client's partial
+creature list names none).
 Values the source names but husk can't place in an option go in the
 preset's `unresolved`.
 
@@ -429,6 +441,41 @@ together ("this texture only with these geosets") would need a
 constraint form; none is known for creatures. For characters the plan
 is to make such pieces separate options instead (a tunic's skirt as its
 own selectable piece, CANONICAL_MODEL.md "Items by identity, not slot").
+
+### Using presets: a library of real looks
+
+On a character model (`humanmale_hd` etc.), `selection.presets` holds one
+entry per distinct humanoid NPC look the client data defines: thousands of
+complete, Blizzard-authored appearances (`humanmale_hd`, 12.1.5: 5,748
+presets from 6,384 displays, 4,617 distinct customization sets, about
+800 B each). None is marked default and the order means nothing. Any of
+them is a real look rather than a guessed one: pick one as a starting
+point, or let a user scroll through them. Creature models get the same
+list from their texture-variation displays.
+
+To apply preset `p` (indices are into this document unless stated):
+
+- `textures[]` `{slot, option}`: every layer naming `slot` draws
+  `definition.texture_slots[slot].options[option]` (a `resources.textures`
+  index) instead of its own texture. On a humanoid NPC this is the baked
+  skin in the `skin` slot.
+- `customization[]` `{option, choice}`: the choice is
+  `definition.customization.options[option].choices[choice]`. Show its
+  geoset and hide the geosets of the option's other choices. Bind its
+  textures to the composite inputs they name (`materials/<n>.json`,
+  `target_<id>`) to compose the skin instead of using the bake. Which of
+  the two the client draws for an NPC is open (TODO/MATERIALS_TODO.md
+  §10).
+- `shown_geosets`, when present, is the complete list of visible geosets.
+- `items[]` index `definition.items` (`ItemDisplayInfo` refs). Nothing in
+  the bundle draws them yet.
+- `particle_colors`, `opacity`: as named.
+- `sources[]`: the rows that use the look, with `scale`/`base_scale` and
+  `users` (NPC names and titles) for labelling a list. The same look can
+  have several sources and users.
+
+Choices from another ChrModel's catalog, and values husk can't place, are
+in the preset's `unresolved`. Skip or flag them; never guess them.
 
 ## Embed or reference — one rule
 
@@ -480,7 +527,7 @@ exportable as its own small manifest the exact same way an equipped item is —
 `materials/<name>/manifest.json` instead of (or alongside) an inline
 definition, with no new mechanism, just this rule applied at finer
 granularity. This is what makes a single material genuinely distributable on
-its own — see `DESIGN.md`'s material design section for what that manifest
+its own — see `CANON_DESIGN.md`'s material design section for what that manifest
 actually contains.
 
 This keeps the definition layer simple — no shared per-race object to locate,
@@ -728,6 +775,16 @@ and depth, but its liquids store depth only. Per chunk,
 `liquid_fishable_rows`/`liquid_deep_rows` (same shape as `hole_rows`) mark
 fishable and deep liquid quads.
 
+Two optional additions, present only where the source has them (WoW Forever
+1.60.1, retail 12.1.7+; `WIKI_FINDINGS/FOREVER.md`):
+- `resources.terrain.liquid_flow`: a texture index to the tile's flow map
+  (WDT `MAI2` → `world/liquidflow`), laid over the tile like the map
+  texture. R and G are a signed flow vector around 128; data, not colour.
+  Dropped when the WDT names a file the build doesn't ship.
+- `liquid_types[].waves`: the type's FFT ocean-wave spectra (`FFTTile` via
+  `LiquidTypeXFFTTile`), carried raw under `source` until the fields have
+  names.
+
 ### Placements
 
 Two placement sets (`PLACEMENT_SETS.md`, set files are
@@ -799,8 +856,13 @@ its `MAID` (the listfile only without one).
   each instance's id its source's own. They are two sets because the two
   id spaces overlap. Every azeroth fog and particle volume lands on one of
   its cells.
-- `zones` (schema 0.2.2, Luna 2026-10-17): the world's named regions,
-  nested (`parent`), each as the cells its surface directly covers with a
+- `zones` (schema 0.2.2, Luna 2026-10-17; stable ids 0.3.0): the world's
+  named regions, nested, each with a stable `id` (a UUID) that `parent`
+  names, so reordering or filtering the array never breaks a reference.
+  Ids come from `husk::nameUuid` (UUIDv3 of `zone/<map>/AreaTable/<row>`),
+  so a re-export keeps them. The array stays an array, so reading by
+  position is direct and lookup by id is a scan or a map built once. Each
+  zone is its cells, the cells its surface directly covers, with a
   `coverage` fraction; a zone's whole extent is its cells and its
   descendants'. A zone is the format's own description, not a source
   table: the AreaTable row is only its `source.id`. From WoW, every area

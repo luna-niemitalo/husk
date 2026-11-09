@@ -111,6 +111,9 @@ inline constexpr int kExitSourceGone = 3;
 // `mount` -- serves the store read-only over FUSE (cmd_store.cpp,
 // REFACTOR/CORPUS_EXPORT.md).
 int storeAdd(int argc, char** args);
+// `store-prune` -- drops builds from the store and removes the objects no
+// remaining build lists; a dry run unless --apply.
+int storePrune(int argc, char** args);
 int mount(int argc, char** args);
 
 // `export-corpus` -- export-world over every map with --all-assets, then
@@ -302,6 +305,14 @@ struct StoreAddOptions {
     bool link = false;
 };
 void addStoreAddOptions(CLI::App& app, StoreAddOptions& opts);
+
+struct StorePruneOptions {
+    std::string store;
+    std::vector<std::string> drop;
+    bool superseded = false;
+    bool apply = false;
+};
+void addStorePruneOptions(CLI::App& app, StorePruneOptions& opts);
 
 struct ExportCorpusOptions {
     std::string output;

@@ -5,7 +5,7 @@
 
 def main [
     --corpus-root: string = "/media/luna/wow_export/live"
-    --listfile: string = "/media/luna/userdata/Downloads/community-listfile.csv"
+    --listfile: string = "/home/luna/dev/husk/development/listfiles"  # husk picks the newest snapshot
     --out-dir: string = "/media/luna/work/cache/husk/hd_character_export"
     --husk-bin: string = "/home/luna/dev/husk/build/husk"
 ] {

@@ -32,6 +32,7 @@ struct TileSources {
     // world/maptextures path), resolved through Resolutions::textures.
     std::optional<uint32_t> mapTexture;
     std::optional<uint32_t> mapNormalTexture;
+    std::optional<uint32_t> liquidFlowTexture;  // WDT MAI2, else the listfile's world/liquidflow path
 };
 
 // Keyed by FileDataID. A texture absent here becomes

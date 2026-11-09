@@ -21,7 +21,7 @@ using Slot = std::string;
 
 // Case 1 (today's GearItem): standalone geometry, its own separate `.m2`.
 // modelFileDataIds is a vector because one ModelResourcesID can resolve to
-// several real FileDataIDs (LOD variants), never collapsed to one -- same
+// several real FileDataIDs (race/sex variants), never collapsed to one -- same
 // policy as itemappearance::Resolution::materials.
 //
 // GearItem::auxGlbPath is excluded: a written-.glb-relative-path is a

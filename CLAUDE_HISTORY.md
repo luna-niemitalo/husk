@@ -14,6 +14,40 @@ deletions handled their own back-references).
 
 ---
 
+**2026-11-09 — DESIGN.md restructured (design vs. implementation).**
+
+- `DESIGN.md` went from 3,433 lines of mixed rationale, status and session
+  narrative to a design document; `README.md` "Implementation" is the
+  status hub. `canon::`/writer design records moved to
+  `REFACTOR/CANON_DESIGN.md`; the anecdotal geoset-group table to
+  `WIKI_FINDINGS/M2.md`; the `.renderignore` rationale to `TOOLS.md`; the
+  open multi-root questions to `TODO/INVESTIGATIONS_TODO.md` #16. Stale
+  claims fixed: WMO/ADT are implemented (bundles), BLP decodes in-process,
+  alias sequences resolve, the "no Blender addon" non-goal is retired.
+- Narrative facts that lived only in `DESIGN.md`, kept here:
+  - First Blender pass (2026-08-01): bones' tail directions all point one
+    way — very likely the importer (glTF carries no bone length), not
+    pursued. The `.skin` "Bones" lookup / `boneCombos` indirection
+    hypothesis for misparented vertices was closed: husk's raw
+    `M2Vertex.bone_indices` matched the indirection formula on 9,143/9,143
+    weighted slots.
+  - The first listfile cache (2026-08-29) still returned an
+    `unordered_map`: warm ~4% faster (~696 → ~668 ms), cold slower (sort
+    + ~145 MB write). Map construction was the cost, which led to the
+    mmap `ListfileIndex` (`DESIGN.md` "Listfile index").
+  - CLI11 migration: `pkgs.cli11` + `find_package(CLI11 CONFIG REQUIRED)`,
+    linked `PUBLIC` on `husk-lib`; the positional parser, `printUsage` and
+    `--anim-dir` were removed; "no `.skin`" and "`.skin auto`" folded into
+    `resolveSkin`.
+  - canon:: passes 2026-09-07: Mesh/Model 914 → 922 tests; writer_common
+    → 930; gltf_lean 937 → 942 (13,006 assertions).
+  - `WORLD_COMPLETENESS.md`'s first real-data pass produced the eleven
+    `TODO/WORLD/*_TODO.md` plans (corrections in `WIKI_FINDINGS/WORLD.md`)
+    and the order `.wdt` → ADT terrain → placement → the rest.
+  - The native-bundle payload section (BufferSlice, 2026-09-06) was
+    dropped as a duplicate of `REFACTOR/BUNDLE_FORMAT.md` "Resolved
+    2026-09-06" and `CANONICAL_FORMAT.md` §5.
+
 **2026-10-17 — Blender world authoring (MVP).**
 
 - Luna's ask: load husk worlds/tiles into Blender, placements as empties

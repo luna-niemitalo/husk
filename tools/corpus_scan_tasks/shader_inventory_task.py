@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; LISTFILE read from there
+import listfile_index  # noqa: E402 -- same sys.path.insert
 
 AGGREGATE_PATH = csf.REPO_ROOT / "SHADER_FINDINGS" / "scan" / "shader_inventory_aggregate.json"
 
@@ -540,12 +541,7 @@ def _suffix_token(name: str | None) -> str:
 
 
 def _resolve_fdids(wanted: set[int]) -> dict[int, str]:
-    found: dict[int, str] = {}
-    if not wanted or csf.LISTFILE is None or not csf.LISTFILE.exists():
-        return found
-    with csf.LISTFILE.open("r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            fdid_str, _, rel_path = line.partition(";")
-            if fdid_str.isdigit() and int(fdid_str) in wanted:
-                found[int(fdid_str)] = rel_path.strip()
-    return found
+    if not wanted or csf.LISTFILE is None:
+        return {}
+    listfile = listfile_index.open_listfile(csf.LISTFILE)
+    return {fdid: path for fdid in wanted if (path := listfile.get(fdid)) is not None}

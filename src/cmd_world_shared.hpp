@@ -84,11 +84,17 @@ Sidecar<Parsed> loadSidecar(const std::filesystem::path& root, const std::string
 
 canon::TextureRef resolveTexture(uint32_t fdid, const ListfileIndex& listfile, const std::string& listfileRoot);
 
-// The tile's baked map textures (colour, normal): the WDT's MAID ids when
-// `wdt` has them, else the listfile's world/maptextures/<map>/
-// <map>_<x>_<y>[_n].blp. nullopt where neither names one.
-std::pair<std::optional<uint32_t>, std::optional<uint32_t>> mapTextureIds(const TileName& tile, const adt::WdtFile* wdt,
-                                                                          const ListfileIndex* listfile);
+struct TileTextureIds {
+    std::optional<uint32_t> mapTexture;
+    std::optional<uint32_t> mapNormalTexture;
+    std::optional<uint32_t> liquidFlow;
+};
+
+// The tile's whole-tile textures: the baked map textures from the WDT's
+// MAID and the flow map from its MAI2 when `wdt` has them, else the
+// listfile's world/maptextures/<map>/<map>_<x>_<y>[_n].blp and
+// world/liquidflow/<map>/<map>_<x>_<y>.blp. nullopt where neither names one.
+TileTextureIds tileTextureIds(const TileName& tile, const adt::WdtFile* wdt, const ListfileIndex* listfile);
 
 adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, const std::string& dbdDir,
                                                     std::string& note);

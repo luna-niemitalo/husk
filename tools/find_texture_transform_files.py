@@ -6,7 +6,7 @@ fixture for verifying the texture-transform pivot-correction math
 KHR_texture_transform pivots around (0,0) -- see M2_COMPLETENESS.md's
 "Texture transform (constant case)" row and src/m2.hpp's TextureTransform
 doc comment). Writes matching M2 paths, one per line, to
-texture_transform_files_for_exploration.txt (repo root), same plain format
+corpus_reports/texture_transform_files_for_exploration.txt, same plain format
 as multiroot_skeleton_files_for_exploration.txt/phys_files_for_exploration.txt.
 
 Independent of husk's own code (same "second opinion" discipline
@@ -37,7 +37,7 @@ except ImportError:
 	tqdm = None
 
 DEFAULT_ROOT = Path("/media/luna/wow_export/live")
-OUTPUT_PATH = Path(__file__).resolve().parent.parent / "texture_transform_files_for_exploration.txt"
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "corpus_reports" / "texture_transform_files_for_exploration.txt"
 
 # Same fixed field offsets husk's own src/m2.cpp uses.
 _M2_TEXTURE_TRANSFORMS_OFFSET = 0x060  # M2Array<M2TextureTransform>: count (u32) + offset (u32)

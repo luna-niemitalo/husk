@@ -235,3 +235,33 @@ TEST_CASE("loadListfileCached: HUSK_LISTFILE_BACKEND=hash builds/loads the mmap 
     }
     std::remove(path.c_str());
 }
+
+TEST_CASE("loadListfileCached: the sorted cache answers path -> FileDataID like a full pass, lowest id first") {
+    ScopedCacheDir cacheDir("by-path");
+    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_by_path.csv",
+                              "900;world/goober/bubble.blp\n"
+                              "200859;world/goober/bubble.blp\n"
+                              "1018799;character/human/male/deathknighteyeglow.blp\n"
+                              "5;a/first.m2\n"
+                              "77;z/last.m2\n");
+    auto cached = loadListfileCached(path.string());
+    REQUIRE(fs::exists(listfileCacheDir() / "listfile.sorted.bin"));
+
+    std::vector<std::string> wanted{"world/goober/bubble.blp", "a/first.m2", "z/last.m2",
+                                    "character/human/male/deathknighteyeglow.blp", "not/listed.blp", "a"};
+    std::unordered_map<std::string, uint32_t> found = cached->fileDataIdsForPaths(wanted);
+    CHECK(found.size() == 4);
+    CHECK(found.at("world/goober/bubble.blp") == 900);  // two rows share it: the lowest FileDataID wins
+    CHECK(found.at("a/first.m2") == 5);
+    CHECK(found.at("z/last.m2") == 77);
+    CHECK(found.at("character/human/male/deathknighteyeglow.blp") == 1018799);
+
+    // The map-backed default (one forEach pass) agrees on every unique path.
+    std::unordered_map<uint32_t, std::string> direct = loadListfile(path.string());
+    std::unordered_map<std::string, uint32_t> scanned = MapListfileIndex(direct).fileDataIdsForPaths(wanted);
+    for (const auto& [p, fdid] : scanned) {
+        if (p != "world/goober/bubble.blp") CHECK(found.at(p) == fdid);
+    }
+    CHECK(scanned.size() == 4);
+    std::remove(path.c_str());
+}

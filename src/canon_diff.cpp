@@ -343,7 +343,7 @@ Report compareSkeleton(const canon::Skeleton& canonSkeleton, const gltf::Skeleto
     r.notes.push_back("joint display names (canon::Joint::ref.name/structuralLabel vs "
                        "gltf::Skeleton::Joint::name) aren't compared -- canon's structural-label naming "
                        "tier is a new fact with no legacy equivalent, not a mirrored one "
-                       "(REFACTOR/AUDIT.md, DESIGN.md's canon bone-naming section)");
+                       "(REFACTOR/AUDIT.md, REFACTOR/CANON_DESIGN.md's bone-naming section)");
 
     return r;
 }

@@ -3,7 +3,7 @@
 // CLI11 registrations `--help` reads, so a flag's description/default only
 // has to be written once (in addExportOptions, cmd_export.cpp) instead of
 // also being hand-copied into README.md -- see README.md's "Flags:" intro
-// under `export` and DESIGN.md's doc-bloat-reduction notes. This test is
+// under `export` and DESIGN.md's "CLI argument grammar for `export`". This test is
 // the actual enforcement: without it, nothing stops README.md's checked-in
 // copy from silently drifting the next time a flag changes.
 

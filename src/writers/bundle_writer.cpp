@@ -724,6 +724,21 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
             writeRef(w, source.ref);
             writeFloatField(w, "scale", source.scale);
             writeFloatField(w, "base_scale", source.baseScale);
+            if (!source.users.empty()) {
+                w.key("users");
+                w.beginArray();
+                for (const canon::PresetUser& user : source.users) {
+                    w.beginObject();
+                    w.key("ref");
+                    writeRef(w, user.ref);
+                    if (!user.title.empty()) {
+                        w.key("title");
+                        w.value(user.title);
+                    }
+                    w.endObject();
+                }
+                w.endArray();
+            }
             w.endObject();
         }
         w.endArray();
@@ -1317,8 +1332,13 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     w.beginArray();
     for (const canon::Zone& zone : world.zones) {
         w.beginObject();
+        w.key("id");
+        w.value(zone.id);
         writeName(w, zone.ref);
-        if (zone.parent) writeIntField(w, "parent", static_cast<int64_t>(*zone.parent));
+        if (zone.parent) {
+            w.key("parent");
+            w.value(world.zones.at(*zone.parent).id);
+        }
         w.key("cells");
         w.beginArray();
         for (const canon::ZoneCell& cell : zone.cells) {

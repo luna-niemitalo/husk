@@ -71,8 +71,9 @@ FileDataIDs from `MAID`, and places a terrain-less map's WMO
 `WIKI_FINDINGS/WORLD.md` "WDT".
 
 Open:
-- `MAI2` (real in `azeroth.wdt`/`kalimdor.wdt`, 4096×32 bytes): not
-  parsed; only its first field is known to hold FileDataIDs.
+- `MAI2` (4096×32 bytes): not parsed. Field 0 is the tile's liquid
+  flow map FDID, fields 1–7 always zero; live's FDIDs dangle
+  (`../../WIKI_FINDINGS/FOREVER.md`).
 - `MPHD`'s sidecar FileDataIDs (`lgt`/`occ`/`fogs`/`mpv`/`tex`/`wdl`/
   `pd4`): not parsed; the sidecars are found by name.
 - `MAIN` bits beyond 0x1 (0x2 "all water"): not read.

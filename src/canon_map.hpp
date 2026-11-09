@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "canon_placement.hpp"
@@ -34,8 +35,9 @@ struct ZoneCell {
 };
 
 struct Zone {
+    std::string id;  // stable UUID, what `parent` and consumers refer to
     Ref ref;  // identity is the source's record (AreaTable row), the name its own
-    std::optional<size_t> parent;  // index into World::zones
+    std::optional<size_t> parent;  // index into World::zones; written as that zone's id
     std::vector<ZoneCell> cells;
 };
 

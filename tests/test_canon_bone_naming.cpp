@@ -1,5 +1,5 @@
 // Tests for husk::canon chain/symmetry bone labeling (src/canon_bone_naming.hpp)
-// per DESIGN.md's "canon:: bone naming" section. No existing pipeline to
+// per REFACTOR/CANON_DESIGN.md's "canon:: bone naming" section. No existing pipeline to
 // converge against (genuinely new behavior) -- checks are internal
 // consistency (valid format, no collisions), determinism, and the real-data
 // mirror-axis claim.
@@ -113,7 +113,7 @@ TEST_CASE("computeStructuralLabels: a long (>2 bone) branch is promoted to its o
     Skeleton skel;
     // Root is the branch point itself: a clearly-larger 4-bone main chain
     // (1,2,3,4) picks it as "main" over the 3-bone branch (5,6,7)
-    // unambiguously (no size tie -- DESIGN.md names no tiebreak for that
+    // unambiguously (no size tie -- REFACTOR/CANON_DESIGN.md names no tiebreak for that
     // case, so this test avoids needing one).
     skel.joints.push_back(makeJoint(-1, 0.0f, 0.0f, 0.0f));  // 0: root (branch point)
     skel.joints.push_back(makeJoint(0, 0.0f, 0.0f, 1.0f));   // 1: main chain

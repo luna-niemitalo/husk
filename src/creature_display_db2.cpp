@@ -53,13 +53,16 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
                                                  err);
     auto items = db2table::readNamedArrayColumns(tablePath(db2Dir, "npcmodelitemslotdisplayinfo.db2"), dbdDir,
                                                  {"NpcModelID", "ItemDisplayInfoID", "ItemSlot"}, err);
+    std::string creaturePath = tablePath(db2Dir, "creature.db2");
+    auto creatures = db2table::readNamedArrayColumns(creaturePath, dbdDir, {"ID", "DisplayID"}, err);
+    auto creatureNames = db2table::readNamedStringColumns(creaturePath, dbdDir, {"Name_lang", "Title_lang"}, err);
     auto textures = texturefiledata::load(db2Dir, dbdDir, err);
     auto chrModels = db2table::readNamedArrayColumns(tablePath(db2Dir, "chrmodel.db2"), dbdDir,
                                                      {"ID", "DisplayID", "CharComponentTextureLayoutID"}, err);
     auto customization = chrcustomization::load(db2Dir, dbdDir, err);
     auto layouts = chrmodel::load(db2Dir, dbdDir, err);
-    if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !textures || !chrModels ||
-        !customization || !layouts) {
+    if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !creatures || !creatureNames ||
+        !textures || !chrModels || !customization || !layouts) {
         return std::nullopt;
     }
 
@@ -106,6 +109,21 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     out.layouts = std::move(*layouts);
     out.textureFiles = std::move(*textures);
     for (const auto& row : *items) out.itemsByExtra[first(row[0])].push_back({first(row[1]), first(row[2])});
+    for (size_t i = 0; i < creatures->size(); ++i) {
+        const auto& row = (*creatures)[i];
+        const auto& names = (*creatureNames)[i];
+        Creature creature{first(row[0]), names[0].value_or(""), names[1].value_or("")};
+        // DisplayID[4] can repeat a display (weighted by DisplayProbability).
+        std::array<uint32_t, 4> displayIds = words<4>(row[1]);
+        std::sort(displayIds.begin(), displayIds.end());
+        auto last = std::unique(displayIds.begin(), displayIds.end());
+        for (auto id = displayIds.begin(); id != last; ++id) {
+            if (*id != 0) out.creaturesByDisplay[*id].push_back(creature);
+        }
+    }
+    for (auto& [display, list] : out.creaturesByDisplay) {
+        std::sort(list.begin(), list.end(), [](const Creature& a, const Creature& b) { return a.id < b.id; });
+    }
     return out;
 }
 

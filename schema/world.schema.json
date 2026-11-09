@@ -17,7 +17,7 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.2.2",
+      "const": "0.3.0",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
@@ -163,11 +163,14 @@
             "$ref": "common.schema.json#/definitions/ref/properties/name_source",
             "description": "Where the name came from. Present exactly when name is."
           },
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "This zone's stable id, unique among the world's zones."
+          },
           "parent": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The zone this one lies in; absent for a top-level zone.",
-            "x-index-into": "/zones"
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "The id of the zone this one lies in; absent for a top-level zone.",
+            "x-id-in": "/zones"
           },
           "cells": {
             "type": "array",
@@ -217,6 +220,7 @@
         },
         "additionalProperties": false,
         "required": [
+          "id",
           "cells",
           "source"
         ],

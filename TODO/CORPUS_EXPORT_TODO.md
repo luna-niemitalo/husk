@@ -15,6 +15,5 @@ Design and current state: `REFACTOR/CORPUS_EXPORT.md`.
    the store is being copied to the work pool's SSDs. Then: a timed sample,
    then the run (Luna's go-ahead).
 6. **`husk view`** (reflinked tree) for tools that can't use FUSE.
-7. **Prune**: drop builds, then objects no `files.tsv` lists.
 8. **Incremental export** from the previous build's `inputs.tsv` and a game
    build diff.

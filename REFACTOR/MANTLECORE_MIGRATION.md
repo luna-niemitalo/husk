@@ -338,7 +338,9 @@ on husk's side (`BUNDLE_FORMAT.md` "Seams between tiles").
   carries its FileDataID when husk knows it, M2 bundles included.
 - `zones` (schema 0.2.2): named, nested regions as the cells each covers
   (`BUNDLE_FORMAT.md` "World documents"), for loading or streaming a
-  world by zone.
+  world by zone. **0.3.0 (breaking): every zone has an `id` (UUID) and
+  `parent` is the parent's `id`, no longer an array index.** Build a
+  map from `id` once if you walk the nesting.
 
 ## 6a. Worlds authored in Blender
 

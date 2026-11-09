@@ -10,14 +10,14 @@
 #include "canon_ref.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
-// DESIGN.md's "canon:: material design" -- a pure value type, no consumers
+// REFACTOR/CANON_DESIGN.md's "canon:: material design" -- a pure value type, no consumers
 // wired to it yet (migrating gltf_mesh.hpp's Material/export_materials.cpp
 // onto it, and porting real Combiners_* formula math into
 // ShadingFunction::function, are both separate, later work).
 namespace husk::canon {
 
 // M2 (Legion+) has no PBR map slots anywhere in the parsed format -- these
-// are the roles WoW's own data can actually assert (DESIGN.md's "real facts
+// are the roles WoW's own data can actually assert (REFACTOR/CANON_DESIGN.md's "real facts
 // checked before designing anything"), not an invented PBR vocabulary. The
 // string alternative keeps this open past M2's own vocabulary for a future
 // producer without forcing a KnownRole enumerator to exist for it.
@@ -143,7 +143,7 @@ struct MaterialLayer {
 
     // A batch's M2TextureTransform (wowdev.wiki M2#Texture_Transforms),
     // each component independently animated via canon::Curve -- the shape
-    // DESIGN.md calls out as "TBD at implementation time"; this is that
+    // REFACTOR/CANON_DESIGN.md calls out as "TBD at implementation time"; this is that
     // choice, justified by direct 1:1 correspondence to M2TextureTransform's
     // three real fields, no more and no less.
     struct TextureTransformCurves {
@@ -216,7 +216,7 @@ struct Material {
 };
 
 // The framebuffer-blend axis the "four base functions" hypothesis
-// (DESIGN.md's "Shading-function descriptions: a scaffold, not a one-shot
+// (REFACTOR/CANON_DESIGN.md's "Shading-function descriptions: a scaffold, not a one-shot
 // transcription", explicitly flagged UNVERIFIED -- Luna's own recollection
 // of a different, uncorroborated AI session, not this project's own
 // confirmed finding) predicts most of M2's ~20 named Combiners_* formulas
@@ -224,7 +224,7 @@ struct Material {
 struct AlphaClip {};
 struct AlphaBlend {};
 struct Additive {};
-// tintSource intentionally omitted: DESIGN.md is explicit this parameter's
+// tintSource intentionally omitted: REFACTOR/CANON_DESIGN.md is explicit this parameter's
 // real shape is exactly the open transcription work, not yet done --
 // adding a field here would be guessing at data this design doesn't have.
 struct Multiplicative {};
@@ -273,7 +273,7 @@ struct ShadingFunction {
     // AlphaClip is a placeholder default, not a considered choice -- picking
     // the real documented fallback for a GenuinelyUnknown formula is
     // corpus-frequency-driven work for whoever does the transcription
-    // (DESIGN.md's "Shading-function descriptions"), not decided here.
+    // (REFACTOR/CANON_DESIGN.md's "Shading-function descriptions"), not decided here.
     // Spelled out explicitly so a default-constructed value reads as a
     // stated placeholder rather than an accident of variant's first-
     // alternative rule.

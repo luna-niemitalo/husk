@@ -102,6 +102,12 @@ big buffers) — real parallelism, no GIL contention. `"thread"` only for
 genuinely lightweight tasks (a few field reads) where per-file process
 pickling/IPC would cost more than the work itself.
 
+**Listfile lookups**: use `listfile_index.open_listfile(csf.LISTFILE).get(fdid)`
+(`tools/listfile_index.py`), never a per-task CSV parse. It mmaps husk's
+own listfile cache, shared by every worker process (1.8 ms to open vs
+~0.9 s and hundreds of MB per process for a parse); check it with
+`tests/listfile_index_check.py`.
+
 ## Two real gotchas, both hit in the same session (2026-08-15)
 
 ### 1. `--limit` samples the front of traversal order, not the corpus

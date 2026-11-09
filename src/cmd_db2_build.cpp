@@ -260,7 +260,9 @@ int db2Build(int argc, char** args) {
         // listfile name, both resolved to a completely unrelated item's
         // texture -- ModelMaterialResourcesID_0/1 turned out to only be a
         // wow.export existence check, discarded, never dereferenced for
-        // the actual texture). Only ModelResourcesID_0 is used for the
+        // the actual texture). Caveat: that check read these array columns
+        // before the pallet-offset fix (706c8b6) corrected them; unrechecked.
+        // Only ModelResourcesID_0 is used for the
         // reverse model -> ItemDisplayInfo lookup (matching wow.export's
         // own `modelResIDs[0]`, never an OR across both slots). One model
         // can legitimately match several ItemDisplayInfoIDs (recolor/

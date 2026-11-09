@@ -44,6 +44,10 @@ canon::LiquidType buildLiquidType(uint32_t row, const liquiddb::Data* data, cons
         for (uint32_t fdid : slot.frames) canonSlot.frames.push_back(frameTexture(fdid, slot.kind, textures));
         out.textures.push_back(std::move(canonSlot));
     }
+    for (uint32_t tileId : type->second.waveSpectra) {
+        const liquiddb::WaveSpectrumRow& spectrum = data->waveSpectra.at(tileId);
+        out.waves.push_back({db2Ref("FFTTile", tileId), spectrum.field0, spectrum.values});
+    }
     return out;
 }
 

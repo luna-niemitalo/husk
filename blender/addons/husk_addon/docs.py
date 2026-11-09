@@ -11,7 +11,7 @@ import numpy as np
 # The schema version every document the addon writes conforms to; its
 # counterpart is writeContractHeader in src/writers/bundle_common.cpp. Older
 # documents are read as long as nothing they lack is needed.
-SCHEMA_VERSION = "0.2.2"
+SCHEMA_VERSION = "0.3.0"
 
 SPACE = {
     "length_unit": "yard",

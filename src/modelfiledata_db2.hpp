@@ -12,8 +12,9 @@
 // to the real .m2 FileDataID(s) that share it. Same db2table.hpp-backed
 // thin-wrapper pattern as texturefiledata_db2.hpp.
 //
-// One ModelResourcesID legitimately owns more than one FileDataID -- real
-// LOD variants of the same model, each its own file -- so this keeps every
+// One ModelResourcesID legitimately owns more than one FileDataID -- the
+// item's race/sex variants (`_be_f`, `_dwf`) or shoulder sides (`_l`/`_r`),
+// each its own file, not LOD variants -- so this keeps every
 // candidate rather than picking one, same "husk resolves, never guesses
 // among real alternatives" policy cmd_db2_build.cpp's own model/
 // ItemDisplayInfo ambiguity handling already established.

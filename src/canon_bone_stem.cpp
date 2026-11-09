@@ -27,7 +27,7 @@ constexpr size_t kTotalStems = kBoneStemAlphabetSize + kMiddleTierCount + kXyzCo
 
 // (commonIdx, distinctIdx) for the pairIndex'th pair, ordered common
 // ascending then distinct ascending over the alphabet minus commonIdx --
-// DESIGN.md leaves this ordering unspecified beyond "deterministic",
+// REFACTOR/CANON_DESIGN.md leaves this ordering unspecified beyond "deterministic",
 // this is the chosen one.
 std::pair<size_t, size_t> decodePair(size_t pairIndex) {
     size_t common = pairIndex / (kBoneStemAlphabetSize - 1);

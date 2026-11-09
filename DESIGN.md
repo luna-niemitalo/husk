@@ -4,1712 +4,759 @@ aliases:
 ---
 # DESIGN.md — husk
 
-Architecture and design rationale. Status/progress lives in the README's
-roadmap and format matrix, not here — this file explains *why* the code is
-shaped the way it is, so a structural change can be checked against the
-reasoning instead of just the current state. Real-file reverse-engineering
-findings live in `WIKI_FINDINGS.md`; open correctness gaps live across the
-individual `TODO/*.md` files (see `TODO/README.md`'s index); a granular
-per-M2-feature completion breakdown
-(parse depth vs. consumption depth vs. glTF ceiling) lives in
-`M2_COMPLETENESS.md`, with the same breakdown for WMO + ADT (combined, not
-yet implemented — a target-setting scaffold, not a progress report) in
-`WORLD_COMPLETENESS.md`. The standalone Python corpus-exploration scripts
-under `tools/` (independent-of-husk "second opinion" verification, plus a
-generalized parallel corpus-scan framework) are documented in `TOOLS.md`,
-not here — that's tooling, not husk's own export architecture.
+Why husk is shaped the way it is: goal, scope, invariants, and the
+decisions behind the code, each with what was rejected and why. A
+structural change is checked against this file.
 
-**This file describes the tree as it stands.** The *target* architecture — a
-four-stage `parse -> resolve -> canonical -> write` pipeline, a single
-resolution boundary, a native bundle format and a real Blender addon — lives
-in `REFACTOR/`, deliberately kept separate so current and target never blur
-(`READABILITY.md` §3.10). Nothing in `REFACTOR/` is implemented; where it
-contradicts this file, this file is what the code actually does today.
+Where things live:
+
+| Question | Document |
+|---|---|
+| What exists, per feature, and what is open | `README.md` "Implementation" (the hub) |
+| The target architecture (`parse → resolve → canonical → write`) and invariants I1–I8 | `REFACTOR/README.md` |
+| `canon::` types and the writers over them | `REFACTOR/CANON_DESIGN.md` |
+| The bundle format | `REFACTOR/BUNDLE_FORMAT.md`, `schema/`, `CANONICAL_FORMAT.md` |
+| Real-file corrections to wowdev.wiki | `WIKI_FINDINGS.md` |
+| Per-M2-feature depth; WMO/ADT depth | `M2_COMPLETENESS.md`, `WORLD_COMPLETENESS.md` |
+| glTF `extras` keys | `EXTRAS_SCHEMA.md` |
+| Tests | `TEST_DESIGN.md` |
+| Python tooling under `tools/` | `TOOLS.md` |
+| Open work | `TODO/README.md` |
+| Session narrative | `CLAUDE_HISTORY.md` |
+
+Most decisions below were made for the legacy M2 → glTF pipeline
+(`gltf_*.cpp`, `cmd_export.cpp`, `export_*.cpp`), which is still `husk
+export`'s default output. Parsing and resolution decisions apply to both
+pipelines.
 
 ## Goal
 
-A real Blender import path for modern (Legion+, chunked) WoW M2 models —
-mesh, skeleton, textures, materials, animation — via a correct glTF 2.0
-export (`.glb`, core PBR metallic-roughness) that Blender's own built-in
-importer opens unmodified. husk's job stops at "read WoW formats, write
-correct glTF"; Blender-side concerns (addon UI, live reimport) are out of
-scope unless glTF itself proves insufficient.
+Read World of Warcraft's game files from a local extraction and write them
+as open data. The **canonical husk bundle** is the export target;
+MantleCore is its consumer. glTF and Blender are tertiary (Luna,
+2026-10-09); retiring the glTF pipeline is decided, not built
+(`REFACTOR/README.md`).
 
-Non-goals, by design, not oversight:
+The original goal, still the legacy pipeline's: a real Blender import path
+for modern (Legion+, chunked) WoW M2 models — mesh, skeleton, textures,
+materials, animation — via a correct glTF 2.0 export (`.glb`, core PBR
+metallic-roughness) that Blender's built-in importer opens unmodified;
+husk's job there is "read WoW formats, write correct glTF."
 
-- No *live* CASC/listfile access, ever, and no CASC-tool dependency. husk
-  never resolves a FileDataID to a real WoW install path, and never links
-  against or shells out to a CASC/DB2 client library. A separate tool
-  (e.g. `casc-tool`) extracts real files to local disk first; husk only
-  reads what's already there, and sidecar resolution
-  (`--skin-dir`/`--textures`/`--anim`/`--bones-dir`) is a **local-directory,
-  FileDataID-named** convention the user populates themselves — never CASC.
-  **This does not extend to DB2 data itself once it's already on disk.**
-  Scope clarified directly by Luna (2026-08-08, `CLAUDE_HISTORY.md` has the
-  full exchange): "the only hard
+### Non-goals
+
+- **No live CASC, ever, and no CASC-tool dependency.** husk never links or
+  shells out to a CASC/DB2 client and never resolves a FileDataID against a
+  live install. A separate tool (e.g. `casc-tool`) extracts files first;
+  husk reads what is on disk. Sidecar directories (`--skin-dir`,
+  `--textures`, `--anim`, `--bones-dir`) are local, user-populated,
+  FileDataID-named.
+- **Local DB2 files are in scope.** Luna, 2026-08-08: "the only hard
   boundary is not loading casc tool as a dependency... all data in
-  wow_export is free for all, to be used." A raw `.db2` file already
-  extracted to a local directory (the same `casc-tool`-populated tree as
-  the `.m2`/`.skin`/texture files husk already reads) is exactly that —
-  already on disk, same tier as every other sidecar — so husk parsing the
-  WDC5 *file format* locally, or resolving a real customization-choice
-  chain from those local files, is in scope and does **not** violate this
-  non-goal; only talking to CASC/DB2 *live*, at runtime, does. (Earlier
-  revisions of this file used looser wording here — "husk has no DB2
-  access," "never will" — that predates this clarification and should be
-  read as superseded wherever it's quoted or paraphrased elsewhere in this
-  file; the up-to-date framing is this bullet.) An out-of-band tool
-  scraping *live* CASC/DB2 at build time to learn something husk itself
-  structurally can't (e.g. which `.bone` slot a customization choice
-  selects, `TODO/BONE_CORRECTION_APPLICATION_TODO.md`) is likewise fine — it would just hand
-  husk a plain local file/flag to read, same as every other sidecar. What
-  husk itself never does, at runtime, under any circumstance, is talk to
-  *live* CASC/DB2 directly, or depend on the CASC tool itself. A real WDC5
-  DB2 parser now exists on top of this clarified scope (`src/db2.hpp`/
-  `.cpp`, `husk db2-info`) — header/section/field-storage layout verified
-  byte-for-byte against real files, real UTF-8 strings round-tripped from
-  `namesreserved.db2`, confirmed by Luna directly. Real column naming is
-  also implemented now (`src/dbd.hpp`/`.cpp`, an independent parser for
-  WoWDBDefs' own documented `.dbd` grammar — optional, local-only, never a
-  hard dependency, same tier as every other sidecar convention above) and
-  exposed via `husk db2-export`, a real DB2-to-SQLite converter for human
-  inspection/correctness-checking. On top of the same WDC5 parser, real
-  typed per-table C++ readers (`src/chrmodel_db2.hpp`, `src/
-  chrcustomization_db2.hpp`, `src/itemappearance_db2.hpp`, and others) now
-  feed `husk export`'s own runtime path directly (`--db2-dir`/`--dbd-dir`/
-  `--char-layout-id`/`--customization-choice-ids`/`--chr-model-id`) — see
-  README.md's own `husk export`/`husk db2-info`/`husk db2-export` sections
-  for usage.
-- **This same clarified scope extends to a local listfile too.** A real
-  130,576-file corpus render pass (2026-08-09) found that a real extraction
-  commonly keeps files under their own real name/path (e.g.
-  `world/goober/bubble.blp`), not renamed to a bare `<FileDataID>.{blp,png}`
-  -- cross-referencing against a real `community-listfile.csv` snapshot
-  showed 99.9% of what first looked like "missing" FileDataID textures were
-  actually present elsewhere in the tree under their real name (written up
-  in `casc-tool`'s own `FAILURES.md`, item 13, as the finding that motivated
-  this). A local `.csv` listfile snapshot is architecturally identical to
-  the WoWDBDefs checkout the DB2 clarification above already covers:
-  optional, user-supplied, never fetched/generated by husk itself, same
-  "already on disk, never live CASC" tier as every other sidecar
-  convention. `husk export --listfile <path>` (`src/listfile.hpp`/`.cpp`)
-  loads one and uses it as a last-resort FileDataID -> real-name lookup,
-  tried only after the exact `<FileDataID>.{blp,png}` convention already
-  fails -- still deterministic (real data, not a guess), so it's tried
-  before the fuzzy same-basename pool. This does **not** mean husk gained
-  listfile awareness by default: unset (the default), behavior is
-  byte-for-byte identical to before this flag existed.
-- No write-back to WoW's native formats. glTF-out only.
-- No WMO or M3 support implemented yet. WMO is tracked and now fully
-  investigated/planned (not started in `src/`) — see `TODO/WORLD/WMO_GEOMETRY_TODO.md`/
-  `TODO/WORLD/WORLD_PLACEMENT_TODO.md`/`TODO/WORLD/COLLISION_CULLING_TODO.md` and the rest of the
-  Open work pointer below. M3 remains genuinely untracked, no investigation
-  started: a full-storage `M3DT`-magic scan (casc-tool, product `wow` build
-  68887, 1,891,552 files) found 8 real `.m3` files exist in this corpus
-  (unresolved listfile names, `models\unknown\unk_exp*\<fdid>.m3`) — noted
-  for the record, still out of scope.
-- ADT terrain is implemented; WMO is not. `husk export-terrain`/
-  `export-world` read a tile's root/`_obj0`/`_tex0` and the map WDT's
-  `MPHD` flags into `canon::Terrain` and write it as a terrain bundle, never
-  glTF (`REFACTOR/BUNDLE_FORMAT.md`'s "Terrain tile bundles"). Terrain was
-  missed when this project was first scoped, not deliberately excluded:
-  it's crucial for any rendered world. **WMO and ADT are still scoped
-  together** in `WORLD_COMPLETENESS.md`, since ADT's whole relevance beyond
-  terrain is placing M2/WMO instances into world space (`MDDF`/`MODF`), and
-  WMO has the same concern turned inward (`MODS`/`MODN`/`MODI`/`MODD`).
-  Until WMO geometry exists, `MODF` placements are identity-and-transform
-  references with nothing to point at. `.wdt` is read only for its `MPHD`
-  flags; `.wdl` is not read.
-- **PM4/PD4 (server-side navigation/pathing mesh) declared in scope**,
-  2026-07-31, explicitly for pathing use cases ("we want pathing").
-  Genuinely different in kind from every other format above: never
-  touched by the client renderer, only by server-side movement/AI, so
-  "renders correctly" isn't the bar for it the way it is for M2/WMO/ADT —
-  but (corrected 2026-08-01, `LUNA_NOTES.md`) that doesn't mean "excluded
-  from export," it means "real geometry, hidden by default," the same
-  spirit as M2's own collision mesh. Now has a full investigation and
-  implementation plan, `TODO/WORLD/PM4_PD4_TODO.md` (see Open work below) — including
-  a genuine structural wall found this pass: these files are never shipped
-  to the client at all (a full live-storage sweep found zero real `.pm4`/
-  `.pd4` files anywhere), not an extraction-completeness gap.
-- **Shader bytecode (`BLS`/`GFAT`, WoW's compiled-shader files) investigated
-  and deliberately deprioritized, not ruled out on principle.** Luna's own
-  real investigation (not this session's) found actual intermediary
-  compiled shader files — `.dxbc` (DirectX bytecode) and `.spv` (SPIR-V),
-  both stripped of debug symbols/comments/cross-references, sitting at
-  `wow_modding/export/shaders/` — confirming decoding them is *possible*,
-  not just theoretical. Would answer a real correctness question this
-  project can't currently answer any other way (Blizzard's actual LOD-
-  dithering math), but the effort-to-visual-fidelity-gain ratio is judged
-  too poor to prioritize right now, at this stage of the project. Revisit
-  if/when core M2/WMO/ADT coverage stops being the bottleneck on visual
-  fidelity.
-- ~~No Blender addon. A `.glb` file Blender's stock importer can open is the
-  entire deliverable.~~ **Superseded, 2026-08-28.** This stopped being true
-  some time ago and the non-goal was never retired: `tools/` now holds ~4,150
-  lines of Blender Python (`husk_blender_geoset_mask.py`,
-  `husk_blender_options_panel.py`) building Geometry Nodes switches, shader
-  node graphs, jiggle-physics chains and a registered `View3D` N-panel --
-  an addon in everything but packaging. The agreed direction is now
-  `M2 -> canonical -> Blender` via a native husk bundle read by a real,
-  packaged addon, with glTF demoted to an optional best-effort projection
-  (POTENTIAL_PLAN's Canonical Data Model doc, section 13). See `REFACTOR/`
-  for the target pipeline; none of it is implemented yet, and everything
-  else in this file still describes the tree as it actually stands.
+  wow_export is free for all, to be used." Parsing WDC5 locally
+  (`src/db2.*`), naming columns from a local WoWDBDefs checkout
+  (`src/dbd.*`), and typed per-table readers (`*_db2.*`) are the same tier
+  as any sidecar. An out-of-band tool that learns something from live
+  CASC at build time and hands husk a local file is also fine. Older
+  wording ("husk has no DB2 access") is superseded by this.
+- **A local listfile is in scope**, same tier: optional, user-supplied,
+  never fetched (`--listfile`, `src/listfile.*`). A 130,576-file render
+  pass (2026-08-09) found 99.9% of "missing" FileDataID textures were
+  present under their real names (`casc-tool`'s `FAILURES.md` item 13).
+  Unset, behaviour is identical to having no listfile.
+- **No write-back** to WoW's native formats.
+- **M3: not started.** A full-storage `M3DT` scan (build 68887,
+  1,891,552 files) found 8 `.m3` files (unnamed,
+  `models\unknown\unk_exp*\<fdid>.m3`).
+- **WMO, ADT, WDT are implemented, as bundles only (never glTF).** ADT
+  tiles via `export-terrain`/`export-world`; WMOs via `export-wmo`, as
+  object bundles with their doodad sets as placement sets
+  (`REFACTOR/PLACEMENT_SETS.md`); maps via `export-map`. Per-chunk state:
+  `README.md` format matrix, `WORLD_COMPLETENESS.md`. Terrain was missed
+  when the project was first scoped, not excluded. `.wdl` is not read.
+- **PM4/PD4 (server-side pathing meshes): in scope, not started**
+  (2026-07-31, "we want pathing"). Real geometry, hidden by default, like
+  the M2 collision mesh. Never shipped to the client (zero files in a full
+  live-storage sweep), so fixtures need another source
+  (`TODO/WORLD/PM4_PD4_TODO.md`).
+- **Shader bytecode (`BLS`/`GFAT`, `.dxbc`/`.spv`): deprioritized, not
+  ruled out.** Decoding is possible (Luna found stripped dumps); it would
+  answer questions nothing else can (e.g. LOD dithering) but the
+  effort-to-fidelity ratio is poor while M2/WMO/ADT coverage is the
+  bottleneck.
+- **Retired non-goal: "No Blender addon. A `.glb` file Blender's stock
+  importer can open is the entire deliverable."** Retired 2026-08-28:
+  `tools/` had grown ~4,150 lines of Blender Python (an addon in all but
+  packaging). Target now: a packaged addon reading the bundle
+  (`REFACTOR/BLENDER_ADDON.md`); the world-authoring addon exists
+  (`blender/addons/husk_addon`).
 
-## Pipeline / module map
+### World export is composed bottom-up
+
+Confirmed by Luna, 2026-08-01: never a monolithic "export the whole game."
+Small, individually testable exporters first (one ADT tile, one WMO, a
+placement resolver), then thin composition on top (`export-world`,
+`export-corpus`) — the way the M2 pipeline grew one sidecar at a time. A
+world is a scene descriptor referencing separately exported bundles (the
+world document and placement sets), not one baked file.
+
+## Module map
 
 ```
 file bytes
-   │
-   ├─ src/chunk.cpp     generic tag-agnostic chunk reader (4-byte tag,
-   │                    NOT byte-reversed — see Design Decisions)
-   │
-   ├─ src/m2.cpp/.hpp   MD20/MD21 header (fixed-offset memcpy, not a
-   │                    packed struct), vertices, bones, sequences,
-   │                    materials, attachments/events/lights, ribbons,
-   │                    particles; M2Track/FBlock resolution (per-sequence,
-   │                    global-sequence, constant-value, external-blob
-   │                    splicing)
-   │
-   ├─ src/skin.cpp/.hpp .skin sidecar: triangle-index lookup, submeshes,
-   │                    batches (material/texture linkage) — same
-   │                    fixed-offset/bounds-checked approach as m2.cpp
-   │
-   ├─ src/skel.cpp/.hpp .skel sidecar (external skeleton): SKB1 bones /
-   │                    SKS1 sequences, both handed straight to
-   │                    m2::parseBones / m2::parseSequences — no parallel
-   │                    struct implementation (see Design Decisions)
-   │
-   ├─ src/bone.cpp/.hpp .bone sidecar (per-bone correction matrices),
-   │                    reverse-engineered, no wowdev.wiki page exists
-   │
-   ├─ src/gltf.cpp/.hpp glTF assembly — builds a tinygltf::Model, delegates
-   │                    actual .glb binary framing to tinygltf
-   │                    (WriteGltfSceneToStream), never hand-rolled
-   │
-   ├─ src/cmd_export.cpp   husk export: wires the above into gltf::Model
-   ├─ src/cmd_info.cpp     husk info: header/record-count/chunk-tag summary
-   └─ src/cmd_dump.cpp     husk dump-chunks: JSON dump of chunks with no
-                           glTF equivalent, or .bone files directly
+  ├─ src/chunk.*            generic chunk reader (tag-agnostic)
+  ├─ src/m2*.*              MD20/MD21 header, arrays, M2Track/FBlock resolution;
+  │                         m2::Model (m2_model.hpp) parses eagerly
+  ├─ src/skin.* skel.* bone.* phys.*   M2 sidecars
+  ├─ src/adt.* wmo.* wdt_volumes.*     world formats
+  ├─ src/blp.*              BLP2 decode, DDS rehousing (in-process)
+  ├─ src/db2.* dbd.* db2table.* *_db2.*   WDC5, WoWDBDefs naming, typed readers
+  └─ src/listfile*.*        listfile parse, cache, mmap index
+        │
+  src/sources/              resolution: where the bytes live (catalog)
+        │
+  *_canon_input.*, m2_*_input.*   input modules: format → canon:: values
+  src/canon_*.*             canon:: model (REFACTOR/CANON_DESIGN.md)
+        │
+  src/writers/              bundle (primary), lean glTF, materials, textures
+  src/bundle_schema.*       validate-bundle; schema/ embedded
 
-blp/  (separate Python/uv package, husk-blp CLI)
-   BLP2 → PNG: hand-rolled container (header + mip table), but block
-   decode (DXT1/DXT3/DXT5) delegates to Pillow via a synthetic DDS
-   wrapper — not reimplemented color/alpha math.
+legacy M2 → glTF:  cmd_export.cpp → export_*.cpp → gltf*.cpp (tinygltf)
+commands:          cmd_*.cpp, main.cpp
+blp/               Python reference decoder (husk-blp), test oracle only
 ```
 
-Two file-shape branches funnel into the same parser at the earliest
-possible point: pre-Legion flat `MD20` and Legion+ chunked `MD21` both
-resolve to "one MD20-shaped blob starting somewhere, offsets relative to
-that start" before `m2::parseHeader` ever runs — the branch is "where does
-the blob start," not "how is the blob read."
+Flat `MD20` and chunked `MD21` funnel into one parser at the earliest
+point: both resolve to "one MD20-shaped blob, offsets relative to its
+start" before `m2::parseHeader` runs. The branch is where the blob starts,
+not how it is read.
 
-## Data flow (husk export)
+## Data flow (`husk export`, legacy glTF)
 
-1. Read model file → detect flat vs. chunked → resolve MD20 blob.
-2. Parse header (fixed offsets) → arrays: vertices, bones, sequences,
-   materials, textures, textureCombos, attachments/events/lights,
-   ribbons, particles, sidecar FileDataID chunks (SFID/AFID/BFID/PFID/
-   SKID/TXID).
-3. Resolve triangle indices + submesh/batch structure from the given (or
-   `auto` + `--skin-dir`, FileDataID-resolved) `.skin` file.
-4. If inline `bones` is empty and an `SKID`/`.skel` path is available,
-   resolve bones (and sequences) from the `.skel` file instead — same
-   structs, different blob.
-5. Build the glTF skin (joint hierarchy, inverse bind matrices from bone
-   pivots — no baked rotation/scale in M2's bind pose, so no matrix-chain
-   composition needed) if bones exist; otherwise an unskinned mesh.
-6. Per batch: submesh slice → material → textureCombo → texture entry →
-   glTF material (`alphaMode`/`doubleSided` from WoW blend mode/render
-   flags; `baseColorFactor` from a *constant-only* M2Track resolution of
-   color/alpha; `baseColorTexture` embedded only if `--textures <dir>` has
-   a matching `<FileDataID>.png`).
-7. Per sequence: resolve per-bone translation/rotation/scale M2Tracks —
-   inline (`flags & 0x20`) from the owning blob, or external (no `0x20`,
-   no `0x40`) from a `--anim`-resolved `.anim` file via the model's (or
-   `.skel`'s own separate) `AFID` table. Z-up→Y-up conversion applied to
-   every keyframe (see Design Decisions). `0x40` ("alias") sequences are
-   skipped — wowdev.wiki itself doesn't know where that data lives.
-8. Write one glTF `animation` clip per sequence that actually resolves to
-   non-empty keyframe data.
-9. `--lod all`: repeat steps 3/6 per `SFID` entry, but build **one** shared
-   skeleton/skin/animation set (`gltf::writeGlbMulti`) — LOD only changes
-   which vertices/triangles are selected, never bind pose or animation.
+1. Read the model; flat vs. chunked → MD20 blob.
+2. Parse header (fixed offsets) and arrays: vertices, bones, sequences,
+   materials, textures, combos, attachments/events/lights, ribbons,
+   particles, sidecar FileDataID chunks (`SFID`/`AFID`/`BFID`/`PFID`/
+   `SKID`/`TXID`).
+3. Triangles and submesh/batch structure from the resolved `.skin`.
+4. If inline `bones` is empty and an `SKID`/`.skel` is available, bones and
+   sequences come from the `.skel` (same structs, other blob).
+5. glTF skin from bone pivots (M2's bind pose has no rotation/scale, so no
+   matrix-chain composition); unskinned mesh if no bones.
+6. Per batch: submesh → material → textureCombo → texture → glTF material;
+   texture bytes through the resolution tiers ("Resolution" below).
+7. Per sequence: per-bone tracks, inline (`flags & 0x20`) or external
+   `.anim` (via the model's or `.skel`'s `AFID`); alias (`0x40`) sequences
+   resolve through their `aliasNext` chain. Axis conversion on every
+   keyframe.
+8. One glTF animation per sequence with real keyframes; one per used
+   global sequence.
+9. `--lod all`: steps 3/6 per `SFID` entry, sharing one skeleton/skin/
+   animation set (`gltf::writeGlbMulti`).
+
+## Boundaries (where foreign data enters)
+
+The list of boundaries is `CLAUDE.md` "Boundaries". The invariants:
+
+- **Every foreign byte is read through bounds-checked parsing at named
+  offsets**, failing with expected vs. actual (`ParseError`/
+  `std::runtime_error`), never a silent misread.
+- **Byte-layout ambiguities are settled against real decoded files**, not
+  prose (`WIKI_FINDINGS.md` holds the receipts).
+- **Local files only**; no network anywhere.
+- **What husk can't resolve is reported, not fabricated.**
+- Sidecar conventions: directories (`--textures`, `--skin-dir`, `--anim`,
+  `--bones-dir`) are FileDataID-named; `--skel`/`--phys` are single files
+  (one scalar FileDataID, `SKID`/`PFID`), found by same basename.
 
 ## Key design decisions
 
-**Chunk tags are read literally, not reversed.** M2 is the odd one out
-among WoW's chunked formats (WMO/ADT reverse chunk tag bytes) — a chunk
-written `MD21` on disk is matched against the literal string `"MD21"`.
-Getting this backwards is a classic WMO/ADT-experience trap.
+### Parsing
 
-**Header/track/sequence fields are read via explicit, bounds-checked
-`memcpy` at named offsets — never a packed C struct.** The header's tail is
-version/flag-conditional, and relying on compiler layout for that is
-fragile and silently wrong across versions.
+**Chunk tags are read literally in M2, reversed elsewhere.** M2 is the odd
+one out: `MD21` on disk matches `"MD21"`. WMO, ADT, WDT and `.phys` store
+tags byte-reversed; `readChunks`/`findChunk` are reused with the reversed
+literal. Getting this backwards is a classic WMO/ADT-experience trap.
 
-**Every top-level M2 chunk tag encountered is tracked and diffed against a
-known-tag list, because this format keeps growing new chunks.**
-`readChunks` is tag-agnostic by construction (unknown tag → skipped, never
-an error), but "doesn't break" isn't the same as "someone would notice."
-`Header::chunkTags` + `husk info`'s `documentedM2ChunkTags` turn an
-unrecognized tag into an explicit `note:` line, and
-`tests/test_integration.cpp` makes that a live canary against real,
-re-extracted game data. See the README's Design notes for the recurring
-*shapes* new chunks tend to take (FileDataID indirection, small
-feature-gated additive chunks, feature-correlated clusters, new-tag-not-
-version-bump revisions) — useful for anticipating the next one before it
-exists.
+**Fields are read by explicit, bounds-checked `memcpy` at named offsets,
+never a packed struct.** The header's tail is version/flag-conditional;
+compiler layout would be silently wrong across versions.
 
-**`.skel`/`.bone` sidecars reuse `m2::parseBones`/`m2::parseSequences`/track
-resolution outright, never a parallel implementation.** A `.skel`'s `SKB1`
-bones and `SKS1` sequences are the *identical* structs the M2 itself uses,
-just at offsets relative to a different blob — verified (not assumed) by
-checking a real `.skel`'s bone-track outer-array count against its own
-`SKS1` sequence count before trusting the reuse. This is a hard constraint
-on future work: a new sidecar carrying an M2-shaped struct should be wired
-into the existing parser via a different blob/offset base, not given its
-own copy.
+**Every top-level M2 chunk tag is diffed against a known list.**
+`readChunks` skips unknown tags by construction; `Header::chunkTags` +
+`husk info`'s `documentedM2ChunkTags` turn an unknown one into a `note:`,
+and `tests/test_integration.cpp` is a live canary against real data.
 
-**`M2Track` constant-value resolution requires exactly one sub-array with
-exactly one keyframe — not element `[0][0]` unconditionally.** Reading
-`[0][0]` blindly (matching wowdev.wiki's own worked example) once read a
-genuinely per-sequence-animated alpha track's *sequence-0* keyframe as if
-it were a static default, which for one real batch was `0` (fully
-transparent) — silently invisible model. `constantTrackValueOffset` is the
-fix; the regression test in `tests/test_m2.cpp` is named after this bug.
-Any future "resolve this M2Track as a static value" code must go through
-the same both-counts-exactly-1 check, not a shortcut.
+**Sidecars carrying M2-shaped structs reuse the M2 parser, never a copy.**
+`.skel`'s `SKB1`/`SKS1` are the same structs at offsets into another blob
+(verified: a real `.skel`'s bone-track outer count equals its `SKS1`
+count). A new sidecar with an M2-shaped struct is wired in via a different
+blob/offset base.
 
-**External `.anim` files: per-sequence data is spliced across two blobs, not
-duplicated.** wowdev.wiki's only description ("just a blob of data...
-pointed to by the first array_ref layer") means the M2's own per-sequence
-inner `M2Array` descriptor stays real and non-zero for an external
-sequence — only its `offset` is relative to the `.anim` blob instead of the
-M2's. `resolveVec3TrackSequence`/`resolveQuatTrackSequence`'s
-`externalDataBlob` parameter implements exactly that split: descriptor from
-the owning blob, payload bytes from whichever blob is in play.
+**Constant `M2Track` resolution requires exactly one sub-array with exactly
+one keyframe** (`constantTrackValueOffset`), never `[0][0]`
+unconditionally. Reading `[0][0]` (the wiki's worked example) once took a
+per-sequence alpha track's sequence-0 key (`0`) as a static default — an
+invisible model. The regression test in `tests/test_m2.cpp` is named after
+it.
 
-**`.anim` files carrying an `AFSB` chunk resolve real per-bone data, the same
-way as the `AFM2`-external case just above.** For `.skel`-sourced models,
-real per-bone data lives in `AFSB`, not `AFM2` — a small, always-near-zero
-`AFM2` "stub" can be present alongside it and must not be mistaken for real
-track data (confirmed via a real bounds error when tried anyway), so `AFSB`
-takes priority whenever both are present. `AFSB`'s own byte layout has no
-published spec anywhere (`WIKI_FINDINGS/M2/anim.md`'s follow-up has the full
-reverse-engineering writeup), but it turned out not to need one: `SKB1`'s
-own per-bone, per-sequence `M2Track` `(count, offset)` descriptors — the
-exact same ones the paragraph above already resolves for `AFM2` — point
-directly into the `AFSB` payload's own byte range for external sequences
-too. `buildAnimations` just extracts `AFSB`'s payload as the
-`externalDataBlob` instead of an `AFM2` blob; `resolveVec3TrackSequence`/
-`resolveQuatTrackSequence` needed no changes at all. Verified against the
-entire real 104-file `bloodelffemale_hd_*.anim` corpus (zero
-bounds/monotonicity/finiteness problems) and, end to end, three independent
-ways: husk itself (336 real clips), the Khronos `gltf_validator` (no new
-errors), and Blender's own glTF importer running headlessly (336 actions,
-matching exactly). That 336-clip verification checked the `AFSB`/`AFM2`
-*decode* logic, not `--anim`'s own file-resolution: `--anim` used to look
-only for `<FileDataID>.anim`, and a real `wow.export`-style extraction names
-external `.anim` files `<model-basename><animId>-<subId>.anim` instead (the
-committed `bloodelffemale_hd0069-00.anim`/`-01.anim` fixtures match this
-exactly) — `findAnimFileByBasename` (`cmd_export.cpp`) now tries that
-convention whenever a `<FileDataID>.anim` file isn't found (or there's no
-`AFID` entry at all), so a real character-model extraction actually resolves
-its external clips through `--anim auto`'s own default, not just through a
-`.anim` directory hand-populated with FileDataID-named files.
+**External `.anim` data is spliced across two blobs.** The M2's (or
+`.skel`'s) per-sequence `M2Array` descriptor stays real; only its offset
+points into the `.anim` blob. `resolveVec3TrackSequence`/
+`resolveQuatTrackSequence` take descriptor from the owning blob and payload
+from `externalDataBlob`.
 
-**`M2Sequence` is 64 bytes, not 36** — the wiki's own struct listing has an
-un-renumbered offset comment that reads as if `M2Bounds bounds` weren't
-really there. Decoding all of a real file's sequences at both candidate
-strides (not re-reading the prose harder) is what settled it. See
-`WIKI_FINDINGS/M2.md`. This is the model for how to resolve any future
-spec ambiguity here: decode real records at every plausible stride/shape
-and check for garbage, don't guess from text alone.
+**`AFSB` wins over `AFM2`.** `.skel`-linked models keep real per-bone data
+in `AFSB`; a near-empty `AFM2` stub beside it must not be read as tracks
+(it bounds-errors). No spec exists, and none was needed: `SKB1`'s
+`(count, offset)` descriptors point straight into `AFSB`'s payload
+(`WIKI_FINDINGS/M2/anim.md`). Verified on all 104
+`bloodelffemale_hd_*.anim` files (no bounds/monotonicity/finiteness
+errors), and end to end: 336 clips from husk, validator clean, 336 Blender
+actions.
 
-**Bone rotation/scale keyframes get their own Z-up→Y-up conversion,
-mechanically derived from the same matrix `zUpToYUp` uses for
-positions/normals, not a separately hand-typed formula.** No wowdev.wiki
-formula exists for this specific step; the general change-of-basis rule for
-a proper-rotation basis change applies (a rotation quaternion's vector part
-gets the same matrix's conjugation, scalar/`w` untouched; a scale vector
-gets the same permutation with signs dropped). Historical note, corrected
-below: an earlier hand-typed version of this rule, applied to an earlier
-(wrong) position matrix, shared that matrix's own sign bug undetected for a
-real stretch of active development — see the "Follow-up" entry near the end
-of this document (`TRANSFORM_TRIAGE.md`) for the fix, and `gltf.hpp`'s own
-doc comments for the current, corrected, single-source-of-truth
-implementation. Still depends on the assumption that WoW bones use plain
-parent-relative TRS with no separate pivot concept beyond
-`M2CompBone.pivot` — unverified against a real animated pose in Blender's
-own viewport (deliberately left to Luna, see the Follow-up entry).
+**`.anim` file resolution tries `<FileDataID>.anim`, then
+`<model-basename><animId>-<subId>.anim`** (`findAnimFileByBasename`), the
+`wow.export`-style name a real extraction uses — also when there is no
+`AFID` entry.
 
-**glTF output is never hand-rolled.** `src/gltf.cpp` builds a
-`tinygltf::Model` and hands the actual `.glb` binary framing to
-`TinyGLTF::WriteGltfSceneToStream`. `gltf.cpp` includes `tiny_gltf.h` and
-links against the prebuilt lib; it must never define
-`TINYGLTF_IMPLEMENTATION` itself (double-definition against
-`libtinygltf.a`). What tinygltf does *not* do for husk is pad the shared
-buffer it hands it -- `appendBufferView`'s `padTo4()` zero-pads up to the
-next 4-byte boundary after every append (mesh data, embedded images,
-animation sampler output), because glTF requires every accessor's total
-byte offset to be a multiple of its component size and an embedded PNG's
-byte length is essentially never itself a multiple of 4 -- without this,
-a `--textures` export could misalign every bufferView appended after the
-first embedded image, a real bug this project found and fixed (not a
-hypothetical).
+**Spec ambiguities are settled by decoding real records at every plausible
+stride.** `M2Sequence` is 64 bytes, not 36: the wiki's offset comment reads
+as if `M2Bounds` weren't there (`WIKI_FINDINGS/M2.md`).
 
-**`husk dump-chunks` is a deliberately separate output shape (JSON), not a
-step toward richer glTF.** Chunks like parent-sequence overrides,
-waterfall-shader constants, edge fade, per-particle side-data are real M2
-data with no natural glTF material/animation slot — forcing them in would
-mean inventing semantics the format doesn't have. Chunks with no
-documented layout, or one the wiki itself flags uncertain, are still
-emitted (hex dump + reason), never silently dropped — same principle as
-the `M2Sequence`-stride lesson: undocumented isn't the same as safe-to-skip.
+**Version-conditional record shapes are parsed only from a verified
+floor.** `kMinVerifiedRecordStrideVersion` (Bone/Sequence/Ribbon) and
+`kMinVerifiedParticleVersion` (Cata+ 492-byte `M2Particle`) warn below
+the floor; older `M2ParticleOld` shapes are real but unimplemented (no real
+file to verify against). `flag_new_particle_record` is an *alternative*
+signal to `version > 271` (the wiki's OR), not a second gate.
 
-**LOD tiers share one skeleton/animation set by construction.** Every
-`.skin` belonging to one M2 selects a *subset* of that M2's own global
-`vertices`/`bones` — nothing about bind pose or animation differs per LOD.
-`writeGlbMulti` builds one skin/joint hierarchy shared by every LOD mesh
-node; `writeGlb` (single-mesh) is implemented as `writeGlbMulti` with one
-entry, not maintained as separate code.
+**`skin::Submesh::indexStart` is a 32-bit value: `(level << 16) |
+rawIndexStart`.** `M2SkinSection::Level` (0x02) is address-extension bits,
+not LOD metadata (found via `reference/wow.export`'s `Skin.js`;
+`triangleStart += level << 16`). `bloodelffemale_hd00.skin` has 136,254
+indices and 77/114 submeshes need it. Without it husk silently sliced the
+wrong region — invisible to every validator/importer check, since none
+compares *which* triangles were drawn. Callers never see `Level`
+(`CLAUDE_HISTORY.md`).
 
-**Geoset selection and multi-texture-layer rendering are tagged via glTF
-`extras`, never filtered or faked at the primitive level.** *Which*
-`M2SkinSection.skinSectionId` variant is "correct" for a given character
-can now be resolved from real, locally-extracted DB2 data when the caller
-supplies customization-choice IDs or a creature-display ID
-(`--customization-choice-ids`/`--creature-display-id`, `src/
-chrcustomization_db2.hpp`/`src/creature_geoset_db2.hpp`) -- but husk
-surfaces that resolution as skin `extras` (`enabled_geosets`/
-`creature_enabled_geosets`) rather than filtering primitives out of the
-glTF itself; and a batch's additional texture
-layers (`M2Batch.textureCount > 1`) exist to feed WoW's fixed-function
-combiner math (`Mod2x`/`Add`/env-mapping), which has no core-glTF
-equivalent to translate into. Rather than guessing a default geoset
-selection or faking a `KHR_materials_*` extension that would misrepresent
-what the combiner actually does, both are surfaced as inert `extras`
-metadata instead -- every primitive carries its real `skinSectionId` (plus
-a derived `geoset_group`/`geoset_variant` split), every material with
-`textureCount > 1` carries its additional layer(s)' FileDataID/UV set
-(plus a real embedded-but-unused image when `--textures` has a match) --
-the same "tag it, don't guess at semantics" treatment `billboardMode`
-already got for the same reason (billboarding is camera-relative, decided
-by whatever engine/renderer is actually drawing the frame, not by husk).
-A custom renderer or a Blender script (mesh mask, geometry nodes, a driven
-material, ...) has everything it needs to implement its own selection/
-blend on top of this data; husk exporting *every* geoset unconditionally
-(with a loud note whenever a `.skin` spans more than one distinct
-`skinSectionId`) and rendering only the first texture layer (with an
-equivalent note) are the two honest fallbacks until that Blender-side
-tooling exists.
+**`PCOL` regions are read by their own `(count, offset)`, never
+sequentially**: the wiki's "extra bytes between the data" is real (an
+8-byte gap seen). `flagsCount` is read independently of `faceNormCount`
+(3/2,354 files differ). Verified on all 2,354 `PCOL` files; `flags` is a
+per-triangle bitmask, bit meanings unknown (`WIKI_FINDINGS/M2.md`).
+Diagnostic only (`dump-chunks`).
 
-**Global-sequence-driven bone tracks get their own glTF animation clips,
-independent of `M2Sequence`.** A track whose `TrackMeta::global_sequence`
-field isn't the "none" sentinel loops continuously against the model's own
-`global_sequences` duration table (`Header::globalLoops`) rather than any
-specific `M2Sequence`'s timeline (wowdev.wiki "Global Sequences": "always
-loops") -- eye-glow pulses, torch flicker, idle sway. Per wowdev.wiki,
-"blocks that use global sequences also only have one track": such a
-track's outer `M2Array<M2Array<T>>` always holds exactly one sub-array
-(index 0), the same shape `constantTrackValueOffset` already exploits for
-`M2Color`/`M2TextureWeight`'s constant-value case, just with real
-(possibly many-keyframe) animation data instead of a single value.
-`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack` resolve
-that one sub-array directly; `cmd_export.cpp`'s
-`buildGlobalSequenceAnimations` finds every distinct global-sequence index
-a model's bones actually use and builds one clip per index
-(`global_seq_<n>`), reusing the same per-bone `JointAnimation`-building
-logic (`buildJointAnimation`) the per-`M2Sequence` path already used, now
-factored out into a shared helper. This is intentionally *not* baked into
-whichever `M2Sequence` clip happens to be playing -- a global-sequence
-track loops on its own independent timeline no matter which (if any)
-`M2Sequence` the rest of the skeleton is animating through, so folding it
-into a per-sequence clip would misrepresent when it actually plays.
+**Chunks with no wiki struct are byte-decoded, flagged tentative where
+thin**: `AFRA`/`WFV1` one 16-byte struct (a float + 12 zero bytes), `DPIV`
+`size/32` records of 8 floats, `WFV2` 16 floats. `WFV1`/`WFV2` rest on 2
+byte-identical files; fields that may not be floats are exposed as floats,
+not reinterpreted.
 
-**A batch's `M2TextureTransform` (UV scroll/rotate/scale) gets a real
-`KHR_texture_transform` for the constant case; the animated case stays
-`extras`-only.** Core glTF's `KHR_texture_transform` extension is itself
-*static* (offset/rotation/scale baked once, no animation-channel target),
-so the animated case (almost always the common one in practice — scrolling
-lava/water is the model's whole reason to carry one) has no honest
-representation regardless of effort and stays `extras`-only, same "tag it,
-don't guess at semantics" family as geoset selection/multi-texture-layer
-rendering above. The constant case *is* wired to a real extension
-(`gltf_mesh.cpp`'s `textureTransformToKhr`): wowdev.wiki notes M2's
-rotation pivots around the texture's center (0.5, 0.5), not the
-extension's own (0,0) origin, so a correct translation has to fold that
-pivot difference into the extension's `offset` field — derived as
-`offset = R*S*translation + R*t_S + t_R` (`t_S`/`t_R` = the pivot's
-displacement under scale/rotation respectively), verified against real
-`bloodknightcharger.m2` data three independent ways (hand computation,
-20,000 randomized trials against `reference/wow.export`'s own
-translate-rotate-translate matrix composition, and headless Blender's own
-glTF importer producing an exactly-matching Mapping node). Applied only
-when the transform is genuinely constant (every track either empty or a true single value — a real
-`brewfestmount.m2` counterexample has a constant rotation but
-per-sequence-structured translation/scaling tracks whose values just
-happen to all be identity, and correctly stays extras-only, not falsely
-"constant") and the rotation is planar (Z-axis only, the only case
-wowdev.wiki's pivot note describes) with a real `baseColorTexture` to
-attach the extension to. `m2::parseTextureTransforms` resolves the same
-constant-vs-animated split `constantTrackValueOffset` already does for
-`M2Color`/`M2TextureWeight`; `gltf::Material::textureTransform` carries the
-raw values through to `extras` unconditionally too — a diagnostic, and the
-animated case's only representation.
+**`global_flags` are decoded into wiki-named bits; `textureCombinerCombos`
+is read when its bit is set** (offset 0x130). Zero of 130,576 local files
+set it, so its "use instead of index+1" role in multitexture blending is
+not wired (no key documented, nothing to verify against); `husk info`
+only.
 
-**A texture's `M2Texture::type` (nonzero -- a hardcoded/replaceable slot)
-is surfaced as `extras`, distinguishing "husk can't resolve this locally"
-from "the `--textures` directory just didn't have the file."** `type == 0`
-("NONE") is a real, filename/FileDataID-based texture, resolvable the
-ordinary way; any other value means the client substitutes the real image
-at runtime from DB2-driven character-customization/item-tint data (locally-
-extracted DB2 files are in scope per Non-goals above's clarified wording --
-`husk export --db2-dir/--dbd-dir/--char-layout-id` attaches real
-placement-geometry `extras` (`ChrModelMaterial`/`CharComponentTextureSections`/
-`ChrModelTextureLayer`, `src/chrmodel_db2.hpp`), and *picking* which
-candidate fills which slot for a given character resolves too, given real
-`--customization-choice-ids` (`chr_enabled_materials` skin extras, `src/
-chrcustomization_db2.hpp`) -- husk still never composites the result into
-pixels itself, that's Blender's job, see `TODO/
-CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`) -- so an empty `baseColorImagePng`
-for one of these means something categorically different than a missing
-PNG for a `type == 0` texture. `gltf::Material::textureType` is set from
-the batch's primary texture's `m2::Texture::type` unconditionally, but only
-serialized into `extras` (`texture_type`) when nonzero -- 0 is the ordinary
-case, matching `additionalTextureLayers`/`textureTransform`'s own "presence
-means something extra to say" convention, rather than writing a redundant
-key on every material.
+**Two parse-failure contracts.** `m2::loadModel` isolates each array's
+`ParseError` in `Model::parseFailures` (field left empty).
+`info`/`info --json`/`dump-chunks` are `Tolerant`: they show failures as
+data and keep going. `export` is `Strict`: an empty array would produce a
+*wrong* export (fewer anchors, bones silently from `.skel`), so
+`canon::enforcePartialFailurePolicy(model, field, policy)`
+(`canon_policy.hpp`) re-raises at the point each field is read — one call
+per field in read order, since read order differs from parse order and
+decides which error wins. Declared once:
+`commands::kExportPartialFailurePolicy`.
 
-**A batch's animated `M2Color`/`M2TextureWeight` gets its real curve
-extracted as `extras`, never a native playback attempt.** The
-global-sequence bone-track fix (above) doesn't have a material-side
-*playback* counterpart: a bone's translation/rotation/scale are real,
-independently animatable glTF node properties, but core glTF has no way to
-*play back* an animated material property at all (unlike the
-texture-transform case just above, this isn't even a question of extension
-support — there's no core-glTF animation-channel target for a material's
-`baseColorFactor`, full stop, so this stays permanently `extras`-capped
-regardless of how much more husk parses). `m2::Color::colorAnimated`/
-`alphaAnimated`/`m2::TextureWeight::weightAnimated` (via the shared
-`trackHasAnimatedData` helper) distinguish "nullopt because genuinely
-empty" from "nullopt because it's animated," and `cmd_export.cpp`'s
-`resolveAnimatedColorCurve`/`resolveAnimatedFixed16Curve` resolve the real
-keyframe data the same per-sequence/global-sequence way `buildAnimations`
-already does for bones (`resolveVec3TrackSequence`/
-`resolveRawIntTrackSequence`, the latter since `M2Color::alpha`/
-`M2TextureWeight::weight` are `M2Track<fixed16>`, not `M2Track<float>` —
-reusing `resolveFloatTrackSequence` here would misread the wire bytes).
-The resolved curves attach as `gltf::Material::tintAnimation`/
-`alphaFadeAnimation`/`weightFadeAnimation` → `tint_animation`/
-`fade_animation` (`"alpha"`/`"weight"` sub-keys) material `extras`, one
-entry per M2Sequence that has real inline data plus a synthetic
-`sequenceIndex == -1` entry for a global-sequence-driven track — the same
-"tag it, don't guess at playback" treatment the texture-transform case
-gets, for a custom renderer or Blender script to apply itself.
-`cmd_export.cpp` still prints `animatedTintOrFadeBatchCount`'s note (now
-naming the extras keys instead of saying the data is dropped).
-
-**`.bone` correction data is surfaced as `extras`, never applied to the bind
-pose.** Same "tag it, don't guess at semantics" family as geoset selection/
-texture-transform above, but split into two separately-tracked halves:
-*which* of a model's several `.bone` files (its `BFID` array) is "correct"
-for a given character now resolves from real client-side customization-
-choice data (`--customization-choice-ids`, `ChrCustomizationBoneSet` via
-`src/chrcustomization_db2.hpp`), marking the matching `--bones-dir`-resolved
-correction set with `selected_by_choice_ids` extras -- but *applying* the
-resolved correction matrix to the bind pose (multiply order, space) is a
-separate, still-open question (`TODO/BONE_CORRECTION_APPLICATION_TODO.md`),
-gated on a real human ground-truth comparison against the client, not a
-data-acquisition gap. Real
-investigation (`WIKI_FINDINGS/BONE.md`'s follow-up) ruled out the two more
-tractable-looking hypotheses first — LOD/render-distance (the slot count
-doesn't fit the model's real LOD tier count, and slots collapse into far
-fewer distinct bone-index sets than a detail ladder would produce) and
-weapon-type/armor-type (the corrected bones cluster on the Head/Jaw, not
-the hand/wrist bones a grip correction would need) — before concluding the
-real selector is external, unreachable data, not a gap husk itself could
-close with more file-reading. `husk export --bones-dir <dir>` therefore
-resolves every `BFID`-declared FileDataID it can find on disk (same
-local-directory, never-CASC convention as `--textures`/`--skin-dir`/
-`--anim`) and attaches every one it finds as a `gltf::Skeleton::
-CorrectionSet` — real `(bone_index, matrix)` data, faithfully surfaced —
-serialized as `bone_correction_sets` on the glTF skin's `extras`, for a
-downstream renderer or Blender script that *does* have the slot-selection
-mapping to apply on top.
-
-**Ribbons/particles: same `extras`-only family as geoset/texture-transform/
-`.bone`-correction, but split across two destinations instead of one,
-because of data volume.** `M2Ribbon`/`M2Particle` (`m2::parseRibbons`/
-`parseParticles`, `src/m2.cpp`) are procedural emitter systems — no core
-glTF primitive represents a particle emitter or a ribbon trail generator,
-so like the cases above, the real answer is "tag it, don't guess at
-semantics." What's different here is scope: a `.bone` correction set is one
-small `(bone_index, matrix)` list per file; a model can have dozens of
-particle emitters, each with up to ~15 animation curves once fully
-resolved. Cramming all of that into every `.glb`'s `extras` — the way
-`bone_correction_sets`/geoset/texture-transform data already does — would
-bloat a file most consumers (a plain glTF viewer, a renderer that doesn't
-care about VFX) can't use any of. So the data is deliberately split:
-`husk export` attaches only a **minimal placement anchor** (`id`/`boneIndex`
-/`position`, `gltf::Skeleton::EmitterAnchor`) to the skin's `extras` — enough
-for a Blender script to place a marker at the right bone — and the **full
-record** (every field, every resolved curve) goes to `husk dump-chunks`'s
-JSON output instead, which has no such size pressure (see `src/cmd_dump.cpp`'s
-doc comment for how that command's own scope broadened from Legion+-chunk-
-tags-only to cover these two core header arrays too, since the "no glTF
-slot" rationale that already justified the chunk-tag side of that command
-applies just as much to the parsed record itself). `M2Particle`'s own byte
-shape is genuinely version-conditional back to pre-BC; real weapon data was
-only available for Cataclysm+ (272), so parsing is gated to
-`kMinVerifiedParticleVersion`, the same "verified floor, warn below it"
-policy `kMinVerifiedRecordStrideVersion` already established for Bone/
-Sequence/Ribbon — see `WIKI_FINDINGS.md` for the real-file cross-check (a
-real weapon's particle color curve decodes to an actual fire/ember
-gradient, alpha curves are clean fade envelopes) that this offset table and
-the FBlock/M2Track curve-resolution split (FBlock curves are flat, not
-per-sequence — "unable to change between different animations," per the
-wiki — while `M2Track`-based ones are, resolved per `M2Sequence` or via the
-global-sequence resolver) were both confirmed against.
-
-**`.phys` physics/collision data follows the same minimal-anchor/
-full-record split as ribbons/particles, for the same volume reason.**
-`.phys` is a sidecar file (like `.bone`, not a core M2 header array like
-ribbons/particles), but its content structurally resembles ribbons/
-particles more than `.bone`: `BODY`/`BDY3`/`BDY4` records are already
-`position + boneIndex` anchors, not a flat correction-matrix-per-bone table.
-And the volume is real — a single real file can have 40+ bodies, each with
-several shapes/joints, more than `bone_correction_sets` ever carried.
-`husk export --phys` (three-state, mirroring `--skel` — `PFID` is a single
-scalar FileDataID, like `SKID`, not an array like `BFID`/`AFID`/`SFID`, so
-no directory flag) attaches only a **minimal placement anchor** (`id`/
-`joint`/`position`/`bodyType`, `gltf::Skeleton::PhysicsBody`) to the skin's
-`extras`; the **full record** (every body/shape/joint/`PHYV` field,
-resolved) goes to `husk dump-chunks`'s JSON output instead, which also
-accepts a `.phys` file directly, same as `.bone`. Unlike `.bone`, `.phys`'s
-byte layout is genuinely documented (`documentation/wowdev-wiki/md/
-PHYS.md`), not reverse-engineered — `src/phys.hpp`/`phys.cpp` implement that
-spec directly, verified against 103 real files with zero cross-chunk index
-errors (`WIKI_FINDINGS/PHYS.md`). Chunk tags are byte-reversed on disk (WMO/
-ADT convention), the opposite of M2's own inline chunks — `chunk.hpp`'s
-`readChunks`/`findChunk` are reused as-is, just called with the
-already-reversed literal.
-
-**The collision mesh is real exported geometry, not inert extras — the one
-place this differs from the geoset/texture-transform/`.bone`-correction
-family above.** Those all became `extras` because no unambiguous glTF
-translation exists (fixed-function texture combiner math, a customization
-slot selector with no local data to resolve it); a collision mesh is just
-a plain indexed triangle mesh with an obvious translation, so
-`cmd_export.cpp` writes one (`m2::parseCollisionMesh` → one more
-`gltf::NamedMesh`). The only `extras` use
-here is a `{"collision": true}` tag on that mesh's node, purely to mark
-*purpose* (so a renderer/Blender script knows not to draw it) — the
-geometry itself is native. It's deliberately unskinned even though it
-shares the render mesh's skeleton (a collision mesh is static, not
-deformed by the armature): `gltf::writeGlbMulti` previously required every
-`NamedMesh` entry to be skinned whenever *any* shared skeleton was in
-scope, so supporting this needed a real relaxation — each entry now
-independently opts in (non-empty, matching-length `mesh.skinning`) or out
-(empty, no glTF `skin` reference on that node) rather than an all-or-
-nothing rule across the whole call. Per-vertex normals are *approximated*
-(averaged adjacent face normals) since the M2 source only has one normal
-per triangle, not per vertex — acceptable because a collision mesh isn't
-shaded, this is only to satisfy `gltf::Mesh`'s own same-length invariant
-with real, finite data rather than a placeholder.
-
-**Off by default, opt-in via `--collision`.** Originally shipped
-included-by-default with `--collision none` as an opt-out; flipped after a
-real headless-Blender render of `bloodelffemale_hd.m2` came out looking
-like a plain white slab — the collision hull (a coarse capsule/box, often
-larger than the character it approximates) was sitting in the scene,
-untextured, occluding the entire render, exactly as the `{"collision":
-true}`-tag caveat above always warned it could. A tag a *script* can filter
-on doesn't help someone who just opens the file and looks. Full body/shape/
-joint records remain available either way via `husk dump-chunks`.
-
-**BLP2 texture decode is embedded directly in husk, in-memory, no `husk-blp`
-invocation needed.** Reversed from an earlier "permanently a separate
-Python process" stance once that stance itself broke husk's other goal of
-being a single tool usable standalone — running `husk-blp` first, in the
-right order, before `husk export` isn't that. The two Pillow dependencies
-that motivated the original split turned out to have easy from-scratch C++
-answers already sitting in this project's own build: DXT1/DXT3/DXT5 (BC1/
-BC2/BC3) block decode is small, fully public, deterministic math, hand-
-rolled in `src/blp.cpp` the same way every other small binary format here
-is; PNG encoding (`stbi_write_png_to_mem`) ships inside the `tinygltf`
-package husk already links (`libtinygltf.a` already compiles it in — no new
-dependency, see `src/blp.cpp`'s own doc comment for why its prototype is
-declared by hand instead of via a second `#include`). `--textures` now
-resolves a `.blp` candidate exactly like a `.png` one
-(`src/export_texture_resolution.cpp`'s `resolveTextureBytes`/`readTextureFileBytes`),
-decoding and re-encoding entirely in memory — nothing is written to disk
-unless `--textures-out` is explicitly given. `blp/`'s Python tool
-(`husk-blp`) is kept, unmodified, as the independent ground truth the C++
-decoder's tests are checked against (`tests/test_blp.cpp` ports its
-fixtures directly) — not retired, since it predates this decoder and gives
-an independent second implementation to catch a divergence in either one.
-
-**A genuinely geometry-less model gets zero mesh nodes, not an empty one —
-"zero meshes," not "one empty mesh."** A 130k-file corpus sweep
-found 3,807 real files (pure particle/ribbon VFX
-models, e.g. `particles/lootglow_boss.m2`) with 0 vertices at the M2 level,
-which `buildMaterialsAndPrimitives` used to turn into one glTF primitive
-with empty `indices` — a shape glTF itself has no valid representation for
-(a primitive's `indices` must be non-empty when present at all), so every
-one of these failed outright. The fix skips adding a `NamedMesh` for a LOD
-tier that resolves to zero primitives (both the whole-file-empty case and
-the rarer per-submesh `indexCount == 0` case) rather than manufacturing
-one; `gltf::writeGlbMulti` now accepts an empty `meshes` list as long as a
-real skeleton (at least one joint) exists to fall back to — the model's
-skeleton and ribbon/particle emitter anchors (already unconditional, see
-above) still export, just with no mesh in the document at all. `Error`s
-outright if both are empty (nothing to export) rather than silently
-producing a degenerate `.glb`.
-
-**A same-basename numeric-suffix `.skin` match prefers exactly 2 digits
-when one exists.** `findSameBasenameSkins`'s digit-suffix scan used to
-accept any digit-run length, which a real corpus scan found genuinely
-ambiguous whenever one model's basename is itself a
-numeric-suffix prefix of a sibling model's basename in the same directory
-(`mogu_library_crate_10.m2` vs. `mogu_library_crate_1.m2` — the shorter
-model's own `...1` + `00` LOD suffix parses as a spurious 1-digit match
-for the longer model's `...10` basename too, and used to win the
-lexicographic tie-break over the correct `...10` + `00` file). WoW's own
-convention is always exactly 2 digits, so the scan now discards
-1-digit/3+-digit matches whenever at least one 2-digit match exists for
-that basename — kept as a fallback (not a hard reject) when no 2-digit
-match exists at all, since that shape has no real-corpus evidence either
-way and a hard reject risks a new false-negative regression for it.
-
-**A duplicate animation keyframe timestamp is repaired, not rejected.**
-`i > 0 && keyframes[i].first <= keyframes[i-1].first` used to throw
-unconditionally — correct for genuine disorder (a timestamp that actually
-*decreases*, real corruption), but a real corpus scan (5 files) found an
-*exact*-duplicate timestamp is real, shipped
-Blizzard data: a "hard cut" pose authored as two rotation keyframes at the
-same instant. Collapsing either keyframe would silently discard one of the
-two real authored values; the fix instead nudges the later duplicate's
-timestamp forward by 1ms (cascading, so a run of N duplicates spreads out
-N-1ms apart), classified against each keyframe's *original* (pre-repair)
-timestamp so the cascading case doesn't misfire the disorder check against
-an already-nudged value. A timestamp that's genuinely less than the
-previous one still throws — repairing that would mean guessing which of
-the two conflicting values is "right," not resolving a known, consistent
-shape.
-
-**A multi-root M2 bone forest gets one synthesized, non-joint glTF parent
-node — never a fake extra joint, never a filter that drops real bones.**
-WoW's engine never required a single bone tree; a corpus-wide sweep
-(`tools/find_multiroot_skeletons.py`) found
-**35% of a real 130k-file corpus** (45,804 files) has more than one root
-bone (`parentBone == -1`) — common, intentional M2 data (particle-emitter
-anchors, accessory bones), not corruption. Core glTF's skinning model and
-tooling built on it (`gltf_validator`'s `SKIN_NO_COMMON_ROOT`) generally
-expect one common root, though empirically the validator catches only a
-small, unexplained slice of the full 35% (a 150-file random sample found
-just 11 currently flagged — raw root count and vertex-weighted root count
-both fail to predict which files trigger it). `writeGlbMulti` now
-synthesizes one plain `tinygltf::Node` (default/identity transform, never
-added to `skin.joints`, never given an inverse bind matrix) as the parent
-of every real root joint whenever `rootJointNodeIndices.size() > 1`,
-appended past the end of the joint-node range and set as the sole
-`scene.nodes` entry standing in for those roots (`skin.skeleton` points at
-it too) — the shape glTF's own tooling ecosystem already anticipates for
-multi-rooted skeletons (Khronos discussion, github.com/KhronosGroup/glTF/
-issues/1270). `Skeleton::joints` itself is never touched, reordered, or
-added to: every vertex/emitter-anchor/correction/animation joint index
-stays a raw, unremapped M2 bone-array index — the one invariant this fix
-must never break, per `src/gltf.hpp`'s `Skeleton` doc comment — a synthetic node inserted into
-`Skeleton::joints` instead would silently misattribute every one of those
-consumers, with no crash and no validator error). Verified empirically,
-not just by spec-reading: Blender's own glTF importer, run headlessly
-against a real 15-bone/10-root weapon fixture, reports `bone_count`
-matching the real M2 bone count exactly — it does not count the
-synthesized node as a bone. Single-root models (the overwhelming
-majority) are completely unaffected: no synthetic node, `skin.skeleton`
-left unset, byte-identical output to before this existed. Two other
-options were surveyed and rejected: appending the synthetic node as one
-more real joint (an identity-IBM "Armature bone," matches some other
-exporters' convention, but grows `skin.joints` past `header.bones.count`
-for no fidelity gain) and filtering non-hierarchical bones out entirely
-(`wow.export`'s apparent approach — a real, community-precedented option,
-but drops real M2 bones from the glTF output, against this project's own
-1:1-fidelity goal).
-
-**Attachments/Events/Lights (`M2Attachment`/`M2Event`/`M2Light`) become real,
-plain child glTF nodes — unlike every other placement-anchor list
-(`EmitterAnchor`/`PhysicsBody`), which stay skin `extras`.** These three
-differ from ribbons/particles/`.phys` bodies in one concrete way: a
-bone-relative position marker is *all* their static data ever is — no
-blend mode, no texture, no curves left over that `extras` would still need
-to carry. `M2_COMPLETENESS.md` used to call this "node-possible,
-unclaimed"; a plain glTF node is a full, lossless translation of that data,
-so `writeGlbMulti` now builds one real `tinygltf::Node` per entry instead
-of another anchor list on the skin's `extras` object. Each node is
-translation-only (no rotation/scale — the same convention a joint node's
-own `.translation` already uses) at `Attachment/Event/Light::position`,
-named `attachment_<id>`/`event_<identifier>`/`light_<index>` (`M2Event
-::identifier` is not deduplicated — a real file can repeat one, e.g. six
-"$CSD" sound-cue events on one weapon — duplicate glTF node names are
-legal, so this isn't a problem), and parented as a `.children` entry of its
-owning joint node — appended past the joint-node range (and past the
-synthesized multi-root node, if any), attachments first, then events, then
-lights, and **never added to `skin.joints`** — the same invariant the
-multi-root synthesized parent node above must never break, since every
-vertex/emitter-anchor/correction/animation joint index is still a raw,
-unremapped M2 bone-array index. Verified empirically the same way the
-multi-root fix was: Blender's own glTF importer, run headlessly against a
-real weapon fixture (5 attachments/2 events/4 lights, 78 real bones),
-reports `bone_count == 78` — the anchor nodes are not counted as bones —
-and the Khronos `gltf_validator` reports zero errors on the same export.
-`bone == -1` ("not attached to any bone," real per wowdev.wiki for
-`M2Light`, and plausible for `M2Attachment`) is treated like any other
-out-of-range joint and throws — husk has no established "unparented
-placement node" concept yet, and no real fixture seen so far exercises
-this case, so it's flagged rather than guessed at (see `src/gltf.hpp`'s
-`Skeleton::Attachment`/`Event`/`Light` doc comments). `M2Light`'s `type`
-and every animated field (color/intensity/attenuation/visibility) stay out
-of scope — a placement node has no slot for either, and the animated
-tracks are a separate, larger problem.
-
-**`M2Sequence`'s own metadata (movespeed/frequency/replay/blendTime/bounds/
-variationNext/aliasNext) is per-clip glTF `extras`, and `aliasNext` is now
-chain-resolved into a real animation clip** (`WIKI_FINDINGS/M2.md`).
-`m2::Sequence` gained the seven fields wowdev.wiki
-documents beyond `id`/`variationIndex`/`duration`/`flags`, at the exact
-offsets that fit cleanly into the already-verified 64-byte stride (see
-`Sequence`'s own doc comment) — no ambiguity, straightforward parse.
-`aliasNext` is the one with real behavior attached: it's a plain local index
-into the same file's own `sequences` array, not an `AnimationData.dbc` id
-(§12) — `buildAnimations` (`cmd_export.cpp`) used to skip every
-`flags & 0x40` ("is alias") sequence outright, citing the wiki's own
-now-superseded "I have no clue." It now resolves the chain
-(`resolveAliasChain`, bounded to `sequences.size()` hops, throwing rather
-than looping forever on a cycle real data has never shown) to the terminal
-non-alias sequence and reuses *that* sequence's own keyframe data — inline or
-external, whichever it uses — registered under the *alias's own* id/index, so
-a real clip appears where none did before. **One real priority subtlety a
-committed real fixture (`bloodelffemale_hd.skel`) forced, not anticipated by
-the original plan**: 31 of its 38 real alias sequences *also* carry
-`flags & 0x20` ("stored inline") — i.e. they already have real inline
-keyframe data of their own and don't need (or want) another sequence's data
-substituted. `0x20` wins priority exactly the way it did before `aliasNext`
-resolution existed (checked first, alias-chain resolution only triggers for a
-"pure" alias — `0x40` set, `0x20` not) — resolving the chain unconditionally
-for every `0x40`-flagged sequence would have silently changed those 31 real
-clips' content, a regression caught by re-deriving the fixture's own flag
-bytes directly (not assumed) once a real export's animation count didn't
-change after the fix, as expected (see below). The other 6 non-`aliasNext`
-fields (movespeed/frequency/replay/blendTimeIn/blendTimeOut/bounds) have no
-core-glTF clip-level equivalent (playback speed scaling, blend time, replay
-count, bounding volume) — exposed as `sequence_metadata` extras on the clip
-itself (`gltf::Animation::SequenceMetadata`), the alias's own field values
-even when its keyframe data is borrowed, same "tag it, don't guess at
-semantics" treatment `bone_correction_sets`/`ribbon_emitters` already get.
-**A real, honest finding, not a guess**: against the exact fixture set
-committed to this repo, the fix's *measured* effect on
-`bloodelffemale_hd.m2`'s own animation count is **zero net new clips** —
-of the 7 "pure" alias sequences, all 7 resolve (in the full real corpus) to a
-terminal sequence needing an external `.anim` file, and none of those 6
-distinct files happen to be among the ~104 already committed here (confirmed
-by hand against the full corpus at `/media/luna/data/wow_export`) — the
-original implementation plan's own "don't assume every alias necessarily
-gains a clip without checking" caveat turned out to be exactly right for
-this data. `tests/test_cli.cpp`'s synthetic fixtures (2-hop, multi-hop,
-both-flags-priority, self-referencing cycle, out-of-range `aliasNext`) prove
-the mechanism itself works; `tests/test_integration.cpp`'s real-fixture case
-pins the "zero net growth here, and it doesn't crash on the 7 unresolvable
-ones" finding directly.
-
-**`PCOL` (player-housing collision, War Within 11.1.7+) is diagnostic-only
-(`husk dump-chunks`), no glTF slot** — same class as `EXP2`/`PFDC`/`DETL`,
-sidecar-shaped collision data rather than core render geometry. Its four
-regions (`vertexPositions`/`faceNormals`/`indices`/`flags`) are each an
-independent `(count, offset)` pair read via its own offset, never
-accumulated sequentially the way `.phys`'s `PLYT` header+data walk is — the
-wiki's own "there can be extra bytes between the data" warning is real,
-confirmed on a real file with an 8-byte gap between `faceNormals` and
-`indices`. `flagsCount` is also not guaranteed to equal `faceNormCount` (a
-real, rare exception — 3/2,354 files) — read independently via its own
-header field, never derived from `faceNormCount`. Verified against all
-2,354 real `PCOL`-bearing files in the local corpus (corrected from an
-earlier scanner bug's false "zero real files," `WIKI_FINDINGS/M2.md`):
-every region in-bounds, every index in range for that file's own vertex
-count, `indexCount == faceNormCount * 3` on all 2,354 (triangle triples,
-one normal per triangle — the same shape M2's own core collision mesh
-already has). `flags`' per-record meaning is undocumented on the wiki, but
-a full-corpus value scan confirmed it's structurally a real per-triangle
-bitmask (every observed value decomposes into a small combinable bit set,
-98.4% of files use only bit 0) — individual bit semantics are still
-unconfirmed, needing DB2/client data outside this corpus's real M2 bytes
-rather than more M2-side investigation (see `WIKI_FINDINGS/M2.md`'s PCOL
-section; the real, local WDC5 DB2 access `src/db2.hpp`/`.cpp` already
-provides for other features would apply here too, if `PCOL` bit semantics
-are ever worth chasing down).
-
-**`WFV1`/`WFV2`/`DPIV`/`AFRA` (no wowdev.wiki struct at all) are now
-structurally parsed by `husk dump-chunks`, not left as a raw hex dump** —
-byte-decoded from real corpus files: `AFRA`/`WFV1` are a single fixed
-16-byte struct (one real float32 + 12 zero bytes); `DPIV` is a real record
-array (`chunk.size / 32` records, 8x float32 each — the wiki's own "always
-32 bytes" undersold it, that's just the single-record case); `WFV2` is a
-flat 16x float32 array. `WFV1`/`WFV2` are a genuinely thin, 2-file,
-byte-identical-content sample, flagged tentative rather than confidently
-typed field-by-field (two fields show signs of not really being floats —
-see `WIKI_FINDINGS/M2.md`'s follow-up — exposed as plain floats rather
-than guessing a color/int reinterpretation). `dumpRawFallback`
-(`src/cmd_dump.cpp`) was removed outright once nothing used it anymore.
-
-**`global_flags` decoded into its wiki-named bits, and `textureCombinerCombos`
-(the header struct's last field) implemented** — `m2::globalFlagNames`
-names every set bit `husk info` already prints as raw hex; a real-file
-cross-check confirms `flag_load_phys_data` tracks real `.phys` presence
-correctly, and confirms `flag_new_particle_record` is genuinely an
-*alternate* signal to `version > 271` (the wiki's own OR), not a second
-gate `kMinVerifiedParticleVersion` needs to also check.
-`Header::textureCombinerCombos` is read conditionally on the flag bit
-(offset 0x130, right after `particleEmitters`) using the same
-`parseUint16Array` five other lookup tables already share — a full
-130,576-file local-corpus scan found zero real files with the flag set, so
-the wiki's own "use this instead of index+1 for multitexture blending"
-cross-reference into `cmd_export.cpp`'s material resolution was
-deliberately *not* wired up (no indexing key documented at all, and no
-real file to verify a guess against) — surfaced via `husk info` only, the
-same awareness-only treatment already established elsewhere in this project
-for lookup-table structs with no verified consumer yet.
-
-**`resolveSkin`'s "not found" failure message now names the specific
-candidate path it checked**, not just the directory searched — a direct
-Foreign Data policy gap (`~/.claude/CLAUDE.md`'s "on failure, always print
-expected and actual values"). The sibling resolvers this was checked
-against (`--anim`/`--bones-dir`/`--textures`) turned out not to share the
-gap: all three are deliberately silent-skip-per-item by design, with no
-"not found" failure message to improve in the first place.
-
-**`blp/`'s DXT3 support turned out to already exist — the "unimplemented"
-claim was stale documentation, not a missing feature.** A 779,056-file
-local-corpus scan (the single longest-running corpus check in this
-project's history, ~2h55m, almost entirely disk I/O) found 6,759 real
-DXT3 BLP2 files (confirmed-needed, not hypothetical) and zero real JPEG
-ones (confirmed genuinely absent, recorded as a real negative result, not
-implemented blind). `blp/src/husk_blp/decode.py`'s `_decode_dxt` was
-already generic over `PixelFormat.DXT1`/`DXT3`/`DXT5` — DXT3 just had no
-test and no real-file verification, so `README.md` kept calling it
-unimplemented. Verified both ways before trusting it: a new synthetic
-single-block test (matching the existing DXT1/DXT5 precedent), and a real
-file (`character/troll/hair00_01.blp`) decoding to a visibly correct hair
-texture, not garbage.
-
-**World-scene composition (placing many M2/WMO instances into one rendered
-world) will be built bottom-up, never as a monolithic "export the whole
-game" operation — confirmed directly by Luna, 2026-08-01.** The actual
-CLI subcommand/flag shape for the composing layer is still an open,
-deferred design question (see `TODO/WORLD/WORLD_PLACEMENT_TODO.md`'s own
-"Scene-composition CLI surface" section), but the *shape of the effort* is
-decided: build small, individually testable/exportable primitives first
-(a single WMO's own export, a single ADT tile's own terrain export, a
-placement-record resolver correct and tested on its own), then add thin
-**helper** chaining/composition on top of those once they exist — the same
-way husk's own M2 pipeline actually grew historically (`export` started as
-"one `.m2` in, one `.glb` out," and `.skel`/`.phys`/`.anim` sidecar
-resolution were each pulled in later as independently-testable pieces, not
-a single big-bang design). A further, explicitly speculative idea flagged
-in the same conversation and *not* decided — whether the real end target
-should eventually be a genuine scene-descriptor file format with dynamic
-loading (an index/manifest referencing many separately-exported `.glb`s,
-loaded on demand, closer to how a game engine actually streams a world)
-rather than one large pre-baked `.glb` per tile or map — is recorded as a
-potential future exploration goal in `TODO/WORLD/WORLD_PLACEMENT_TODO.md`, not a
-requirement blocking any placement-parsing work.
-
-**Anecdotal geoset-group semantics, real Blender inspection of one model
-(`bloodelffemale_hd.m2`), cross-referenced against `reference/wow.export`'s
-own two independent geoset-group tables — recorded because it's
-generalizable groundwork for the geoset-mask work
-(`tools/husk_blender_geoset_mask.py`), not itself a husk feature or claim.**
-At the time of this investigation husk did not yet parse any real,
-authoritative per-model geoset-semantics DB2 data (that gap has since
-closed via a different, more direct chain -- `--customization-choice-ids`/
-`--creature-display-id`, see the Non-goals section above) — what follows is
-a human visually
-identifying what each `group_<n>,variant_<n>` vertex group actually
-looks like in Blender on one specific real character export, then checked
-against two tables `reference/wow.export` already carries (checked out for
-source-code reference only, unrelated to and not to be confused with
-Luna's own real local `casc-tool` DB2 export) as a plausibility
-cross-check, not verified against real DB2 data. Treat every row as "true
-for this one model, not yet confirmed on any other," and the two
-reference tables as independently-authored community naming, not
-something husk itself reads or trusts at runtime.
-
-`reference/wow.export/src/js/3D/GeosetMapper.js`'s `GEOSET_GROUPS` and
-`reference/wow.export/src/js/db/caches/DBItemGeosets.js`'s `CG` enum
-(explicitly commented there as "matches `CharGeosets` from WMV," i.e. an
-independently-arrived-at community table, not wow.export's own invention)
-mostly agree with each other and, strikingly, with every one of this
-session's real visual observations except two real naming
-discrepancies (both noted below) — this is a much stronger cross-check
-than either table alone, since two independently-authored sources and one
-independent human visual inspection converging on the same semantics for
-14+ of 17 groups is unlikely to be coincidence:
-
-| Group (`geoset_id / 100`) | Real Blender observation, this model | `CG` enum name (`DBItemGeosets.js`) | `GEOSET_GROUPS` name (`GeosetMapper.js`) |
-|---|---|---|---|
-| 0 (raw IDs < 100) | Hair options | `SKIN_OR_HAIR` | `Hair` |
-| 4 | More sleeves and bracers | `GLOVES` | `Gloves` |
-| 5 | Boot calf model variations (the actual foot end turned out to be group 20, not this one) | `BOOTS` | `Boots` |
-| 7 | Ears | `EARS` | `Ears` |
-| 8 | Puffy sleeves (some shirt models, some chest-armor models) | `SLEEVES` | `Wrists` — **disagrees with `CG`**; this model's real content matches `CG.SLEEVES`, not "Wrists" |
-| 9 | "Around the knee" pants/shoe mesh variations (flared trouser legs above the knee, chunky boot tops below it) | `KNEEPADS` | `Kneepads` |
-| 11 | Leg-armor thigh mesh variations | `PANTS` | `Pants` |
-| 12 | Unknown at the time, now identified | `TABARD` | `Tabard` |
-| 13 | Skirts(?) — two different meshes that *look* the same | `TROUSERS` | `Trousers` |
-| 15 | Cloaks | `CLOAK` | `Cloak` |
-| 17 | Eye-glow options (matches this session's own earlier, independently-derived finding — `EYES_ON_FINDINGS.md`) | `EYEGLOW` | `Eyeglow` |
-| 18 | Belts | `BELT` | `Belt` |
-| 20 | Shoe/boot *foot* variants specifically (the calf portion is group 5) | `FEET` | `Feet` |
-| 22 | Something chest-shape-related | `TORSO` | `Torso` |
-| 32 | Face — visible by default, only one option on this model | `HEAD_SWAP` | `HeadSwap` — **name mismatch with the visual content on this model**, worth re-checking on a model that actually has 2+ variants in this group before trusting either name over the visual read |
-| 35 | Earrings | `PIERCINGS` | `Piercings` |
-| 36 | Necklace, independent model | `NECKLACE` | `Necklace` |
-| 39 | Arm-band jewelry, independent 3D model | `MISC_ACCESSORY` | `MiscAccessory` |
-
-Groups not directly visually identified this session but present in both
-reference tables, listed here so a future session checking a different
-group doesn't have to re-derive the base table from scratch: 1/2/3
-(`FACE_1`/`FACE_2`/`FACE_3` — facial hair styles, presumably, unconfirmed),
-6 (`TAIL`), 10 (`CHEST`), 14 (`DH_LOINCLOTH`), 16 (`FACIAL_JEWELRY`), 19
-(`BONE`), 21 (`SKULL`), 23/24 (`HAND_ATTACHMENT`/`HEAD_ATTACHMENT`),
-25 (`DH_BLINDFOLDS`), 26-31 (`SHOULDERS`/`HELM`/`ARM_UPPER`/Mechagnome-
-specific groups), 33/34 (`EYES`/`EYEBROWS`), 37/38 (`HEADDRESS`/`TAILS`),
-40-44 (`MISC_FEATURE`/`NOSES`/`HAIR_DECO_A`/`HORN_DECO`/`BODY_SIZE`), 46
-(`DRACTHYR`), 51 (`EYE_GLOW_B` — a second glow channel, also independently
-confirmed real by this session's own `EYES_ON_FINDINGS.md` investigation,
-matched to real `M2Texture::type == 0` FileDataID-only slots on this same
-model).
-
-**A further, real corroboration found in the same reference file**:
-`DBItemGeosets.js`'s own `SLOT_GEOSET_MAPPING` (which real equipment slot
-controls which geoset groups, transcribed from `WoWItem.cpp` per its own
-comment) independently confirms the group-8 naming discrepancy above —
-both the Shirt slot (`geosetGroup[0] = CG_SLEEVES`) and the Chest slot
-(`geosetGroup[0] = CG_SLEEVES`, alongside `CG_CHEST`/`CG_TROUSERS`/
-`CG_TORSO`/`CG_ARM_UPPER`) are documented as controlling `CG.SLEEVES`
-specifically — matching this session's own "some shirt models, and some
-chest armor models" visual observation almost exactly, and giving no
-support at all to `GeosetMapper.js`'s alternate "Wrists" name for the same
-numeric group. The Pants/Legs slot similarly controls `CG.PANTS`,
-`CG.KNEEPADS`, *and* `CG.TROUSERS` together — consistent with groups 9,
-11, and 13 all reading as different real leg-region mesh variations on
-this model, per this session's own separate visual findings for each.
-
-**Explicitly not done, flagged for whoever extends this next**: none of
-this was checked against a second real model (a different race/gender, an
-NPC, or a non-humanoid) — every row above is anecdotal to
-`bloodelffemale_hd.m2` alone, and group semantics are plausible but
-unconfirmed to generalize (a group's *number* is almost certainly stable
-across models per the two independent reference tables above, but which
-*specific variant ID* is the "real" default within a group is real,
-per-model, DB2-driven customization-choice data husk has no access to, the
-same limitation `tools/husk_blender_geoset_mask.py`'s own default-picking
-logic already disclaims (`CURATED_DEFAULT_VARIANTS`'s own doc comment)).
-No wowdev.wiki page was found with an equivalent table during
-this pass — `reference/wow.export`'s two tables above and their shared
-`CharGeosets`/`WoWItem.cpp` (WMV) lineage were the only corroborating
-source located; if a real wowdev.wiki geoset-group page exists, it wasn't
-searched for beyond this repo's own reference material.
+**A duplicate animation keyframe timestamp is repaired, not rejected.** Exact
+duplicates are real data (a "hard cut" authored as two keys at one
+instant, 5 corpus files). The later duplicate moves +1 ms (cascading),
+classified by *original* timestamps; a genuinely decreasing timestamp
+still throws (repairing it would mean guessing).
 
 **Deliberately unparsed fields — a scope ledger, not scattered inline
-claims.** Per `~/nix/claude-rules/CODE_COMMENTS.md`: "out of scope"/"not
-implemented"/"stays unread" is a *decision*, not a fact-at-this-line, and
-belongs here (reread at onboarding, tolerant of slight staleness), not
-buried in a header's doc comment (silently rots — nobody re-reads it on
-every edit). This is the reason a real-corpus `shader_id` investigation
-(now landed as `skin::Batch::shaderId`/`m2::resolveShaderNames`) found a
-field husk had "never parsed at all" despite this project's own
-completeness docs reading as near-complete: a
-real, honest scope cut from early in the project (`skin.hpp`'s own doc
-comment, "out of scope for a first metallic-roughness-with-one-texture
-pass") never got revisited as the project's ambitions grew well past
-"first pass," and nothing forced a re-read of that specific sentence to
-notice. First pass at consolidating this (not exhaustive — the rest of
-the codebase still has the same pattern scattered in header comments,
-flagged as ongoing cleanup in the since-deleted `TODO/CLEANUP_TODO.md`):
+claims.** "Not parsed" is a decision; it lives here, where it is reread,
+not in header comments where it rots (`~/nix/claude-rules/
+CODE_COMMENTS.md`). An early "first pass" cut once hid `shader_id` for
+months this way; it is now `skin::Batch::shaderId`/
+`m2::resolveShaderNames`.
 
-- `M2SkinSection` (`skin.hpp`): `centerPosition`/`sortCenterPosition`/
-  `sortRadius`/`boneCount`/`boneComboIndex`/`boneInfluences`/
-  `centerBoneIndex` are unparsed — culling/skinning-optimization concerns
-  for a hardware renderer's own per-drawcall bone limit, not materials;
-  husk substitutes full per-vertex global joint indices instead, so
-  there's no consumer for these even if parsed (`M2_COMPLETENESS.md`'s
-  "Submesh/batch hardware bone-limit metadata" row).
-- `M2Batch` (`skin.hpp`): `priorityPlane`/`geosetIndex`/`materialLayer`
-  are unparsed, same reasoning as above (draw-order/legacy fields with no
-  role in husk's own one-primitive-per-batch model). `shaderId` was the
-  one field in this struct that *should* have been revisited earlier and
-  wasn't — now parsed and resolved (`src/m2_shader_names.hpp`).
-- `.skel` (`skel.hpp`): `SKB1`'s `key_bone_lookup`, `SKA1`'s
-  `attachment_lookup`, and the `SKL1`/`SKPD` chunks entirely, plus `SKS1`'s
-  `global_loops`/`sequence_lookups` fields, are unparsed — "extend as later
-  commands need more" policy, no concrete consumer identified yet. (`SKA1`'s
-  attachments are read, for the canon bundle.)
-- `M2Event` (`m2_scene.hpp`): the `enabled` field (an `M2TrackBase`-only
-  timestamp block, "when during playback does this event fire") is
-  unparsed — resolving animation-relative timing is a real-clip-playback
-  concern a static-scene exporter doesn't have a consumer for; `identifier`/
-  `data`/`bone`/`position` (the parts that place the event as a scene
-  anchor) are fully parsed and exported.
-- `ParticleEmitter` (`m2_scene.hpp`): only the Cata+ `M2Particle` shape
-  (492 bytes, gated by `kMinVerifiedParticleVersion`) is parsed. Older
-  pre-BC/pre-Wrath/pre-Cata `M2ParticleOld` shapes (narrower
-  `blendingType`/`emitterType`, no `multiTexScale`, no FBlock curves, no
-  `multiTexScrollMid`/`Range`) are real per wowdev.wiki but not
-  implemented — same "verify against a real file before trusting a stride"
-  policy `kMinVerifiedRecordStrideVersion` already applies to Bone/
-  Sequence/Ribbon (`m2_primitives.hpp`), no real file this project has
-  access to exercises the older shape yet.
+- `M2SkinSection`: `centerPosition`/`sortCenterPosition`/`sortRadius`/
+  `boneCount`/`boneComboIndex`/`boneInfluences`/`centerBoneIndex` —
+  hardware bone-limit/culling data; husk uses full per-vertex global joint
+  indices, so nothing consumes them (`M2_COMPLETENESS.md`).
+- `M2Batch`: `priorityPlane`/`geosetIndex`/`materialLayer` — draw-order and
+  legacy fields with no role in one-primitive-per-batch.
+- `.skel`: `SKB1`'s `key_bone_lookup`, `SKA1`'s `attachment_lookup`,
+  `SKL1`/`SKPD`, `SKS1`'s `global_loops`/`sequence_lookups` — no consumer
+  yet. (`SKA1` attachments are read, for the bundle.)
+- `M2Event.enabled` — when during playback an event fires; no static-scene
+  consumer. Identifier/data/bone/position are parsed and exported.
+- Pre-Cata `M2ParticleOld` shapes — see the version floor above.
 
-**A fast reimplementation of husk's own resolution logic must mirror
-every tier, not the tiers that seemed obviously relevant.** husk's real
-texture resolution (`export_materials.cpp:437-456`) has three ordered
-fallback tiers: literal `<FileDataID>.blp/.png`, a `--listfile` real-name
-lookup (resolved against the corpus root, not the model's own
-directory), then same-basename fuzzy matching. `tools/corpus_scan_tasks/
-unfillable_texture_task.py` (a Python reimplementation of this logic for
-a fast full-corpus scan, deliberately not shelling out to a real `husk
-export` per file — see that file's own docstring) was rewritten away
-from an earlier `husk export`-based version that *did* pass `--listfile`,
-and the listfile tier was silently dropped in that rewrite, never added
-back. Consequence: after a real 18,742-file CASC re-extraction landed
-texture files under their real listfile-resolved names (not renamed to
-bare FileDataIDs), the scan's flagged-file count didn't move at all —
-not because the extraction failed, but because the scan literally never
-checked the one resolution tier that extraction was fixing. Caught by
-directly tracing one sample file's real DB2/listfile chain by hand
-rather than trusting the scan's own unchanged output. The general lesson:
-a reimplementation of another system's resolution/fallback logic is only
-as correct as its *least* obviously-important tier — cutting one for
-"this scan doesn't need to be exhaustive" reasoning silently changes what
-the reimplementation actually measures, and the mismatch won't surface
-until something upstream changes in a way that specifically exercises
-the dropped tier.
+### Legacy glTF projection
 
-**`tools/full_render.py`: full-corpus discovery + a gitignore-style
-`.renderignore`, replacing a scan-result-based exclusion list.** An
-earlier approach built the render driver's file list by subtracting a
-corpus scan's flagged-file CSV from a static `full_corpus_file_list.txt`
-snapshot — correct in principle, but fragile in the way the listfile-tier
-bug above demonstrates directly: a scan bug (or a stale snapshot) quietly
-produces a wrong exclusion list with no obvious symptom until someone
-cross-checks it by hand. `tools/full_render.py` instead does a fresh
-`rglob` over the real corpus root every run (cheap — ~1-2s for the whole
-130k-file tree, confirmed by direct timing, not assumed) and applies a
-small, human-editable `.renderignore` (gitignore-style subset: directory-
-prefix and glob patterns, `/`-anchoring, no negation/`**`) for exclusion
-instead — a category-level decision a human states directly (e.g.
-`character/`, structurally DB2-dependent and confirmed as such by direct
-investigation) rather than an artifact of whatever a scan happened to
-flag on its last run. `render_sample_driver.py`'s own render loop was
-factored out into `run_render_pipeline(paths, render_dir)` so both entry
-points (the original one-path-per-line CLI, and `full_render.py`'s fresh-
-discovery-plus-ignore-file path) share the exact same tested
-concurrency/resume/logging logic — never two copies of it.
+**glTF output is never hand-rolled.** `gltf.cpp` builds a `tinygltf::Model`
+and `WriteGltfSceneToStream` frames it. Never define
+`TINYGLTF_IMPLEMENTATION` (it is in `libtinygltf.a`). husk pads its own
+buffer: `appendBufferView`'s `padTo4()` after every append, because
+accessors need component-aligned offsets and embedded PNG lengths are
+rarely multiples of 4 (a real misalignment bug, fixed).
 
-**Two parse-failure contracts: `husk info`/`dump-chunks` diagnose and
-continue, `husk export` fails fast.** `m2::loadModel` (`src/m2_model.hpp`)
-parses the whole file eagerly, isolating a malformed array's own
-`ParseError` into `Model::parseFailures` instead of letting it propagate —
-the field is left empty on failure, indistinguishable from a genuinely-
-empty array without that record. `husk info`/`husk info --json`/`husk
-dump-chunks` embrace this: a broken section further down doesn't abort the
-whole command, it surfaces as a `parse_failures` entry alongside whatever
-else the file has, so a diagnostic command shows as much of a broken file
-as it can. `husk export` cannot take the same approach — an empty
-`vertices`/`materials`/`bones`/etc. wouldn't reliably resurface as a clear
-error further down the pipeline, and could produce a *wrong* export
-(fewer placement anchors than the file really has, or bones silently
-falling back to an external `.skel`) instead of a loud, correct failure.
+**Axis conversion is one matrix.** `kWowToGltf` (`gltf_math.*`), `(x, y,
+z) → (x, z, -y)`; positions/normals apply it, rotations conjugate by it
+(quat → matrix → quat), scales take its permutation without signs. A
+`static_assert` on the determinant forbids a reflection. Rejected: three
+hand-typed formulas — the old `(x, -z, y)` and a rotation rule derived on
+paper from it exported every model upside down undetected.
+`tests/test_conformance.cpp` checks it asset-agnostically (unit offsets
+along local X/Y/Z must land at identical coordinates after a real Blender
+import; proven to fail on the old matrix). Corroborated by
+`reference/wow.export`'s independent conversion code (not treated as
+ground truth). Bones are assumed plain parent-relative TRS around
+`M2CompBone.pivot`; Luna confirmed animation in Blender's GUI
+(2026-08-08). History: `CLAUDE_HISTORY.md`.
 
-The two contracts are named once, at the `canon::` layer
-(`src/canon_policy.hpp`) rather than left implicit in which function a
-caller happens to invoke: `canon::PartialFailurePolicy` is `Tolerant` or
-`Strict`, and `canon::enforcePartialFailurePolicy(model, field, policy)`
-is a no-op under `Tolerant`, or re-raises `field`'s isolated failure under
-`Strict`. `husk export` declares `Strict` once
-(`commands::kExportPartialFailurePolicy`) and calls
-`enforcePartialFailurePolicy` at the point each field is actually read —
-one call per field, in read order, not one call for the whole model,
-since export's own consumption order doesn't match `loadModel`'s parse
-order (`vertices` is read before `bones`/`sequences` despite parsing after
-them) and collapsing the calls would change which field's error wins when
-a file has more than one simultaneous failure. `husk info`/`husk info
---json`/`husk dump-chunks` are `Tolerant` by construction — they read
-`model.parseFailures` directly as diagnostic data and never call
-`enforcePartialFailurePolicy` at all, since a no-op call would be dead
-code.
+**One material per `.skin` batch, not per M2 material.** A batch pins blend
+mode *and* texture; two batches sharing a `materialIndex` needn't share a
+texture. Blend mode → `alphaMode`: `0` → `OPAQUE`, `1` → `MASK`, else
+`BLEND`; the raw value rides as `blend_mode` extras when `> 2`. `MASK`'s
+`alphaCutoff` is the client's 128/255 (`gltf_mesh.cpp`); render flag
+`0x04` → `doubleSided`. No PBR authoring: WoW's shading doesn't map onto
+metallic-roughness and invented values would be guesses.
 
-## CLI argument grammar for `export` (implemented)
+**"Tag it, don't guess at semantics."** Where glTF has no honest slot, the
+real data goes to inert `extras` (keys: `EXTRAS_SCHEMA.md`) and is never
+filtered, faked or applied:
 
-**Previous grammar**, for contrast (replaced, not additive — every existing
-invocation's argument order changed): `export`'s own `printUsage`
-(`src/cmd_export.cpp`) used to take up to three *positional* arguments after
-the model (`.skin`|`auto`, output `.glb`, `.skel`), each trailing-optional —
-you could stop early, but couldn't skip one in the middle, e.g. giving a
-`.skel` meant also giving a skin path and an output path first.
-`--textures`/`--skin-dir`/`--anim-dir`/`--lod` were flags layered on top of
-that. This grew organically (each positional was added when its feature was
-built) and it worked, but it failed `~/docs/CLI.md`'s own §2.2 in one
-specific way: a bare word's *meaning* depended on how many other words came
-before it, not on what the word itself said — the same failure mode §1
-calls out as "no shared grammar." It's also why `--help`/`-h` needed a
-dedicated pre-parse check (`commands::isHelpFlag`) instead of Just Working:
-a hand-rolled positional parser has no generic notion of "this token is a
-flag regardless of position."
+- **Geosets**: every primitive carries `skinSectionId` (+ `geoset_group`/
+  `geoset_variant`); all geosets export. DB2-resolved selections
+  (`--customization-choice-ids`, `--creature-display-id`) are attached as
+  `enabled_geosets`/`creature_enabled_geosets`, not applied.
+- **Extra texture layers** (`textureCount > 1`) feed WoW's fixed-function
+  combiners, which have no glTF equivalent: layer FileDataID/UV set (+ an
+  embedded, unused image) as extras; the first layer renders. No faked
+  `KHR_materials_*`.
+- **Billboarding** is camera-relative, decided by the renderer: tagged.
+- **`M2Texture::type != 0`** (a runtime-replaceable slot) is serialized as
+  `texture_type`, only when nonzero, so a missing image there reads as
+  "needs DB2-driven data," not "file missing." Placement geometry
+  (`--char-layout-id`) and per-choice materials (`chr_enabled_materials`)
+  resolve from DB2; compositing pixels is Blender's job
+  (`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`).
+- **Animated `M2Color`/`M2TextureWeight`**: core glTF has no animation
+  target for material properties at all, so the curves
+  (`fixed16`, resolved with `resolveRawIntTrackSequence`, not the float
+  resolver) go to `tint_animation`/`fade_animation`, one entry per sequence
+  plus `sequenceIndex == -1` for a global sequence.
+- **`.bone` corrections**: every `BFID` file found under `--bones-dir` is
+  attached as `bone_correction_sets`; `--customization-choice-ids` marks
+  the selected one (`selected_by_choice_ids`). Application (multiply order,
+  space) is unverified against the client
+  (`TODO/BONE_CORRECTION_APPLICATION_TODO.md`); left to a consumer that has
+  the slot-selection mapping to apply on top. LOD- and weapon-type
+  hypotheses for slot selection were ruled out (`WIKI_FINDINGS/BONE.md`).
 
-**Current grammar**, derived directly from `~/docs/CLI.md` and now real
-(`src/commands.hpp`'s `ExportOptions`/`addExportOptions`, `src/cmd_export.cpp`'s
-`exportGlb`/`resolveSkin`, both built on
-[CLI11](https://github.com/CLIUtils/CLI11)):
+**A batch's `M2TextureTransform`: `KHR_texture_transform` for the
+constant case, extras for animated.** The extension is static, so animated scrolling stays
+`extras` only (`texture_transform_animation`). The constant case
+(`textureTransformToKhr`, `gltf_mesh.cpp`) folds M2's (0.5, 0.5) rotation
+pivot into the extension's `offset`: `offset = R·S·translation + R·t_S +
+t_R` (`t_S`/`t_R` = the pivot's displacement under scale/rotation).
+Verified on `bloodknightcharger.m2` by hand, by 20,000 random trials
+against `reference/wow.export`'s matrix composition, and by Blender's
+importer producing the same Mapping node. Applied only when every track is
+empty or a true single value (`brewfestmount.m2` has per-sequence tracks
+that happen to be identity — correctly not "constant"), the rotation is
+planar (Z only, the case the wiki's pivot note covers), and a
+`baseColorTexture` exists. Raw values always go to `texture_transform`
+extras too.
 
-| Flag | Short | Meaning |
-|---|---|---|
-| `--input` | `-i` | the `.m2` path |
-| `--output` | `-o` | output `.glb` path |
-| `--from-list` | *(none)* | batch mode: a plain text file of `.m2` paths, one per line (blank/`#`-comment lines skipped) — exports every one with the same flags given on this invocation, reusing one `--listfile` load across the whole batch; requires `--output-dir` instead of `--output`, mutually exclusive with `--input`/`--output` |
-| `--output-dir` | *(none)* | directory to write each `--from-list` entry's `.glb` into (`<model-basename>.glb`, or `<parent-dir-name>_<model-basename>.glb` on a basename collision within the batch) — required alongside `--from-list`, meaningless without it |
-| `--skin` | `-s` | `.skin` path, or the literal word `auto` |
-| `--textures` | `-t` | directory of `<FileDataID>.png`/`<FileDataID>.blp` files, or `none` to skip embedding images (default: the model's own directory) |
-| `--textures-out` | *(none)* | directory to also write each `--textures` `.blp`'s decoded `.png` to, mirroring its location under `--textures` (default: unset — decoded textures stay in-memory only) |
-| `--explain-textures` | *(none)* | flag; after exporting, prints the texture-resolution ledger (which tier answered each slot, ambiguity, miss reasons) — off by default, diagnostics only |
-| `--slim-textures` | *(none)* | flag; write resolved base-color textures as external `<output-dir>/textures/<name>.png` files and reference them via glTF's own external image URI, instead of embedding them in the `.glb` — off by default (embed); additional-texture-layer/ambiguous-candidate extras images stay embedded regardless |
-| `--anim` | `-a` | directory of `<FileDataID>.anim` (falling back to `<model-basename><animId>-<subId>.anim`), or one of `auto`/`inline`/`none` (see below) |
-| `--skin-dir` | *(none)* | directory `auto` searches for the `SFID`-declared `<FileDataID>.skin` |
-| `--skel` | *(none)* | external `.skel` path (0-inline-bone models only) |
-| `--lod` | *(none)* | `<n>` or `all`, only meaningful with `--skin auto` |
-| `--bones-dir` | *(none)* | directory of `<FileDataID>.bone` files, attached as inert extras |
-| `--phys` | *(none)* | external `.phys` path, or `none` — attached as inert extras (minimal anchor; full records via `dump-chunks`) |
-| `--collision` | *(none)* | flag; include the collision mesh, when present, as real (unskinned) geometry tagged `{"collision": true}` in glTF extras — off by default (Blender's stock importer has no concept of the tag and renders it like any other mesh); full records also always available via `dump-chunks` |
-| `--db2-dir` | *(none)* | directory of real character `.db2` files — texture-layout tables for `--char-layout-id` (`src/chrmodel_db2.hpp`) or `ChrCustomizationElement`/`_Geoset`/`_BoneSet` for `--customization-choice-ids` (`src/chrcustomization_db2.hpp`), same directory serves both |
-| `--dbd-dir` | *(none)* | a local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) |
-| `--char-layout-id` | *(none)* | a real `CharComponentTextureLayoutsID` (see `husk db2-export`) — unset (default) auto-derives it from the resolved `--chr-model-id`'s own `ChrModel.CharComponentTextureLayoutID` column; an explicit value always overrides |
-| `--customization-choice-ids` | *(none)* | comma-separated real `ChrCustomizationChoiceID`(s) (`src/chrcustomization_db2.hpp`) — resolves each to a real geoset selection and/or marks a matching `--bones-dir` correction set as inert extras; husk can't enumerate these on its own either |
-| `--appearance` | *(none)* | a husk-appearance/1 string (`src/appearance_string.hpp`) — superset alternative to `--customization-choice-ids`: its `cust` field drives the same customization resolution, its `gear` field resolves each real (slot, `ItemModifiedAppearanceID`) pair to real equipped-item texture/geometry data as inert `gear_section_overlays`/`gear_items` extras; mutually exclusive with `--customization-choice-ids` |
-| `--chr-model-id` | *(none)* | a real `ChrModelID`, the literal `auto` (default whenever `--db2-dir`/`--dbd-dir` are given) to derive one via `--listfile`-resolved FileDataID or a filename-convention fallback, or `none` to disable derivation |
-| `--creature-display-id` | *(none)* | a real `CreatureDisplayInfoID` (see `husk db2-export`) — resolves `--db2-dir`'s `creaturedisplayinfogeosetdata.db2` into that display's real *default* geoset selection as `creature_enabled_geosets` extras; husk can't derive which display ID applies on its own, so it must be given directly |
-| `--object-skin-texture-id` | *(none)* | a real texture FileDataID to fill into any unresolved type=2 (`object_skin`) texture slot — husk can't derive this on its own; unset (default) leaves those slots unresolved |
-| `--knowledge-db` | *(none)* | husk's own pre-built knowledge-base SQLite database (`husk db2-build`) — when given, resolves a model's object-skin texture automatically instead of requiring `--object-skin-texture-id` per invocation; `--object-skin-texture-id` still wins if both are given |
-| `--listfile` | *(none)* | a local `community-listfile.csv`-style snapshot (FileDataID;path per line) — last-resort fallback when a FileDataID-named texture slot isn't found next to `--textures`; unset (default) skips this tier entirely |
-| `--listfile-root` | *(none)* | the corpus root `--listfile`'s paths are relative to; only meaningful alongside `--listfile` (default: `--textures` itself) |
+**Global-sequence tracks get their own clips** (`global_seq_<n>`). Such a
+track loops on its own timeline against `Header::globalLoops`, whatever
+sequence plays, so folding it into per-sequence clips would misstate when
+it plays. Per the wiki such tracks have exactly one sub-array;
+`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack` read it,
+and `buildJointAnimation` is shared with the per-sequence path.
 
-Every flag is order-independent. The only positional-shaped things left are
-the two every CLI on every platform already trains a user to expect
-(`tool input output`, same as `cp`/`mv`) — everything else is named, so
-`--help` is trivially always a valid token (no positional-counting to fall
-through first) and adding a tenth flag next year can't shift what word #3
-means the way it can today.
+**Alias sequences resolve through `aliasNext`, inline data wins.**
+`aliasNext` is a local `sequences` index (`WIKI_FINDINGS/M2.md`).
+`resolveAliasChain` (bounded to `sequences.size()` hops, throws on a cycle)
+finds the terminal non-alias sequence, whose data is registered under the
+alias's own id. Only a *pure* alias (`0x40` without `0x20`) is resolved:
+31 of `bloodelffemale_hd.skel`'s 38 aliases also carry `0x20` and have
+their own data. On the committed fixtures this adds zero clips (all 7 pure
+aliases need `.anim` files not in the repo; `tests/test_integration.cpp`
+pins that, `tests/test_cli.cpp` covers multi-hop, priority, cycle and
+out-of-range chains synthetically). The other `M2Sequence` fields
+(movespeed, frequency, replay, blend times, bounds, variationNext,
+aliasNext) go to per-clip `sequence_metadata` extras, the alias's own
+values even when data is borrowed.
 
-- **`-i`/`-o` keep a positional fallback, nothing else does** (§1, "habit /
-  muscle memory" — the null-then-fallback chain's cheapest rung). `tool in
-  out` is load-bearing muscle memory across the entire CLI ecosystem;
-  `.skin`/`.skel`/directory arguments have no equivalent universal
-  convention to lean on, so spelling them out loses nothing a positional
-  would have bought. `--output`'s own default value is a plain computed
-  literal (`<model-basename>.glb`) — not an "auto" state in the §2.11 sense
-  below, since there's no self-description in the model to defer to for
-  "where should this be written."
-- **`-s`/`-t`/`-a` get shorthands; `--skin-dir`/`--skel`/`--lod` don't**
-  (§2.8, high-frequency flags earn the cheap spelling). `--skin`,
-  `--textures`, `--anim` vary on nearly every invocation — that's the
-  definition of "common case" §2.8 reserves shorthands for. `--skin-dir`
-  doesn't get one *not* because it's rare, but because `-s` is already
-  spoken for by `--skin`'s more common meaning (the direct file path/`auto`)
-  — a real naming collision, not a frequency judgment (§2.8's actual test:
-  "is this a new spelling of an existing flag, or a genuinely different
-  axis" — `--skin`/`--skin-dir` are a different axis wearing similar
-  clothes, same shape as the `--verbose`/`--debug` example in §2.8, so both
-  survive, neither gets collapsed). `--skel` and `--lod` stay unshorthanded
-  because they're genuinely occasional — one-shot decisions (§2.6,
-  progressive disclosure: common actions at the top level, rare ones one
-  step further out), not per-invocation variance.
+**Volume decides the destination: emitters and physics get a minimal anchor
+in the `.glb`, the full record in `dump-chunks`.** A model can have dozens
+of emitters with ~15 resolved curves each, or 40+ `.phys` bodies; most
+`.glb` consumers can use none of it.
 
-### Config-file defaults for `export` (implemented, 2026-08-21)
+- `M2Ribbon`/`M2Particle`: `id`/`boneIndex`/`position` anchors
+  (`ribbon_emitters`/`particle_emitters`); full records with every curve in
+  `dump-chunks` (FBlock curves are flat; `M2Track` curves are per sequence
+  or global).
+- `.phys` (`--phys`, three-state like `--skel`): `id`/`joint`/`position`/
+  `bodyType` anchors (`physics_bodies`); full body/shape/joint/`PHYV`
+  records in `dump-chunks`, which also takes a `.phys` directly. `.phys` is
+  documented on the wiki and implemented from it, verified on 103 files
+  (`WIKI_FINDINGS/PHYS.md`); chunk types never seen in the corpus are
+  parsed but unverified (`phys.hpp`).
 
-Same flag surface as above, but a subset of these flags (`--dbd-dir`,
-`--db2-dir`, `--listfile`, `--listfile-root`, `--textures`, ...) tend to be
-per-machine constants — a user's local WoWDBDefs checkout, DB2 extraction
-directory, and listfile snapshot don't change between runs, only the model
-being exported does. Repeating four or five flags on every invocation is
-pure ceremony once that's true.
+**`husk dump-chunks` is a separate JSON output, not a step toward richer
+glTF.** Parent-sequence overrides, waterfall constants, edge fade and side
+data have no glTF slot; forcing them in would invent semantics. Undocumented
+chunks are still emitted, decoded or as hex with a reason, never dropped.
 
-**Design choice: piggyback entirely on [CLI11](https://github.com/CLIUtils/
-CLI11)'s own `App::set_config`, rather than writing a config parser.**
-`set_config` maps TOML `key = value` pairs directly onto the same
-`add_option` registrations `addExportOptions` already declares — so a
-config value gets the exact same `->check()` validator a CLI flag value
-would (foreign-data checking "for free," §CLAUDE.md's Foreign Data policy —
-a config-supplied `--skin none` is rejected exactly like a hand-typed one,
-with zero new validation code), and CLI11's own precedence order already
-matches what was wanted: an explicit command-line flag beats a config
-value, which beats the flag's own built-in default. No second parser, no
-hand-written key→flag table to keep in sync with `addExportOptions` as
-flags are added or renamed.
+**Attachments, events and lights are plain child nodes**, not anchors in
+extras: a bone-relative position is all their static data. Translation
+only, named `attachment_<id>`/`event_<identifier>`/`light_<index>`
+(duplicate event names are legal; one weapon has six `$CSD`), parented to their joint, appended after
+the joint range, **never in `skin.joints`**. `bone == -1` throws (no
+unparented-node concept yet, no fixture). Light type and animated fields
+are out of scope. Verified: Blender reports the real bone count (78) and
+the validator reports no errors.
 
-**Path resolution**: `--config <path>` > `$HUSK_CONFIG` (via `->envname`)
-> `husk::defaultConfigPath()` (`src/husk_config.hpp`) — `$XDG_CONFIG_HOME/
-husk/config.toml`, falling back to `~/.config/husk/config.toml`. A missing
-file at the resolved path is not an error (`set_config`'s own
-`config_required=false`) — same "unset is the no-flag state" convention
-every other opt-in sidecar in this project already follows. The path
-helper is a standalone shared function, not export-specific, so every
-other command's own since-completed CLI11 migration reused it verbatim
-rather than re-deriving the same XDG logic.
+**The collision mesh is real geometry, opt-in.** A plain triangle mesh has
+an obvious translation, so it exports natively (`m2::parseCollisionMesh`),
+unskinned (static), tagged `{"collision": true}`; normals are averaged face
+normals (one per triangle in the source). `writeGlbMulti` lets each mesh
+opt in or out of skinning. **Off by default** (`--collision`): shipped on
+by default first, then a headless render of `bloodelffemale_hd.m2` was a
+white slab — the hull occluded the character, and a tag only helps
+scripts. A companion Blender-side script that hides extras-tagged-but-
+visible geometry post-import was deferred until real interactive use
+(Luna, 2026-08-01); `tools/husk_blender_geoset_mask.py` grew from that
+slot.
 
-**Deliberately not filtered to a "safe" subset of flags.** CLI11's config
-support has no notion of "these flags are config-settable, those aren't" —
-every flag `addExportOptions` registers, `--input`/`--output` included, is
-technically settable via config. Building a filter to block that would be
-new code whose only job is fighting the very mechanism chosen to avoid new
-code. Instead: the documented example config (`README.md`) only shows the
-genuinely per-machine flags, so a user finds `output = "..."` only by
-reading the flag table or the source, never by accident — and if someone
-deliberately sets it anyway, they did so in the same validated TOML syntax
-this project already accepts everywhere else, which is a legitimate (if
-unadvertised) choice, not a bug to guard against.
+**LOD tiers share one skeleton and animation set**: every `.skin` selects a
+subset of the same vertices/bones. `writeGlb` is `writeGlbMulti` with one
+entry.
 
-### Listfile cache (implemented, 2026-08-29)
+**A genuinely geometry-less model gets zero meshes, not one empty mesh.** 3,807 of
+130k files (pure VFX, e.g. `particles/lootglow_boss.m2`) have no vertices;
+an empty-`indices` primitive is invalid glTF. A LOD tier with zero
+primitives adds no mesh; `writeGlbMulti` accepts no meshes when a skeleton
+exists (anchors still export) and errors when both are empty.
 
-`husk::loadListfile` (`src/listfile.hpp`/`.cpp`) re-parses the whole
-`--listfile` CSV from scratch on every invocation — no persistent process
-to cache a parsed listfile across calls, and a real
-`community-listfile.csv` is ~148MB/2.2M rows. Measured cost: ~0.5s of a
-~0.7s `husk resolve` call on a simple model (the since-deleted
-`TODO/CLEANUP_TODO.md`'s own listfile-caching item, before it closed). A
-corpus scan invokes `husk`
-once per file across 130k+ files, so this cost is paid, in full, that many
-times.
+**A multi-root bone forest gets one synthesized non-joint parent node.**
+35% of 130k files (45,804) have several roots — intentional data. When
+`rootJointNodeIndices.size() > 1`, one identity node outside `skin.joints`
+(no IBM) parents every root and is `skin.skeleton` and the sole scene
+root — the shape glTF tooling expects for multi-rooted skeletons
+(KhronosGroup/glTF issue 1270). **Invariant: `Skeleton::joints` is never
+touched** — every vertex/
+anchor/correction/animation joint index stays a raw M2 bone index
+(`gltf.hpp`). Single-root output is byte-identical. Blender counts the real
+bones only (15-bone/10-root fixture). Rejected: an extra identity joint
+(grows `skin.joints` past the bone count for nothing) and dropping
+non-hierarchical bones (`wow.export`'s apparent approach; loses real
+bones). The validator's `SKIN_NO_COMMON_ROOT` flags only some multi-root
+files; why is open (`TODO/INVESTIGATIONS_TODO.md` #16).
 
-`src/listfile_cache.hpp`/`.cpp` adds `loadListfileCached` — same contract
-as `loadListfile` (a bad `--listfile` path still throws, a malformed line
-is still silently skipped, results are byte-for-byte identical either
-way), backed by a persistent on-disk cache. `cmd_export.cpp`,
-`cmd_resolve.cpp`, and `cmd_db2_build.cpp` — every real call site that
-loads a `--listfile` — call this instead of the raw parser now.
+**Nodes carry real names.** Joints: `m2::keyBoneName` (the wiki's key-bone
+table), else `bone_<index>`. Materials: `m2::textureTypeName` suffixes
+(`_skin`, `_char_hair`). The render mesh node falls back to the model's
+basename.
 
-**Location**: `$XDG_CACHE_HOME/husk` (falling back to `$HOME/.cache/husk`,
-then a temp dir) — mirrors the sibling `tact-fetch` project's
-`TactFetchCacheDir()` convention (`~/dev/tact-fetch/src/cache_dir.h`) bit
-for bit, so a user who already knows that project's layout recognizes
-this one. `$HUSK_CACHE_DIR` overrides it, same "explicit env var beats the
-XDG default" shape `$HUSK_CONFIG` already uses (`husk_config.hpp`) — used
-by this project's own test suite (`tests/run_husk.hpp`) to keep CLI-tier
-tests' synthetic `--listfile` fixtures out of a real machine's real cache
-dir, and available to a caller who wants an isolated cache for the same
-reason. Two artifacts live there: `listfile.bin` (the packed cache) and
-`listfile.tag` (the freshness marker below).
+**Ambiguous texture candidates are all embedded.** When a slot has 2+
+same-basename candidates and no in-file tiebreak, every candidate is
+embedded (`alternate_textures`), and one deterministic pick (alphabetical)
+is wired as `baseColorTexture` so the model renders. Enumerating needs no
+in-file data (it comes from the `--textures` scan), only *picking* does.
+`texture_file_data_id` records the resolved FileDataID whichever file won.
 
-**Staleness — a tag file's mtime, not atime.** `listfile.tag`'s own mtime
-is refreshed on every use. If it's older than 10 minutes, the cache is
-never even considered for reuse, regardless of whether the source CSV
-itself changed — Luna's own framing: "when we are hammering it, it stays
-cached ... it only stays alive for the single session it's actively
-working on." **Deliberately not atime-based**, despite atime nominally
-existing for exactly this "was this read recently" question: this
-machine's own real `unreliable_pool` ZFS dataset (where the cache
-actually lives) is mounted `noatime`/`atime=off`, confirmed empirically —
-atime is never updated on read here, so it can't drive staleness at all.
-A tag file's mtime is a write husk fully controls, independent of
-whatever mount options happen to be in effect.
+### Blender-facing glTF
 
-**Source invalidation.** A time-fresh tag alone doesn't prove the cache is
-still *correct* — `--listfile` could point at a different file, or the
-same file could have been edited in place, and this project has already
-been bitten once by silently-wrong listfile data (`WIKI_FINDINGS.md`'s
-CRLF/resolveFieldString history). So the cache header also carries the
-source's own path, size, and mtime, checked against the caller's `path`
-on every load *within* the freshness window; any mismatch is a rebuild,
-never a warning — same "recoverable, so no silent partial state" instinct
-`cmd_export.cpp`'s empty-listfile warning already follows, just resolved
-by rebuilding instead of merely flagging it. CRLF handling is untouched:
-the cache is built from `loadListfile`'s own already-correct parse, so
-whatever tolerance that function has for `\r`-terminated lines is
-inherited for free, not re-implemented.
+**Blender-survivable extras live on the skin's root joint, not the skin.**
+Every per-model key (`chr_*`, `enabled_geosets`, `bone_correction_sets`,
+emitter/physics anchors, ...) belongs on `skin.extras` by glTF semantics,
+but Blender's importer drops skin, animation and `asset` extras, while node
+extras survive as custom properties (verified headless, deeply nested
+structures included). So they merge onto the first real root joint
+(`emitSkeletonAndSkin`'s `rootJointNodeIndices.front()`, never the
+synthesized parent, which is no bone). Rejected: a new fake carrier joint
+like the geoset tags — the joint offset arithmetic is threaded through ~10
+places, risking a silent off-by-one. Accepted cost: the data stays on that
+bone.
 
-**Concurrency.** `tools/corpus_scan_framework.py` runs ~9 `husk`
-subprocesses in parallel; several can hit a cold or just-expired cache at
-the same instant and each independently decide to rebuild. That's
-accepted, not a bug to prevent with locking — every rebuilder parses the
-same source file, so the redundant work produces equivalent (if not
-byte-identical in write order) content. What must never happen is a
-reader observing a *partially written* cache file. `writeCacheAtomic`
-never writes `listfile.bin` directly: it writes a per-process, per-call
-temp file in the same directory, then `rename()`s it over the real name.
-`rename()` within one filesystem is atomic — a concurrent reader's `fopen`
-either lands before the rename (sees the old complete file, even via an
-fd already open when the rename happens) or after (sees the new complete
-file); a torn read is not possible. If two writers race, whichever
-`rename()` lands last simply wins.
+- Raw joint indices also carry `bone_name`: Blender's bone order differs
+  from glTF joint order (242/358 mismatches on a 245-bone character).
+  `joint_names` stays as the carrier's always-present marker.
+- `animation_data_names` is mirrored onto the carrier and kept in each
+  clip's `sequence_metadata` — the one deliberate duplicate, because the
+  glTF-natural place and the place Blender keeps differ.
+- The geoset-tag trick (`Skeleton::geosetTags`, `JOINTS_1`/`WEIGHTS_1`) is
+  the inverse: data encoded as weights, which Blender turns into vertex
+  groups.
+- Blender-side hazard: custom-property groups are live views; deleting any
+  bone afterwards invalidates them and touching one segfaults Blender.
+  `_root_joint_extras` deep-copies.
 
-**Format**: a packed binary, not a re-serialized CSV or a flat
-`unordered_map` dump — a fixed header (magic/version/source identity/
-entry count/blob size) followed by a `FileDataID`-sorted `uint32_t` array,
-a parallel `uint32_t` length array, and one string blob holding every
-path's bytes back to back. Loading is a straight sequential read (no
-`memchr` scans for `;`/`\n`, no digit-by-digit integer parsing, no CRLF
-stripping) plus a single prefix-sum pass over the length array to slice
-the blob — real parsing work `loadListfile`'s own text scan pays that this
-format never does. The on-disk array being kept sorted is deliberate
-beyond just "matches how it's naturally built": it's directly
-binary-searchable in principle, for a future caller that only needs a
-handful of point lookups rather than the whole map (see the deviation
-below for why no caller does that yet).
+**`extras` schema version**: `kExtrasSchemaVersion` (`gltf.hpp`) is written
+to `asset.extras.schema_version` (always present, spec-correct) and
+mirrored on the root joint (survives Blender). It versions the extras
+*shape*, not the binary: bumped only when a key's meaning changes. The
+Blender script prints match/older/newer/missing and never rejects: old
+exports have no version and every key is optional anyway.
 
-**Deliberate deviation from a literal "avoid materializing 2.2M
-`unordered_map` entries" reading, and what it actually costs**:
-`loadListfileCached`'s return type is still
-`std::unordered_map<uint32_t, std::string>`, and it still builds one on
-every call — cache hit or miss. `unordered_map<uint32_t, std::string>` is
-the load-bearing type across ~20 real call sites (`export_extras.hpp`,
-`export_materials.hpp`, `sources::Catalog`/`ListfileCatalog`/
-`TextureCatalog`, `cmd_export.cpp`, several test files), each already
-tested against that exact contract; migrating every consumer to query the
-packed array directly (binary search per lookup, no map at all) is a
-second, separable refactor with real risk of its own — out of scope here.
+**Human-readable names**: geoset dropdowns are labelled with real
+customization option/choice names where `chr_customization_options` has
+them (a `NodeEnumItem` name is both identifier and label, so defaults
+resolve through a variant → label map). `AnimationData.db2`'s name is
+attached as `animation_data_name`, never renaming the clip (tools key on
+`anim_<id>_<variationIndex>`); current clients have no `Name` column
+(`LAYOUT BBF66A3C`, absent since 7.3.5), so nothing resolves today
+(`CLAUDE_HISTORY.md`). Clips are marked as Blender assets
+(`action.asset_mark()`), the one place the script renames.
 
-**Measured, not assumed, and the number is smaller than hoped**: a real
-n≥5 `husk resolve` comparison (README.md's timing table has the full
-numbers) shows the warm-cache path is only marginally faster than the
-uncached baseline — about 4% on a simple item model with no
-same-basename fuzzy pool (~696ms uncached vs. ~668ms warm), and
-statistically indistinguishable on a customization-heavy character model
-whose own fuzzy-pool resolution already dominates total runtime regardless
-of `--listfile`. The cold-cache path (first use, or after the 10-minute
-tag expires) is measurably *slower* than the uncached baseline — the same
-parse, plus a sort over 2.2M entries and a ~145MB write, paid once. Root
-cause: eliminating the CSV's own text scan (the `memchr`/digit-parsing
-work `loadListfile`'s doc comment describes) turned out not to be where
-most of the cost lives. Building the final `unordered_map` — 2.2M string
-allocations plus 2.2M hash-table insertions — dominates, and every format
-choice that still hands back a full `unordered_map` pays that cost
-identically, cached or not. Closing that gap for real would mean the
-migration named above: callers doing direct binary-search point lookups
-against the packed array instead of a fully materialized map. That's a
-correctness-neutral, well-scoped, but genuinely separate piece of work,
-not attempted here.
+### Resolution
 
-### Three-state resolution, not two (§2.11)
+**Texture resolution tiers, in order**: the M2's embedded filename,
+`<FileDataID>.png|.blp` (only if present), the `--listfile` path under
+`--listfile-root`, then the one unclaimed same-basename file (ambiguity
+reported). Deterministic tiers run before the shared fuzzy pool: a fuzzy
+claim once stole a file belonging to a later FileDataID-resolvable slot
+(now a `tests/test_cli.cpp` case). Owner: `export_texture_resolution.*` /
+`sources::Catalog`.
 
-`--skin`, `--textures`, `--skin-dir`, `--skel`, and `--bones-dir` all name a
-thing the model's own chunk data (or its presence next to the model) already
-points at — `~/docs/CLI.md` §2.11 states the rule for exactly this shape of
-flag directly: *"there are three states here, not two"* — collapsing "leave
-it unset" and "actively don't want it" loses the difference between "try to
-resolve, warn if broken" and "I already know, don't even try."
+**A reimplementation of a resolution chain must mirror every tier.** A
+Python scan (`unfillable_texture_task.py`) dropped the listfile tier; after
+an 18,742-file re-extraction placed textures under listfile names, its
+counts didn't move — it never checked the tier
+that changed. Counterpart: `CLAUDE.md` Hazards.
 
-- **Unset -> `auto`.** Best-effort derivation from whatever the input
-  already declares — and this is deliberately **not** defined as "check the
-  model's own directory." That directory is *one current heuristic* for
-  *where to search*, not what `auto` means. The two are genuinely separate
-  questions with separate answers:
-  - *What* to look for is derived from the model's own bytes wherever the
-    model states it explicitly — `--skin auto` reads the `SFID` chunk (entry
-    `--lod` selects) for the FileDataID to search for; that answer never
-    depends on the filesystem at all.
-  - *Where* to search is a directory, and today that directory's own
-    default happens to be the model's own directory (a real extraction
-    drops everything into one place) — but that's this flag's default
-    *value*, not a redefinition of `auto` itself. A future second signal
-    for "where" (a manifest file, a second sidecar) would extend the
-    heuristic without changing what any of these flags mean to the user.
-  Leaving the definition of "auto" at "derive from self-description,
-  best-effort" rather than baking in today's one heuristic keeps the
-  contract stable if the heuristic ever grows a second source.
-- **Explicit value -> override.** Use exactly this file/directory instead
-  of deriving anything.
-- **Explicit `none` -> skip deliberately.** Distinct from unset: the user
-  already knows this reference is missing or broken and wants the rest of
-  the export to proceed without a warning or a resolution attempt — the
-  strongest form of "don't even try."
+**`.skin` resolution**: `SFID`-declared FileDataID first (the model's own
+self-description), same-basename numbered scan second. The scan prefers
+exactly 2-digit suffixes when any exists (`mogu_library_crate_1` + `00`
+otherwise matched `mogu_library_crate_10`); other lengths stay a fallback.
+A miss names the exact candidate path checked. The other resolvers skip
+per item by design and have no failure message.
 
-What `none` means, concretely, per flag:
+**Listfile names can belong to another FileDataID**; the mount's
+`_by_fdid/<fdid>` cannot. Order per lookup kind: `CLAUDE.md` Hazards.
 
-- `--textures none` — never embed an image, even if a matching
-  `<FileDataID>.png` would otherwise resolve. Materials still get the
-  correct blend mode/tint either way.
-- `--skel none` — never look for a same-basename `.skel` next to the model,
-  even if one exists there. Forces an unskinned mesh regardless of the
-  model's own inline-bone count.
-- `--skin-dir none` — `--skin auto` skips the `SFID`-FileDataID search stage
-  entirely and falls straight to the same-basename numbered scan.
-- `--bones-dir none` — never resolve any `.bone` file, even if a matching
-  `<FileDataID>.bone` sits in the default directory; no `bone_correction_sets`
-  extras attached at all.
+### BLP
 
-**`--db2-dir`/`--dbd-dir` are required together; `--char-layout-id` no
-longer needs its own explicit value** (superseded, 2026-08-21: this used
-to be "all three given, or the feature is off," since husk had no way to
-derive a `CharComponentTextureLayoutsID` from an `.m2` on its own — but
-`--chr-model-id auto` already derives a real `ChrModelID` from the same
-`ChrModel.db2` table that carries `CharComponentTextureLayoutID` on the
-same row, so `attachCharTextureLayout` (`cmd_export.cpp`) now auto-derives
-the layout ID from whichever `ChrModelID` `--chr-model-id` resolves — same
-`auto`/`none`/`<id>` three-state control as `--chr-model-id` itself,
-found and closed same-day after a real interactive-use question: "are
-`--db2-dir`/`--dbd-dir` strictly required, or nice-to-have?"). Given
-`--db2-dir` without `--dbd-dir`, `attachCharTextureLayout` still prints a
-diagnostic and skips, same as before — never a hard failure of the rest
-of the export.
+**BLP2 decodes in-process** (`src/blp.cpp`): DXT1/3/5 block decode is
+small public maths, PNG encoding comes from `stbi_write_png_to_mem` inside
+the already-linked tinygltf. Reversed from "permanently a separate Python
+process": running `husk-blp` first broke husk being one standalone tool.
+Nothing is written unless `--textures-out` is given. `blp/` stays as an
+independent second implementation the C++ tests check against. A
+779,056-file scan found 6,759 DXT3 files (already supported, just
+unverified) and zero JPEG (recorded negative, not implemented).
 
-**`--anim` needs four states, not three — it bundles two independent
-questions the generic pattern above collapses into one.** "Should any
-animation data exist at all" and "should *external* `.anim` files
-contribute to it" are separate axes: inline sequences (`flags & 0x20`) and
-global-sequence bone tracks are both resolved straight from the model's own
-blob, with no filesystem involved, so "skip external resolution" and "skip
-animation entirely" are genuinely different outcomes. Collapsing them into
-one `none` (as first drafted, then corrected) silently picked one meaning
-and lost the other. Four states:
+## World export
 
-- `--anim auto` (**default**) — today's combined behavior: inline
-  sequences and global-sequence tracks always resolved from the model's own
-  blob, *plus* best-effort external-directory search (default: the model's
-  own directory) for sequences not stored inline.
-- `--anim inline` — inline sequences and global-sequence tracks only;
-  external-directory search is explicitly skipped. This is what a bare
-  `none` was first written to mean above, and why it needed its own name
-  instead of overloading `none`.
-- `--anim none` — no animation data at all, full stop: a static, still
-  possibly-skinned (bind-pose) mesh with zero glTF `animation` clips,
-  inline or external. The bind pose itself (`JOINTS_0`/`WEIGHTS_0`, inverse
-  bind matrices) is unaffected — this flag only ever touches `animation`
-  clips, never the skin itself.
-- `--anim <dir>` — explicit directory override for the external-search
-  stage; inline sequences and global-sequence tracks are still resolved on
-  top of it, same as `auto`.
+**`export-terrain`** takes the root `<map>_<x>_<y>.adt`; `_obj0`/`_tex0`/
+`_lod`/`_obj1` and `<map>.wdt` are found beside it (each flag overrides,
+`none` skips; the WDT has no `none`), each choice announced as a note. A
+sibling that exists but doesn't parse, or a missing WDT, is a warning
+(expected vs. actual) and only that part is left out; an explicit path that
+doesn't parse fails the export. File-name coordinates are checked against
+the chunk positions. Name-table paths resolve through `--listfile`; an
+unknown path keeps its raw name (`name_source: adt_embedded`).
+
+**`export-world`** runs four parallel passes: collect references, export
+each referenced M2/WMO once (in-process), export each tile, write each
+map's world document. A failed tile, model or WDT goes to `errors.log` and
+is skipped; an unreadable `_obj0`/`_tex0` is logged and the tile exports
+without it; an unreadable WDT leaves its tiles untextured. A rerun skips
+outputs whose `manifest.json` exists (written last) and retries failures.
+Tree: `REFACTOR/CORPUS_EXPORT.md`.
+
+## CLI
+
+### CLI argument grammar for `export`
+
+Built on [CLI11](https://github.com/CLIUtils/CLI11) (`commands.hpp`'s
+`addExportOptions`). The flag list is generated: `README.md` "Flag
+reference". Grounded in `~/docs/CLI.md`.
+
+- **Named flags, order-independent.** Replaced a positional grammar where a
+  word's meaning depended on how many came before it (§1/§2.2) and
+  `--help` needed a pre-parse hack.
+- **Only `-i`/`-o` keep a positional fallback**: `tool in out` is universal
+  muscle memory; `.skin`/`.skel`/directories have no such convention.
+  `--output`'s default (`<model-basename>.glb`) is a computed literal, not
+  an `auto` state.
+- **Shorthands for per-invocation flags** (§2.8): `-s`/`-t`/`-a`.
+  `--skin-dir` has none because `-s` is `--skin` (a different axis, not a
+  rarer spelling); `--skel`/`--lod` are occasional (§2.6).
+- **`--skin none` is rejected at parse time.** A `.skin` is the sole source
+  of triangles, submeshes and batches; a skin-less export would be new
+  scope with its own design, not a quiet `none`.
+- **CLI11 over a hand-rolled parser or a framework**: header-only, tight
+  fit (`help`, order independence, positional fallback for free).
+  Rejected: a Python wrapper — blurs the single-binary boundary for nothing
+  CLI11 doesn't give in C++.
+- **Hazard**: `App::parse(std::vector<std::string>&)` consumes from the
+  *back*. `exportGlb` reverses `args` first; forward order silently binds
+  flags to the wrong tokens.
+- **Flag tables and completions are generated, never hand-written**
+  (`--print-flag-docs`, `--print-completion`); `tests/
+  test_cli_flag_docs.cpp` fails on drift.
+
+### Three-state resolution, not two
+
+(`~/docs/CLI.md` §2.11.) For a flag naming something the model itself
+points at (`--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`,
+`--phys`), unset and "don't" are different states:
+
+- **Unset → `auto`**: derive from the input's self-description,
+  best-effort. *What* to look for comes from the model's bytes (`SFID`
+  entry `--lod` picks); *where* to search is a directory whose default is
+  the model's own. That default is a value, not the definition of `auto`,
+  so a second "where" signal wouldn't change the flag's meaning.
+- **Explicit value → override.**
+- **`none` → skip deliberately**, no attempt, no warning.
+
+Per flag:
+
+- `--textures none`: never embed an image; blend mode/tint still apply.
+- `--skel none`: never look for a same-basename `.skel`; unskinned mesh.
+- `--skin-dir none`: skip the `SFID` stage, go straight to the basename
+  scan.
+- `--bones-dir none`: no `.bone` files, no `bone_correction_sets`.
+
+**`--db2-dir`/`--dbd-dir` are required together.** `--char-layout-id` is
+derived from the resolved `--chr-model-id` (`ChrModel.
+CharComponentTextureLayoutID`, same row), with the same `auto`/`none`/
+`<id>` control. `--db2-dir` without `--dbd-dir` prints a diagnostic and
+skips; the rest of the export proceeds.
+
+**`--anim` has four states**, because "any animation?" and "external
+`.anim` files too?" are independent (inline and global-sequence tracks need
+no filesystem):
+
+- `auto` (default): inline + global sequences + external search (default:
+  the model's directory).
+- `inline`: inline + global sequences, no external search.
+- `none`: no clips at all; the skin and bind pose are unaffected.
+- `<dir>`: external search there, inline + global on top.
 
 ### `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`: no `auto`, and why
 
-These four never get the `auto` state above — deliberately, not an
-oversight. This section is that write-up.
+**`auto` is honest only when the input says where the thing is.**
+`SFID`/`SKID`/`AFID`/`BFID` name what to look for; nothing in an `.m2`
+names a WoWDBDefs clone, a DB2 directory or a listfile. `auto` here would
+be guessing someone's filesystem layout and being confidently wrong. These
+are **unset or an explicit path**.
 
-**`auto` is only honest when the input describes where the thing is.** For
-`--skin`/`--skel`/`--anim`/`--bones-dir`, *what* to look for is real
-derivation from the model's own bytes — `SFID`/`SKID`/`AFID`/`BFID` name a
-FileDataID the model itself declares, even when *where* to search still
-falls back to a directory default. `--db2-dir`, `--dbd-dir`, `--listfile`,
-and `--listfile-root` name external tools and checkouts an `.m2` never
-references at all: a WoWDBDefs git clone, a DB2 extraction directory, a
-community-listfile snapshot. There is nothing in the model for `auto` to
-derive from — an `auto` here would be husk guessing at someone's filesystem
-layout (`~/wow-stuff`? `./db2`? `/media/*/wow_export`?) and being
-confidently wrong when the guess missed. Guessing is worse than asking, so
-these four stay **unset, or an explicit path** — never `auto`.
+**They do have `none`**: it overrides a config-file value for one
+invocation, as if unset (CLI11's precedence: explicit beats config; verified
+with a real config). Before it, tests had to blank the whole config
+(`HUSK_CONFIG=/dev/null`) to disable one flag.
 
-**They did gain a real third *control* state, `none`, once config-file
-defaults could supply a value worth opting back out of** (`--config`/
-`$HUSK_CONFIG`, below): `none` explicitly overrides a config-supplied value
-for one invocation, behaving exactly as if the flag had never been set at
-all. This was the one state the convention above was actually missing —
-before it existed, a configured `listfile`/`db2-dir` had no per-invocation
-opt-out whatsoever; the evidence was that `tests/run_husk.hpp` had to blank
-the *entire* config (`HUSK_CONFIG=/dev/null`) on every test subprocess just
-to get a clean run, rather than a specific test being able to disable one
-flag. `none` beats a config value the same way an explicit CLI flag always
-beats config (CLI11's own `App::set_config` precedence — verified against a
-real config file plus an explicit `none`, not assumed).
+- `--db2-dir none`/`--dbd-dir none`: no DB2-driven enrichment
+  (`--char-layout-id`, `--customization-choice-ids`, `--chr-model-id`,
+  `--creature-display-id`, `--appearance`'s gear).
+- `--listfile none`: no listfile tier. `--listfile-root none`: clears a
+  configured root.
 
-What `none` means, concretely, per flag:
-
-- `--db2-dir none` / `--dbd-dir none` — never attempt any DB2-driven
-  enrichment (`--char-layout-id`, `--customization-choice-ids`,
-  `--chr-model-id`, `--creature-display-id`, `--appearance`'s `gear`
-  resolution), even when `--config`/`$HUSK_CONFIG` supplies a directory.
-- `--listfile none` — never load the FileDataID → real-path fallback tier,
-  even when one is configured.
-- `--listfile-root none` — clears a configured root override; meaningless
-  without `--listfile` resolving something in the first place, same as an
-  unset `--listfile-root` already is.
-
-Scoped to wherever a config default actually exists to opt back out of, not
-uniformly: all four on `export`; `--listfile`/`--listfile-root` on
-`resolve` (its own texture-only pipeline has no DB2 flags at all);
-`--dbd-dir` on `db2-export` (its only flag from this group — `db2-export`
-converts specific `.db2` files directly, so it has no `--db2-dir`/
-`--listfile` of its own); `--db2-dir`/`--dbd-dir` on `appearance-string`
-(gear resolution only, no listfile). **Not** on `db2-build`, whose own
-`--db2-dir`/`--dbd-dir`/`--listfile` are all `->required()` — no off-state
-is meaningful for a command that cannot run at all without them; **not** on
-`db2-info`, which never got `--config` wiring in the first place, so it has
-no configured default to opt out of either.
-
-(A directory genuinely named `none` is a pathological case this convention
-doesn't special-case for, same as every other three-state flag here — not
-worth escaping machinery over.)
+Where `none` exists: all four on `export` and `export-terrain`;
+`--listfile`/`--listfile-root` on `resolve`; `--dbd-dir` on `db2-export`;
+`--db2-dir`/`--dbd-dir` on `appearance-string` and `export-world` (whose
+listfile flags are required). Not on `db2-build` (all required) or
+`db2-info` (no config). A directory literally named `none` is not
+special-cased.
 
 ### Does `inline` generalize past `--anim`?
 
-Worth deriving as a general rule rather than deciding per-flag by feel,
-since this tool's whole premise is comprehensiveness — a rule that's checked
-once against every current flag is worth more than four separate judgment
-calls that might silently disagree later.
+A flag earns an `inline` state only when (1) the model's own blob yields a
+meaningful result with no filesystem access, **and** (2) inline and
+external results combine rather than exclude each other. `--anim` meets
+both. The rest, checked:
 
-**A flag earns a fourth `inline` state, distinct from both `auto` and
-`none`, only when both hold:**
+- **`--skel` fails (2)**: inline bones and a `.skel` are mutually exclusive
+  in every file examined (`SKID` appears only when inline bones are empty).
+  `inline` would equal `auto` or `none` in every case. Reopen only on a
+  real counterexample.
+- **`--textures` fails (1)**: M2 never embeds pixels; `inline` would be
+  `none`.
+- **`--lod`** is a selector, not a resolution source.
+- **Extras read unconditionally** (geoset ids, extra layers, transforms,
+  emitter anchors) have no flag at all.
 
-1. The model's own blob can independently produce a *non-empty, meaningful*
-   result for that data category with zero filesystem access, **and**
-2. that inline-sourced result and an externally-sourced result are not
-   mutually exclusive — both can be true at once, and the export *combines*
-   them rather than picking one.
+### Config-file defaults for `export`
 
-`--anim` is the only current flag meeting both: inline `M2Sequence`/
-global-sequence bone tracks are self-sufficient (condition 1) and additive
-alongside `.anim`-sourced sequences — a real export can and does carry both
-kinds of clip side by side (condition 2). Checking the other candidates
-against the same rule, not just asserting "no":
+Per-machine constants (`dbd-dir`, `db2-dir`, `listfile`, `listfile-root`,
+`textures`, `store`, ...) come from TOML.
 
-- **`--skel` fails condition 2.** Inline `bones` and an external `.skel`
-  are mutually exclusive in every real file this project has examined, and
-  in the pipeline's own resolution order (`DESIGN.md`'s Pipeline section,
-  step 4: "if inline `bones` is empty *and* an `SKID`/`.skel` path is
-  available") — an `SKID` chunk only shows up when inline bones are already
-  empty. A `--skel inline` state would be indistinguishable from `auto`
-  whenever inline bones exist (both just use them), and indistinguishable
-  from `none` whenever they don't (nothing to use either way) — a state
-  that can never independently change behavior is worse than no state:
-  it's one more thing to document and test that measures nothing. If a real
-  file ever surfaces genuine inline+external combination, that's new
-  evidence worth reopening this against — same "verify against real data
-  before trusting a claim" bar this project holds everywhere else — but
-  nothing observed so far supports it.
-- **`--textures` fails condition 1.** WoW never embeds pixel data in the
-  M2/`.skin` itself — every texture, including the `type == 0` "real
-  filename" case, is BLP-external by construction (`src/m2.hpp`'s `Texture`
-  doc comment). There is no inline image to fall back to, so `inline` here
-  would just be `none` under a different name.
-- **`--lod` isn't this shape of flag at all.** It's an index selector into
-  already-resolved `SFID` entries (which tier, or `all`), not a
-  resolution-source flag with an inline/external axis to begin with — the
-  auto/`none`/`inline` framing doesn't apply to a selector.
-- **Other glTF `extras` this tool bakes in** (geoset ID/group/variant,
-  second-texture-layer metadata, texture-transform data, ribbon/particle
-  placement anchors) **aren't gated by any resolution flag at all**, inline
-  or otherwise — they're read unconditionally from the model's own
-  `.skin`/`M2` data every export, with no external counterpart to combine
-  with or skip. Nothing to extend here because there's no flag in the first
-  place.
-
-**`--skin` doesn't cleanly extend to the three-state table above either,
-and that's worth stating outright rather than fudging.** The other two
-flags there (`--textures`, `--skel`) gate *optional
-enrichment* — at `none`, the export still succeeds (an unskinned mesh, a
-flat-tinted material, fewer clips). A `.skin` file is not optional
-enrichment: it's the *sole* source of triangle winding, submesh, and batch
-data (`skin::resolveTriangleIndices`/`parseSubmeshes`/`parseBatches`,
-`src/skin.hpp`) — there is currently no code path that emits even one glTF
-primitive without one.
-
-**Decided: `--skin none` is rejected outright**, not accepted as a real
-state. A `.skin` is load-bearing, not optional enrichment, so `none` isn't
-meaningful for it — CLI11 validates this at parse time with a clear error
-naming the actual expectation (`--skin` takes a path or `auto`, never
-`none`). A genuine skin-less export (a raw, un-triangulated point cloud
-straight from the M2's own vertex array, no submesh/material structure at
-all) would be real new scope this file has never tracked before, and isn't
-being added as a side effect of a CLI-grammar change — if that's ever
-wanted, it gets its own design discussion, not a quiet `none` case here.
-
-**Library: [CLI11](https://github.com/CLIUtils/CLI11)**, header-only, MIT,
-chosen over hand-rolling a second generation of the current parser or adding
-a Boost-style everything-framework — matches the project's existing
-tight-fit-library-only policy (`tinygltf` for glTF framing, `tinyobj`-style
-single-purpose deps elsewhere). Declaring `-i,--input`/`-o,--output`/etc.
-with a description string at the declaration site gets `--help` generation,
-order-independent parsing, and the positional-fallback behavior above for
-free, instead of hand-maintaining all three the way `printUsage` does today.
-
-**Rejected alternative: wrap the CLI in a Python layer.** husk-the-binary
-stays pure C++ — this would cut against the already-stated `.blp` process
-boundary above (husk never invokes another process or links a scripting
-runtime into its own control flow); a Python wrapper for argv handling
-blurs that same line from the opposite direction for no benefit CLI11
-doesn't already provide directly in C++.
-
-**Impact, landed**: `src/cmd_export.cpp`'s old positional-parsing block and
-`printUsage` are gone, replaced by `addExportOptions`/`exportGlb` above;
-`README.md`'s `export` Usage subsection (defaults/flags table/examples) and
-`tests/test_cli.cpp`'s positional-ordering cases were rewritten together —
-this was a breaking change to every existing `husk export` invocation's
-argument order, not an additive one. `nix/flake.nix`/`CMakeLists.txt` gained
-CLI11 as a new dependency (`pkgs.cli11`, `find_package(CLI11 CONFIG
-REQUIRED)`, linked `PUBLIC` on `husk-lib` so `main.cpp`'s completion
-generator gets it transitively too), signed off before landing per this
-project's package-approval rule. Not purely mechanical: what used to be "no
-`.skin` given at all" (`findSameBasenameSkins`'s scan) and "`.skin` given as
-`auto`" (`SFID` + `--skin-dir`) as two independent code paths folded into
-`resolveSkin`, the single function behind the one `--skin` flag (default
-`auto`) — it tries both conventions in order, inside whatever `--skin-dir`
-resolves to (itself defaulting to the model's directory, so this is
-normally one search in one folder, not two): **`SFID`-declared FileDataID
-match first** (the model's own self-description, §2.11 — decided over
-trying the basename scan first), **same-basename numbered scan second** as
-the fallback, only attempted once the SFID stage is confirmed unavailable
-(no chunk, `--skin-dir none`, or the declared file doesn't actually exist).
-`--skin none` itself is rejected at parse time by a CLI11 `Option::check`
-validator on `--skin` (decided above), so `resolveSkin` never needs to
-handle a "deliberately skip" case. Separately, the old single boolean-ish
-"is `--anim-dir` given" check was replaced with real state handling for
-`--anim`'s four values (`auto`/`inline`/`none`/an explicit directory) in
-`exportGlb`: `none` sets a dedicated `animNone` flag gating the entire
-per-sequence-plus-global-sequence animation-building call (both were
-previously unconditional whenever bones existed); `inline` leaves the
-resolved `animDir` empty, which `buildAnimations`' own external-sequence
-branch already treated as "skip external resolution" before this change —
-no new parameter needed there, just a new way to reach that existing state
-deliberately instead of only via a missing `--anim-dir`. One real
-implementation subtlety worth flagging for future readers: CLI11's
-`App::parse(std::vector<std::string>&)` overload consumes tokens from the
-*back* of the vector (mirroring how its `(argc, argv)` sibling reverses
-argv internally before the same call) — `exportGlb` reverses its `args`
-array into that order before calling `app.parse(...)`; passing it in
-forward order silently binds every flag to the wrong neighboring token
-instead of erroring, which is exactly what happened during this migration
-before the reversal was added, so don't drop it in a future refactor.
+- **CLI11's `App::set_config`, not a config parser**: TOML keys map onto
+  the same option registrations, so config values get the same `->check()`
+  validators (a configured `skin = "none"` is rejected like a typed one)
+  and CLI11's precedence is the wanted one (flag > config > default). No
+  key→flag table to keep in sync.
+- **Lookup**: `--config <path>` > `$HUSK_CONFIG` > `husk::
+  defaultConfigPath()` (`$XDG_CONFIG_HOME/husk/config.toml`, else
+  `~/.config/husk/config.toml`). No file is not an error. The path helper
+  is shared by every command.
+- **Not filtered to a "safe" subset**: every flag is technically settable;
+  a filter would fight the mechanism chosen to avoid code. The README's
+  example shows only per-machine flags.
 
 ### Shell completion generation
 
-`completions/husk.bash`/`.zsh` (checked in) are captured output, not
-hand-written — `src/main.cpp`'s hidden `--print-completion=<bash|zsh>` flag
-builds a throwaway `CLI::App` tree (`export` via the real
-`addExportOptions`, so its flag surface can never drift from what
-`exportGlb` actually parses; `info`/`dump-chunks` hand-registered, since
-neither is CLI11-based — both take exactly one positional argument and
-nothing else) and walks it with CLI11's own introspection API
-(`get_options()`, the filtered `get_subcommands()`, `Option::get_lnames()`/
-`get_snames()`/`get_expected_max()`), never `.parse(...)`. This exists
-because no C++ argument-parsing library (CLI11 included — checked its own
-docs, not assumed) generates shell completions, unlike Rust's
-`clap_complete`, Go's Cobra, or Python's Click/Typer; generating from the
-live option objects rather than hand-listing flags a second time is what
-keeps the completion scripts from silently drifting the next time a flag
-is added or renamed. `--print-completion` itself is deliberately absent
-from `husk --help` (it has no human reader — its only consumers are this
-capture step and the installed completion script's own callback) rather
-than hidden via CLI11's `->group("")` mechanism, since `husk`'s top-level
-dispatch isn't itself CLI11-driven (see the previous-grammar note above:
-`info`/`dump-chunks` stay hand-rolled by design, so there's no top-level
-`App` whose help output needs suppressing in the first place).
+`completions/husk.{bash,zsh}` are captured output of the hidden
+`--print-completion=<bash|zsh>`, which builds `CLI::App` trees from the real
+option registrations and walks them with CLI11's introspection
+(`get_options()`, `get_subcommands()`, `get_lnames()`/`get_snames()`/
+`get_expected_max()`), never `.parse()`. No C++ parser generates
+completions (CLI11's docs checked; unlike `clap_complete`, Cobra, Click);
+generating from live options keeps them from drifting. The flag is absent
+from `--help` (no human reader). Regenerate, never hand-edit.
+
+## DB2 → SQLite: `db2-info`, `db2-export`, `db2-build`
+
+- **WDC5 only** — every file under `dbfilesclient/` is WDC5. `db2-info`:
+  header, per-section layout, field storage, `--rows N` (default 5, `all`)
+  of the first readable section, fields by index. Offset-map sections embed
+  strings inline, so `db2::decodeOffsetMapRecord` walks each record with a
+  bit cursor.
+- **Readability is `db2::Section::recordsAvailable()`**, never
+  `tactKeyHash != 0` (extractions are usually already decrypted). husk has
+  no TACT key store and never will. Counterpart: `CLAUDE.md` Hazards.
+- **Offset-map compression other than None** is implemented but unverified
+  (none of the 5 local offset-map files use it).
+- **`db2-export`**: one table per file, one row per record, every readable
+  section. Encrypted sections are skipped with a count; in `--dir` mode an
+  unparseable file is skipped with a diagnostic.
+- **Real column names only when the shape matches.** `--dbd-dir` is matched
+  by table/layout hash, then each field's `<Size>`/`[Length]` against the
+  file's `field_storage_info` (`dbd::resolveFieldNames`). Otherwise
+  `field_<N>` — never real names on the wrong bytes.
+- **Relations**: `<Table::Col>` becomes a `FOREIGN KEY` when the target is
+  in the same batch, else a plain column. Non-inline-ID tables get an ID
+  column (`$noninline,id$` name, else `id`); `$noninline,relation$`
+  (`relationship_mapping`) becomes a named column; arrays become
+  `<name>_<i>`.
+- **Verified**: `chrmodelmaterial` (336 rows), `namesreserved` (UTF-8),
+  `chrmodeltexturelayer` → `charcomponenttexturelayouts` (all 922 rows
+  resolve), `scenescripttext` (36,498 rows), `conversationline` (69,312;
+  negatives never read as text).
+- **`db2-build`** writes the knowledge base: `ModelFileData`/
+  `ItemDisplayInfo`/`TextureFileData`/`ItemDisplayInfoModelMatRes`/`Item`/
+  `ItemAppearance`/`ItemModifiedAppearance` + listfile into `models`,
+  `textures` and `model_object_skin_texture`, filtered by an
+  `InventoryType`-vs-path slot check; `_meta` stamps each source's size and
+  mtime so `export --knowledge-db` detects staleness. Same-slot collisions
+  are not filtered — the subsystem is disabled for real output
+  (`TODO/TEXTURE_POOL_RECALL_TODO.md`, `STYLE_CLEANUP.md` item 2).
 
 ## Listfile index
 
-`--listfile` names a ~148 MB, 2.2M-row community listfile. Every consumer used
-to take a materialised `std::unordered_map<uint32_t, std::string>`, rebuilt from
-scratch on every invocation.
-
-**The cost was construction, not parsing.** Measured on a simple item model
-(`husk resolve`, n=15, real 2.2M-row listfile):
+`--listfile` is a ~148 MB, 2.2M-row CSV. **The cost was building the map,
+not parsing it.** Measured (`husk resolve`, simple item model, n=15):
 
 | | per invocation |
 |---|---|
@@ -1717,1632 +764,49 @@ scratch on every invocation.
 | CSV parse, no cache | 1000 ms |
 | binary cache of the CSV text | 980 ms |
 
-A binary cache of the *text* recovered only ~20 ms, because the 138 MB blob
-reads in **18 ms** page-cached — I/O was ~3 % of the cost. The other ~97 % was
-allocating 2.2M `std::string`s and hash-inserting them.
+The text blob reads in 18 ms page-cached; ~97 % was allocating 2.2M strings
+and hash-inserting them. **So the map is never materialized.**
+`ListfileIndex` (`listfile_index.hpp`: `lookup(fdid) ->
+optional<string_view>`, `forEach`) is the interface; the mmap backends
+(`listfile_mmap_index.hpp`) answer from a prebuilt, pointer-free image —
+zero per-process construction. Offsets, not pointers, so concurrent workers
+share one copy through the page cache.
 
-**So the fix is to never materialise the map.** `ListfileIndex`
-(`listfile_index.hpp`) is the read interface every consumer goes through:
-`lookup(fdid) -> optional<string_view>` plus `forEach`. The mmap-backed
-implementations (`listfile_mmap_index.hpp`) answer straight out of a prebuilt,
-POD, pointer-free on-disk image — **zero per-process construction**. Offsets,
-never pointers, because a pointer stored by one process is meaningless in
-another's address space; that is also what lets concurrent corpus-scan workers
-share one physical copy through the page cache rather than each building their
-own.
+**Sorted vs. hash** (`HUSK_LISTFILE_BACKEND=sorted|hash`, n=30):
 
-### Sorted vs hash: measured, then chosen on other grounds
-
-Both were implemented and benchmarked (`HUSK_LISTFILE_BACKEND=sorted|hash`,
-n=30 each, same model and machine as above):
-
-| backend | per invocation | on-disk size |
+| backend | per invocation | on disk |
 |---|---|---|
 | sorted (binary search) | ~340 ms | 154 MB |
-| hash (open-addressed) | ~344 ms | 261 MB |
-| floor (`--listfile none`) | ~347 ms | — |
-
-Both are **at the floor** — the listfile now costs nothing measurable, down
-from ~648 ms. The two are within noise of each other, so the choice is not a
-speed win: **sorted is the default because it is 41 % smaller on disk** (open
-addressing needs load-factor slack) and has the simpler failure mode. The hash
-backend is kept behind the env var so the comparison stays reproducible rather
-than becoming folklore.
-
-Extrapolated to a 130,576-file corpus, this removes ~23 hours of listfile cost.
-That figure is arithmetic from the per-invocation median, not a measured
-full-corpus run.
-
-### Staleness and invalidation
-
-Two independent gates, both must pass to reuse a cache:
-
-- a **tag file** whose mtime is refreshed on each use; older than 10 minutes
-  means stale. This is deliberately not `atime` — verified on this machine, the
-  pool has `atime=off` and the mount reports `noatime`, so atime never updates
-  on read and would freeze at creation.
-- the cache header's recorded **source path + size + mtime** must match the
-  current `--listfile`. A mismatch rebuilds, so pointing at a different or
-  edited listfile can never silently serve stale rows.
-
-Writes go to a temp file in the cache directory then `rename()`, so the ~9
-parallel corpus-scan workers never observe a half-written cache.
-
-Cache location is `$HUSK_CACHE_DIR`, else `$XDG_CACHE_HOME/husk/`, else
-`$HOME/.cache/husk/` — the same convention the sibling `tact-fetch` project
-uses.
-
-## The native bundle: glTF-free binary payloads (designed and landed, 2026-09-06)
-
-See `CANONICAL_FORMAT.md` (repo root) for the conceptual explainer of the
-bundle format and why it exists; this section is the specific implementation
-decision and status.
-
-`REFACTOR/BUNDLE_FORMAT.md` left one question open: what container holds the
-bundle's `mesh.bin`/`skeleton.bin`/`animation.bin` payloads, given I8's rule
-that a stored format must not be a headerless dump only husk can read.
-Luna's direct resolution, superseding that doc's "stage-4 question, not yet
-decided" framing: **no container at all, and zero glTF/tinygltf dependency**
-for reading the bundle — not even reusing glTF's own buffer/accessor JSON
-shape.
-
-The `.bin` files stay exactly what they look like: raw, tightly packed,
-native-endian (little, stated once at the manifest's top level) fixed-width
-arrays, no header. `manifest.json` is the only place that gives those bytes
-meaning, via a small repeated JSON shape, a **BufferSlice** —
-`{file, byte_offset, byte_length, component_type, component_count, count,
-semantic?}` — for large, uniform, GPU-shaped numeric arrays (per-vertex mesh
-attributes, per-keyframe animation values, per-joint bind data). Everything
-smaller or non-uniform (geoset ranges, joint names, billboard modes,
-material layer descriptions, a material's own small tint/alpha-fade/UV-
-animation curves) is plain inline JSON instead — BufferSlice is reserved for
-the cases where direct byte-range loading actually matters, not used as a
-universal wrapper.
-
-This satisfies I8 without adopting a format: a reader is "parse JSON with
-any library, `fread`/`mmap` the named byte range, reinterpret as the stated
-component type" — no husk binary, no glTF library, no spec beyond
-`manifest.json` itself needed in any language. `semantic` borrows glTF's
-well-known attribute names (`POSITION`/`JOINTS_0`/...) purely because
-they're widely recognized, not because anything here depends on glTF's own
-schema.
-
-Implemented in `src/writers/bundle_writer.hpp`/`.cpp`
-(`husk::writers::writeBundle(canon::Model, bundleDir)`), built directly on
-already-landed `canon::` types and `writers::composeJointCurves`/
-`localBindTranslation` (`writers/writer_common.hpp`) rather than
-re-deriving bind-pose composition. The header's own doc comment is the
-canonical, byte-precise manifest schema (every `resources.*` section's
-exact JSON shape, `canon::Ref`'s serialization, the inline-curve shape) —
-kept there rather than duplicated here, since a from-scratch reader
-implementation needs to match it exactly. Deliberately a **subset** of
-`BUNDLE_FORMAT.md`'s full target schema: `definition`/`selection`/`items`/
-`sources`/`references` are not written, since no canon builder feeds them
-into `canon::Model` yet — adding them is separate, later work, not a
-regression of this writer. Covered by `tests/test_writers_bundle.cpp`:
-byte-level round-trip checks against hand-built synthetic models (never
-trusting the writer's own output as its own expected value), every
-BufferSlice's byte range checked against its file's real size, and a real
-`bloodelffemale.m2`/`.skin` fixture proving `resources.mesh.primitives[i]
-.material_index == i` (the 1:1 `Model::materials`/`Model::mesh.primitives`
-correspondence this schema relies on) holds on non-trivial real data, not
-just the synthetic case.
-
-## Boundaries (where foreign data enters)
-
-- Model file bytes (`.m2`) — chunk container + fixed-offset header/arrays.
-- `.skin` sidecar — triangle-index lookup, submesh/batch structure.
-- `.skel` sidecar — external bones + sequences.
-- `.bone` sidecar — per-bone correction matrices (reverse-engineered),
-  surfaced as inert glTF `extras` via `--bones-dir`, never applied to the
-  render (see Key design decisions).
-- `.anim` sidecar — external per-sequence keyframe blob, `AFM2` (flat) and
-  `AFSB` (`.skel`-linked models' real shape) both resolved.
-- `.phys` sidecar — physics/collision bodies/shapes/joints, documented on
-  wowdev.wiki (not reverse-engineered), byte-reversed chunk tags (WMO/ADT
-  convention). Minimal placement anchors surfaced as inert glTF `extras` via
-  `--phys`, full records via `dump-chunks`, never applied to the render (see
-  Key design decisions).
-- `--textures`/`--skin-dir`/`--anim`/`--bones-dir` directories —
-  user-populated, FileDataID-named, local filesystem only. Never CASC.
-  `--phys` is a same-basename-*file* convention instead (mirroring
-  `--skel`), not a directory.
-- `.blp` texture files (separate `blp/` Python tool) — container + mip
-  table hand-rolled, block decode delegated to Pillow via synthetic DDS.
-
-Every boundary above is read via explicit bounds-checked parsing with
-named offsets, and every ambiguous byte-layout question is resolved against
-real decoded file data before being trusted (see `WIKI_FINDINGS.md` for the
-receipts) — never guessed from prose alone when a real file was available
-to check against.
-
-## Testing architecture
-
-See `TEST_DESIGN.md` for the canonical description of the test suite's
-architecture — four tiers (pure-logic, command-layer, integration against
-real game-extracted fixtures, and conformance against external consumers
-like `gltf_validator` and headless Blender), plus the fixture-resolution,
-mutation-testing, and exact-vs-shape-only-check conventions that apply
-across all of them.
-
-## Open work
-
-See `TODO/README.md`'s index for the current per-topic punch lists
-(`M2Camera` is closed/deprioritized by design; `.bone` correction
-*application* semantics are the one open item, `TODO/
-BONE_CORRECTION_APPLICATION_TODO.md`) and `WIKI_FINDINGS.md` for every
-real-data-driven spec correction found so far, `AFSB`'s included. Both are
-living documents; this file describes the shape of the system they operate
-within, not their current item-by-item status.
-
-`M2_GAPS_TODO.md` (documented-but-unbuilt M2 coverage items with no
-external-data blocker: `M2Sequence`'s remaining fields including
-`aliasNext` chain-following, `PFDC`, `EXP2`, `Texture.type`,
-Attachments/Events/Lights, animated tint/fade, `DETL`, `PCOL`, plus
-regression-test follow-ups for `EXP2`/`PFDC`/a `BLP2`-anomaly fixture) is
-now fully implemented and removed once every item had a final
-disposition -- same "survey's job is done" lifecycle every prior TODO
-file in this project has used. See Key design decisions below and
-`M2_COMPLETENESS.md` for the permanent per-feature record.
-
-A dedicated investigation brief for the last genuinely undocumented M2
-pieces (`M2_UNKNOWNS_EXPLORATION.md` -- wowdev.wiki itself had no
-field-level struct, or an internally-inconsistent one, for `WFV1`/`WFV2`/
-`DPIV`/`AFRA`/`DETL`, plus the `M2Sequence.aliasNext` resolution
-mechanism) has since run to completion and was removed once every target
-had a final disposition: `WFV1`/`WFV2`/`DPIV`/`AFRA` were originally reported
-confirmed-absent from a full real 130,576-file corpus sweep, but that was a
-scanner bug (a `bytes`-vs-`str` dict-key mismatch that made the check always
-false), not a real result -- corrected: all four (plus `PCOL`) are real and
-present, cross-checked independently via `casc-tool scan-chunks`
-(`WIKI_FINDINGS/M2.md`), and now all five are fully implemented
-(`husk dump-chunks`'s `dumpPcol`/`dumpWfv1`/`dumpWfv2`/`dumpDpiv`/`dumpAfra`
--- see Key design decisions below);
-`DETL`'s real byte layout is fully resolved (12-byte stride, zero-padded to
-a 16-byte boundary -- §11); `aliasNext` is a local `sequences`-array index,
-not an external id, at the `M2Bounds`-corrected offset 0x3E (§12), now
-implemented end to end (see Key design decisions below).
-
-`.phys` physics/collision sidecar support used to have its own living plan
-here too (`PHYS_TODO.md`) -- now fully implemented (`src/phys.hpp`/
-`phys.cpp`, `husk export --phys`, `husk dump-chunks <file.phys>`) and folded
-into this file's own Key design decisions (the `.phys`-anchor/dump-chunks-
-split entry above) and `WIKI_FINDINGS/PHYS.md`'s "Where these live in husk"
-row, so the standalone file was removed. Its own coverage table (verified
-vs. unverified per chunk type, `WIKI_FINDINGS/PHYS.md`) is unaffected — real
-corpus never surfaced `BDY2`/`BOXS`/`WLJ3`/`SHOJ` (0x6c)/`SHJ2`/`REV2`/
-`SPHJ`/`PRSJ`/`PRS2`/`DSTJ`, so those chunk types are parsed (the byte
-offsets are real, transcribed from the wiki) but structurally unverified
-against a real file — `src/phys.hpp`'s own doc comment carries this forward
-now, same "verified floor, awareness only" treatment
-`kMinVerifiedRecordStrideVersion`/`kMinVerifiedParticleVersion` already
-established for other version-gated shapes.
-
-The multi-root-bone-forest representation gap used to have its own living
-plan here too (`MULTIROOT_SKELETON_TODO.md`) -- now fully implemented and
-folded into this file's own Key design decisions (the
-synthesized-non-joint-parent-node entry above) and `src/gltf.hpp`'s
-`Skeleton`/`writeGlbMulti` doc comments, so the standalone file was
-removed. Two narrow questions from that investigation were never chased
-down and remain genuinely open -- low-priority, awareness-only, not
-blocking anything built:
-
-- **What `gltf_validator`'s `SKIN_NO_COMMON_ROOT` check actually measures.**
-  Empirically it flags only ~7% of a random 150-file multi-root sample, and
-  neither raw root count nor vertex-weighted root count predicts which
-  files trigger it (`bloodelffemale.m2` has 90 of 119 roots and zero
-  errors; `offhand_1h_revendreth_d_01.m2` has only 10 of 15 and does
-  error) -- its real trigger condition was never reverse-engineered.
-- **Why an 11-hit sample from that 150-file draw skewed toward one item
-  family** (9 of 11 were `helm_mail_zuldazarraidmythic_d_01_*` race/gender
-  variants of the same base item) -- never investigated; could be
-  bone-count- or hierarchy-shape-correlated, or just sample-size noise.
-
-Separately, `M2CompBone.flags & 0x200` ("transformed" per the wiki)
-correlates with 66 of 78 roots in the flattest real multi-root fixture
-found (`mace_2h_bolvar_d_01.m2`, every one of its 78 bones its own root),
-but what actually distinguishes the flagged from unflagged roots was never
-determined -- worth a real investigation only if a future design ever
-wants to treat root bones differently based on it, per this project's own
-don't-guess-at-semantics rule. None of these three are blockers; they're
-recorded here so a future session doesn't have to rediscover them.
-
-`TOOL_COMPARISON.md` (new) is a static source-level comparison against
-wow.export (Kruithne/wow.export, cloned into gitignored `reference/
-wow.export/`), the real community-standard tool for the same M2→glTF
-problem — requested directly, scoped to source-reading only (no live
-export diff; wow.export is unstable enough on Luna's own account that a
-real side-by-side run is deferred as future work, tracked in that file's
-own closing section). Headline finding: husk and wow.export solve
-adjacent but different problems — wow.export has live CASC+DB2 access
-(real character-customization-driven texture/geoset resolution, exactly
-the external data source `TODO/BONE_CORRECTION_APPLICATION_TODO.md`'s
-`.bone`-slot-selection background and this file's `Texture.type` handling
-both point at -- husk's own
-path to the same data is locally-extracted DB2 files, not live CASC, per
-Non-goals above's clarified wording) and broader
-format scope (WMO/ADT/M3), but its own M2 loader has zero code path at
-all for ribbons, particles, events, lights, cameras, or the `.phys`
-sidecar — confirmed by reading its source directly (dead
-`// this.data.move(8)` skip-comments, and no `PHYSLoader.js` file exists),
-not inferred. Also surfaced 3 real corpus files with a genuinely new,
-not-yet-tracked animation-data failure shape (NaN keyframes / a ~2.2
-billion ms backward timestamp jump) — see that file's own closing
-section for the exact files.
-
-`WORLD_COMPLETENESS.md` (WMO/ADT/WDT/WDL/PM4/PD4, previously a target-
-setting scaffold with every row reading `none`/`none` and "documented, not
-verified") went through one full real-data investigation pass and was
-expanded into eleven implementation-ready companion documents: `TODO/WORLD/WDT_TODO.md`,
-`TODO/WORLD/ADT_TERRAIN_TODO.md`, `TODO/WORLD/ADT_LOD_TODO.md`, `TODO/WORLD/WMO_GEOMETRY_TODO.md`,
-`TODO/WORLD/WORLD_PLACEMENT_TODO.md`, `TODO/WORLD/LIQUID_TODO.md`, `TODO/WORLD/LIGHTING_TODO.md`,
-`TODO/WORLD/FOG_VOLUMES_TODO.md`, `TODO/WORLD/COLLISION_CULLING_TODO.md`,
-`TODO/WORLD/WORLD_MISC_METADATA_TODO.md`, `TODO/WORLD/PM4_PD4_TODO.md` — same "survey first,
-implementation-ready plan before code" shape `PHYS_TODO.md`/`ANIM_TODO.md`
-used for their own formats, just at the scale of an entire new format
-family rather than one sidecar. Nothing in `src/` reads a WMO/ADT/WDT/WDL/
-PM4/PD4 byte yet; `WORLD_COMPLETENESS.md` itself still reads `none`/`none`
-everywhere. Every real correction found (chunk-tag byte reversal confirmed
-universal across all four containers, several wiki struct errors fixed,
-four gameplay/misc-metadata items promoted out of a reflexive `n/a`, two
-genuinely undocumented chunks found, the portal-culling/Blender-visibility
-question checked directly rather than assumed) is recorded permanently in
-`WIKI_FINDINGS/WORLD.md` — see that entry for the consolidated list, and each
-`*_TODO.md` file for the full per-item struct, C++ data-model sketch, and
-test plan. `WORLD_COMPLETENESS.md`'s own "Recommended implementation
-order" note (added this pass) is the starting point for whoever picks this
-up: `.wdt` first (nothing else can locate a real file without it), then
-ADT terrain, then world placement (`MDDF`/`MODF` — "the single most
-important row" in that whole file), then the rest in roughly
-prevalence-and-value order.
-
-PM4/PD4's own non-goal framing above is corrected by this same pass —
-`LUNA_NOTES.md` pointed out directly that "never touched by the client
-renderer" doesn't mean "excluded from a world-completeness file," the same
-way M2's own collision mesh is real, exportable geometry despite never
-being drawn by a normal render pass. `TODO/WORLD/PM4_PD4_TODO.md` found a genuine
-structural wall worth flagging here directly: these files are **never
-shipped to the client at all** (confirmed via a full `casc-tool list`
-sweep of all 3,190,909 files in live retail storage — zero `.pm4`/`.pd4`
-matches anywhere), not an extraction-completeness gap like `EXP2`/`PFDC`
-(`WIKI_FINDINGS/M2.md`) — real fixture data for this one format will need
-a different acquisition path than everything else in this project's usual
-corpus-verification playbook.
-
-**A companion Blender-side script that hides `extras`-tagged-but-visible
-geometry (collision meshes, PM4/PD4 pathing meshes, and any future item
-that lands on this same "present, identifiable, not literally hidden"
-shape) post-import is real, deliberate usability tooling for later, not
-part of any export-path decision made so far** — noted directly by Luna,
-2026-08-01, alongside the PM4/PD4 visibility decision above. Every one of
-husk's "tagged, not hidden" items (the M2 collision mesh, and now PM4/PD4
-pathing meshes once implemented) would benefit from exactly this, but it's
-explicitly deferred until the tool is at a point where someone actually
-wants to *use* exports interactively, not built speculatively now — same
-"don't build ahead of a real need" discipline this project applies
-elsewhere (`CLAUDE.md`'s "Abstractions are earned").
-
-That "real interactive use" moment arrived the same day: Luna's own first
-hands-on Blender pass over real M2 export output (not headless-Blender
-structural checks, an actual human looking at the result) found several
-real things purely-structural verification can't catch — written up as
-`BLENDER_EXPORT_TODO.md` (new), then, per her own explicit "implement
-what doesn't need my input, have fun tinkering" while she slept, worked
-through the same night. Final state of that file:
-
-- **The headline finding, and the reason anyone opening this repo next
-  should read `BLENDER_EXPORT_TODO.md` §8 before anything else**: husk's
-  M2→glTF position export is measurably **upside down** — confirmed via a
-  real headless-Blender import of a real export (not eyeballed): a
-  head-height landmark bone lands *below* the root/feet-level bone in
-  Blender's own imported world space, and the render mesh's bounding box
-  sits entirely on the wrong side of the origin. `src/gltf.cpp`'s
-  `zUpToYUp` matches its own cited wowdev.wiki source formula exactly —
-  this isn't a transcription bug — but composing it with Blender's own
-  glTF-import axis conversion doesn't net out to identity the way
-  round-tripping the same physical up-axis should. A one-line sign flip
-  was tested and empirically confirmed to fix it (476/477 tests still
-  pass — only the `zUpToYUp` unit test itself, which hardcodes the current
-  formula, fails) — **then deliberately reverted, not shipped**: `DESIGN.md`'s
-  own rotation/scale quaternion conversion (two paragraphs below) was
-  explicitly derived *from* this exact position permutation, so a real fix
-  needs those re-derived and re-verified too, not just the position half,
-  and this touches every position/rotation/scale husk has ever exported —
-  a whole-tool-blast-radius change that needs Luna's own review, not a
-  same-night autonomous fix. Full receipts and the exact math were in
-  `BLENDER_EXPORT_TODO.md` §8 (since resolved for real — see the
-  `kWowToGltf` entry earlier in this section — and, with every other item
-  in that file also resolved, the file itself deleted; the fix's own
-  history lives on in this entry, `TRANSFORM_TRIAGE.md`, and
-  `CLAUDE_HISTORY.md`).
-- The original leading hypothesis for two other symptoms ("boot vertex
-  parented to the other leg's bone," the base body mesh appearing to go
-  missing) — that `.skin`'s own "Bones" lookup array and the M2 header's
-  `boneCombos` table are parsed but never dereferenced, so vertex joint
-  indices might need an indirection husk skips — was investigated and
-  **closed as not a bug**: an independent real-data cross-check found
-  husk's raw `M2Vertex.bone_indices` read already matches the
-  wiki-disputed indirection formula's own result, 9,143/9,143 real
-  weighted bone slots, no divergence. The missing-body symptom's likely
-  explanation is now the orientation bug above instead, unconfirmed until
-  someone looks again after §8 has a real fix.
-- Four smaller items shipped, tested, and verified against real exports
-  this same night: `husk export --collision none` (debuggability — the
-  collision mesh renders like any other mesh in Blender's stock importer,
-  with no way to opt out before this); real material names
-  (`m2::textureTypeName`, e.g. `_skin`/`_char_hair`, replacing a bare
-  `_tex2`) plus a real filename-matching fallback for texture slots husk
-  has no FileDataID for (Luna's own idea, mid-session: real texture
-  directories are sometimes named descriptively rather than by
-  FileDataID — a same-session self-caught bug in the first draft, where a
-  single real candidate file got wired into *every* unresolved slot at
-  once instead of just one, is also recorded there); and real bone/joint
-  node names (`m2::keyBoneName`, wowdev.wiki's own 193-row key-bone table)
-  instead of Blender's generic "Bone"/"Node" numbering.
-- Bone tail directions all pointing the same default direction regardless
-  of hierarchy shape was investigated headlessly and is very likely a
-  genuine Blender-importer limitation (glTF carries no bone-length data at
-  all) rather than a husk bug — not being pursued further.
-
-**Follow-up, next session: the upside-down bug above is fixed, tested, and
-shipped** — not just the reverted one-line sign flip §8 above describes.
-Requested directly, after the finding above: not a quick patch, but "a more
-robust system that can test the correctness of the mesh regardless of the
-rotation... research and explore how to fix this permanently" — written up
-as `TRANSFORM_TRIAGE.md` (a full root-cause/process-failure/durable-fix
-investigation), then, once Luna reviewed and answered its open questions
-directly ("yes, you build while i nap"), implemented the same session.
-- **`src/gltf.cpp`'s `zUpToYUp` is now one leg of a genuinely single source
-  of truth**: a private `Mat3` plus one matrix (`kWowToGltf`), with
-  `zUpToYUp`/`rotationZUpToYUp`/`scaleZUpToYUp` all mechanically derived
-  from it (position/normal: direct matrix application; rotation: quaternion
-  → matrix → conjugate by the matrix → quaternion; scale: the matrix's
-  permutation with signs dropped) — not three independently hand-typed
-  formulas that could silently drift out of sync with each other, which is
-  exactly the shape of bug this whole investigation traced back to (the
-  rotation/scale conversions in `cmd_export.cpp` used to be hand-derived
-  *from* the position formula's own math, on paper, then never
-  independently re-verified). `cmd_export.cpp`'s `toGltf(m2::Quat)`/
-  `toGltfScale` are now thin wrappers. A `static_assert` on the matrix's
-  determinant enforces "this must be a proper rotation, not a reflection"
-  at compile time.
-- **The corrected matrix** — `(x, y, z) -> (x, z, -y)`, replacing the old
-  `(x, -z, y)` — is now independently corroborated a third way beyond §8's
-  own headless-Blender empirical test and the hand-derived math: this
-  repo's own `reference/wow.export` (already checked out, previously never
-  mined for this) has its own, independently-written coordinate-conversion
-  code for positions, normals, rotations, *and* scale, and matches the
-  corrected formula exactly on every one of them (scale needed no change at
-  all — already correct before this fix, see `TRANSFORM_TRIAGE.md` §4 for
-  why that's informative about the bug's own shape). `reference/wow.export`
-  is explicitly **not** treated as ground truth on its own (it's known to
-  be flaky) — this is corroboration, not the basis for the fix.
-- **A new, asset-agnostic regression test replaces "trust the math," and
-  was proven to actually catch the historical bug, not just proven to
-  pass**: `tests/test_conformance.cpp` builds a synthetic `gltf::Skeleton`
-  (a root plus three children offset one unit along local X/Y/Z) with no
-  dependency on any real M2 file, real body plan, or "up" convention for
-  any particular asset type — the property under test is a pure
-  round-trip-identity fact (an M2-local axis offset must land at the
-  *identical* coordinate in Blender's own world space after a real
-  husk-export → Blender-import round trip), not "does this look
-  anatomically correct." Before trusting it, this test's own `kWowToGltf`
-  matrix was temporarily reverted to the historical formula and rerun: it
-  failed exactly as the root-cause math predicts (the `+X` probe, on the
-  rotation's own invariant axis, still landed correctly; `+Y` and `+Z` both
-  flipped) — then the fix was restored and reverified green. A second,
-  explicitly non-load-bearing check (`_Name`, a real key-bone landmark)
-  confirms the same thing on the real `bloodelffemale.m2` fixture, gated to
-  skip cleanly on any model without that specific bone tagged. A new
-  property-based unit test (`tests/test_gltf.cpp`) independently confirms
-  `rotationZUpToYUp`'s own conjugation math is self-consistent for several
-  real test rotations, regardless of which underlying matrix is used.
-- **A real quadruped fixture** (`test_data/creature/wolf/wolf.m2`, 66
-  bones/557 vertices) was added for pipeline-shape diversity — explicitly
-  *not* additional orientation-correctness coverage (the synthetic probe
-  above already covers any asset type by construction), but real coverage
-  for a bone-hierarchy/body-plan shape `bloodelffemale.m2` doesn't
-  represent, so a future *different* class of bug doesn't get the same
-  one-fixture free pass this session's own bug did.
-- **Full suite green with zero hand-updated literals**: every existing
-  test that touches a position/rotation/scale value passed unmodified
-  against the corrected formula (484/484 + 1 skip via `husk-tests`, 485/485
-  via `ctest`) — informative on its own: nothing else in this codebase was
-  silently depending on the old formula's specific wrong values.
-- **Deliberately still open at the time, by design, not an oversight**: a
-  real animated clip, visually confirmed in Blender's actual GUI viewport —
-  Luna's own explicit "after all of it is tested and implemented i will
-  verify... until then rely on headless Blender." Every check this session
-  added is numeric; nothing here substituted for that last look. **Since
-  resolved** (2026-08-08): Luna confirmed "Animation looks OK" in Blender's
-  own GUI, closing out the investigation — `TRANSFORM_TRIAGE.md` itself was
-  deleted once this was done, per this project's own "survey's job is done"
-  lifecycle.
-
-**Second follow-up, same day**: node/bone/material naming and texture
-linking were manually confirmed working (a live export with a real
-`--textures` directory showed 2/70 materials correctly embedding real
-image bytes), which surfaced two real, previously-unflagged gaps, both
-fixed the same session. (1) The render mesh's own glTF node had no `name`
-at all in the common `--skin <path>` case, unlike bones (§6) and the
-collision mesh — now falls back to the model's own basename. (2) Texture
-resolution always preferred `<FileDataID>.png` outright for any slot with
-a resolvable FileDataID, even when that specific file was missing and a
-real, descriptively-named file (the shape a real extraction workflow --
-`reference/wow.export`, or a `.blp` converted via `husk-blp` keeping its
-own name -- actually produces) sat right there unclaimed; the fuzzy-match
-fallback `BLENDER_EXPORT_TODO.md` §4 built was scoped to hardcoded slots
-only. Now every slot tries embedded-filename, then FileDataID-exact (only
-if the file is actually present), then the fuzzy pool, in that order —
-deterministic matches are checked before ever touching the shared,
-ambiguity-prone fuzzy pool, specifically to avoid a real regression an
-earlier version of this fix introduced (an unrelated hardcoded slot
-claiming a named file that actually belonged to a different,
-FileDataID-resolvable slot processed later in the same batch loop — found
-by a live test, not theorized, and now a permanent `tests/test_cli.cpp`
-regression case). `gltf::Material::baseColorTextureFileDataId`
-(`texture_file_data_id` extras) records the resolved FileDataID regardless
-of which path actually supplied the image, so that traceability survives
-even when a differently-named file wins.
-
-**`skin::Submesh::indexStart` is a corrected 32-bit value, not the raw
-on-disk 16-bit field — `Level` is address-extension bits, not LOD
-metadata.** Found via a real interactive Blender render of
-`bloodelffemale_hd.m2` showing a large chunk of missing body geometry
-(hips/lower torso) — traced all the way back to `M2SkinSection::Level`
-(offset 0x02, between `skinSectionId` and `vertexStart`), which every
-earlier pass at this field name assumed was LOD-selection metadata and
-left unread. Checking a real, independent working implementation
-(`reference/wow.export`'s `Skin.js`) instead of assuming from the name
-found the real behavior: `triangleStart += level << 16`. `.skin`'s
-on-disk `indexStart`/`triangleStart` field is only 16 bits, so any model
-whose resolved triangle-index buffer exceeds 65,535 entries needs `Level`
-to address the back half of it — not rare: `bloodelffemale_hd00.skin`'s
-buffer is 136,254 entries, and 77 of its 114 submeshes (68%) needed the
-correction. Without it, husk silently sliced the *wrong* region of the
-buffer for every affected submesh (aliased into the first 65,536 entries)
-instead of throwing or visibly failing, so this went undetected through
-every earlier headless-Blender/`gltf_validator` check this project has —
-none of them compare *which* triangles got drawn against the model's own
-full vertex pool, only that *some* valid-looking triangles exist.
-`Submesh::indexStart` is now `uint32_t`, computed once in
-`parseSubmeshes` as `(level << 16) | rawIndexStart`; callers never see
-`Level` itself. Full account, including a first-pass "real content, not a
-bug" conclusion that was wrong and got corrected: `EYES_ON_FINDINGS.md`
-#5.
-
-**Ambiguous hardcoded-texture-slot candidates (2+ same-basename files) are
-now all embedded, not silently dropped.** Reversed from the
-`BLENDER_EXPORT_TODO.md` §4 stance directly above (`report the count, embed
-neither`) after direct pushback: the "no in-file candidate data" objection
-that blocks *picking* a correct hardcoded-slot texture doesn't block
-*enumerating* the candidates, since that list comes from husk's own
-`--textures` directory scan (`FuzzyTexturePool`), not from M2 data — it's
-already built by the time ambiguity is detected. Every real candidate is
-now embedded as a genuine glTF image/texture
-(`gltf::Material::AlternateTextureCandidate`, same "own image + extras
-index" shape `additionalTextureLayers` already used), listed under
-`alternate_textures` material extras; one arbitrary (alphabetically first,
-deterministic) candidate is also wired in as the actual `baseColorTexture`
-so the export renders as something by default rather than bare — the same
-"export everything, let the client filter" treatment mutually-exclusive
-geosets already get, applied here for the first time to texture data.
-`husk export`'s own warning now names every embedded alternative and which
-one was arbitrarily chosen as the default.
-
-### Human-readable names for animations/geosets, and Blender's Asset Browser as an animation picker (2026-08-21)
-
-Three related usability gaps, all found the same way: real DB2/glTF-extras
-data husk already produces sat unconsumed by the one consuming tool
-(`tools/husk_blender_geoset_mask.py`) that could turn it into something
-visible. Tracked as `TODO/HUMAN_NAMES_TODO.md`.
-
-**Geoset dropdown labels now use real customization-choice names when
-available, not just `variant_<n>`.** husk already resolves every real
-`ChrCustomizationOption`/`Choice` -> `GeosetType*100+GeosetID` mapping into
-`chr_customization_options` skin extras (`chrcustomization_db2.hpp`,
-`--customization-choice-ids`/`--chr-model-id`'s own auto-enrichment) — the
-gap was purely on the Blender-script side, which built its Menu Switch
-dropdowns from the plain `group_<n>,variant_<n>` vertex-group naming
-convention alone. `build_geoset_choice_names` reshapes
-`chr_customization_options` into `{group: {variant: choice_name}}` +
-`{group: option_name}`; `_build_group_hidden_term` now labels each
-dropdown item with the real choice name (falling back to `variant_<n>`
-when no matching choice exists — creature models, or a group with no
-player-facing customization at all, e.g. group 0's base body) and the
-selector/interface-socket itself with the real option name. **Key
-constraint that shaped this**: `NodeEnumItem` (Menu Switch's own dropdown
-item type) has no separate identifier/label pair — `.name` is both at
-once, unlike a `bpy.types.EnumProperty` triple. Renaming an item's `.name`
-to a human string would have silently broken `default_item` matching
-(`CURATED_DEFAULT_VARIANTS`/`enabled_geosets_to_default_overrides`, both
-keyed by the stable `"variant_<n>"` string). Fixed by keeping
-`default_item`'s own contract exactly as it was — still a `"variant_<n>"`/
-`"none"` string — but resolving it against a `label_by_variant` map built
-alongside the (now human) item names, rather than a direct string-membership
-check. Verified end to end against real local data
-(`bloodelffemale_hd.m2`, `--chr-model-id`/`--customization-choice-ids`):
-6 of 23 real geoset groups on that model resolve a real option name, 30
-variants across them resolve a real choice name; the other 17 groups (no
-player-facing customization at all for that model, e.g. the base body/
-face groups) keep the plain numeric fallback, unchanged from before.
-
-**`husk export` now attaches AnimationData.db2's real Name column
-("Stand", "Walk", ...) to a matching clip's own `sequence_metadata`
-extras when `--db2-dir`/`--dbd-dir` are given — real, verified code, but
-current real local data can't exercise it.** New `animationdata_db2.hpp`/
-`.cpp` (same `db2table.hpp`-backed thin-wrapper pattern as every other
-DB2 reader here), threaded through `buildSequenceMetadata`/
-`buildAnimations` as a new `animation_data_name` field
-(`SequenceMetadata::animationDataName`) — deliberately *not* folded into
-the clip's own stable `anim_<id>_<variationIndex>` glTF `name` (every
-other tool here, including this script's own `read_animation_clip_names`,
-looks clips up by that name; a human name is enrichment, not a rename at
-the husk layer — see the Blender-side asset-marking paragraph below for
-where the actual rename happens). Verified correct via a synthetic WDC5
-fixture that does carry a `Name` column
-(`tests/test_cli_animationdata.cpp`) — but running against real local
-data (`husk db2-info animationdata.db2`, build 12.1.0-era extraction)
-found the real column simply isn't there any more: the resolved real
-layout (`LAYOUT BBF66A3C`) is `ID/Fallback/BehaviorTier/BehaviorID/
-Flags` only, no `Name` field at all. Cross-checked against
-`reference/WoWDBDefs/definitions/AnimationData.dbd`: `Name` was a real
-column through the 1.x-8.x layouts and is absent from every layout from
-roughly 8.x onward — the same "client schema genuinely dropped this
-column, not a husk/casc-tool extraction gap" class `CLAUDE_HISTORY.md`
-already documented for `AnimationData`'s own `aliasNext`-name lookup.
-Nothing to fix in husk here; the plumbing is real and correct, current
-real data just can't feed it a name. `husk_blender_geoset_mask.py`'s own
-`read_animation_clip_names` doc comment records this same finding for
-anyone reading the Blender-side code without this file.
-
-**Blender's own Asset Browser is now a real per-animation picker, via
-`action.asset_mark()`.** husk's own animation clips were previously only
-reachable by scrubbing the raw Action list (or an NLA track) by their
-machine name. `mark_actions_as_assets` (new, `husk_blender_geoset_mask.py`)
-marks every clip's imported Action as a real Blender asset after import,
-matched by the clip's own glTF animation name
-(`read_animation_clip_names`) so it only ever touches this model's own
-actions, never pre-existing ones already in the scene. This is
-deliberately the one place in this whole script that *renames* rather
-than just annotating: a `NodeEnumItem`-style label doesn't exist for
-Actions — the Asset Browser and the plain Action list both show `Action.name`
-directly, so a human name has to live there to be visible at all. When
-`read_animation_clip_names` resolves a real `animation_data_name` (see
-above — not the current real-data case, but real once older/richer
-`AnimationData.db2` data is available), the Action gets renamed to it;
-the original machine name is preserved as the asset's own description
-either way, so "which real `anim_<id>` was this" is never lost to a
-rename. Verified end to end against real local data
-(`bloodelffemale_hd.m2`, 338 real clips): all 338 marked as assets, 0
-renamed (consistent with the `AnimationData.Name` finding above — nothing
-to rename to yet).
-
-### Blender-survivable extras live on the skin's root joint, not the skin (2026-08-22)
-
-Every real per-model extras key husk attaches (`chr_texture_layout`,
-`chr_customization_options`, `chr_enabled_materials`, `enabled_geosets`,
-`creature_enabled_geosets`, `bone_correction_sets`, `ribbon_emitters`/
-`particle_emitters`, `physics_bodies`/`physics_joints`) used to live on the
-glTF **skin**'s own `extras` — the semantically "correct" glTF location for
-whole-model metadata, since there's no other natural per-model anchor point
-in core glTF. Real problem, confirmed empirically: Blender's stock glTF
-importer has no supported extras target for a skin at all. Node/mesh/
-material/camera/light/scene extras all land as real Blender custom
-properties post-import; skin extras land nowhere — every `read_*` function
-in `tools/husk_blender_geoset_mask.py` had to re-open the raw `.glb` and
-re-parse the JSON chunk by hand instead of reading from the already-imported
-scene, purely to work around this.
-
-**The fix mirrors the existing geoset-tag-joint trick (`Skeleton::GeosetTag`),
-inverted.** That trick encodes data via vertex *weighting* on a fake joint,
-because Blender's importer turns joint weights into real vertex groups. The
-inverse: encode data via a joint's own node `extras`, because Blender's
-importer *does* keep node/bone extras as real custom properties — confirmed
-directly via a headless Blender round-trip before committing to it, not
-assumed, including with deeply nested structures (arrays of objects, several
-levels): they survive intact as real Blender `IDPropertyGroup`/`list` data.
-
-**Rejected alternative, and why**: mint a brand-new fake carrier joint,
-exactly mirroring `GeosetTag`. The geoset-tag-joint offset arithmetic in
-`gltf_skeleton.cpp`'s `emitSkeletonAndSkin` is threaded through ~10 separate
-places (inverse-bind-matrix buffer sizing, node ordering, parenting, the
-synthetic-root node-index formula, attachment/event/light node offsets
-downstream) — a second, independently-counted category of inert joint would
-mean touching every one of them consistently, real risk of a silent
-off-by-one corrupting the skeleton if one were missed. Piggybacking on the
-skin's own *existing* root joint (`emitSkeletonAndSkin`'s own
-`rootJointNodeIndices.front()`, always a real joint, never the synthesized
-multi-root parent node, which isn't a joint and wouldn't become a real
-Blender Bone) needs none of that — no new node index, no offset-formula
-changes anywhere, just merging a JSON object onto an existing node's
-`extras`. Tradeoff, named directly and accepted: the data rides along on
-that bone permanently (harmless custom-property clutter) rather than being
-read-and-discarded the way a geoset tag is.
-
-**Joint-index resolution is also inline now, not a separate table a
-consumer has to drag around.** Several of these extras entries carry a raw
-numeric bone index (a ribbon anchor's `joint`, a physics body's `joint`, a
-bone-correction's `joint`). Confirmed directly (not assumed) that Blender's
-own post-import bone order does *not* reliably match the raw glTF
-joint-index order — 242/358 mismatches on a real 245-bone character,
-checked by comparing the raw glTF `nodes[]`/`skins[0].joints[]` array
-against `armature.data.bones[]` after a real import — so a Blender-side
-consumer genuinely cannot derive a bone name from a raw index without a
-lookup table of some kind. `gltf_skeleton.cpp` now resolves this itself at
-export time: every such entry also carries a real `bone_name` string
-alongside its raw `joint` index. `joint_names` (the full index-aligned
-roster, still emitted unconditionally) stays too, for a different, still-real
-purpose: it's the one always-present key `_root_joint_extras`
-(`husk_blender_geoset_mask.py`) needs to find the correct carrier bone
-unambiguously on a model whose only *other* real extras happen to be, say,
-one billboard-tagged joint elsewhere (which also gets node extras, but isn't
-the carrier).
-
-**Animation names hit the same Blender-import gap, one level deeper**:
-confirmed directly that Blender's importer drops animation-level `extras`
-too (an imported Action's own custom properties come back empty even when
-the source file's `animations[].extras` was set). `AnimationData.db2` names
-now *also* mirror onto the same root-joint carrier
-(`animation_data_names`), alongside staying on each animation's own
-`sequence_metadata` extras for a raw-JSON consumer that isn't going through
-Blender's importer at all — the one deliberate duplicate in this design,
-since the "natural" glTF location and the one Blender's own importer will
-actually preserve aren't the same place.
-
-**A real crash, found and fixed via a headless reproduction, not assumed
-away**: a bone's own `IDPropertyGroup`/nested-list custom property values
-are *live views* into Blender's own storage, not independent copies.
-Fetching e.g. `chr_customization_options` from the carrier bone, then
-deleting *any* bone afterward (even a wholly unrelated one — real trigger:
-`delete_geoset_tag_bones` removing spent geoset tag bones later in the same
-pipeline pass) invalidates that earlier reference; touching it again
-segfaults Blender outright, not a catchable Python exception. Reproduced
-directly with a minimal repro (fetch the property, delete an unrelated
-bone, touch the earlier reference: real crash) before trusting the fix.
-`_root_joint_extras` now deep-copies the whole structure into plain
-`dict`/`list`/primitives before returning, restoring the same safety a
-plain `json.loads` result always had for free.
-
-**Zero-argument invocation**: per Luna's own direct ask ("the file should be
-runnable as pure Blender script"), `textures_dir` (needed only by the
-customization-texture-switch stage) now falls back to the current `.blend`
-file's own directory (`bpy.path.abspath("//")`, confirmed to return a real
-empty string rather than a silent cwd guess when the file hasn't been
-saved) when no CLI arg is given, preferring a `textures/` subfolder next to
-the `.blend` when one exists. Every other stage already worked with zero
-arguments once the migration above landed — this closes the last gap.
-Verified end to end: a saved `.blend` with a real 245-bone/17-option/
-338-animation model already imported, run via `blender --python
-tools/husk_blender_geoset_mask.py` with no trailing arguments at all,
-completes every stage cleanly.
-
-### `extras` schema version + `EXTRAS_SCHEMA.md` index (2026-08-29)
-
-husk's `extras` carry semantics only husk and its Blender script
-understand, and before this there was no way for a consumer to tell which
-producer version wrote a given `.glb`. Counting the keys is itself a trap:
-the root-joint carrier holds **15**, but grepping `gltf_skeleton.cpp`'s
-`skinExtras` block finds only 14, because `animation_data_names` is set in
-`gltf.cpp` — same carrier node, different source file. Material and
-primitive keys do not cleanly decompose into "material keys" and
-"primitive keys" either — the real count, scoped strictly to
-`tinygltf::Material.extras`/`tinygltf::Primitive.extras`/the mesh-node
-`collision` extra, is 12 material top-level keys (`additional_textures`,
-`texture_transform`, `texture_transform_animation`, `texture_type`,
-`blend_mode`, `pixel_shader`, `vertex_shader`, `texture_file_data_id`,
-`diagnostic_name`, `alternate_textures`, `tint_animation`,
-`fade_animation`) + 3 primitive keys (`geoset_id`/`geoset_group`/
-`geoset_variant`) + 1 node key (`collision`) = 16, or 33 if every nested
-sub-key inside those 12 material structures is also counted (`keyframes`,
-`time`, `value`, `sequence_index`, `filename`, ...); 34 is only reached by
-also folding in `billboard` — a per-*joint*-node extra, a fourth category
-this document didn't previously separate out. `EXTRAS_SCHEMA.md` is the
-real index now, derived from the code and a real export, not from the
-audit bullet — see it for the full per-key table across all seven carrier
-categories (document/root-joint/material/primitive/mesh-node/joint-node/
-anchor-node/animation-clip).
-
-**Two homes for the version, not one**, because no single location is
-both universally present and Blender-survivable: `model.asset.extras.
-schema_version` (`gltf.cpp`) is the spec-correct, always-present producer-
-metadata slot — present even for a skeleton-less mesh-only export, which
-has no root joint to carry anything else documented above at all — while
-a mirror on the root joint's own `schema_version` extras key (`gltf_
-skeleton.cpp`, alongside `joint_names`) rides the exact mechanism this
-section already built for `animation_data_names`, since `asset.extras`
-itself is not preserved on any Blender datablock post-import (confirmed
-empirically, same class of gap as `skin.extras`/animation-level `extras`
-above — `asset` has no Blender-object correspondence at all, unlike node/
-mesh/material/camera/light). `kExtrasSchemaVersion` (`src/gltf.hpp`) is
-the one constant both writes read from, so the two copies can never drift
-by construction.
-
-**Versions the extras schema, not the husk binary** — deliberately: the
-two change at different rates (the binary gets bug fixes and new features
-constantly; the extras *shape* only needs a bump when an existing key's
-meaning changes underneath a consumer), and a downstream reader cares
-about the latter, not the former. Bumping on every commit would make the
-number noise; bumping only on a real shape change keeps it a meaningful
-signal.
-
-**Blender-side enforcement is a soft print, not a hard reject** —
-`check_schema_version` (`tools/husk_blender_geoset_mask.py`) reads the
-root-joint mirror and always prints one line (match, older, newer, or
-missing entirely), never raises. A hard reject was considered and
-rejected outright: every real `.glb` husk has exported before this
-session has no `schema_version` key at all, and this script's own
-`read_*` functions already treat every key as independently optional —
-rejecting on a missing/older version would be the one inconsistent hard
-gate in an otherwise fully permissive reader, and would make every
-already-exported real fixture (the HD character exports, the corpus
-render samples, ...) unreadable by a freshly updated script for no
-functional reason (the underlying data is still perfectly readable; only
-the version marker is absent or behind).
-
-### `canon::` bone naming — three independent tiers, chunk-based structural stems (designed 2026-09-06, not yet implemented)
-
-Today's fallback for a bone with no real `keyBoneName` hit is `"bone_<index>"`
-(`gltf_skeleton.cpp:136`) — positionally unique, but an opaque list with no
-structure a human can read at a glance. `canon::` replaces this with a
-naming scheme designed from how strings are actually remembered, not just
-a rename.
-
-**Three tiers, all stored, none discarded, preference in this order:**
-
-1. **Hand-authored** — a real `m2::keyBoneName(Bone::keyBoneId)` hit
-   (`NameSource::M2Embedded`). Unchanged.
-2. **Consistent** — a structural label computed for *every* bone
-   (named or not), deterministic for a given model's own bone order.
-3. **Guaranteed-unique identity** — `Ref::id` as `RecordIndex{boneIndex}`,
-   already collision-free within one model; a real UUID is available later
-   if positional index ever stops being stable enough.
-
-`canon::Ref` keeps its existing shape (one identity, one preferred
-name/source — hand-authored beats synthesized, same priority it already
-has). `canon::Joint` additionally carries the consistent label in its own
-field, unconditionally, so it survives even when a hand-authored name
-wins the `ref` slot — the two are genuinely different facts (one is
-Blizzard's own data, the other is husk's own deterministic derivation)
-and collapsing them into one slot would lose one every time the other is
-present. A consumer picks the tier that fits: the raw index for internal
-joins, the consistent label for deterministic tooling/debugging, `ref`'s
-preferred name for end-user-facing display.
-
-**Format**: `<stem>_<side>_<index>.<subindex>`, e.g. a left leg's main
-chain: `a1a_L_0.0 -> a1a_L_1.0 -> a1a_L_2.0`. `index` walks position along
-a chain; `subindex` is a separate counter (not a fraction — `1.32` is
-position 1's 32nd auxiliary slot, not "1.32") for short branches (≤2
-bones) hanging off one chain position, e.g. an equipment-attachment bone
-on only one leg: `a1a_L_1.1`. A branch longer than 2 bones is promoted to
-its own chain instead of staying folded into `subindex`, nested under its
-parent's position: `a1a_L_3_sub_qwq_0 -> a1a_L_3_sub_qwq_1`; a second
-long branch at the same position gets its own stem, not a second
-`_sub_qwq`: `a1a_L_3_sub_owo_0`. The rule nests recursively for a
-sub-chain that itself branches again. A mirrored limb's sub-chains reuse
-the same child stem as their opposite-side counterpart (only the `_L`/
-`_R` marker differs, already carried by the parent position) rather than
-allocating a second stem for what is structurally the same substructure.
-
-**Symmetry**: geometric — two bones whose bind-pose pivots mirror across
-the model's sagittal plane, with structurally mirrored parent chains too
-(not position alone), are an `_L`/`_R` pair. Chosen over a names-only
-check (only classifying bones `keyBoneName` already covers, i.e. none of
-the ones this scheme exists to label) or a hybrid — geometry works
-regardless of naming and needs no exception list.
-
-**Stem ranking is chunking theory, not the "avoid repeated characters"
-instinct a plain edit-distance/entropy heuristic would produce.**
-Cognitive chunking research (Miller's magical-number-seven work and later
-chunking/compression studies) shows a repeated or patterned sequence
-collapses into fewer memory chunks than an arbitrary one — "0001" is one
-run-of-three plus a digit, "a1b" is three unrelated symbols. A first pass
-of this design scored candidates by literal repeat-avoidance (the
-opposite direction) before Luna corrected it against real research.
-
-The repeat doesn't need to be contiguous to collapse: `a1a`/`aqa` both
-read as "common bookend character, one distinct middle character" — two
-chunks — the same cost as a contiguous `aa1`. Candidates are scored by
-**position template** (the shape of repeat-vs-distinct positions: `XXX`
-best, then `XYX`/`XXY`/`YXX`, worst `XYZ`/all-distinct), not raw
-repeat-counting. When assigning stems across multiple chains in one
-skeleton, **template shape is varied before the filler character within
-one template** — `a1a`/`1aa`/`aa1` (same characters, different shape)
-read as clearly distinct on sight; `aa1`/`aa2`/`aaq` (same shape,
-different filler) are the genuinely confusable family, since they differ
-in only one position. Visually-confusable characters are filtered as a
-separate legibility pass, unrelated to the memorability scoring: a Bell
-Labs symbol-misidentification study (cited via DTIC report AD0647371 and
-Pharmacy Times' "Misidentification of Alphanumeric Symbols in Electronic
-Communications") found `l`/`1`, `O`/`0`, `Z`/`2`, and `1`/`7` account for
-over half of all alphanumeric misreadings; digits stay canonical (never
-excluded), so the letter half of each digit-confusable pair is dropped
-instead (`i`/`l`, `o`, `z`). `1`/`7` is digit-vs-digit and stays an
-unaddressed residual risk — excluding a digit to fix it would just
-recreate the same problem one level down. Stems are assigned to
-newly-discovered chains in parse order, so the same model always
-produces the same labels.
-
-**Precedent for every other "real name missing or unreadable" case in
-this codebase, not just bones.** The three-tier layering above (a
-guaranteed-unique identity that's always safe to key on, a deterministic
-consistent label computed unconditionally, and a hand-authored label used
-only when real source data actually supplies one) is the general answer
-to "husk has an index but no trustworthy name for it" — bones just
-happened to be the case with an existing naming scheme (`"bone_<n>"`)
-concrete enough to replace first. `AnimationData.db2`'s `Name` column
-being absent from current client extractions (`README.md`'s Resume
-history) is the next obvious candidate: sequences already have a real
-per-model index and a real trust-tiered name slot
-(`NameSource::M2Embedded` when `AnimationData.db2` resolves one), but
-nothing fills the gap when it doesn't — the same chunk-ranked,
-chain-structured labeling this section designs for bones (adapted to
-whatever a sequence's own "hierarchy" and "symmetry" concepts turn out to
-be, if any) applies directly. Not scoped or started here — recorded so
-it isn't rediscovered as a new problem later.
-
-The template-ordering rule itself (vary shape before filler) is a
-reasoned synthesis of Luna's correction and general chunking theory, not
-a result lifted from a specific paper — general chunking/compression
-research supports the *shape* of the argument, not this exact ranking
-rule at this level of detail. Recorded here as a design decision made
-with that distinction explicit, not overclaimed as directly sourced.
-
-### `canon::` material design (designed 2026-09-06; assembly landed 2026-09-06/07)
-
-**Status.** The types below are implemented as designed
-(`src/canon_material.hpp`). `canon::assembleMaterial`
-(`src/canon_material_builder.hpp`/`.cpp`) now assembles a `canon::Material`
-from a real `skin::Batch` plus the M2's own material/texture/color/
-transform tables, mirroring `export_materials.cpp`'s per-batch material
-construction structurally (same bounds checks, same required-vs-best-
-effort throw behavior) — proven via
-`tests/test_canon_material_convergence.cpp` against the real
-`bloodelffemale.m2`/`.skin` fixture plus the existing multi-texture-layer
-and texture-transform fixtures, same "derive expected facts independently,
-don't call the function under test" discipline
-`test_canon_mesh_convergence.cpp` established. Deliberately NOT built by
-this pass, staying real open work: real texture-byte/FileDataID
-resolution (every `TextureRef` this produces is `KnownUnresolved`, reason
-"texture resolution out of scope for canon assembly" — same DB2/listfile/
-catalog boundary `canon_mesh_builder.hpp` already draws around material/
-texture resolution for geosets); `ShadingFunction`/`Function` (decoding a
-resolved `shaderId`'s real `Combiners_*` name into a structured per-stage
-op chain, still exactly the deferred "porting real Combiners_* formula
-math" work named below); atlas compositing and the two material-preview
-capabilities described further down this section.
-
-Two real representational gaps in the types below surfaced while building
-the assembler, neither patched silently: (1) `MaterialLayer` has no field
-for a *constant* (non-animated) tint/alpha/UV-transform value — only the
-animated-curve shape (`tint`/`alphaFade`/`uvAnimation`) exists, so the
-overwhelming common real-data case (a constant `M2Color`/`M2TextureWeight`,
-which `export_materials.cpp` folds into `gltf::Material::baseColorFactor`)
-is currently unrepresentable in canon form at all, not just approximated;
-(2) a single M2 batch can have both a genuinely-animated `M2Color::alpha`
-and a genuinely-animated `M2TextureWeight::weight` at once (documented as
-multiplied together), but `MaterialLayer` has only one `alphaFade` slot to
-hold either, so the assembler picks color's curve when both are present.
-Also newly written, not previously part of this codebase anywhere: a
-`blendMode -> BlendOp` mapping (`canon_material_builder.cpp`'s
-`blendModeToBlendOp`) — no `blendModeToGxTexOp`-shaped conversion existed
-to reuse (confirmed by search), and `M2Material::blendMode` (a framebuffer
-blend) and `BlendOp`'s `EGxTexOp` vocabulary (a texture-combiner stage)
-are two different real GPU concepts being deliberately approximated onto
-one field for lack of a better home. All three are flagged for review, not
-treated as settled by this pass.
-
-**Framing.** This is designed for N future consumers and one real, often
-incomplete producer (M2) — not as a rename of today's `gltf::Material`.
-Today's shape is read here only as *evidence of what M2 can actually
-express*, so nothing below invents a capability the format doesn't have.
-
-**Real facts checked before designing anything (not assumptions):**
-
-- M2 (Legion+, husk's scope) has **no PBR map slots**. No normal/
-  roughness/metalness anywhere in the parsed format. There is one real,
-  currently-unresolved "specular-ish" `TextureType` role
-  (`itemappearance_db2.hpp`) and an env-map UV mode
-  (`textureCoordComboIndex == -1`, a runtime-computed reflection vector,
-  not stored per-vertex data) — that's the full extent of non-diffuse
-  texturing WoW's own data asserts.
-- A material's layering is a **per-batch ordered texture-unit stack**
-  (`M2Batch.textureCount`), combined by one of ~20 named fixed-function
-  `Combiners_*` formulas keyed by `shaderId`. husk itself resolves the
-  formula *name* (`m2::resolveShaderNames`); what the formulas *do* is
-  ported Blender-side (`tools/corpus_scan_tasks/render_glb.py`'s
-  `fix_multi_texture_layers`), not in husk's own glTF output.
-- Tint/fade/UV-transform are **per-batch, unambiguously** —
-  `skin::Batch::colorIndex`/`textureWeightComboIndex`/
-  `textureTransformComboIndex` are direct indices, no join-table
-  ambiguity — real animated curves, already unifiable via
-  `canon::Curve`.
-- **Character-customization compositing is a separate mechanism from
-  batch layering entirely.** `CharComponentTextureLayouts`/`Sections`/
-  `TextureLayer` describe atlas placement rects and blend modes; none of
-  that DB2 chain references a mesh, a vertex, or a UV coordinate. It is
-  already pure image-space data in Blizzard's own model, not a husk
-  simplification.
-- UV *values* are per-vertex mesh data (shared across every batch
-  sampling that vertex range); UV *selection* is a per-batch material
-  fact (`baseColorTexCoord`: which mesh UV set, or none for env-mapping).
-- Producer unreliability is already a real, named category:
-  `AlternateTextureCandidate` exists specifically because a hardcoded/
-  customization-driven slot can have multiple same-basename candidate
-  files with no in-file tiebreak.
-
-**Settled shapes:**
-
-```
-enum class KnownRole { Unknown, Diffuse, Specular, Emission, Alpha, Detail, Env };
-using LayerRole = std::variant<KnownRole, std::string>;  // string: open, not limited to M2's own vocabulary
-
-using UvRef = std::variant<UvSetIndex, EnvironmentMapped>;  // typed selector, no compatibility-matcher
-
-// Three states, not two -- "resolved" isn't the only non-error outcome.
-struct TextureRef {
-    enum class State { Resolved, KnownUnresolved, Ambiguous };
-    State state;
-    // Resolved: real bytes/FileDataID in hand.
-    // KnownUnresolved: M2 asserts a real slot exists (nonzero TextureType,
-    //   or a customization-driven slot) but husk couldn't get bytes for
-    //   it -- carries a reason string, same backtrace pattern
-    //   resolveObjectSkinTextureFromKb's `.reason` already uses elsewhere.
-    // Ambiguous: N real candidates, no in-file tiebreak -- generalizes
-    //   today's AlternateTextureCandidate list, kept as the full
-    //   candidate set (not collapsed to one guess) so a consumer can
-    //   pick or a human can resolve it later.
-};
-
-struct MaterialLayer {
-    Ref identity;          // stable identity a named slot points at -- never a raw vector index,
-                            // same reasoning already applied to bones/geosets: an index breaks
-                            // under reordering/filtering, an identity doesn't.
-    TextureRef texture;
-    UvRef uv;
-    LayerRole role;
-    std::optional<VecCurve> tint;
-    std::optional<ScalarCurve> alphaFade;
-    std::optional<TextureTransformCurves> uvAnimation;  // shape TBD at implementation time
-    BlendOp blendIntoPrevious;  // the real combiner op this layer performs on the stack so far, when resolved
-};
-
-struct Material {
-    std::vector<MaterialLayer> layers;    // full ordered truth, one entry per real M2 texture unit
-    std::optional<Ref> diffuseLayer;       // = some layer's identity, only when role maps cleanly
-    std::optional<Ref> specularLayer;
-    std::optional<Ref> emissionLayer;
-    std::optional<Ref> alphaLayer;
-    // no normalLayer/roughnessLayer yet -- no real producer populates one; add when one
-    // actually exists, not speculatively.
-};
-```
-
-**Why the stack is the source of truth and named slots are just
-references into it, not a parallel named-slot-only model:** WoW's real
-data doesn't assert roles for most layers (a two-diffuse-blend combiner
-formula has no honest PBR-slot mapping at all), so a named-slots-only
-material would force husk to invent facts the M2 doesn't contain — the
-same "tag it, don't guess at semantics" violation this project has
-avoided everywhere else (`billboardMode`, `skinSectionId`, `textureType`,
-...). The ordered stack matches the real producer exactly and stays
-readable by a naive consumer (ignore anything without a role); named
-fields give a PBR-aware consumer a fast, typed path without forcing
-every layer through it.
-
-**Why not a full UV compatibility-matching system:** the real client
-never does compatibility matching — `textureCoordComboIndex` is a
-hardcoded literal resolved once at authoring time. Building a scoring
-system solves a flexibility problem the real producer doesn't have. What
-*is* worth the small cost: replacing the bare `int`/`-1`-sentinel with a
-typed `UvRef`, so "environment-mapped" is a real tagged case instead of
-an integer trick, and a mesh isn't limited to exactly two hardcoded UV
-fields if a future producer ever needs more.
-
-**Atlas compositing is a mesh-independent `Resources`-layer concept,
-deliberately.** `CharComponentTextureLayouts`/`Sections`/`TextureLayer`
-already carry zero mesh/vertex/UV references in Blizzard's own model —
-canon isn't simplifying anything by keeping the compositing recipe
-(which patches go where, blended how, producing one final atlas image)
-computable with no mesh loaded at all. The one real caveat, explicitly
-**deferred, not built now**: the mesh's own UV coordinates still have to
-actually sample the right atlas regions for the composited result to
-look correct once applied — a cross-check that needs both pieces of data
-even though computing either piece alone doesn't. Not attempted here.
-
-**Geoset/submesh filtering is explicitly not a material concern.** Which
-submeshes exist and render at all (`M2SkinSection`/`canon::Geoset`) is a
-mesh/topology fact, orthogonal to which texture layers a material
-stacks — canon's existing Definition/Selection split already keeps these
-apart (geoset selection lives in Selection; texture compositing lives in
-Resources/material), and this design doesn't re-merge them.
-
-**Material preview, with no mesh required — two different capabilities
-sharing one name, split apart on purpose:**
-
-1. *A wireframe view of where each patch/layer sits.* A real UV
-   unwrap wireframe is triangle-edge data and structurally requires a
-   mesh — there's no way around that. What's buildable with zero mesh,
-   from data canon already resolves: `Section`'s placement rectangles,
-   normalized by the atlas's own declared `width`/`height`, drawn as a
-   rectangle grid over the composited atlas image. This is meant to
-   later overlay a real mesh's actual UV unwrap for comparison — which
-   means `Section` rects and real mesh UV coordinates need to share one
-   normalized `[0,1]×[0,1]` coordinate convention. **Flagged, not yet
-   verified**: this is the natural assumption given how texture atlases
-   work, but it hasn't been checked against a real character's actual
-   mesh-UV-bounding-box-vs-atlas-Section alignment yet — the same
-   discipline already applied to the bone-naming mirror axis (checked
-   against two real files before being trusted) should apply here too,
-   before this becomes load-bearing.
-2. *A rendered preview of the composited layer stack* (blend ops, tint,
-   alpha, emission), to judge whether layering/emission genuinely look
-   right — flat, no 3D geometry needed beyond a trivial preview
-   surface. **Canon stays resolve-only for this, same split
-   `render_glb.py`'s Blender-side shading reconstruction already
-   established**: canon's job is making the layer stack + resolved
-   combiner-formula identity + curves complete enough that a *separate*,
-   canon-aware preview renderer (a companion tool, not canon itself, not
-   husk's export path) could exist and produce correct pixels. Canon
-   does not implement `Combiners_*` formula math itself — that would be
-   a real scope change from every prior canon task, all of which have
-   been resolve-only, and would reopen the "husk resolves, never
-   applies" question this project has settled repeatedly elsewhere.
-
-**Materials are independently exportable.** `REFACTOR/BUNDLE_FORMAT.md`'s
-"embed or reference — one rule" and "bundles reference other bundles"
-already generalize past whole models — a material is a `Ref` the same
-way an equipped item is, so it can carry its own `materials/<name>/
-manifest.json` instead of only living inline inside a model's bundle.
-Not a new mechanism, an application of an already-settled one at finer
-granularity (see that file for the concrete shape).
-
-### `canon::` definition design (types designed alongside `canon_material`; assembly landed 2026-09-07)
-
-**Status.** `canon::Definition`/`Option`/`Choice`/`Category`
-(`src/canon_definition.hpp`) are CANONICAL_MODEL.md's Definition layer
-(I5) — "what exists and what is valid," scoped to one real `ChrModelID` —
-already implemented as pure value types before this pass. `canon::assembleDefinition`
-(`src/canon_definition_builder.hpp`/`.cpp`) now assembles a `canon::Definition`
-from `chrcustomization::Data` (`chrcustomization_db2.hpp`), reusing
-`chrcustomization::namedChoicesForModel` directly for the real DB2 join
-(Option -> Category, Option -> its Choices, Choice -> its resolved geoset)
-rather than re-deriving that traversal — this builder's own job is purely
-grouping that flat per-`(option, choice)` list into `Definition`'s nested
-shape. Proven via `tests/test_canon_definition_convergence.cpp`, including
-one real-data case against `test_data/db2/chrcustomization{option,choice,
-category}.db2` plus `reference/WoWDBDefs` (skipped when either is absent),
-checked against facts derived independently from the same `chrcustomization::Data`
-struct, not from `namedChoicesForModel`'s own output — same discipline
-`test_canon_material_convergence.cpp` established.
-
-One intentional, documented divergence from the real production consumer
-(`export_extras.cpp`'s own `customizationOptions`-building loop): that code
-preserves whatever order `namedChoicesForModel` happens to yield (`Data::options`'
-own table load order — not a display order) because it's building inert
-glTF extras where order isn't semantically load-bearing. `canon::Definition`'s
-own doc comment states no such exemption, so `assembleDefinition` sorts
-`Definition::options` by real `optionOrderIndex` (ties broken by `optionId`)
-and each `Option::choices` by real `choiceOrderIndex` (ties broken by
-`choiceId`) — deterministic, and matching the real character-creation UI's
-own display order, the same convention `chrcustomization::defaultChoiceIdsForModel`'s
-own doc comment already states for a related concern.
-
-Deliberately excluded, per `canon_definition.hpp`'s own doc comments (not
-silently added back): `Material`/`fileDataId`/`boneSetId` and every other
-"what realizes this choice if picked" fact — that's Resources-layer, not
-Definition, and I5 names exactly this kind of blending as the problem to
-not reproduce. No gap in the existing `canon_definition.hpp` types was
-found while building this — `Ref`'s `NameSource::None` already covers both
-real "no name" shapes this assembler hits (a swatch-only choice, `Name_lang
-== "0"`; an unresolved or dangling `ChrCustomizationCategoryID`) without
-needing a new tier.
-
-### `canon::` selection design (types designed alongside `canon_material`; `CreatureSelection`/`CharacterSelection` assembly landed 2026-09-07)
-
-**Status.** `canon::CharacterSelection`/`CreatureSelection` (`src/canon_selection.hpp`),
-CANONICAL_MODEL.md's Selection layer (I5) — "what did this instance choose,"
-scoped to whichever Definition/mechanism it was chosen against — were
-already implemented as pure value types before this pass, alongside
-`canon_material`/`canon_definition`. `canon::assembleCreatureSelection`
-(`src/canon_selection_builder.hpp`/`.cpp`) now assembles a
-`canon::CreatureSelection` from `creaturegeoset::Data`
-(`creature_geoset_db2.hpp`), reusing `creaturegeoset::resolveDisplay`
-directly for the real DB2 lookup and its `(GeosetIndex+1)*100+GeosetValue`
-geosetId formula rather than re-deriving it — this builder's own job is
-purely copying `resolveDisplay`'s flat `ResolvedGeoset` list's `geosetId`
-values into `CreatureSelection::enabledGeosetIds`. No sort/dedupe: the real
-production consumer (`export_extras.cpp`'s `attachCreatureGeosets`) pushes
-every resolved geosetId through unchanged, in `resolveDisplay`'s own order,
-including real duplicate rows — `assembleCreatureSelection` matches that
-exactly, no divergence to document here (unlike `canon::assembleDefinition`'s
-deliberate order-sort above).
-
-Proven via `tests/test_canon_selection_convergence.cpp`, checked against
-facts derived independently from `creaturegeoset::Data` using
-`resolveDisplay`'s own documented formula, not from
-`assembleCreatureSelection`'s own output. No real
-`creaturedisplayinfogeosetdata.db2` fixture exists in this repo's
-`test_data/db2` (unlike `chrcustomization*.db2` for the Definition case
-above), so this convergence test is synthetic-`Data`-only — same fallback
-every other convergence test here takes when its real fixture is absent.
-
-`canon::assembleCharacterSelection` (`src/canon_selection_builder.hpp`/`.cpp`)
-now assembles the `CharacterSelection` half — a `chrModelId`, a chosen
-`ChrCustomizationChoiceID` list, and the `std::vector<canon::Item>`
-`canon::assembleEquippedItems` (below) already produces. Deliberately thin,
-matching this layer's own "purely shape, don't re-derive" convention: it
-wraps each raw choice id as `Ref{Db2Row{"ChrCustomizationChoice", id}}` with
-no name (`NameSource::None` — no name data exists at this layer, same
-situation `canon_item_builder.cpp` already hit for item identities) and no
-sort, confirmed against `export_extras.cpp`'s own `attachCustomizationChoices`
-— it uses its parsed `--customization-choice-ids` list exactly as given, no
-filtering/dedup/sort of its own to mirror. Each `canon::Item` reduces to one
-`CharacterSelection::EquippedItem{identity, slots}`, dropping
-`Item::components` outright — Resources-layer data `EquippedItem` was
-already documented as not carrying (its own doc comment in
-`canon_selection.hpp`); a consumer re-joins `identity` against the real
-`canon::Item`/`canon::Definition` for that. Order preserved in both lists —
-no sort key exists at this call site the way `canon::Definition`'s
-`OrderIndex` did.
-
-Proven via new cases in `tests/test_canon_selection_convergence.cpp`: a
-realistic composition built from `assembleEquippedItems`'s own output
-(not re-derived DB2 data — this function has none of its own to converge
-against), empty-input cases, a components-dropped check, and an
-input-order-preservation check for both lists.
-
-### `canon::` item design (types designed alongside I7; `assembleEquippedItems` landed 2026-09-07)
-
-**Status.** `canon::Item`/`GeometryComponent`/`SectionOverlayComponent`
-(`src/canon_item.hpp`), CANONICAL_MODEL.md's I7 invariant ("items by
-identity, not slot"), were already implemented as pure value types before
-this pass. `canon::assembleEquippedItems` (`src/canon_item_builder.hpp`/
-`.cpp`) now assembles a `std::vector<canon::Item>` from
-`itemappearance::Data` (`itemappearance_db2.hpp`) plus the optional
-`modelfiledata::Data`/`texturefiledata::Data` FileDataID lookups, given a
-list of `appearance::GearEntry` (`appearance_string.hpp`'s `gear=SLOT:id`
-entries) — the adjacent twin of `export_extras.cpp`'s own
-`attachGearAppearance` loop, reusing `itemappearance::resolve` directly for
-the real DB2 join chain rather than re-deriving it.
-
-**The real I7 payoff this adds over `attachGearAppearance`'s current
-shape**: that function produces one `GearItem`/`GearSectionOverlay` PER GEAR
-ENTRY, so an item appearing in the caller's `gear` list at two different
-slots (a real, structurally valid `appearance_string.hpp` input —
-`gear=MAINHAND:15,OFFHAND:15`) produces two separate, duplicate-content
-extras entries with no structural link between them. `assembleEquippedItems`
-instead groups by `itemModifiedAppearanceId` first: entries sharing one
-appearance id collapse into ONE `canon::Item` carrying multiple
-`Item::slots`, with `itemappearance::resolve` called and its components
-built exactly once per distinct id — not once per occurrence. This is the
-concrete case I7 exists to make expressible, and the concrete thing this
-assembler adds beyond mirroring the existing production consumer.
-
-Mirrors `attachGearAppearance`'s own per-entry behavior otherwise exactly,
-including its "zero means no standalone geometry, not unresolved" reading
-of a real `ModelResourcesID` (`resolution.modelResourcesId` always carries
-`DisplayInfo::modelResourcesId`'s raw value, zero included, so a
-`GeometryComponent` is only added when that value is genuinely nonzero or
-`resolution.materials` is non-empty), its independent-optional treatment of
-`modelData`/`textureData` (a missing table just leaves that hop's
-FileDataID unresolved, never a hard failure), and its skip-not-fabricate
-handling of an entry whose `resolve()` doesn't produce a real
-`ItemDisplayInfoID`.
-
-Proven via `tests/test_canon_item_convergence.cpp`, checked against facts
-derived independently from synthetic `itemappearance::Data`/
-`modelfiledata::Data`/`texturefiledata::Data`, not from
-`assembleEquippedItems`'s own output — same discipline
-`test_canon_definition_convergence.cpp`/`test_canon_selection_convergence.cpp`
-already establish. No real local `itemmodifiedappearance.db2`/
-`itemappearance.db2`/... fixture set exists in `test_data/db2` (only the
-`chrcustomization*` tables do), so this convergence test is
-synthetic-`Data`-only, with a placeholder `doctest::skip`-gated case ready
-to flip to a real-data check the moment such a fixture set lands.
-
-Migrating `export_extras.cpp`'s own `attachGearAppearance` onto
-`assembleEquippedItems` (so the two stop being separate, only-provably-
-convergent implementations) is separate, later work — this pass only
-proves the new path, it doesn't yet replace the old one.
-
-### `canon::Mesh`/`canon::Model` — per-vertex geometry and the whole-model composition root (designed + landed 2026-09-07)
-
-**Status.** New this pass, per Luna's explicit direction: the next step
-toward two planned leaf writers (a lean glTF exporter and a from-scratch
-binary bundle format, both future work, not built here) is proving they can
-both be fed from ONE composed `canon::Model` — which didn't exist yet, and
-couldn't, since no `canon::` type carried real per-vertex geometry/skinning
-at all (`canon::PrimitiveGeoset`, landed earlier, only maps geosets to
-triangle-index ranges). This pass adds both missing pieces:
-`canon::Mesh`/`canon::assembleMesh` (`src/canon_mesh_builder.hpp`/`.cpp`,
-alongside the existing `PrimitiveGeoset`) and `canon::Model`/
-`canon::assembleModel` (new `src/canon_model.hpp`/`.cpp`). Proven via
-`tests/test_canon_mesh_convergence.cpp` (new `assembleMesh` cases) and new
-`tests/test_canon_model.cpp`, against the real `bloodelffemale.m2`/`.skin`
-fixture plus synthetic corruption/edge cases, same "derive expected facts
-independently, never by calling the function under test" discipline every
-earlier canon convergence test already established. 922/922 tests passing,
-12751 assertions (baseline before this pass: 914/914, 12430 assertions) —
-8 new test cases, 321 new assertions, 0 regressions.
-
-**`canon::Mesh`** mirrors `gltf::Mesh`'s own shape (`gltf_mesh.hpp`) as
-closely as I1 (no glTF-shaped convenience baked into canon) allows: one flat,
-model-wide `positions`/`normals`/`uv0`/`skinning` array (every real M2
-global vertex, not a per-primitive-local list), with `indices`/`primitives`
-slicing into that same shared space — `primitives` is exactly
-`assemblePrimitiveGeosets`'s already-proven output, reused directly, not
-re-derived. Values are raw, untransformed M2 space: literally `v.pos`,
-`v.normal`, `v.texCoords[0]`/`[1]` — no Z-up-to-Y-up conversion, matching
-every other canon builder's stated policy (`canon_animation_builder.hpp`'s
-own doc comment states the same for bone curves) that axis conversion is a
-*writer's* job, not a fact about the source data.
-
-`assembleMesh`'s skinning mirrors `commands::buildSkinning`
-(`export_skeleton.cpp`) exactly — same per-vertex bone-index bounds check
-(`std::runtime_error`, same message shape), same `uint8_t -> float`
-`/255.0f` weight normalization — with one deliberate, documented divergence:
-`buildSkinning` runs unconditionally whenever the model has *any* bones
-(`cmd_export.cpp` gates the call on `!bones.empty()`, not on the vertex
-data itself), while `assembleMesh` instead scans every vertex's
-`boneWeights` first and leaves `Mesh::skinning` empty when every one is
-zero — a genuinely unskinned/static model has no M2-level header flag to
-check instead (confirmed by reading `m2_header.hpp`/`m2::Model` in full: no
-such bit exists), so a cheap all-zero scan is the only way to tell "no real
-skinning data" apart from "boneCount happens to be nonzero for other
-reasons" without inventing new vocabulary M2 doesn't assert.
-
-**Judgment call — `uv1` presence.** The task brief proposed
-`std::optional<std::vector<Vec2>>` on the assumption a real M2 flag marks
-"this model uses a second UV set." Investigated first, not assumed:
-wowdev.wiki's own `M2.md` (`tex_coords[2]`) says usage is "depending on
-shader used" — a per-batch/per-shader fact, not a header-level one — and
-the real production pipeline (`cmd_export.cpp`'s `buildBaseMesh`) already
-populates `texCoords2` unconditionally for every model regardless of actual
-use, so there is no existing signal to mirror. Rather than invent a new
-per-model flag M2 doesn't have, or copy production's own "fabricate it
-regardless" behavior into canon, this applies the exact technique the task
-brief specifies for the skinning case above: `uv1` is absent (`nullopt`)
-exactly when every vertex's `texCoords[1]` is the literal origin —
-indistinguishable from "never written" — and present (real per-vertex
-values) the moment any vertex's second UV coordinate is genuinely non-zero.
-Flagged for review: this is a real, new canon-level policy, not a mirrored
-production fact, since production has no equivalent absence case at all.
-
-**`canon::Model`** is the composition root: one `Skeleton`, one `Mesh`, one
-`Material` per surviving batch, one `AnimationClip` per real inline
-`M2Sequence`. Purely wiring — every fact it exposes was already derived by
-`assembleSkeleton`/`assembleMesh`/`assembleMaterial`/`assembleBoneAnimation`,
-each independently convergence-proven before this pass; `assembleModel`
-decides only how many times and with what arguments to call each.
-
-**Judgment call — "real inline sequence."** `assembleBoneAnimation`'s own
-scope is already inline-sequence-only; `assembleModel` needed the same
-filter applied at the whole-model level to decide which sequences get an
-`AnimationClip` at all. The real production filter
-(`buildAnimations`/`export_animation.cpp`) checks `M2Sequence::flags &
-kSequenceStoredInlineFlag` (`0x20`) — a constant private to that file's
-anonymous namespace, so `canon_model.cpp` reimplements the same bit test
-directly rather than exporting it. A pure-alias sequence (`flags &
-kSequenceAliasFlag`, `0x40`, without the inline bit) is excluded from
-`Model::animations` entirely, not resolved via its alias target —
-`assembleBoneAnimation`'s own doc comment already states alias resolution
-is separate, later work, so this mirrors that same boundary at the
-whole-model level rather than quietly reaching past it.
-
-**Judgment call — per-sequence material resolution, and a real
-representational gap this surfaced.** `assembleMaterial` takes a fixed
-`sequenceIndex` (an earlier design choice, already documented in
-`canon_material_builder.hpp` as "a real, intentional divergence from
-`export_materials.cpp`": that function resolves *every* sequence's animated
-tint/fade/UV-transform curves into ONE flat list living inside a single
-`gltf::Material`, while `canon::MaterialLayer` holds exactly one
-`canon::Curve` per property — a single sequence's worth, not a list).
-Checked production's real behavior before deciding how `assembleModel`
-should call it: since production's own answer (one material, every
-sequence's curves) doesn't fit `canon::Material`'s already-landed
-single-sequence shape at all, neither "call it once per sequence" nor "a
-fixed index" is a full mirror either way. Given that constraint,
-`assembleModel` calls `assembleMaterial` ONCE per surviving batch (mirroring
-`assemblePrimitiveGeosets`'s own zero-`indexCount` skip, so
-`Model::materials[i]` stays index-aligned with `Model::mesh.primitives[i]`
-by construction), using a single fixed `sequenceIndex` — the model's first
-real inline sequence, or `0` when it has none. **Consequence, flagged for
-review, not silently accepted**: a multi-sequence model's `Model::materials`
-only reflects ONE sequence's worth of animated material curves; the other
-sequences' tint/fade/UV-transform animation isn't represented anywhere in
-`Model` today. Closing this for real needs either a per-sequence curve LIST
-on `canon::MaterialLayer` (the same gap `canon_material_builder.hpp`'s own
-doc comment already names) or a deliberate multi-material-per-primitive
-shape change — neither attempted here, since no writer needs it yet and
-reshaping `canon_material.hpp` isn't this pass's job.
-
-**Batch-to-primitive-to-material correspondence.** `Model::materials[i]`
-describes `Model::mesh.primitives[i]` — stated explicitly as mirroring the
-SAME correspondence `buildMaterialsAndPrimitives` (`export_materials.cpp`)
-already establishes between its own per-batch material and primitive lists
-(one real `M2Batch` produces one `gltf::Primitive` and, when
-`textureCount > 0`, one `gltf::Material`, both pushed in the same
-batch-iteration order) — not a new rule invented for `canon::Model`.
-
-### `husk::writers::writer_common` — shared bind-translation/curve-composition math for both planned leaf writers (designed + landed 2026-09-07)
-
-**Status.** Landed. Both planned leaf writers on top of `canon::Model` (a
-from-scratch native bundle format and a lean/spec-compliant glTF exporter,
-neither built yet) independently need the same two pieces of math that
-didn't exist as reusable functions anywhere: turning `canon::Joint`'s
-absolute bind-pose position into a parent-relative offset, and turning
-`canon::BoneAnimationCurves`' raw delta-from-bind-pose keyframes into final
-local-transform values. New `src/writers/writer_common.hpp`/`.cpp`:
-`writers::localBindTranslation` and `writers::composeJointCurves`. Proven
-via new `tests/test_writers_common.cpp` — synthetic joint chains with
-by-hand-computed expected offsets, a synthetic `AnimationClip` with known
-deltas, the `nullopt`-passthrough case, and a real-fixture convergence case
-(`bloodelffemale.m2`/`.skin`) checked against independently-recomputed
-`localBindTranslation(...) + rawDelta`, never against the OLD glTF
-pipeline's own output. 930/930 tests passing, 12803 assertions (baseline
-before this pass: 922/922, 12751) — 8 new cases, 52 new assertions, 0
-regressions.
-
-**Namespace: `husk::writers`, files still flat under `src/writers/`.**
-REFACTOR/README.md's Migration order names `src/writers/` as stage 4's
-target directory but states plainly that "`src/formats/`, `src/canon/`, and
-`src/writers/`... do not exist yet — nothing has moved past the catalog"
-(stage 2). `husk::canon` already set the precedent for this exact gap: its
-namespace matches the target directory name (`src/canon/`) while its files
-still live flat as `canon_*.cpp` under `src/`. This module follows that same
-precedent rather than inventing a different one — except it's also the
-first file to actually claim its own subdirectory (`src/writers/`, not
-`src/writer_common.cpp`), since there's no flat-file convention yet to stay
-consistent with here and Luna's own brief asked for the directory
-explicitly. No CMake changes were needed beyond adding the two new explicit
-source-list entries (`src/writers/writer_common.cpp` in `add_library`,
-`tests/test_writers_common.cpp` in the test executable) — this project's
-`CMakeLists.txt` lists every source file explicitly, no globbing, so a
-subdirectory path is just another string in the same list.
-
-**Stays entirely in raw M2 space (I1).** No axis conversion, no glTF-shaped
-local-translation convenience baked in — `canon::Skeleton`/`canon::
-AnimationClip` already carry no such thing, and this module doesn't add it
-either. Each writer converts axes and encodes the result its own way
-afterward; this is genuinely shared, writer-agnostic arithmetic, not a
-glTF-specific helper wearing a neutral name.
-
-**`localBindTranslation(skeleton, jointIndex)`**: for a root joint
-(`parent == -1`), returns `globalPosition` unchanged; otherwise, returns the
-joint's `globalPosition` minus its parent's, component-wise — the exact
-value `commands::buildJointAnimation`'s own bind-translation source
-(`gltf::Skeleton::Joint::localTranslation`, built earlier in
-`export_skeleton.cpp`'s pipeline) already represents, just derived here from
-`canon::Skeleton`'s absolute-position representation instead of assuming a
-parent-relative field exists on the type.
-
-**Re-validates bounds despite `assembleSkeleton`'s own acyclic/in-range
-guarantee.** Checked `canon_skeleton_builder.cpp` directly: `assembleSkeleton`
-does validate every parent index and reject cycles before returning. But
-that guarantee belongs to the *builder*, not the `canon::Skeleton` type
-itself — it's a plain struct, and this module's own tests build one by hand
-without going through `assembleSkeleton` at all (the same thing a future
-writer's own unit tests, or a bundle reader reconstructing a `Skeleton` from
-disk, might do). `localBindTranslation` therefore re-checks `jointIndex` and
-the resolved `parent` against `skeleton.joints.size()` at its own boundary
-and throws `std::runtime_error` rather than trusting an invariant it has no
-way to see enforced — same posture every other canon/writer-tier function in
-this codebase already takes at a boundary it doesn't control.
-
-**`composeJointCurves(skeleton, clip, jointIndex)`**: returns `nullopt`
-exactly when `clip.boneCurves[jointIndex]` is `nullopt` (mirrors
-`canon::AnimationClip`'s own meaning, not a new one); otherwise composes:
-- **translation** = `localBindTranslation(...)` plus each keyframe's raw
-  delta, component-wise — M2's bind pose carries a real translation
-  (`canon::Joint`'s own doc comment: "translation is the whole bind-pose
-  fact"), so this is the one channel with real composition work to do.
-- **rotation** = the raw delta keyframes, unchanged — bind pose contributes
-  no rotation to compose against.
-- **scale** = the raw delta keyframes, unchanged — bind pose scale is
-  implicitly `(1,1,1)`; confirmed by reading `toGltfScale`
-  (`src/export_transform.cpp`: `gltf::scaleZUpToYUp({s.x,s.y,s.z})`) — a pure
-  axis swap, no non-trivial composition happening there beyond what an axis
-  conversion (out of scope here) would do anyway.
-
-**Judgment call — hemisphere continuity does NOT apply here, confirmed by
-re-reading the reasoning, not assumed.** The old pipeline
-(`buildJointAnimation`, `export_animation.cpp`) calls
-`gltf::enforceHemisphereContinuity` between consecutive rotation keyframes.
-`canon_animation_builder.hpp`'s own doc comment states why that fix exists:
-raw `M2CompQuat` keyframes are a direct linear int16 decode with no
-per-keyframe sign choice, and the game client interpolates them natively —
-so authored data is already hemisphere-continuous *in M2 space*. The
-discontinuity `enforceHemisphereContinuity` compensates for is an artifact
-of `gltf::rotationZUpToYUp`'s own specific technique (a
-`quatToMat3`→`mat3ToQuat` round-trip, whose sign "isn't normalized against
-any convention" per its own doc comment) — a property of *that* axis
-conversion, not of the underlying rotation data. Since `writer_common` never
-converts axes and stays in raw M2 space throughout, the artifact this fix
-exists to compensate for never arises here, so applying it would be
-solving a problem this module doesn't have. Each writer that does convert
-axes remains responsible for its own continuity fix afterward, same as
-`export_animation.cpp` already is today for glTF specifically. No
-counter-case turned up while re-deriving this; flagged here anyway since
-it's the one place a subtle real bug could hide silently.
-
-### `husk::writers::gltf_lean` — the lean, extras-free glTF projection (designed + landed 2026-09-07)
-
-**Status.** Landed. The second of the two planned leaf writers over
-`canon::Model`, and the direct proof of Luna's three stated goals for this
-whole line of work: `canon::Model` can feed a genuinely independent
-writer (goal 1), that writer's own Blender-import structure converges with
-the existing pipeline's (goal 2, see below), and it is strictly leaner and
-more spec-compliant than the existing exporter (goal 3). New
-`src/writers/gltf_lean.hpp`/`.cpp`, proven via new
-`tests/test_writers_gltf_lean.cpp`. 942/942 tests passing, 13006 assertions
-(baseline before this pass: 937/937, 12953) — 5 new cases, 53 new
-assertions, 0 regressions.
-
-**Deliberately does not touch or reuse `src/gltf.hpp`/`.cpp`,
-`gltf_mesh.*`, `gltf_skeleton.*`, or `cmd_export.cpp`** — a second,
-independent implementation, not a refactor of the first. It DOES reuse
-three genuinely generic, extras-free pieces, on purpose, as the correct
-single-source-of-truth move rather than a violation of "build something
-new": `gltf_math.hpp`'s `zUpToYUp`/`rotationZUpToYUp`/`scaleZUpToYUp`/
-`enforceHemisphereContinuity` (pure axis-conversion math, zero coupling to
-the old writer's extras-laden types), `gltf_buffer_utils.hpp`'s
-`appendBufferView`/`padTo4` (generic tinygltf buffer bookkeeping), and
-`writers::localBindTranslation`/`writers::composeJointCurves`
-(`writer_common.hpp`, landed the same session) for bind-pose/curve
-composition, staying in raw M2 space until this writer's own axis
-conversion is applied.
-
-**The leanness claim, stated once here rather than per omission site:**
-this writer never emits a glTF `extras` object, for any input, by
-construction — there is no code path in `gltf_lean.cpp` that writes one.
-What doesn't fit a real core glTF field (geoset IDs, texture
-role/blend-op/UV-source metadata past what `alphaMode` can express,
-per-batch tint/fade/UV-animation curves, bone-correction sets, physics,
-customization) is left out, not smuggled back in — that data belongs to
-the sibling native bundle writer's manifest (`bundle_writer.hpp`)
-instead. Measured, not just asserted: exporting the same real
-`bloodelffemale.m2`/`.skin` fixture through the OLD pipeline (`husk
-export`) and counting literal `"extras"` occurrences in its `.glb`'s JSON
-chunk gives **374**; the lean writer's own JSON chunk contains **0**, for
-every input, since no code path can ever add one.
-
-**Spec-compliance, measured against the real Khronos glTF-Validator, not
-assumed:** `tests/test_writers_gltf_lean.cpp`'s validator test (same
-`HUSK_GLTF_VALIDATOR`-gated pattern `test_conformance.cpp` already
-establishes) runs the real validator against the lean writer's output for
-the real fixture — **`Errors: 0`**. Warnings are not asserted at zero:
-`TEXCOORD_0`/`TEXCOORD_1` "may be unused" warnings are real and expected
-here, a direct consequence of this writer's own stated scope
-(`canon::MaterialLayer::texture` is always `KnownUnresolved` today, so no
-material references a UV set via a real `baseColorTexture`) — a genuine,
-documented gap in texture *resolution* upstream, not a defect in this
-writer's own output.
-
-**Convergence with the old pipeline's Blender-import shape (goal 2):** a
-headless Blender import check (`tests/blender_import_check.py`, the same
-shared probe script `test_conformance.cpp` already uses, unmodified) on
-the real fixture's lean output confirms: 1 armature, bone count exactly
-matching `canonModel.skeleton.joints.size()`, 1 mesh object, total vertex
-count exactly matching `canonModel.mesh.positions.size()`. This is a
-structural match against `canon::Model`'s own already-convergence-proven
-facts (`canon::assembleModel`'s own convergence tests), not a byte
-comparison against the old writer's `.glb` — the two writers' outputs are
-not expected to be byte-identical (different node layout, no extras, no
-fake geoset-tag joints), only structurally equivalent on what both
-actually represent.
-
-**Design choices, each a real judgment call:**
-- **`alphaMode` mapping** (`alphaModeFor`, `gltf_lean.cpp`): `canon::
-  BlendOp` (a texture-combiner op) and glTF's `alphaMode` (a framebuffer-
-  blend state) are different axes with no existing production mapping to
-  reuse — M2's own alpha-blend-mode field isn't modeled in
-  `canon::Material` at all yet. This writer maps the material's *last*
-  layer's `blendIntoPrevious` op: `Replace`/`Modulate`/`Modulate2x` →
-  `OPAQUE` (a fully-covering combine); `Decal` → `MASK` (a hard cutout);
-  `Add`/`Fade` → `BLEND` (a translucent contribution). Reasoned, not
-  mirrored from any existing function — flagged for review.
-- **Inverse bind matrices** use `canon::Joint::globalPosition` directly
-  (already absolute/world-space) rather than walking the hierarchy to
-  re-accumulate world position from parent-relative offsets — simpler,
-  and exactly equivalent, since canon already gives the world position
-  for free. The pure-translation IBM formula (identity rotation/scale,
-  `-worldPos` translation) is re-derived here, not called from
-  `gltf_skeleton.cpp` (off-limits per this writer's own scope), but is
-  the same real formula, confirmed by reading that file for reference.
-- **Shared index buffer, sliced per primitive** (one `bufferView` for
-  `mesh.indices`, each primitive's accessor using its own `byteOffset`
-  into it) rather than the old writer's per-primitive copied index
-  arrays — mirrors `canon::Mesh`'s own "one shared buffer, `PrimitiveGeoset`
-  slices a range" shape directly instead of re-copying.
-- **Animation naming**: `canon::SequenceRef` carries no display name
-  anywhere in this codebase, but glTF/Blender's Action-picker UX wants a
-  real `Animation.name` — synthesizes `"sequence_<n>"`/
-  `"global_sequence_<n>"`, mechanically derived from `(kind, index)`, the
-  same spirit as the old pipeline's own `"global_seq_<n>"` naming for the
-  global-sequence half.
-
-### Shading-function descriptions: a scaffold, not a one-shot transcription
-
-The eventual goal — a material's manifest should be reconstructable by a
-human or a machine with *no husk binary*, not just inert metadata a
-human has to already know how to interpret — means the resolved formula
-name (`Combiners_X`) isn't enough on its own; what it *means* has to
-travel with the data. That transcription work happened separately
-(`tools/corpus_scan_tasks/render_glb.py`'s `fix_multi_texture_layers`
-formula table), independent of this design, so the framework is built to
-receive it incrementally rather than require it finished before anything
-can ship.
-
-**The "four base functions" claim below is UNVERIFIED — flagging this
-explicitly rather than let it read as settled.** It's Luna's own recalled
-summary of an earlier, different AI session's attempt to dig the real
-shading math out of `references/wow_shaders`' captured shader dumps, not
-a confirmed result of this project's own investigation — quoted from
-memory, not re-checked. The real excavation sources that exist and
-should be checked before trusting this shape at all: wowdev.wiki's own
-`Pixel_shader_logic_for_mixing_colors.wiki` (this project's own scan
-found real, but only pseudo-verified, `Combiners_*` formulas there —
-`SHADER_SCAN_FINDINGS.md`), further pseudo-verified formulas in
-`reference/wow.export`-adjacent tooling, and this project's own captured
-`references/wow_shaders` dumps (`shader_pattern_search/`'s textual and
-invariant-based matchers already exist for exactly this excavation, per
-`TOOLS.md`). The tentative shape, pending that check: most of the ~20
-named `Combiners_*` formulas *may* reduce to one of **four base
-functions** — alpha clip, alpha blend, additive overlay, multiplicative
-overlay — plus artistic-direction parameters on top, with the
-multiplicative case's tint source varying per formula (white in one,
-black in another, "the world" — an environment sample — in a third).
-Treat this as a hypothesis the framework should be able to hold *if*
-verification confirms it, not a fact to design the base-function enum
-irreversibly around.
-
-If the hypothesis holds, the shape is two-tiered rather than a flat list
-of 20 opaque names — and the framework should hold up even if it
-doesn't, degrading to one `ShadingFunction` per named formula with no
-shared `BaseFunction` at all:
-
-```
-BaseFunction = AlphaClip | AlphaBlend | Additive | Multiplicative{ tintSource }
-// tintSource's own real parameter shape is exactly the open transcription
-// work above -- not fully specified here, since specifying it without
-// having done the transcription would be guessing at data this design
-// doesn't have yet.
-
-struct ShadingFunction {
-    Ref identity;               // e.g. "Combiners_Mod_Add"
-    BaseFunction base;
-    Confidence confidence;      // see below
-    // Three representations, decreasing readability, increasing precision
-    // -- the function is ground truth, everything else is a view of it:
-    Function function;          // machine-readable, ground truth. Exact
-                                 // representation (small AST vs. a DSL) is
-                                 // an open call, not decided here.
-    std::optional<std::string> math;         // algebraic notation, should
-                                              // be derivable *from* `function`
-                                              // (consistent with it, not an
-                                              // independent second source)
-    std::optional<std::string> description;  // human prose, "how it's
-                                              // applied" -- authored by a
-                                              // human when one has, same
-                                              // "may not exist yet" honesty
-                                              // as everything else here
-                                              // (bone names, bundle refs)
-};
-```
-
-**`Confidence`, not the three-state `TextureRef` shape** — a different
-axis needs a different vocabulary, same way `NameSource` and
-`TextureRef::State` are each shaped for what they actually distinguish:
-`Verified` (confirmed against real shader dumps, `SHADER_SCAN_FINDINGS.md`'s
-own confirmed-match work), `Assumed` (a reasonable pattern-based guess,
-not independently confirmed), `Ambiguous` (more than one plausible
-base-function+parameter mapping, no tiebreak), `GenuinelyUnknown` (no
-mapping attempted yet). A `GenuinelyUnknown` formula still needs to
-render as *something* rather than nothing — falls back to a documented
-default base function (which one is an empirical call for whoever does
-the transcription work, based on real corpus frequency, not decided
-here) rather than leaving a material unrenderable.
-
-**Not started.** This is a design record, not an implementation plan —
-none of the above exists in code yet.
+| hash (open addressing) | ~344 ms | 261 MB |
+| floor | ~347 ms | — |
+
+Both at the floor, within noise. **Sorted is the default: 41 % smaller and
+a simpler failure mode.** Hash stays behind the env var so the comparison
+remains reproducible. Extrapolated (arithmetic, not a measured run): ~23 h
+saved over a 130,576-file corpus.
+
+**Path → FileDataID** (`fileDataIdsForPaths`, format version 2): the sorted
+image also stores its rows in path order (equal paths keep FileDataID
+order, so the lowest id wins, as a full pass in FileDataID order would), and
+answers each path by binary search; the map and hash backends keep the
+single full pass. Measured 2026-11-09, `export-terrain` of forever
+`azeroth_32_49` (two path batches per tile): 141 ms sorted vs 688 ms hash,
+n=3 warm (the hash pass walks every slot, so the old sorted pass was
+somewhat cheaper than 688 ms). The image grew 159 → 168 MB.
+`tools/listfile_index.py` reads the same image from Python (FileDataID →
+path only), so scan workers share it instead of parsing the CSV each.
+
+### Listfile cache
+
+- **Location**: `$HUSK_CACHE_DIR`, else `$XDG_CACHE_HOME/husk/`, else
+  `$HOME/.cache/husk/` (then a temp dir) — the sibling `tact-fetch`
+  project's convention. Tests set `$HUSK_CACHE_DIR` (`tests/run_husk.hpp`).
+  Files: `listfile.bin`, `listfile.tag`.
+- **Freshness: a tag file's mtime**, refreshed on use; older than 10
+  minutes is stale ("when we are hammering it, it stays cached," Luna).
+  Not atime: the pool is `atime=off`/`noatime`, so atime never updates.
+- **Source identity**: the header's recorded path + size + mtime must match
+  the current `--listfile`, else rebuild — never a warning.
+- **Atomic writes**: a per-process temp file in the same directory, then
+  `rename()`. Concurrent rebuilds are accepted (same source, equivalent
+  result); a torn read is impossible.

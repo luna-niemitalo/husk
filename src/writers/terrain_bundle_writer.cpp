@@ -357,6 +357,10 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.beginArray();
     for (const canon::LiquidSurface& l : terrain.liquids) writeLiquid(w, l, liquidBin);
     w.endArray();
+    if (terrain.liquidFlow) {
+        w.key("liquid_flow");
+        w.value(static_cast<int64_t>(table.add(*terrain.liquidFlow)));
+    }
     w.endObject();  // terrain
     if (!terrain.surfaceTypes.empty()) {
         w.key("surface_types");

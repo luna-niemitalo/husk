@@ -325,7 +325,7 @@ TEST_CASE("husk export --debug: opts back into the pre-grouping full per-batch, 
 
 TEST_CASE("husk export: two hardcoded slots of genuinely different M2Texture::types each only see "
           "their own type-compatible candidates from the shared fuzzy pool, not each other's "
-          "(EYES_ON_FINDINGS.md: a jewelry-color file must never end up offered to a skin "
+          "(CLAUDE_HISTORY.md: a jewelry-color file must never end up offered to a skin "
           "slot's alternate_textures just because both slots are independently ambiguous)") {
     std::vector<uint8_t> onePixelPng = {
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
@@ -579,7 +579,7 @@ TEST_CASE("husk export: an additive-blend (blendMode > 2) batch's ambiguous slot
 
 TEST_CASE("husk export: two batches resolving to the exact same material (same materialIndex, "
           "same textureComboIndex) share one gltf::Material instead of getting one each "
-          "(EYES_ON_FINDINGS.md: real corpus models had ~500 batches producing ~500 materials "
+          "(CLAUDE_HISTORY.md: real corpus models had ~500 batches producing ~500 materials "
           "where a handful of truly distinct ones would do)") {
     std::vector<uint8_t> onePixelPng = {
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,

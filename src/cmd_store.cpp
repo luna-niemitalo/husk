@@ -468,6 +468,66 @@ int storeAdd(int argc, char** args) {
     }
 }
 
+void addStorePruneOptions(CLI::App& app, StorePruneOptions& opts) {
+    addConfigOption(app);
+    app.add_option("--store", opts.store, "the canonical store directory")->required()->group("Store");
+    app.add_option("--drop", opts.drop, "drop this build, <game>/<husk> (repeatable)")->group("Selection");
+    app.add_flag("--superseded", opts.superseded,
+                 "drop every build no tag names that is not its game's newest (what a newer husk revision replaced)")
+        ->group("Selection");
+    app.add_flag("--apply", opts.apply, "remove them; without it only the plan is printed")->group("Run");
+}
+
+int storePrune(int argc, char** args) {
+    CLI::App app{"husk store-prune -- drop builds from the store, then the objects no remaining build lists",
+                 "husk store-prune"};
+    StorePruneOptions opts;
+    addStorePruneOptions(app, opts);
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
+    try {
+        corpus::Store store{opts.store};
+        std::vector<corpus::BuildId> drop;
+        for (const std::string& text : opts.drop) {
+            auto id = corpus::parseBuildPath(text);
+            if (!id) throw std::runtime_error("--drop: expected <game>/<husk>, got \"" + text + "\"");
+            drop.push_back(*id);
+        }
+        if (opts.superseded) {
+            for (const corpus::BuildId& id : corpus::supersededBuilds(store)) {
+                if (std::none_of(drop.begin(), drop.end(), [&](const corpus::BuildId& d) { return d.path() == id.path(); }))
+                    drop.push_back(id);
+            }
+        }
+        corpus::PrunePlan plan = corpus::planPrune(store, drop);
+
+        uint64_t bytes = 0;
+        uint64_t manifestBytes = 0;
+        size_t manifests = 0;
+        for (const corpus::PrunePlan::Orphan& orphan : plan.orphans) {
+            bytes += orphan.bytes;
+            if (orphan.manifest) {
+                ++manifests;
+                manifestBytes += orphan.bytes;
+            }
+        }
+        constexpr double kMiB = 1024.0 * 1024.0;
+        for (const corpus::BuildId& id : plan.drop) std::cout << "drop build " << id.path() << "\n";
+        std::cout << plan.orphans.size() << " objects (" << bytes / kMiB << " MiB) listed by no remaining build, "
+                  << manifests << " of them manifests of dropped builds (" << manifestBytes / kMiB << " MiB)\n";
+        if (!plan.busy.empty()) std::cout << "store not idle: " << plan.busy << "\n";
+        if (!opts.apply) {
+            std::cout << "dry run; --apply removes them\n";
+            return 0;
+        }
+        corpus::applyPrune(store, plan);
+        std::cout << "removed " << plan.drop.size() << " builds and " << plan.orphans.size() << " objects\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "husk: store-prune: " << e.what() << "\n";
+        return 1;
+    }
+}
+
 void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts) {
     addConfigOption(app);
     app.add_option("output", opts.output, "tree to write (export-world's layout, every asset)")->required();

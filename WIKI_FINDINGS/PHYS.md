@@ -1,6 +1,6 @@
 # wowdev.wiki findings — `PHYS` (`.phys` physics/collision sidecar)
 
-Current, correct facts only. Full evidence trail: `../WIKI_FINDINGS_HISTORY.md`
+Current, correct facts only. Full evidence trail: `HISTORY.md`
 §9. Unlike every other sidecar husk has investigated, `.phys` is not
 undocumented — `documentation/wowdev-wiki/md/PHYS.md` already gives byte
 offsets for nearly every field; this page verifies/extends an existing page

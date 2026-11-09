@@ -43,7 +43,7 @@ public:
     std::vector<std::string> run() {
         std::vector<std::string> labels(joints_.size());
         labels_ = &labels;
-        // Ascending bone-index order -- DESIGN.md's "same model always
+        // Ascending bone-index order -- REFACTOR/CANON_DESIGN.md's "same model always
         // produces the same labels" via a fixed, arbitrary-but-documented
         // traversal order.
         for (size_t root = 0; root < joints_.size(); ++root) {
@@ -75,13 +75,13 @@ private:
         return total;
     }
 
-    // DESIGN.md: "two bones whose bind-pose pivots mirror... with
+    // REFACTOR/CANON_DESIGN.md: "two bones whose bind-pose pivots mirror... with
     // structurally mirrored parent chains too (not position alone)".
     // Parent chains "mirror" when they share one physical parent (the
     // common branch-off point) or recurse to a parent pair that itself
     // mirrors; two roots need no parent check at all. Doesn't additionally
     // verify full subtree isomorphism (matching child counts down the
-    // whole limb) -- DESIGN.md's own wording scopes the check to the
+    // whole limb) -- REFACTOR/CANON_DESIGN.md's own wording scopes the check to the
     // parent chain, not the full descendant tree, so this is the literal
     // spec, not a shortcut past it.
     bool isMirror(size_t a, size_t b) const {
@@ -120,7 +120,7 @@ private:
 
     // Starts a brand-new, un-nested chain: a forest root, or a child that
     // mirrors a sibling (a bilateral fork, e.g. two legs off one pelvis --
-    // DESIGN.md's own a1a_L/a1a_R example carries no ancestor prefix at
+    // REFACTOR/CANON_DESIGN.md's own a1a_L/a1a_R example carries no ancestor prefix at
     // all, so a mirrored fork's label starts fresh here too, unlike an
     // asymmetric branch's "_sub_"-nested one).
     void startChain(size_t node) {
@@ -136,9 +136,9 @@ private:
     // starts its own independent chain (startChain, above); among the
     // rest, the largest-subtree child continues this chain (ties to
     // lowest index -- kids is built in ascending order, so keeping the
-    // first-seen max already implements that; DESIGN.md doesn't name a
+    // first-seen max already implements that; REFACTOR/CANON_DESIGN.md doesn't name a
     // tiebreak, this is the documented choice), and every other child is
-    // either folded (<=2 bones, DESIGN.md's ".32nd auxiliary slot") or
+    // either folded (<=2 bones, REFACTOR/CANON_DESIGN.md's ".32nd auxiliary slot") or
     // promoted to its own nested "_sub_" chain (>2 bones).
     void labelChain(size_t start, const std::string& prefix) {
         size_t cur = start;
@@ -187,7 +187,7 @@ private:
     // A short (<=2 bone) branch never gets its own index/stem -- every
     // bone in it becomes an auxiliary subindex slot at the branch point's
     // own position, in a fixed pre-order so a 2-bone branch's own child
-    // gets the next slot after its parent (DESIGN.md's ".32nd auxiliary
+    // gets the next slot after its parent (REFACTOR/CANON_DESIGN.md's ".32nd auxiliary
     // slot" wording: one running counter per position, not per branch).
     void foldSubtree(size_t node, const std::string& prefix, size_t index, size_t& subCounter) {
         (*labels_)[node] = prefix + "_" + std::to_string(index) + "." + std::to_string(subCounter);

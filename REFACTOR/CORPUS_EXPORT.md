@@ -5,7 +5,7 @@ mount`, `src/corpus_store.*`, `src/cmd_store.cpp`), documents are
 deterministic, `export-world` records each output's inputs
 (`src/input_log.*`), `husk export-corpus` drives a whole build, and
 `husk index-tree` writes `index/`. Not built: shared effects/materials/rig,
-`husk view`, prune; open items in `TODO/CORPUS_EXPORT_TODO.md`. How a full canonical export of a game build is laid
+`husk view`; open items in `TODO/CORPUS_EXPORT_TODO.md`. How a full canonical export of a game build is laid
 out, stored across builds, and browsed. Versioning follows
 casc-tool's build history store (`~/dev/casc-tool/DESIGN.md`): objects
 named by their md5, a build as a list of paths to objects, tags naming
@@ -136,6 +136,19 @@ built; block cloning is active on `tank/data`).
   `goralliancegarrisonlevel1` exported twice are byte-identical (12,371
   files). `provenance.sources[].detail` still names the listfile path,
   stable for one machine's config.
+- **`husk store-prune [--superseded] [--drop <game>/<husk>] [--apply]`
+  (2026-10-28).** Every new husk revision restores every document (each
+  manifest names its producer and schema version), so a revision leaves
+  the previous build's manifests behind as objects only that build lists.
+  `--superseded` drops every build no tag names that is not its game's
+  newest; `--drop` names one. Builds go first (moved to `tmp/`), then
+  every object no remaining build's `files.tsv` lists, so a crash leaves
+  orphans a bare rerun collects, never a build naming a missing object.
+  Dry run unless `--apply`, with the orphan count and bytes and how much
+  is manifests of the dropped builds. Refuses to apply while a run is in
+  progress or a build has no `files.tsv` yet (their objects are not yet
+  listed), and refuses a tagged build. Objects hardlinked into export
+  trees survive there.
 - **`husk store-add <tree> --game L | --game-from DIR [--tag T]`.** The
   store, here and in `mount` and `export-corpus`, is the config key
   `store` (`--store` overrides).

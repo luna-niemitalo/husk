@@ -21,6 +21,14 @@ struct LiquidTextureSlot {
     std::vector<TextureRef> frames;
 };
 
+// One FFT ocean-wave spectrum a liquid type animates its surface with
+// (FFTTile). Its columns are unnamed upstream, so they stay raw.
+struct LiquidWaveSpectrum {
+    Ref ref;  // Db2Row FFTTile
+    uint32_t field0 = 0;
+    std::array<float, 9> values{};
+};
+
 // A LiquidType a document's liquids name. Without the liquid DB2s only
 // `ref` is known; `flags` is set exactly when the row was read.
 struct LiquidType {
@@ -32,6 +40,7 @@ struct LiquidType {
     std::optional<uint32_t> materialVertexFormat;
     std::optional<uint32_t> materialFlags;
     std::vector<LiquidTextureSlot> textures;
+    std::vector<LiquidWaveSpectrum> waves;  // empty before 1.60.1/12.1.7, or without waves
 };
 
 // An MH2O instance's LiquidObject row. Without the DB2s, or for an id the

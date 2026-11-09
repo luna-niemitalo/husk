@@ -559,6 +559,15 @@ WdtFile parseWdt(const std::vector<uint8_t>& bytes) {
         }
     }
 
+    if (std::optional<Chunk> mai2 = findChunk(chunks, "MAI2")) {
+        if (mai2->size != kTiles * 32) {
+            throw ParseError("WDT MAI2: expected " + std::to_string(kTiles * 32) + " bytes, got " +
+                             std::to_string(mai2->size));
+        }
+        auto& ids = out.liquidFlowFileDataIds.emplace();
+        for (size_t i = 0; i < kTiles; ++i) ids[i] = read<uint32_t>(mai2->data, mai2->size, i * 32, "MAI2.liquidFlow");
+    }
+
     std::optional<Chunk> modf = findChunk(chunks, "MODF");
     bool globalFlag = out.flags & kMphdGlobalMapObject;
     if (globalFlag != modf.has_value()) {

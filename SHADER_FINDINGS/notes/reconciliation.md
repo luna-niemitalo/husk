@@ -11,7 +11,7 @@ This file compares three sources against each other (paths relative to the repo 
 3. **The wiki mirror** in `documentation/wowdev-wiki/md/`.
 
 Proposed additions to her files are in the last section. The verified ones have since been
-promoted into `WIKI_FINDINGS/` (`WIKI_FINDINGS_HISTORY.md` §19, §20).
+promoted into `WIKI_FINDINGS/` (`WIKI_FINDINGS/HISTORY.md` §19, §20).
 
 Confidence tags follow her convention:
 - **verified**: checked against the shader code, with the evidence named.

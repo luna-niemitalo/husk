@@ -1,4 +1,4 @@
-# MATERIALS.md — material documents (proposal, 2026-10-11)
+# MATERIALS.md — material documents (2026-10-11)
 
 **Status: slice 1 built (2026-10-11): character skin composites.** A
 character model's texture layout becomes one `material` document per
@@ -17,7 +17,8 @@ shaders: `WIKI_FINDINGS/M2/rendering.md`; `BUNDLE_FORMAT.md` "Techniques"). They
 combine: the one they did was derived from the framebuffer blend mode,
 not the combiner. WMO materials name their shader (`shader`) and reference
 its technique (`techniques/wmo_shader/`), stated in full where the
-findings state it. This file proposes a fifth document kind so a renderer can draw
+findings state it. The `material` document kind (one of six,
+`BUNDLE_FORMAT.md` "Document kinds and the contract header") exists so a renderer can draw
 any material on its own — a flat texture, a lit preview — from the
 document alone, and so texture overlays (a face choice on the skin atlas)
 can be checked for being in the right place.
@@ -94,23 +95,21 @@ Each name is a formula over the stack so far `P` (rgb, a) and the layer
 | `add_scaled_by_alpha_of_previous` | P + L × P.a |
 | … | each classic formula decomposed into these, or added with its math |
 
-Composite blends (character atlas, `ChrModelTextureLayer.BlendMode`
-0..16 as wow.export names them): `none`/`blit`, `blit_alpha_mask`, `add`,
-`multiply`, `mod2x`, `overlay`, `screen`, `hard_light`, `alpha_straight`,
-`blend_black`, `mask_greyscale`, `mask_greyscale_color_alpha`,
-`generate_greyscale`, `colorize`, `infer_alpha`, with each one's math
-stated. Values wow.export calls unused stay as the source number until
-a formula is known.
+Composite blends (character atlas) are the client compositor's cases
+0..13 (`texturecompositing.bls`, `WIKI_FINDINGS/M2/rendering.md`
+"Character texture compositing"), named and stated in
+`schema/material.schema.json`'s composite layer `blend`. Which case a
+`ChrModelTextureLayer.BlendMode` selects is unverified (`blend_mapping:
+unverified`); a mode with no case keeps only its source number.
 
 ## Sources and tiers
 
 Same evidence ladder as effects (`REFACTOR/EFFECTS.md`):
 
-- **M2 batches**: the 36 `Combiners_*` pixel shaders. wow.export's
-  `m2.fragment.shader` has a formula for every one (pseudo-verified;
-  `TODO/PIXEL_SHADER_FORMULAS_TODO.md` lists which are corpus-verified).
-  Each becomes a layer stack in the vocabulary, with `confidence`
-  verified / candidate per that table.
+- **M2 batches**: the 36 `Combiners_*` pixel shaders, every formula read
+  from the client's compiled shaders (`WIKI_FINDINGS/M2/rendering.md`
+  "Formulas"), carried as technique documents
+  (`techniques/m2_pixel_shader/`).
 - **WMO materials**: the WMO shader ids, same treatment.
 - **Character skin**: `CharComponentTextureLayout` (canvas size),
   `CharComponentTextureSections` (rectangles), `ChrModelTextureLayer`

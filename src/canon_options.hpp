@@ -53,12 +53,20 @@ struct SlotChoice {
     uint32_t option = 0;  // index into that slot's options
 };
 
+// A named thing that uses a source row: an NPC (Creature row, its name in
+// the ref) and its title, if any.
+struct PresetUser {
+    Ref ref;
+    std::string title;  // empty = none
+};
+
 // A source row that uses a preset, and the scale it draws the model at:
 // `scale` the row's own, `baseScale` the model data row's.
 struct PresetSource {
     Ref ref;
     float scale = 1;
     float baseScale = 1;
+    std::vector<PresetUser> users;
 };
 
 // A customization choice a preset makes: indices into Model::customization

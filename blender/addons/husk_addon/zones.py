@@ -6,8 +6,13 @@ extent is its own cells and its descendants' (Northshire is Northshire
 Valley, Northshire Vineyards and Echo Ridge Mine).
 """
 import json
+import uuid
 
 from . import terrain as tr
+
+# Duplicate of the namespace in src/uuid.cpp: ids made here and by the
+# exporter come from the same space.
+HUSK_UUID_NAMESPACE = uuid.UUID("6f0f3a52-8d1c-4b7e-9a42-5c3e1d7b2f10")
 
 REEXPORT_HINT = ("re-export its world document with zones: husk export-map <maps>/<map> <out>/<map>.world.bundle "
                  "--db2-dir <dbfilesclient> --dbd-dir <WoWDBDefs> --tiles-from <tree>/maps/<map>")
@@ -19,6 +24,8 @@ def _zones(world):
     # AreaTable, carry no zones (or only unnamed ones) to pick from.
     if not zones or not any("name" in z for z in zones):
         raise ValueError("this world document has no named zones; " + REEXPORT_HINT)
+    if not all("id" in z for z in zones):
+        raise ValueError("this world document's zones have no ids (schema before 0.3.0); " + REEXPORT_HINT)
     return zones
 
 
@@ -31,24 +38,25 @@ def cells_for(world, name, min_coverage):
     together they cover at least `min_coverage` of the cell, sorted."""
     zones = _zones(world)
     wanted = name.strip().casefold()
-    roots = [k for k, z in enumerate(zones) if z.get("name", "").casefold() == wanted]
+    roots = [z["id"] for z in zones if z.get("name", "").casefold() == wanted]
     if not roots:
         close = sorted({z["name"] for z in zones if wanted in z.get("name", "").casefold()}, key=str.casefold)
         raise ValueError("no zone named %r%s" % (name, ("; did you mean: " + ", ".join(close[:12])) if close else ""))
+    by_id = {z["id"]: z for z in zones}
     children = {}
-    for k, z in enumerate(zones):
+    for z in zones:
         if "parent" in z:
-            children.setdefault(z["parent"], []).append(k)
+            children.setdefault(z["parent"], []).append(z["id"])
     seen, stack = set(), list(roots)
     while stack:
-        k = stack.pop()
-        if k in seen:
+        zone_id = stack.pop()
+        if zone_id in seen:
             continue
-        seen.add(k)
-        stack += children.get(k, [])
+        seen.add(zone_id)
+        stack += children.get(zone_id, [])
     coverage = {}
-    for k in seen:
-        for c in zones[k]["cells"]:
+    for zone_id in seen:
+        for c in by_id[zone_id]["cells"]:
             coverage[(c["i"], c["j"])] = coverage.get((c["i"], c["j"]), 0.0) + c["coverage"]
     return sorted(c for c, share in coverage.items() if share >= min_coverage)
 
@@ -66,12 +74,14 @@ def rebuild(source_world, kept_cells, baked):
     zones = [{k: v for k, v in z.items() if k != "cells"} for z in source_world.get("zones", [])]
     cells = [[c for c in z["cells"] if (c["i"], c["j"]) in kept_cells] for z in source_world.get("zones", [])]
     index = {_key(z["source"]["id"]): k for k, z in enumerate(zones)}
+    map_name = source_world.get("subject", {}).get("name", "")
     chunks = float(tr.CHUNKS * tr.CHUNKS)
     for (i, j), counts in sorted(baked.items()):
         for key, count in sorted(counts.items()):
             if key not in index:
                 index[key] = len(zones)
-                zones.append({"source": {"id": json.loads(key)}})
+                zone_id = str(uuid.uuid3(HUSK_UUID_NAMESPACE, "zone/%s/%s" % (map_name, key)))
+                zones.append({"id": zone_id, "source": {"id": json.loads(key)}})
                 cells.append([])
             cells[index[key]].append({"i": i, "j": j, "coverage": count / chunks})
     for z, c in zip(zones, cells):

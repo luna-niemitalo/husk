@@ -16,4 +16,10 @@ std::optional<int> parseCommandArgs(CLI::App& app, int argc, char** args);
 // supplies them and 'none' opts one back out (README.md's "Config file").
 void addConfigOption(CLI::App& app);
 
+// --listfile's transform: a directory stands for the alphabetically last
+// *.csv in it, so a directory of community-listfile-YYYY-MM-DD.csv
+// snapshots always means the newest. A file or 'none' passes through.
+// Runs on config-file values too, so the config can name the directory.
+CLI::Validator latestListfileInDirectory();
+
 }  // namespace husk::commands

@@ -179,6 +179,12 @@ struct Terrain {
     // order; a liquid's refs match one entry each.
     std::vector<LiquidType> liquidTypes;
     std::vector<LiquidObject> liquidObjects;
+    // The tile's liquid flow map (WDT MAI2 -> world/liquidflow): R and G a
+    // signed 2D flow vector, 128 = still; B 0, A 255. Laid out like
+    // TerrainLod's map textures (azeroth_32_49's river lines up with its
+    // map texture, by eye). Absent when the tile has none, or when the
+    // build lacks the file the WDT names (live kalimdor.wdt names 55).
+    std::optional<TextureRef> liquidFlow;
 
     // What the tile places (REFACTOR/PLACEMENT_SETS.md), in the tile frame:
     // MDDF models and MODF map objects (WMOs). Two sets because their unique

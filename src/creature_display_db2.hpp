@@ -17,7 +17,7 @@
 // humanoid NPCs, CreatureDisplayInfoExtra (baked skin), its
 // CreatureDisplayInfoOption customization choices,
 // NPCModelItemSlotDisplayInfo equipment and the TextureFileData rows the
-// bakes name; and for character models, which ChrModel a model file is
+// bakes name; Creature (which named creatures use a display); and for character models, which ChrModel a model file is
 // (ChrModel.DisplayID -> CreatureDisplayInfo -> CreatureModelData) and the
 // customization tables (chrcustomization_db2.hpp). Same db2table-backed
 // pattern as creature_geoset_db2.hpp.
@@ -61,6 +61,15 @@ struct NpcItem {
     uint32_t slot = 0;  // NPCModelItemSlotDisplayInfo.ItemSlot, raw
 };
 
+// A Creature row naming a display among its DisplayID[4]. The client
+// ships only part of the creature list (18,639 rows in 12.1.5), so many
+// displays have none.
+struct Creature {
+    uint32_t id = 0;
+    std::string name;   // Name_lang; empty = none
+    std::string title;  // Title_lang, e.g. "Innkeeper"; empty = none
+};
+
 // ParticleColor's three colour ramps, ARGB packed as stored; entry i
 // recolours emitters whose particle colour index is 11 + i.
 struct ParticleColors {
@@ -78,6 +87,8 @@ struct Data {
     std::unordered_map<uint32_t, Extra> extras;
     std::unordered_map<uint32_t, std::vector<CustomizationPick>> customizationByExtra;
     std::unordered_map<uint32_t, std::vector<NpcItem>> itemsByExtra;
+    // CreatureDisplayInfoID -> the creatures that use it, ascending by id.
+    std::unordered_map<uint32_t, std::vector<Creature>> creaturesByDisplay;
     // MaterialResourcesID -> texture FileDataID (texturefiledata_db2.hpp's
     // UsageType 0 rule): NPC bakes and customization materials.
     std::unordered_map<uint32_t, uint32_t> textureFiles;

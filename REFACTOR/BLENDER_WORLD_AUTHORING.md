@@ -14,7 +14,7 @@ azeroth 32_49 + 32_50 from the mounted store):
   a workable size): the world document's `zones` (schema 0.2.2), with
   autocomplete; a zone loads with every zone inside it, skipping cells it
   covers less than `min_coverage` of (default 5%). Northshire: 4 tiles.
-  A world written before 0.2.2 has no zones; `husk export-map <maps>/<map>
+  A world written before 0.3.0 has no zone ids (before 0.2.2, no zones); `husk export-map <maps>/<map>
   <out> --db2-dir ... --dbd-dir ... --tiles-from <tree>/maps/<map>`
   rewrites its world document in seconds. Cells (`i_j`, rectangles)
   remain the alternative. Export writes `zones` again, each cell's

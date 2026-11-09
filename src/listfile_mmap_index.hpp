@@ -85,6 +85,7 @@ public:
     size_t size() const override { return entryCount_; }
     std::optional<std::string_view> lookup(uint32_t fdid) const override;
     void forEach(const std::function<bool(uint32_t, std::string_view)>& visit) const override;
+    std::unordered_map<std::string, uint32_t> fileDataIdsForPaths(const std::vector<std::string>& paths) const override;
 
     // Validates `path`'s header against the observed source identity
     // without loading anything else -- returns false (and the mapping is
@@ -106,9 +107,15 @@ public:
                        int64_t sourceMtimeTicks, const std::unordered_map<uint32_t, std::string>& entries);
 
 private:
+    std::string_view pathAt(uint32_t row) const {
+        return std::string_view(blob_ + cumOffsets_[row], cumOffsets_[row + 1] - cumOffsets_[row]);
+    }
+
     detail::MmapFile mapping_;
     const uint32_t* fdids_ = nullptr;      // [entryCount_], sorted ascending
     const uint64_t* cumOffsets_ = nullptr;  // [entryCount_ + 1], blob byte offsets
+    // [entryCount_] row indices ordered by path; equal paths keep FileDataID order
+    const uint32_t* pathOrder_ = nullptr;
     const char* blob_ = nullptr;
     uint32_t entryCount_ = 0;
 };

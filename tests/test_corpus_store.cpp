@@ -342,3 +342,54 @@ TEST_CASE("corpus store: a build is labelled only by a clean producer") {
                          std::runtime_error);
     CHECK_THROWS_WITH_AS(corpus::huskLabel("other 1.0"), doctest::Contains("is not husk's"), std::runtime_error);
 }
+
+TEST_CASE("corpus store: prune drops a build and only the objects no other build lists") {
+    fs::path root = freshDir("prune");
+    corpus::Store store{root / "store"};
+    fs::path files = freshDir("prune-files");
+    writeText(files / "old.json", "manifest of the old revision");
+    writeText(files / "new.json", "manifest of the new revision");
+    writeText(files / "texture.dds", "shared texture");
+    std::string oldManifest = corpus::hex(store.putFile(files / "old.json").key);
+    std::string newManifest = corpus::hex(store.putFile(files / "new.json").key);
+    std::string texture = corpus::hex(store.putFile(files / "texture.dds").key);
+
+    auto addBuild = [&](const std::string& husk, const std::string& manifest, const std::string& stored) {
+        fs::path dir = store.buildDir({"12.1.0", husk});
+        writeText(dir / "meta.json", "{\"stored_at\": \"" + stored + "\"}\n");
+        writeText(dir / "files.tsv", "path\tmd5\nmodels/1.canon.bundle/manifest.json\t" + manifest +
+                                         "\ntextures/7.dds\t" + texture + "\n");
+    };
+    addBuild("aaaaaaa", oldManifest, "2026-10-01T00:00:00Z");
+    addBuild("bbbbbbb", newManifest, "2026-10-02T00:00:00Z");
+
+    std::vector<corpus::BuildId> superseded = corpus::supersededBuilds(store);
+    REQUIRE(superseded.size() == 1);
+    CHECK(superseded[0].path() == "12.1.0/aaaaaaa");
+
+    corpus::PrunePlan plan = corpus::planPrune(store, superseded);
+    CHECK(plan.busy.empty());
+    REQUIRE(plan.orphans.size() == 1);
+    CHECK(corpus::hex(plan.orphans[0].key) == oldManifest);
+    CHECK(plan.orphans[0].manifest);
+
+    // A tagged build is not droppable.
+    store.setTag("live", {"12.1.0", "aaaaaaa"});
+    CHECK_THROWS(corpus::planPrune(store, superseded));
+    CHECK(corpus::supersededBuilds(store).empty());
+    store.setTag("live", {"12.1.0", "bbbbbbb"});
+
+    // A run in progress makes unlisted objects possibly someone's: refuse.
+    store.beginRun({"12.1.0", "ccccccc"}, root / "tree");
+    CHECK_FALSE(corpus::planPrune(store, superseded).busy.empty());
+    CHECK_THROWS(corpus::applyPrune(store, corpus::planPrune(store, superseded)));
+    store.endRun({"12.1.0", "ccccccc"});
+
+    corpus::applyPrune(store, corpus::planPrune(store, superseded));
+    CHECK_FALSE(fs::exists(store.buildDir({"12.1.0", "aaaaaaa"})));
+    CHECK(fs::exists(store.buildDir({"12.1.0", "bbbbbbb"}) / "files.tsv"));
+    CHECK_FALSE(fs::exists(store.objectPath(*corpus::parseHex(oldManifest))));
+    CHECK(fs::exists(store.objectPath(*corpus::parseHex(newManifest))));
+    CHECK(fs::exists(store.objectPath(*corpus::parseHex(texture))));
+    CHECK(corpus::planPrune(store, {}).orphans.empty());
+}

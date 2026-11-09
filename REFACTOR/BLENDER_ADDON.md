@@ -18,9 +18,9 @@ it has real local-basename-resolvable textures and neither existing
 non-character quadruped fixture did) for materials — deliberately not a
 real character model: canon::Material's base-color resolution has no
 character-specific shape, and a real character fixture also carries the
-customization/geoset-selection surface named below as NOT YET WIRED into
-canon::Model/bundle_writer.cpp at all, so testing materials against one
-risks implying that whole unbuilt subsystem is covered when it isn't.
+customization/geoset-selection surface, which this check does not read,
+so testing materials against one risks implying that surface is covered
+when it isn't.
 Material/loaded-image counts match the legacy `.glb`'s own tinygltf-parsed
 counts exactly, and `--export-canon`'s own structural diff reports "clean,
 no deviations found" against this fixture. This is the "import a real
@@ -28,17 +28,23 @@ bundle with zero arguments" half of the Gate section below, proven for mesh
 + skeleton + base-color materials — no blend-op/tint/UV-animation shading,
 animation, geosets, customization, or physics yet, and not
 `manifest.py`/`importer.py` as real addon modules. The real packaged addon
-described in the rest of this file is still not started, and neither is any
-canon-side representation of character customization at all (`canon::
-Definition`/`Selection`/`Item` types exist but nothing assembles them from
-real input yet, and `bundle_writer.cpp` doesn't write them even if they
-existed — see this file's own "What the bundle buys the addon" section,
-which still describes only geosets/naming, not customization choices).
+described in the rest of this file is still not started. Canon-side
+character customization is partial: `canon::Definition` is assembled from
+real DB2 input (`src/creature_options_input.cpp`) and written as the
+model's customization options with their geosets and choice textures
+(`src/writers/bundle_writer.cpp`'s `writeOptions`); `canon::Selection`/
+`Item` have assembly functions exercised only by their convergence tests
+(`tests/test_canon_selection_convergence.cpp`,
+`tests/test_canon_item_convergence.cpp`) — no export path calls them and
+the bundle doesn't carry them. This file's "What the bundle buys the
+addon" section still describes only geosets/naming, not customization
+choices.
 
 ## Current state, stated plainly
 
-`DESIGN.md:142-143` lists as a non-goal: *"No Blender addon. A `.glb` file
-Blender's stock importer can open is the entire deliverable."*
+`DESIGN.md`'s Non-goals listed, until it was retired (2026-08-28): *"No
+Blender addon. A `.glb` file Blender's stock importer can open is the entire
+deliverable."*
 
 There are ~4,150 lines of Blender Python in `tools/` — `husk_blender_geoset_mask.py`
 (3,505), `husk_blender_options_panel.py` (643) — building Geometry Nodes
@@ -151,7 +157,7 @@ Headless, following `tests/blender_import_check.py`'s existing pattern:
   alone (I3), and an *unresolved* reference (husk knew the item but could not
   produce its model) surfaces as a visible, named gap rather than silently
   missing geometry. This is the real end-to-end case
-  `CHARACTER_PIPELINE_TEST_FINDINGS.md` exercised by hand.
+  `investigations/CHARACTER_PIPELINE_TEST_FINDINGS.md` exercised by hand.
 
 The final visual pass is Luna's own — the same human gate
 `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` already carries. No self-certifying

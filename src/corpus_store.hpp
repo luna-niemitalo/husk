@@ -148,4 +148,30 @@ private:
 void linkIntoStore(const Store& store, TreeJournal& journal, const std::filesystem::path& tree,
                    const std::filesystem::path& dir);
 
+// What a prune removes: the dropped builds' records, then every object no
+// remaining build's files.tsv lists. Builds go first, so a crash between the
+// two leaves only orphan objects a rerun collects, never a build naming an
+// object that is gone.
+struct PrunePlan {
+    struct Orphan {
+        Md5 key{};
+        uint64_t bytes = 0;
+        bool manifest = false;  // a dropped build listed it as a manifest.json
+    };
+    std::vector<BuildId> drop;
+    std::vector<Orphan> orphans;
+    // Non-empty while something may be writing objects no files.tsv lists
+    // yet (a run, or a build without files.tsv): pruning then would delete
+    // them, so applyPrune refuses.
+    std::string busy;
+};
+
+// Complete builds no tag names that are not their game's newest: what a
+// newer husk revision replaced.
+std::vector<BuildId> supersededBuilds(const Store& store);
+// Throws for a build that has no files.tsv or that a tag names.
+PrunePlan planPrune(const Store& store, const std::vector<BuildId>& drop);
+// Throws while the plan is `busy`.
+void applyPrune(const Store& store, const PrunePlan& plan);
+
 }  // namespace husk::corpus

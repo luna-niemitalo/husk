@@ -99,8 +99,8 @@ end. What it does, in order:
   3a. `ALWAYS_VISIBLE_VARIANTS` excludes specific `(group, variant)` pairs
      from the switch entirely -- never hidden, never a dropdown item, just
      baked in as always-visible, same as a vertex with no geoset tag at
-     all. Currently only `group 0, variant 0`: DESIGN.md's own "Anecdotal
-     geoset-group semantics" table independently names group 0
+     all. Currently only `group 0, variant 0`: WIKI_FINDINGS/M2.md's
+     "Anecdotal geoset-group semantics" table independently names group 0
      `SKIN_OR_HAIR` (two separate community reference tables agree) --
      variant 0 in that group is the character's own base skin body
      (torso/arms/legs), not a real hairstyle option, WoW's own geoset
@@ -384,7 +384,7 @@ NONE_SENTINEL_ATTR = "__husk_geoset_none__"
 
 # Variants that must never be hidden by the mutual-exclusion switch, and are
 # excluded from the switch's own dropdown entirely -- found real, not
-# guessed, corroborated by DESIGN.md's own "Anecdotal geoset-group
+# guessed, corroborated by WIKI_FINDINGS/M2.md's "Anecdotal geoset-group
 # semantics" table: geoset group 0
 # is independently named `SKIN_OR_HAIR` by two unrelated community
 # reference tables, not just "Hair" -- variant 0 within it is the
@@ -394,7 +394,7 @@ NONE_SENTINEL_ATTR = "__husk_geoset_none__"
 # choice made the base body disappear whenever a real hairstyle (1-24) was
 # selected -- ground-truthed directly by Luna in Blender's own GUI. This is
 # a per-model-numbering fact this project has real evidence for, not a
-# generalization to every group -- see DESIGN.md's own table for the single
+# generalization to every group -- see WIKI_FINDINGS/M2.md's table for the single
 # group this is confirmed on.
 ALWAYS_VISIBLE_VARIANTS = {
     0: {0},

@@ -12,7 +12,7 @@ per-page files below**, mirroring `documentation/wowdev-wiki/md/`'s own
 per-page layout so it's obvious which file corresponds to which wiki page.
 The full evidence trail behind every fact (what got checked, against which
 real files, what got corrected along the way) lives one step behind, in
-`WIKI_FINDINGS_HISTORY.md` — read a topic file first for the current answer;
+`WIKI_FINDINGS/HISTORY.md` — read a topic file first for the current answer;
 only open the history file when you need the receipts.
 
 Confidence is called out per finding, same convention the README uses:

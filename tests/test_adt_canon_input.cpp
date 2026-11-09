@@ -389,6 +389,29 @@ TEST_CASE("adtinput: textures come from the caller's resolutions, unresolved one
     CHECK(t.textures[1].repeatsPerChunk == 8.0f);
 }
 
+TEST_CASE("adtinput: a resolved liquid flow map is kept; one the build doesn't ship is dropped, not dangled") {
+    adt::RootFile root = adt::parseRoot(rootFile(RootSpec{}));
+    std::optional<adt::ObjFile> obj;
+    std::optional<adt::TexFile> tex;
+    adtinput::TextureResolutions textures;
+    canon::TextureRef flow;
+    flow.state = canon::TextureRef::State::Resolved;
+    flow.resolved = canon::Ref{canon::FileDataId{7792205}, "azeroth_32_49", canon::NameSource::Listfile};
+    textures.emplace(7792205, flow);
+    adtinput::GroundEffectDefinitions groundEffects;
+    adtinput::GamePathResolutions gamePaths;
+    auto buildWithFlow = [&](uint32_t fdid) {
+        adtinput::TileSources sources{root, obj, tex, 0x4, "azeroth", RootSpec{}.tileX, RootSpec{}.tileY};
+        sources.liquidFlowTexture = fdid;
+        return adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths, nullptr, nullptr});
+    };
+
+    canon::Terrain shipped = buildWithFlow(7792205);
+    REQUIRE(shipped.liquidFlow.has_value());
+    CHECK(std::get<canon::FileDataId>(shipped.liquidFlow->resolved.id).value == 7792205);
+    CHECK_FALSE(buildWithFlow(7895257).liquidFlow.has_value());
+}
+
 TEST_CASE("adtinput: MTEX filename textures resolve through the listfile like name-table placements") {
     TexSpec tex;
     tex.textureNames = {"Tileset\\Elwynn\\Grass.blp", "Tileset\\Unlisted\\Dirt.blp"};

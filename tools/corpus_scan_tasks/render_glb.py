@@ -399,8 +399,10 @@ def _ainv(nodes, links, name, a):
 # above. Non-"NA" formulas keep the wiki's real alpha math (with the same
 # `meshResColor.a`-dropped simplification applied to their own formula).
 #
-# Deliberately **not** in this table -- real formulas exist for some of
-# these, but each has its own reason not to guess further:
+# Deliberately **not** in this table. Every one of these has a formula read
+# from the client's shader bytecode (`WIKI_FINDINGS/M2/rendering.md`
+# "Formulas"); what keeps each out is this importer's data or scope, given
+# per entry:
 # - `Combiners_Add_Mod`: `meshResColor` is a raw *addend* here (`tex1 +
 #   meshResColor`), not the final multiply every other formula uses --
 #   the dropped-tint simplification above doesn't safely apply, would need
@@ -412,25 +414,19 @@ def _ainv(nodes, links, name, a):
 #   (`additional_textures` only carries what husk actually embedded --
 #   real corpus check this session found the 3rd layer's own FileDataID
 #   frequently isn't even resolvable in the local corpus at all).
-# - `Combiners_Mod_AddAlpha_Alpha`: the wiki's own documented formula has a
-#   literal duplicated term (independent evidence of a wiki transcription
-#   bug, not just a wow.export one) -- not implementing a formula neither
-#   source actually gives cleanly.
-# - `Combiners_Mod_Add_Alpha`/`Mod_AddAlpha_Wgt`/`Opaque_AddAlpha_Wgt`/
-#   `Opaque_Mod_Add_Wgt`: only "moderate confidence" per this session's
-#   investigation (sub-pattern reuse, not independently confirmed), and
-#   wow.export's own renderer has a real, separate bug silently dropping
-#   every one of these formulas' additive term -- not implemented pending
-#   real visual confirmation.
-# - `Guild`/`Guild_NoBorder`/`Guild_Opaque`: real per-material tint inputs
-#   (`generic0/1/2`) unresolved by any source checked this session.
+# - `Combiners_Mod_AddAlpha_Alpha`, `Combiners_Mod_Add_Alpha`: not
+#   transcribed here yet.
+# - `Mod_AddAlpha_Wgt`/`Opaque_AddAlpha_Wgt`/`Opaque_Mod_Add_Wgt`: their
+#   emissive is scaled by a per-draw constant only inferred to be the
+#   texture weight.
+# - `Guild`/`Guild_NoBorder`/`Guild_Opaque`: three per-draw colour
+#   constants with no source for their values in the exported data.
 # - `Combiners_Mod_Dual_Crossfade`/`Combiners_Mod_Masked_Dual_Crossfade`:
-#   wow.export's own `ShaderMapper.js` disagrees with wowdev.wiki's table
-#   on the shaderId this session's investigation found -- unresolved.
-# - `Illum`: no formula from any source, zero real corpus repros found.
-# - `Combiners_Mod_Depth`: functionally single-texture `Combiners_Mod`
-#   (real, per this session's investigation) -- Blender's default import
-#   already renders this correctly, nothing to rebuild.
+#   crossfade weights are per-draw constants the export doesn't carry.
+# - `Illum`: specular-lit, and no 12.1 content references it.
+# - `Combiners_Mod_Depth`: `Combiners_Mod` with an edge-fade alpha factor
+#   from its vertex shader; Blender's default import renders the colour
+#   correctly, and the fade isn't reproduced.
 ALPHA_OPAQUE = "opaque"
 
 

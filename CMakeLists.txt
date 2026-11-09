@@ -232,6 +232,7 @@ add_library(husk-lib STATIC
   src/cli_args.cpp
   src/text_encoding.cpp
   src/corpus_store.cpp
+  src/uuid.cpp
   src/input_log.cpp
   src/corpus_index.cpp
   src/cmd_store.cpp

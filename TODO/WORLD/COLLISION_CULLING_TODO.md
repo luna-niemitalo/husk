@@ -14,8 +14,8 @@ companion to `../../WORLD_COMPLETENESS.md`, one level deeper for this specific
 slice — same relationship `M2_GAPS_TODO.md`/`PHYS_TODO.md`/etc. had to
 `../../M2_COMPLETENESS.md` before each was implemented and deleted in turn.
 
-Nothing in `src/` reads a WMO or ADT byte yet (`../../DESIGN.md`'s Non-goals:
-"tracked, not started"). Every claim below was checked this session against
+When this plan was written nothing in `src/` read a WMO or ADT byte; both
+are parsed now (`../../README.md`'s format matrix). Every claim below was checked this session against
 real bytes from the local corpus (`/media/luna/data/wow_export/world/wmo`,
 84,798 real `.wmo` files) — either a full corpus tag-presence census or a
 targeted decode-and-bounds-check against specific real files, same

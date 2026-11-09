@@ -13,7 +13,7 @@ once the canon:: Blender addon replaces both.
    `tools/husk_blender_geoset_mask.py`'s customization/geoset logic, so its
    previews are not representative of the real two-step Blender pipeline
    (import → run geoset-mask script → render).** Found 2026-08-23 while
-   verifying `CHARACTER_PIPELINE_TEST_FINDINGS.md` Finding 1: a fresh
+   verifying `investigations/CHARACTER_PIPELINE_TEST_FINDINGS.md` Finding 1: a fresh
    Linore render via `render_glb.py` alone came out washed-out lavender,
    no visible face/hair/skin detail — confirmed via an A/B rebuild
    (pre-fix vs. post-fix `db2.cpp`) that this is unrelated to Finding 1's

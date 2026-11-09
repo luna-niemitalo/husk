@@ -418,8 +418,14 @@ listed here so they aren't lost:
   `sword_1h_artifactskywall_d_06` emitter equals its bone's pivot exactly.
   `gltf_skeleton.cpp`'s `appendAnchorNode` writes that position as the
   translation of a child of the joint node, which already sits at the
-  pivot. Check: export the fox, read `attachment_*` world positions in
-  Blender against the bone heads. Fix: subtract the joint's global
+  pivot. **Contradicts** `CLAUDE_HISTORY.md`'s 2026-08-21 gear entry,
+  which says the `attachment_<id>` empties land correctly (checked on
+  non-HD `bloodelffemale.m2`, but only that the empty moves with the
+  armature, not its position against the bone). Neither side compared a
+  position against ground truth. Settles it: export the fox and
+  `bloodelffemale.m2`, read `attachment_*` world positions in Blender
+  against the M2 position (equal = correct; bone head + M2 position =
+  doubled). Fix if doubled: subtract the joint's global
   position. The canon bundle is unaffected.
 
 ## 7. Real known false-positive risk for missing-texture classification: "Sundered Zerethsteed" mount

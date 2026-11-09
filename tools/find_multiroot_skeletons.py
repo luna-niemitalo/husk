@@ -3,7 +3,7 @@
 bone (M2CompBone.parentBone == -1) -- the corpus-scale measurement behind
 the multi-root-bone-forest glTF representation gap (see DESIGN.md's Key
 design decisions). Writes matching paths, one per line, to
-multiroot_skeleton_files_for_exploration.txt (repo root), same plain format
+corpus_reports/multiroot_skeleton_files_for_exploration.txt, same plain format
 as phys_files_for_exploration.txt.
 
 Independent of husk's own code (same "second opinion" discipline
@@ -28,7 +28,7 @@ except ImportError:
 	tqdm = None
 
 DEFAULT_ROOT = Path("/media/luna/wow_export/live")
-OUTPUT_PATH = Path(__file__).resolve().parent.parent / "multiroot_skeleton_files_for_exploration.txt"
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "corpus_reports" / "multiroot_skeleton_files_for_exploration.txt"
 
 # Same fixed field offsets husk's own src/m2.cpp / src/cmd_export.cpp use.
 _M2_BONES_OFFSET = 0x02C  # M2Array<M2CompBone>: count (u32) + offset (u32)

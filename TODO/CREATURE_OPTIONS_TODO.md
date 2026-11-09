@@ -9,9 +9,9 @@ display".
    probabilities; 3,272 of 4,729 multi-display creatures span more than
    one model. An option can't swap the model, so this needs a home above
    the model document (design call, Luna).
-2. **Character customization is options and geosets only**: a choice's
-   textures (ChrCustomizationMaterial onto atlas sections) and bone sets
-   aren't carried yet. Items are `ItemDisplayInfo` refs: item documents
+2. **Character customization lacks bone sets**: options, geosets and
+   choice textures (ChrCustomizationMaterial bound to material-document
+   image inputs) are carried; a choice's bone sets aren't. Items are `ItemDisplayInfo` refs: item documents
    (geometry, geosets, attachment) come next. 0.4% of humanmale_hd NPC
    picks name another ChrModel's choices (43; some ChrModel 2 on male
    NPCs) and stay unresolved. The bake-slot rule (lowest texture type) and the slot names

@@ -4,7 +4,7 @@
 #include <string>
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
-// Stem generation for DESIGN.md's "canon:: bone naming" scheme -- the
+// Stem generation for REFACTOR/CANON_DESIGN.md's "canon:: bone naming" scheme -- the
 // <stem> half of <stem>_<side>_<index>.<subindex>. Chain/symmetry
 // detection and wiring into canon::Joint are separate, later work; this
 // file only produces the deterministic 3-character stem sequence.
@@ -29,7 +29,7 @@ inline constexpr size_t kBoneStemAlphabetSize = 32;
 // equally correct; this one just reads as "the alphabet, then digits".
 const std::string& boneStemAlphabet();
 
-// The Nth stem in the fixed, deterministic sequence DESIGN.md specifies:
+// The Nth stem in the fixed, deterministic sequence REFACTOR/CANON_DESIGN.md specifies:
 // all kBoneStemAlphabetSize XXX candidates (one chunk, best) first, one per alphabet
 // character in boneStemAlphabet() order; then the XYX/XXY/YXX middle
 // tier (two chunks), grouped per (common, distinct) character pair so a

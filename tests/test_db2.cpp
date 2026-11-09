@@ -548,7 +548,7 @@ TEST_CASE("db2::decodeField sign-extends a bitpacked field") {
 }
 
 // Regression for a real bug found against real ItemDisplayInfo.db2 data
-// (CHARACTER_PIPELINE_TEST_FINDINGS.md Finding 1): BitpackedIndexed and
+// (investigations/CHARACTER_PIPELINE_TEST_FINDINGS.md Finding 1): BitpackedIndexed and
 // BitpackedIndexedArray fields both draw their additional data from the
 // same physical pallet_data block (DB2.md's field_storage_info doc comment:
 // additional_data_offset sums "any previous fields which are stored in the

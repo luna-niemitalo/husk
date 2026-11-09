@@ -99,7 +99,7 @@ GPU_PCI_BUS_IDS = ["pci-0000_10_00_0", "pci-0000_0d_00_0"]
 # file's per-call overhead down to noise level (~4.4s with --listfile vs
 # ~4.5s without, on a real fixture), so every real entry is available with
 # no pruning risk and no meaningful cost.
-LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
+LISTFILE = Path(__file__).resolve().parents[2] / "development" / "listfiles"  # husk picks the newest snapshot
 
 # husk's own pre-built knowledge-base database (`husk db2-build --db2-dir
 # ... --dbd-dir ... --listfile ... -o KNOWLEDGE_DB`; design history: git

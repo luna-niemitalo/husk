@@ -1,6 +1,6 @@
 # wowdev.wiki findings — WMO/WDT/WDL/PM4/PD4 (world-format expansion)
 
-Current, correct facts only. Full evidence trail: `../WIKI_FINDINGS_HISTORY.md`
+Current, correct facts only. Full evidence trail: `HISTORY.md`
 §15. The full struct listings, C++ data-model sketches, and test plans live in
 the eleven companion `*_TODO.md` files under `TODO/WORLD/`. This page records
 what would otherwise be lost once those are implemented and deleted. Formats
@@ -114,7 +114,7 @@ including the planning-pass ones that used to live here.
 
 ## WMO materials in the client shaders (12.1.0) — verified
 
-Read from the client's compiled shaders (`../WIKI_FINDINGS_HISTORY.md`
+Read from the client's compiled shaders (`HISTORY.md`
 §19), not from WMO files. This build has no `MapObj*` shaders: every
 `MOMT` material is drawn by one container, `pixel/dx_5_0/uber`, which
 switches on the material's shader ID (`cb2[4].x`, values 0–24; `cb2[4].y`

@@ -6,6 +6,8 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 // The read interface every --listfile consumer goes through now, instead of
 // a materialised std::unordered_map<uint32_t, std::string> -- see
@@ -49,6 +51,24 @@ public:
     // unstopped walk O(backing storage size) rather than O(size()) (e.g. a
     // hash table walks every slot, not just occupied ones).
     virtual void forEach(const std::function<bool(uint32_t, std::string_view)>& visit) const = 0;
+
+    // Path -> FileDataID for each of `paths`, spelled exactly as listfile
+    // rows are; a path with no row is absent from the result. Where two
+    // rows share a path, the first in forEach order wins. This default is
+    // one forEach pass for the whole batch; an index with a path order
+    // (MmapSortedListfileIndex) answers each path by binary search instead.
+    virtual std::unordered_map<std::string, uint32_t> fileDataIdsForPaths(const std::vector<std::string>& paths) const {
+        std::unordered_map<std::string, uint32_t> out;
+        std::unordered_set<std::string_view> wanted(paths.begin(), paths.end());
+        size_t remaining = wanted.size();
+        if (remaining == 0) return out;
+        forEach([&](uint32_t fdid, std::string_view path) {
+            if (wanted.erase(path) == 0) return true;
+            out.emplace(std::string(path), fdid);
+            return --remaining > 0;
+        });
+        return out;
+    }
 };
 
 // Adapts an already-loaded std::unordered_map<uint32_t, std::string> (e.g.

@@ -93,8 +93,8 @@ tool, `blp/`) converts BLP2 textures to PNG.
   export --bundle-only`, ground textures shared). Verified facts:
   `WIKI_FINDINGS/ADT.md`; consumer schema: `REFACTOR/BUNDLE_FORMAT.md`'s
   "Terrain tile bundles"; open items: `TODO/WORLD/ADT_TERRAIN_TODO.md`,
-  `WORLD_PLACEMENT_TODO.md`. WMO geometry is not implemented, so `MODF`
-  placements are identity-only. MantleCore is the bundle's real consumer.
+  `WORLD_PLACEMENT_TODO.md`. `MODF` placements link each WMO's own object
+  bundle (`husk export-wmo`). MantleCore is the bundle's real consumer.
   Worlds can also be edited in Blender and re-baked onto any dicing
   (`blender/addons/husk_addon`, `REFACTOR/BLENDER_WORLD_AUTHORING.md`).
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
@@ -196,8 +196,8 @@ tool, `blp/`) converts BLP2 textures to PNG.
   user-extracted tier as every sidecar above. Name-table paths
   (`MMDX`/`MWMO`/`MTEX`) are resolved through `--listfile` only
   (`sources::fileDataIdsForGamePaths`).
-- `.blp` texture files (separate `blp/` Python tool) — container hand-rolled, block
-  decode delegated to Pillow via a synthetic DDS wrapper.
+- `.blp` texture files — decoded in-process (`src/blp.cpp`); the separate
+  `blp/` Python tool (Pillow block decode) is its test oracle.
 - No network access anywhere in this tool. No user input beyond CLI argv (parsed in
   `cmd_info.cpp`/`cmd_export.cpp`/`cmd_dump.cpp`, no interactive prompts).
 
@@ -353,10 +353,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   (no textures/liquids/LOD on baked tiles, world-only export) are in
   `REFACTOR/BLENDER_WORLD_AUTHORING.md` "Current state". Imports by zone:
   world documents carry `zones` since schema 0.2.2 (AreaTable-named,
-  nested, cells with coverage); `export-map --tiles-from` rewrites a
-  stored map's world document against its tiles. The store
-  (`/media/luna/canonical_export`) is still 0.2.1: it has no zones and no
-  longer validates until rebuilt. Next: Luna's GUI pass; then the splat
+  nested, cells with coverage), with stable UUID `id`s and `parent` by id
+  since 0.3.0 (rule: arrays of 50-100+ entries get stable ids,
+  BUNDLE_FORMAT.md; only zones converted so far); `export-map
+  --tiles-from` rewrites a stored map's world document against its tiles.
+  The store (`/media/luna/canonical_export`) is still 0.2.1: it has no
+  zones and no longer validates until rebuilt. Next: Luna's GUI pass; then the splat
   bake (stage 2) if textures are wanted back.
 - **Surface types (2026-10-13, for the weather system)**: TerrainType
   rows as `resources.surface_types`, indexed by terrain ground effects
@@ -377,8 +379,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `TODO/CREATURE_OPTIONS_TODO.md`. Humanoid NPCs (2026-10-11) are presets
   on their character model: baked skin as a `skin` option, customization
   choices indexing `definition.customization` (every ChrModel drawing the
-  file; options and geosets, no choice textures yet), items indexing
-  `definition.items` (refs only so far). export-world puts every texture in one shared store.
+  file; options, geosets and choice textures (bound since e587735); bone
+  sets not yet), items indexing
+  `definition.items` (refs only so far); since 2026-11-09 each source
+  names its NPCs (`users`, from `Creature`). Consumer guide:
+  BUNDLE_FORMAT.md "Using presets"; character-rendering map:
+  `REFACTOR/CHARACTER_RENDERING.md`. export-world puts every texture in one shared store.
 - **Corpus store (2026-10-11, `REFACTOR/CORPUS_EXPORT.md`)**: `husk
   store-add` records an export tree as `builds/<game>/<husk>/` in a
   content-addressed store (versioned like casc-tool's, husk's own code);
@@ -412,6 +418,15 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `test_data/world/maps/azeroth/azeroth_32_49.adt` (+ siblings + WDT,
   copied from the mount 2026-10-11; `test_data/` is gitignored) and
   passes.
+- **WoW Forever (2026-11-09)**: `wowf` 1.60.1 on the mount
+  (`/media/luna/wow_export/forever`); a leading indicator for retail
+  12.1.7. Surveyed and decoded in `WIKI_FINDINGS/FOREVER.md`. In the
+  bundle (optional, schema 0.3.0): `resources.terrain.liquid_flow` (WDT
+  `MAI2`) and `liquid_types[].waves` (FFTTile). Not yet in the bundle:
+  `MALP`/`MASD` water fields, `LightDataGlobalVolumeFog` (fits
+  `light_params`; ties into the zone-fog-as-medium call), the area `.dat`
+  terrain format, `ChrModelAltVariant*`. Possible bug to check:
+  `db2-export` reads LightData.Time as 65536 + t.
 - **Hazards** (standing facts, not narrative — see `CLAUDE_HISTORY.md` for
   the sessions that established each one):
   - **Corpus location (2026-10-10, Luna)**: the extracted corpus moves
@@ -469,6 +484,6 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   - The full-corpus render step is human-gated by policy — never run it
     without Luna's explicit go-ahead, never foreground/blocking.
   - `/media/luna/data/wow_export/buildinfo.json` (`clientBuild: 61621`, an
-    11.x build) is stale: the corpus is game version 12.1.0 (Midnight),
-    proven by its DB2 layout hashes against WoWDBDefs. Date the corpus by
-    DB2 layouts, never by that file.
+    11.x build) is stale: the mount's `live` is 12.1.5.70783 (`builds/`;
+    its `.listfile` names community-listfile-2026-11-07.csv). Date the
+    corpus by DB2 layouts, never by `buildinfo.json`.

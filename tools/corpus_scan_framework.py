@@ -90,6 +90,8 @@ from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, Thr
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+import listfile_index  # tools/ is this script's own directory, so always importable
+
 try:
     from tqdm import tqdm
 except ImportError:
@@ -204,41 +206,18 @@ def husk_resolve_json(path: Path, timeout: float = 20.0, textures_out: str | Pat
     byte export is the gap that would unblock the rest -- unimplemented,
     previously flagged in the since-deleted TODO/CLEANUP_TODO.md.
 
-    PERFORMANCE (see REFACTOR_LOG.md for the full controlled numbers, n=8
-    runs each, plus a listfile-size-isolation run): two separate, additive
-    costs, not one. (1) --listfile: husk re-parses the full ~148MB/2.2M-row
-    community-listfile.csv from scratch on *every* invocation (no
-    process-lifetime cache the way the removed Python-side
-    `functools.lru_cache`d `_load_listfile()` had). Isolated by holding
-    everything else constant and varying only listfile size: a 1-row
-    listfile costs ~0.2s/invocation, the real 2.2M-row one costs ~0.7s --
-    the parse itself is ~0.5s, **~70% of a real invocation's cost, the
-    dominant factor**. Consistent with the earlier per-model numbers: a
-    small item model went 76ms without --listfile -> 776ms with; a large
-    character model went 2990ms -> 3893ms -- same ~700-900ms fixed delta
-    regardless of model complexity. (Confirm any re-measurement passes
-    HUSK_CONFIG=/dev/null, as this function already does below -- without
-    it, ~/.config/husk/config.toml can silently autodiscover its own
-    --listfile/--listfile-root even when neither is passed on the CLI,
-    which will make a "with vs without --listfile" comparison compare the
-    same listfile against itself and read as free.) (2) resolution
-    itself, independent of --listfile: scales with the model's own
-    same-basename fuzzy-pool size, and can dwarf (1) on
-    customization-heavy character models -- the same bloodelffemale_hd
-    measurement above costs ~3s even with --listfile omitted entirely, vs
-    ~10-70x husk info --json on the same files either way. Which cost
-    dominates depends on the file: --listfile dominates for the bulk of
-    the corpus (small/no fuzzy pool), fuzzy-pool resolution dominates for
-    a minority of character models. Either way, at full-corpus scale
-    (~130k files) this is tens of thousands of seconds per scan -- the
-    real fix is a `src/`-level one (husk should ingest the listfile once
-    into a cached, fast-to-load format, the same move `husk db2-build`
-    already makes for DB2 data -- unimplemented, previously flagged in
-    the since-deleted TODO/CLEANUP_TODO.md; a
-    `--from-list` batch mode is a weaker complementary idea, not a
-    substitute), out of this pass's scope to fix (tools/-only) rather
-    than worked around here by re-adding a Python-side listfile cache
-    husk resolve is supposed to make unnecessary.
+    PERFORMANCE: --listfile is no longer a per-invocation cost. husk mmaps
+    its on-disk listfile cache (DESIGN.md "Listfile index") instead of
+    re-parsing the 2.2M-row CSV; the ~0.5 s/invocation parse REFACTOR_LOG.md
+    measured is gone. What remains is resolution itself, which scales with
+    the model's same-basename fuzzy pool: on 2026-11-09 a forever
+    helm_plate_*_be_m.m2 took 4.9 s with --listfile and 9.6 s without, the
+    fuzzy pool being item/objectcomponents/head on the FUSE mount (why the
+    listfile run is faster is not measured). Re-measure with
+    HUSK_CONFIG=/dev/null, as this function does below, or the user config
+    supplies a listfile to both sides of the comparison. Python tasks that
+    need the listfile themselves use tools/listfile_index.py, which reads
+    the same cache.
     """
     cmd = [HUSK_BIN, "resolve", str(path)]
     if LISTFILE is not None and LISTFILE.exists():
@@ -616,9 +595,9 @@ def run_corpus_scan(
     """Runs `task` over every file under `root` matching task.GLOB_PATTERNS,
     with a live-adjusted concurrency budget (see AdaptiveConcurrency), and
     writes <output_stem>.csv / <output_stem>_scan.log / <output_stem>_errors.csv
-    (only if any errors occurred) to output_dir (default: repo root,
-    matching every existing find_*.py convention). Returns the process
-    exit code (0 on success).
+    (only if any errors occurred) to output_dir (default: corpus_reports/,
+    gitignored, so scan output stays out of the repo root). Returns the
+    process exit code (0 on success).
 
     Every finished file (row or None) is appended to <output_stem>.journal.jsonl
     as it completes, because a session teardown kills even setsid'd scans and
@@ -626,7 +605,8 @@ def run_corpus_scan(
     journal and scans only what it doesn't cover; without it the journal is
     started fresh. Errored files are never journaled, so a resume retries them.
     """
-    output_dir = output_dir or REPO_ROOT
+    output_dir = output_dir or REPO_ROOT / "corpus_reports"
+    output_dir.mkdir(parents=True, exist_ok=True)
     fieldnames = ["path", *task.FIELDNAMES]
     parallel_mode = getattr(task, "PARALLEL_MODE", "process")
     summarize = getattr(task, "summarize", _default_summarize)
@@ -783,12 +763,12 @@ def main() -> int:
     parser.add_argument("--initial-workers", type=int, default=None,
                          help="starting concurrency window, default: auto-seeded from backing storage topology")
     parser.add_argument("--limit", type=int, default=None, help="only scan the first N discovered files (testing)")
-    parser.add_argument("--output-dir", type=Path, default=None, help="default: repo root")
+    parser.add_argument("--output-dir", type=Path, default=None, help="default: corpus_reports/")
     parser.add_argument("--batch-size", type=int, default=None,
                          help="files per dispatched task, default: task.BATCH_SIZE or 1")
-    parser.add_argument("--listfile", type=Path, default=Path("/media/luna/userdata/Downloads/community-listfile.csv"),
-                         help="community-listfile.csv path, exposed to tasks as corpus_scan_framework.LISTFILE "
-                              "(the single copy every task-module LISTFILE constant used to duplicate)")
+    parser.add_argument("--listfile", type=Path, default=listfile_index.LISTFILES_DIR,
+                         help="community-listfile.csv path, or a directory of dated snapshots (its newest is "
+                              "used), exposed to tasks as corpus_scan_framework.LISTFILE")
     parser.add_argument("--resume", action="store_true",
                          help="skip files already in <output-stem>.journal.jsonl from an interrupted run")
     args = parser.parse_args()
@@ -797,7 +777,8 @@ def main() -> int:
     task = _import_task(args.task)
     return run_corpus_scan(task, root=args.root, output_stem=args.output_stem, max_workers=args.max_workers,
                             initial_workers=args.initial_workers, limit=args.limit, output_dir=args.output_dir,
-                            batch_size=args.batch_size, listfile=args.listfile, resume=args.resume)
+                            batch_size=args.batch_size, listfile=listfile_index.latest_listfile(args.listfile),
+                            resume=args.resume)
 
 
 if __name__ == "__main__":

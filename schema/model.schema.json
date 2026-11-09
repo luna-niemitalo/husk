@@ -17,7 +17,7 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.2.2",
+      "const": "0.3.0",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
@@ -565,6 +565,28 @@
                       "type": "number",
                       "description": "The model data row's scale.",
                       "x-unit": "1"
+                    },
+                    "users": {
+                      "type": "array",
+                      "description": "Named things that use the row: for a CreatureDisplayInfo row, the Creature rows listing it (name in the ref, from Name_lang). The client ships only part of the creature list, so many rows have none; absent = none known.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "ref": {
+                            "$ref": "common.schema.json#/definitions/ref",
+                            "description": "The user's row, with its name."
+                          },
+                          "title": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The user's title (Creature Title_lang, e.g. \"Innkeeper\")."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "ref"
+                        ]
+                      }
                     }
                   },
                   "additionalProperties": false,
@@ -2264,6 +2286,10 @@
                   "heights"
                 ]
               }
+            },
+            "liquid_flow": {
+              "$ref": "common.schema.json#/definitions/texture_index",
+              "description": "Optional. The tile's liquid flow map, drawn over the whole tile like lod's diffuse (first stored row at the tile corner, rows along row_axis, columns along column_axis). Data, not colour: R and G are a signed 2D flow vector, 128/255 meaning still (which channel follows which axis, and its sign, are unverified); B is 0, A 255. Absent when the source has none."
             }
           },
           "additionalProperties": false,

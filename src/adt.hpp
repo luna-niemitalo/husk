@@ -251,6 +251,10 @@ struct WdtFile {
     uint32_t flags = 0;                                                  // MPHD
     std::array<uint32_t, 64 * 64> tileFlags{};                          // MAIN
     std::optional<std::array<TileFileDataIds, 64 * 64>> tileFileDataIds;  // MAID, iff kMphdHasMaid
+    // MAI2 field 0: the tile's liquid flow map (world/liquidflow), 0 for
+    // none. Fields 1-7 are zero in every file seen and aren't read
+    // (WIKI_FINDINGS/FOREVER.md). An id here may be absent from the build.
+    std::optional<std::array<uint32_t, 64 * 64>> liquidFlowFileDataIds;
     std::string mapObjectName;                    // MWMO; empty when MODF names a FileDataID
     std::optional<MapObjectPlacement> mapObject;  // MODF, iff kMphdGlobalMapObject
 

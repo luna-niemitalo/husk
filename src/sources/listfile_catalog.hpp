@@ -35,9 +35,9 @@ namespace husk::sources {
 
 // Reverse lookup against an already-loaded ListfileIndex: finds
 // `modelPath`'s own real FileDataID by matching its path relative to
-// `listfileRoot` against the index's own paths, case-insensitively. A
-// linear scan (via ListfileIndex::forEach), not an index -- not worth a
-// second, reversed lookup structure for an occasional single lookup.
+// `listfileRoot` against the index's own paths, case-insensitively, via
+// ListfileIndex::fileDataIdsForPaths (a binary search on the mmap'd cache,
+// a full pass on the map-backed indexes).
 // Returns nullopt when `listfile`/`listfileRoot` is empty, `modelPath`
 // isn't under `listfileRoot`, or no row matches -- all "primary path
 // unavailable," not errors; callers that have a filename-based fallback
@@ -63,8 +63,7 @@ std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex
 // or `.../_unresolved/<n>`. nullopt for any other path.
 std::optional<uint32_t> fileDataIdForStorePath(const std::filesystem::path& path);
 
-// A local file's FileDataID: its store name, else fileDataIdForPath (a full
-// listfile pass -- callers that already know the id pass it instead).
+// A local file's FileDataID: its store name, else fileDataIdForPath.
 std::optional<uint32_t> fileDataIdForLocalFile(const husk::ListfileIndex& listfile, const std::string& path,
                                                const std::string& listfileRoot);
 
@@ -98,10 +97,10 @@ std::optional<std::string> contentNameForFileDataId(const husk::ListfileIndex& l
 // spelling: lowercase, forward slashes, `.m2`.
 std::string listfileSpelling(const std::string& gamePath);
 
-// Batch reverse lookup for game-file paths (see `listfileSpelling`): one
-// ListfileIndex::forEach pass for all of `gamePaths`, rather than one
-// linear scan each like `fileDataIdForPath`. Keyed by the caller's original
-// spelling; a path with no listfile row is simply absent from the result.
+// Batch reverse lookup for game-file paths (see `listfileSpelling`), one
+// ListfileIndex::fileDataIdsForPaths call for all of `gamePaths`. Keyed by
+// the caller's original spelling; a path with no listfile row is simply
+// absent from the result.
 std::unordered_map<std::string, uint32_t> fileDataIdsForGamePaths(const husk::ListfileIndex& listfile,
                                                                   const std::vector<std::string>& gamePaths);
 

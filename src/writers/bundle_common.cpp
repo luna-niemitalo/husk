@@ -132,7 +132,7 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     // Every schema/*.schema.json pins this as its schema_version const;
     // bump them together. Below 1.0, placeholder effects are allowed
     // (REFACTOR/EFFECTS.md).
-    w.value("0.2.2");
+    w.value("0.3.0");
     w.key("subject");
     writeRef(w, subject);
     w.key("space");
@@ -1029,6 +1029,26 @@ void writeLiquidTypes(json::Writer& w, const std::vector<canon::LiquidType>& typ
                 w.beginObject();
                 w.key("kind");
                 w.value(static_cast<int64_t>(slot.sourceKind));
+                w.endObject();
+                w.endObject();
+            }
+            w.endArray();
+        }
+        if (!t.waves.empty()) {
+            w.key("waves");
+            w.beginArray();
+            for (const canon::LiquidWaveSpectrum& spectrum : t.waves) {
+                w.beginObject();
+                w.key("identity");
+                writeRef(w, spectrum.ref);
+                w.key("source");
+                w.beginObject();
+                w.key("field_0");
+                w.value(static_cast<int64_t>(spectrum.field0));
+                w.key("values");
+                w.beginArray();
+                for (float v : spectrum.values) w.value(static_cast<double>(v));
+                w.endArray();
                 w.endObject();
                 w.endObject();
             }

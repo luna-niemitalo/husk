@@ -459,7 +459,7 @@ struct Skeleton {
     // Real equipped-gear resolution, "case 1" (standalone-geometry items --
     // weapons, shields, some helms): the item's own separate `.m2`
     // FileDataID(s) (`src/modelfiledata_db2.hpp`, one ModelResourcesID can
-    // resolve to several real FileDataIDs, e.g. different LOD variants --
+    // resolve to several real FileDataIDs, e.g. race/sex variants --
     // kept as a vector, never collapsed to one, same policy as
     // itemappearance::Resolution::materials) plus its own per-texture-role
     // materials (`src/itemappearance_db2.hpp`'s ModelMatRes, keyed by a

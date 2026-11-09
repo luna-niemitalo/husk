@@ -267,6 +267,32 @@ TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the cal
     CHECK_FALSE(fs::exists(dir / "textures"));
 }
 
+TEST_CASE("writeTerrainBundle: the optional liquid flow map and wave spectra") {
+    canon::Terrain bare = sampleTerrain();
+    fs::path bareDir = freshDir("husk-test-terrain-bundle-no-flow");
+    writeTile(bare, bareDir);
+    nlohmann::json plain = readManifest(bareDir);
+    CHECK_FALSE(plain["resources"]["terrain"].contains("liquid_flow"));
+    CHECK_FALSE(plain["resources"]["liquid_types"][0].contains("waves"));
+
+    canon::Terrain terrain = sampleTerrain();
+    terrain.liquidFlow = terrain.textures[0].diffuse;
+    terrain.liquidFlow->resolved = canon::Ref{canon::FileDataId{7792205}, "azeroth_32_49", canon::NameSource::Listfile};
+    terrain.liquidTypes[0].waves.push_back(
+        {canon::Ref{canon::Db2Row{"FFTTile", 20}, "", canon::NameSource::None}, 32, {7689, 3, 3, -1, 0, 1, -1, 0, 1}});
+    fs::path dir = freshDir("husk-test-terrain-bundle-flow");
+    writeTile(terrain, dir);
+    nlohmann::json m = readManifest(dir);
+    const nlohmann::json& flow = m["resources"]["textures"][m["resources"]["terrain"]["liquid_flow"].get<size_t>()];
+    CHECK(flow["identity"]["id"]["value"] == 7792205);
+    const nlohmann::json& waves = m["resources"]["liquid_types"][0]["waves"];
+    REQUIRE(waves.size() == 1);
+    CHECK(waves[0]["identity"]["id"]["table"] == "FFTTile");
+    CHECK(waves[0]["source"]["field_0"] == 32);
+    CHECK(waves[0]["source"]["values"][0] == 7689.0);
+    CHECK(waves[0]["source"]["values"].size() == 9);
+}
+
 TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     fs::path dir = freshDir("husk-test-terrain-bundle-objects");
     fs::path placedModel = dir.parent_path() / "models" / "555.canon.bundle" / "manifest.json";

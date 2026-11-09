@@ -1,6 +1,6 @@
 // Tests for husk::canon bone-stem generation (src/canon_bone_stem.hpp) --
 // the alphabet, the fixed generation order, and determinism, per
-// DESIGN.md's "canon:: bone naming" section.
+// REFACTOR/CANON_DESIGN.md's "canon:: bone naming" section.
 
 #include <doctest/doctest.h>
 
@@ -13,7 +13,7 @@ using namespace husk::canon;
 
 namespace {
 
-// XXX / XYX / XXY / YXX / XYZ per DESIGN.md's template vocabulary.
+// XXX / XYX / XXY / YXX / XYZ per REFACTOR/CANON_DESIGN.md's template vocabulary.
 std::string shapeOf(const std::string& stem) {
     bool ab = stem[0] == stem[1];
     bool bc = stem[1] == stem[2];
@@ -75,7 +75,7 @@ TEST_CASE("nthStem: immediately after the XXX run, template shape visibly altern
     CAPTURE(s2);
 
     // Same characters (a, 1 -- the first common/distinct pair), three
-    // distinct shapes -- the one property DESIGN.md cares about most:
+    // distinct shapes -- the one property REFACTOR/CANON_DESIGN.md cares about most:
     // shape varies before filler does.
     CHECK(shape0 != shape1);
     CHECK(shape1 != shape2);

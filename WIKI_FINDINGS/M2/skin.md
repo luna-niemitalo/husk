@@ -1,6 +1,6 @@
 # wowdev.wiki findings — `M2/.skin`
 
-Current, correct facts only. Full evidence trail: `../../WIKI_FINDINGS_HISTORY.md`
+Current, correct facts only. Full evidence trail: `../HISTORY.md`
 §7.
 
 ---

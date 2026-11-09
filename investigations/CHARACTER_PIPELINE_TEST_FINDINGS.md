@@ -354,6 +354,13 @@ fine because the real gap was never 81% -- it was 2 of 21, both plausibly minor
 
 ## Finding 4 (real, not a bug): modern `_hd` character models carry zero M2 attachment points
 
+> **Correction (2026-11-09):** wrong as a model-level claim. The `.m2`
+> header's attachment array is empty, but `_hd` characters keep their
+> attachments in the `.skel`'s `SKA1` chunk (43 on the HD blood elf;
+> `skel::findAttachments`, 263685e, 2026-10-09). The canonical bundle
+> carries them; the legacy glTF path doesn't read `SKA1`, so its
+> `attachment_<id>` nodes are still missing for these models.
+
 `husk info` on both `nightelffemale_hd.m2` and `bloodelffemale_hd.m2` reports
 `attachments: 0 (offset 0x0)`, vs. 40 real attachment records (HandRight, HandLeft,
 Shield, Back, ...) in `test_data/bloodelffemale.m2` (an older, non-`_hd` format

@@ -32,32 +32,25 @@ target once husk *does* touch it, so a future implementation session
 starts with the shape of the problem already scoped instead of
 re-deriving it chunk-by-chunk from wowdev.wiki.
 
-## Current state: ADT terrain implemented, WMO not started
+## Current state: ADT terrain and WMO both export to the bundle
 
-**ADT terrain is implemented**: `husk export-terrain`/`export-world` read a
-tile's root/`_obj0`/`_tex0` files and the map WDT's `MPHD` flags and write
-a terrain bundle (`README.md`, `REFACTOR/BUNDLE_FORMAT.md`'s "Terrain tile
-bundles"). The rows that implementation covers read `full` / `bundle`
-below; verified facts are in `WIKI_FINDINGS/ADT.md`, open items in
-`TODO/WORLD/ADT_TERRAIN_TODO.md`. **Everything WMO-shaped is still
-unimplemented**: WMO placements are carried as identity-only references,
-and no WMO geometry exports.
+**ADT terrain**: `husk export-terrain`/`export-world` read a tile's
+root/`_obj0`/`_obj1`/`_tex0`/`_lod` files and the map WDT and write a
+terrain bundle (`REFACTOR/BUNDLE_FORMAT.md` "Terrain tile bundles").
+Verified facts: `WIKI_FINDINGS/ADT.md`; open items:
+`TODO/WORLD/ADT_TERRAIN_TODO.md`.
 
-The paragraph below is the original framing from before any of this
-existed, kept because it still describes every row marked `none`.
+**WMO**: `husk export-wmo` (and `export-world` for every placed WMO) reads
+a root and its group files (`src/wmo.cpp`, `src/wmo_canon_input.cpp`) and
+writes an object bundle: groups as mesh parts, `MOMT` materials, doodad
+sets as placement sets, lights, liquids, fog/volume effects, portals, face
+attributes and GFID levels (`REFACTOR/PLACEMENT_SETS.md`). Terrain `MODF`
+placements link to those bundles.
 
-Every row below reads `none` / `none` for Parse/Consumption. That's not a
-placeholder — `DESIGN.md`'s Non-goals section is explicit: WMO and ADT are
-both "tracked, not started," and no code in `src/` reads a WMO or ADT byte
-today. **This file is a target-setting scaffold, written before
-implementation on purpose** — per-project convention (see `CLAUDE.md`),
-thorough documentation now is cheaper than re-deriving scope piecemeal
-during implementation later, one clarifying round-trip at a time. Once
-real work starts here, this file gets updated in place (edit the row, same
-"kept in sync, don't append a note" discipline `M2_COMPLETENESS.md`
-already uses) — it is not a punch list (a `*_TODO.md` file, written when
-implementation is actually about to start, is) and not a historical record
-(git history is).
+Rows read `full` / `bundle` where implemented; a row still at `none` is
+not built. This file is kept in sync in place (edit the row), like
+`M2_COMPLETENESS.md`; it is not a punch list (the `TODO/WORLD/*_TODO.md`
+files are) and not a history (git is).
 
 Sourced from wowdev.wiki's WMO page (`documentation/wowdev-wiki/md/WMO.md`,
 root file + group file + `PortalCulling.md`/`Rendering.md`) and ADT's
@@ -170,15 +163,15 @@ world space, at every level that concept appears.
 
 | Feature | Format(s) & chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| Map root / tile existence | `.wdt`: `MPHD`, `MAIN`, `MAID`/`MAI2` (FileDataID variants) | descriptor (`MPHD` flags only) | none | n/a, infrastructure | `MPHD`'s flags pick the alpha-map format; `export-world` finds tiles by directory listing rather than `MAIN`/`MAID` (`TODO/WORLD/WDT_TODO.md`). Which of a map's up to 64×64 ADT tiles actually exist; drives which files to even look for, not a renderable concept itself |
-| Global single-WMO map placement | `.wdt`: `MWMO` + `MODF` | none | none | native-possible, not done | the "this whole map is one WMO" case (an instance/dungeon) — same `MODF` record shape as ADT's own WMO placement below, just at map scope instead of per-tile; real-data-verified: `MODF.flags & 0x8` can omit `MWMO` entirely (35/228 real global-WMO `.wdt` files), `nameId` then holding a real FileDataID directly — undocumented on `WDT.md` itself — see `TODO/WORLD/WDT_TODO.md` |
+| Map root / tile existence | `.wdt`: `MPHD`, `MAIN`, `MAID`/`MAI2` (FileDataID variants) | full (`MAI2` field 0 = liquid flow map; fields 1–7 unread) | bundle (world grid; tile map textures; `liquid_flow`) | n/a, infrastructure | `MPHD`'s flags pick the alpha-map format; `export-world` finds tiles by directory listing rather than `MAIN`/`MAID` (`TODO/WORLD/WDT_TODO.md`). Which of a map's up to 64×64 ADT tiles actually exist; drives which files to even look for, not a renderable concept itself |
+| Global single-WMO map placement | `.wdt`: `MWMO` + `MODF` | full | bundle (the world document's off-grid `placements`) | native-possible, not done | the "this whole map is one WMO" case (an instance/dungeon) — same `MODF` record shape as ADT's own WMO placement below, just at map scope instead of per-tile; real-data-verified: `MODF.flags & 0x8` can omit `MWMO` entirely (35/228 real global-WMO `.wdt` files), `nameId` then holding a real FileDataID directly — undocumented on `WDT.md` itself — see `TODO/WORLD/WDT_TODO.md` |
 | Doodad (M2) placement onto a tile | ADT: `MDDF` + `MMDX`/`MMID` name tables | full | bundle | native-possible, not done | **implemented**: world-frame position/rotation/scale, both naming modes, linked to exported model bundles by `uri`; yaw sign still wiki-only (`TODO/WORLD/WORLD_PLACEMENT_TODO.md`). Position/rotation/scale/FileDataID per instance — the single most important row in this whole file: this is what actually populates a rendered world with M2s. Maps directly to a glTF node with a mesh reference + TRS, once the referenced M2 itself exports |
-| WMO placement onto a tile | ADT: `MODF` + `MWMO`/`MWID` name tables | full | bundle (identity + transform only) | native-possible, not done | **parsed and carried**, but no WMO geometry exists for it to point at yet. Same shape as the doodad case, one level up — places a whole WMO instance (building) into the tile |
-| WMO's own internal doodad set | WMO root: `MODS` (doodad sets) + `MODN`/`MODI` (name/FileDataID) + `MODD` (per-instance placement) + `MDDI`/`MWDR`/`MWDS` (Shadowlands+ additional-set activation) | none | none | native-possible, not done | the same placement concept as ADT's `MDDF`, just scoped inside one WMO (furniture inside a building) rather than across a terrain tile; a WMO can have multiple mutually-exclusive doodad sets — **decided, 2026-08-01: export every set as separate, individually-toggleable nodes**, same answer as M2's own geoset selection (see `M2_COMPLETENESS.md`), not a baked-in single choice; real-data-verified: `MODI`'s entry count can exceed `MOHD.nDoodadNames` (14.5% of 5,000 real roots sampled, always ≥ never <, size off the chunk not the header), and `MWDR`/`MWDS`'s two-level "activate additional sets" indirection is verified end-to-end against two real placements of the same WMO — see `TODO/WORLD/WORLD_PLACEMENT_TODO.md` |
-| Root+group file split, group resolution | WMO: `MOGN` (names)/`MOGI` (info)/`MOGP` (per-group header, in the group file)/`MOGX`/`GFID` (FileDataID → group file) | none | none | n/a, infrastructure | a WMO root file describes N groups, each a separate file (`GFID`-resolved, same "local-directory FileDataID convention, never CASC" policy husk already uses for M2 sidecars — see `DESIGN.md`'s Non-goals); real-data-verified: `GFID` is row-major (`index = lodTier*nGroups + groupIndex`, zero = no file for that cell), undocumented on the wiki as a formula — see `TODO/WORLD/WMO_GEOMETRY_TODO.md` |
+| WMO placement onto a tile | ADT: `MODF` + `MWMO`/`MWID` name tables | full | bundle (`map_objects` set; links the WMO's object bundle, `active_sets` resolved through `MWDR`/`MWDS`) | native-possible, not done | same shape as the doodad case, one level up — places a whole WMO instance (building) into the tile |
+| WMO's own internal doodad set | WMO root: `MODS` (doodad sets) + `MODN`/`MODI` (name/FileDataID) + `MODD` (per-instance placement) + `MDDI`/`MWDR`/`MWDS` (Shadowlands+ additional-set activation) | full | bundle (one placement set per `MODS` set, set 0 always on; `MDDI` as instance tint) | native-possible, not done | the same placement concept as ADT's `MDDF`, just scoped inside one WMO (furniture inside a building) rather than across a terrain tile; a WMO can have multiple mutually-exclusive doodad sets — **decided, 2026-08-01: export every set as separate, individually-toggleable nodes**, same answer as M2's own geoset selection (see `M2_COMPLETENESS.md`), not a baked-in single choice; real-data-verified: `MODI`'s entry count can exceed `MOHD.nDoodadNames` (14.5% of 5,000 real roots sampled, always ≥ never <, size off the chunk not the header), and `MWDR`/`MWDS`'s two-level "activate additional sets" indirection is verified end-to-end against two real placements of the same WMO — see `TODO/WORLD/WORLD_PLACEMENT_TODO.md` |
+| Root+group file split, group resolution | WMO: `MOGN` (names)/`MOGI` (info)/`MOGP` (per-group header, in the group file)/`MOGX`/`GFID` (FileDataID → group file) | full | bundle (groups as mesh parts; GFID rows as mesh levels) | n/a, infrastructure | a WMO root file describes N groups, each a separate file (`GFID`-resolved, same "local-directory FileDataID convention, never CASC" policy husk already uses for M2 sidecars — see `DESIGN.md`'s Non-goals); real-data-verified: `GFID` is row-major (`index = lodTier*nGroups + groupIndex`, zero = no file for that cell), undocumented on the wiki as a formula — see `TODO/WORLD/WMO_GEOMETRY_TODO.md` |
 | Cata+ split-file structure | ADT: root + `_obj0`/`_obj1`/`_tex0`/`_tex1`/`_lod` sidecar files; `MHID`/`MDID`/`MWDR`/`MWDS` cross-file FileDataID refs (Legion+); `MCIN` (pre-Cata, in-file chunk index instead) | full (root/`_obj0`/`_tex0`, `MDID`/`MHID`) | n/a | n/a, infrastructure | one logical ADT tile is up to 6 files since Cataclysm; real-data-verified: `MCVT`/`MCNR` (heightmap+normals) always stay root-resident even after the split, confirmed on 2,500 sampled files — see `TODO/WORLD/ADT_TERRAIN_TODO.md` |
-| Skybox | WMO root: `MOSB` (skybox model name) + `MOSI` (FileDataID variant) | none | none | native-possible, not done | just another M2 reference + scope flag, structurally trivial once M2 placement exists |
-| Chunk container / magic / header | WMO: `MVER`, `MOHD`, `MOGP` (group header); ADT: `MVER`, `MHDR` | none | none | n/a, infrastructure | same role as M2's own `MD20`/header row — drives parsing, no renderable shape of its own |
+| Skybox | WMO root: `MOSB` (skybox model name) + `MOSI` (FileDataID variant) | full | none (parsed, not exported) | native-possible, not done | just another M2 reference + scope flag, structurally trivial once M2 placement exists |
+| Chunk container / magic / header | WMO: `MVER`, `MOHD`, `MOGP` (group header); ADT: `MVER`, `MHDR` | full | n/a | n/a, infrastructure | same role as M2's own `MD20`/header row — drives parsing, no renderable shape of its own |
 
 ## Terrain geometry (ADT)
 
@@ -209,14 +202,14 @@ breakdown would mean anything:
 
 | Feature | Chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| Mesh geometry (positions, indices, batches) | group file: `MOVT`/`MOVI`/`MOBA` (material batches); `MORI`/`MORB` (triangle-strip variant) | none | none | native-possible, not done | same shape as M2's own mesh row — direct positions/indices, no bone weights involved (WMO has no skeleton) |
-| Normals | group file: `MONR` | none | none | native-possible, not done | |
-| UVs | group file: `MOTV` | none | none | native-possible, not done | |
+| Mesh geometry (positions, indices, batches) | group file: `MOVT`/`MOVI`/`MOBA` (material batches); `MORI`/`MORB` (triangle-strip variant) | full (`MOVT`/`MOVI`/`MOVX`/`MOBA`; `MORI`/`MORB` unread) | bundle | native-possible, not done | same shape as M2's own mesh row — direct positions/indices, no bone weights involved (WMO has no skeleton) |
+| Normals | group file: `MONR` | full | bundle | native-possible, not done | |
+| UVs | group file: `MOTV` | full (every set) | bundle (up to 4 sets) | native-possible, not done | |
 | Auto-generated tangents | group file: `MOTA` | none | none | n/a | wiki: often client-generated for certain shaders, not authored data — same "runtime-computed, not stored" situation as M2's own tangents |
-| Vertex colors (baked lighting) | group file: `MOCV`/`MOC2` | none | none | native-possible, not done | genuinely per-vertex here (unlike M2's per-batch tint) — real baked-lighting data, `CMapObjGroup::FixColorVertexAlpha`'s decompiled logic already documented on the wiki page directly |
+| Vertex colors (baked lighting) | group file: `MOCV`/`MOC2` | full | bundle (colour sets; `MOC2` blend weights) | native-possible, not done | genuinely per-vertex here (unlike M2's per-batch tint) — real baked-lighting data, `CMapObjGroup::FixColorVertexAlpha`'s decompiled logic already documented on the wiki page directly |
 | Per-face material/collision flags | group file: `MOPY`/`MPY2` | full | bundle (`resources.geometry.mesh.attributes` `wmo.poly_flags`/`wmo.poly_material`, every face) | n/a, mixed | dual-purpose: material index per face plus the collision flags; `MPY2`'s collision-only sentinel is 0xFFFF |
-| Materials | root: `MOMT` (material table) + `MOM3` (v3 override) + `MOTX` (texture filenames) | none | none | native-possible, not done | mirrors M2's own materials row — blend mode/texture references translate the same way `alphaMode`/`doubleSided` already do for M2; real-data-verified: `MOTX`/`MOM3` are zero real hits across 12,867 real root files (a fully FileDataID-mode corpus) — see `TODO/WORLD/WMO_GEOMETRY_TODO.md` |
-| Texture UV animation | root: `MOUV` | none | none | extras-capped, permanent | same "no animation-channel target" wall M2's own animated texture-transform row already hit (see `M2_COMPLETENESS.md`) |
+| Materials | root: `MOMT` (material table) + `MOM3` (v3 override) + `MOTX` (texture filenames) | full (`MOMT`, `MOTX`; `MOM3` unread) | bundle | native-possible, not done | mirrors M2's own materials row — blend mode/texture references translate the same way `alphaMode`/`doubleSided` already do for M2; real-data-verified: `MOTX`/`MOM3` are zero real hits across 12,867 real root files (a fully FileDataID-mode corpus) — see `TODO/WORLD/WMO_GEOMETRY_TODO.md` |
+| Texture UV animation | root: `MOUV` | full | bundle (material UV scroll) | extras-capped, permanent | same "no animation-channel target" wall M2's own animated texture-transform row already hit (see `M2_COMPLETENESS.md`) |
 
 ## Liquid / water
 
@@ -231,9 +224,9 @@ breakdown would mean anything:
 | Feature | Format & chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
 | WMO point lights | root: `MOLT` + per-group refs `MOLR` | full (`MOLT`; `MOLR` not read) | bundle (`local_lights`) | native-possible, not done | **decided, 2026-08-01: adopt `KHR_lights_punctual`** for point/spot/directional lights — checked directly against `MOLT`'s real fields (`TODO/WORLD/LIGHTING_TODO.md`), known gaps accepted (no ambient-light support in the extension, `MOLT`'s two-radius attenuation doesn't fit the extension's single-`range` model, `SMOLight` has no cone-angle data at all; `type=3`/ambient stays `extras`-only, no target exists) — husk's **second** real glTF extension, not its first (it already declares `KHR_materials_unlit`); real-data-verified: `MOLT` 19.4% of 4,000 real root files present, only 1.7% actually populated, `MOLR` 5.5% of 2,000 real group files |
-| WMO lightset system (BfA+) | group file: `MOLS`/`MOLP` + `MLSS`/`MLSP`/`MLSO`/`MLSK` | none | none | native-possible, not done | a layered/conditional lighting system replacing the flat `MOLT` model in newer content — real-data-verified: **all of these are group-level, not root** (a real scoping bug this session's own investigation caught and corrected before trusting any count); genuinely rare in this corpus (`MOLS`/`MLSS` 0.3%, `MOLP` 1.9%, `MLSP` 0.6%, `MLSO`/`MLSK` 0%), see `TODO/WORLD/LIGHTING_TODO.md` |
+| WMO lightset system (BfA+) | group file: `MOLS`/`MOLP` + `MLSS`/`MLSP`/`MLSO`/`MLSK` | full (`MOLS`/`MOLP`/`MLSS`/`MLSP`; `MLSO`/`MLSK` absent from the corpus) | bundle (per-part light sets) | native-possible, not done | a layered/conditional lighting system replacing the flat `MOLT` model in newer content — real-data-verified: **all of these are group-level, not root** (a real scoping bug this session's own investigation caught and corrected before trusting any count); genuinely rare in this corpus (`MOLS`/`MLSS` 0.3%, `MOLP` 1.9%, `MLSP` 0.6%, `MLSO`/`MLSK` 0%), see `TODO/WORLD/LIGHTING_TODO.md` |
 | WMO dynamic lights | root: `MNLD` + group `MNLR` refs | full (`MNLD`; `MNLR` not read) | bundle (`local_lights`, switches with its doodad set) | native-possible, not done | real-data-verified: `MNLD` 6.6% of 4,000 real root files (**root-level**, unlike its own `MNLR` ref list which is group-level, 34.7% of 2,570 real group files) — see `TODO/WORLD/LIGHTING_TODO.md` |
-| WMO legacy lightmaps (v14) | `MOLM`/`MOLD` | none | none | n/a, deprioritized | pre-1.0 format, same low-priority treatment README already gives other v14-alpha-only WMO chunks; confirmed 0/2,570 real group files this session |
+| WMO legacy lightmaps (v14) | `MOLM`/`MOLD` | none | none | n/a, deprioritized | pre-1.0 format, deprioritized with the other v14-alpha-only WMO chunks (`MOLV`, `MOIN`) until there's a reason to read a 2004-era WMO; confirmed 0/2,570 real group files this session |
 | WMO spotlight/pointlight animation (binary-only, not in files) | `MOS2` (spotlight, unknown 108-byte struct), `MOP2` (pointlight, documented struct incl. flicker + `lightTextureFileDataId`) | none | none | extras-capped, permanent (`MOP2`) / n/a (`MOS2`, undocumented) | animated light *properties* — same wall as M2's animated tint/fade; `MOS2`'s struct is flagged unknown on the wiki itself, not just unread by husk; confirmed 0/2,570 real group files for both this session |
 | ADT outdoor lighting | none identified in `v18.md` | none | none | n/a, unconfirmed | reportedly zone/`Light.dbc`-driven rather than stored per-ADT — investigated this session (`TODO/WORLD/LIGHTING_TODO.md`), still no per-ADT storage location found; see that doc for the full `DB/Light*.md`/`Rendering/Lighting.md`/`Rendering/DayNight.md` citation trail |
 
@@ -260,7 +253,7 @@ breakdown would mean anything:
 
 | Feature | Format & chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| WMO per-face ground type | `MOQG`/`MOGX` (**both group-level** — corrected this session, `WORLD_COMPLETENESS.md` previously mislabeled `MOQG` as root) | none | none | n/a | gameplay-only (footstep sounds, etc.), same class as M2's own bypassed hardware-bone-limit metadata — **reconsidered directly this session under "coverage is the goal, not invisible-means-unimportant" and confirmed to genuinely belong at `n/a`** (no visual/geometric consequence, no existing glTF/Blender convention for audio-FX selection); real-data-verified: `MOQG` 2,219/71,929 group files, and `MOGX` is really a fixed **256-byte** chunk (64×`uint32_t`, only slot 0 populated), not the wiki's stated 4-byte "one single value" — see `TODO/WORLD/WORLD_MISC_METADATA_TODO.md` |
+| WMO per-face ground type | `MOQG`/`MOGX` (**both group-level** — corrected this session, `WORLD_COMPLETENESS.md` previously mislabeled `MOQG` as root) | full | bundle (`surface_type` face channel, TerrainType rows in `surface_types`) | n/a | gameplay-only (footstep sounds, etc.), same class as M2's own bypassed hardware-bone-limit metadata — **reconsidered directly this session under "coverage is the goal, not invisible-means-unimportant" and confirmed to genuinely belong at `n/a`** (no visual/geometric consequence, no existing glTF/Blender convention for audio-FX selection); real-data-verified: `MOQG` 2,219/71,929 group files, and `MOGX` is really a fixed **256-byte** chunk (64×`uint32_t`, only slot 0 populated), not the wiki's stated 4-byte "one single value" — see `TODO/WORLD/WORLD_MISC_METADATA_TODO.md` |
 | WMO material/prepass overrides | `MDAL`/`MOPB` | none | none | `MDAL`: **extras** (promoted, was `n/a`) / `MOPB`: `n/a`, investigated | `MDAL` genuinely affects rendered lighting (a per-group ambient-color override, `MOHD.ambColor`'s substitute) — reconsidered and promoted; `MOPB`'s "prepass" naming suggests a render-pipeline-ordering concept, not visual-identity data, investigated and confirmed to stay `n/a` despite being surprisingly common (49% of 71,929 group files) — see `TODO/WORLD/WORLD_MISC_METADATA_TODO.md` |
 | WMO unknown-structure chunk | `MOMX` | none | none | n/a, diagnostic | wiki itself: "just a guess" — **investigated from scratch this session rather than left at a shrug** (per this project's own established "unknown on the wiki is a reason to investigate, not to skip" precedent): genuinely common, not rare (3,931/12,869 real root files, 30.5%), and its record count exactly equals `MOHD.nTextures` on every file checked (a new structural fact, not on the wiki) — per-field semantics remain unresolved, see `TODO/WORLD/WORLD_MISC_METADATA_TODO.md` and `WIKI_FINDINGS.md` §15 |
 | WMO rare/unclear chunk family | `MPB*` (`MPBV`/`MPBP`/`MPBI`/`MPBG`) | none | none | n/a | wiki: seen in exactly one known alpha file, never read by any shipped client — confirmed corpus-wide this session, 0/71,929 real group files, the cleanest closed item in this section |

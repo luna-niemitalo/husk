@@ -2,625 +2,260 @@
 aliases:
   - README
 ---
-> **Pre-v1 cleanup pending**: a full inline-comment audit (`~/nix/claude-rules/CODE_COMMENT_RULES.md`)
-> found ~150 comment blocks across `src/`/`tests/` citing dev-trace docs
-> (`WIKI_FINDINGS.md`, deleted TODO files' former item numbers, dated
-> "this session" narrative) — all already marked `// TODO: Remove` inline,
-> by design left in place until v1 ships rather than stripped immediately.
-> Before shipping v1: batch-sweep every `// TODO: Remove` comment out of
-> `src/`/`tests/`; a handful in `src/` cite `DESIGN.md`/`README.md` instead
-> and should stay, tightened to a specific heading anchor rather than a bare
-> filename. Test-suite-design rationale repeated across multiple test files
-> (why real-data fixtures are `doctest::skip`-gated, the four-tier test
-> architecture, etc.) has already been consolidated into `TEST_DESIGN.md` —
-> the scattered inline copies still need trimming to one-line pointers.
-
 # husk
 
-A CLI for converting World of Warcraft's proprietary model/world formats
-(M2, M3, WMO) to common ones. This is the very first slice: reading an M2
-file's header and printing what's in it. No conversion yet.
+husk reads World of Warcraft's game files from a local extraction (M2
+models and their sidecars, WMO buildings, ADT/WDT terrain and maps, DB2
+tables, BLP textures) and writes them as open data: the **canonical husk
+bundle**, which MantleCore consumes, and, for M2 models, a legacy glTF 2.0
+`.glb`.
 
-Architecture and design rationale live in `DESIGN.md`; real-file
-wowdev.wiki corrections/gaps live in `WIKI_FINDINGS.md`; every open work
-thread is indexed in `TODO/README.md` (start there, not by grepping
-`TODO/`'s file listing); a granular per-feature M2 completion
-breakdown (parse depth × consumption depth × glTF ceiling, below the level
-of detail the format matrix below can show) lives in `M2_COMPLETENESS.md`;
-the equivalent breakdown for WMO + ADT (combined — world placement is the
-whole point of both, see that file's own intro), a pre-implementation
-scaffold since neither format has any code yet, lives in
-`WORLD_COMPLETENESS.md`. This file covers usage, current feature coverage,
-and roadmap status.
+husk only reads files already on disk. It never talks to CASC or the
+network (`DESIGN.md` "Goal", non-goals). Extract files first, e.g. with
+[`casc-tool`](https://github.com/luna-niemitalo/casc-tool).
 
-## Why test-first
+## Build
 
-WoW's file formats move under this tool constantly — new chunk types, new
-fields, occasional outright format changes (M2 → M3). The tests in
-`tests/` are written directly from [wowdev.wiki's M2 page](https://wowdev.wiki/M2)
-(offsets, chunk semantics, version table — transcribed independently of
-`src/`, not copied from it), not from the implementation. When the format
-moves and something in `src/` no longer matches, the goal is for a test to
-fail loudly and point at exactly which field/offset broke, rather than
-`husk` silently misreading a file. See the comments at the top of
-`tests/test_m2.cpp` and `tests/test_chunk.cpp` for the exact spec citations.
-
-## Building
-
-From this directory (`$PWD/`), inside its own Nix dev shell:
+Nix flake under `nix/`, loaded by direnv.
 
 ```
-direnv allow          # first time only, or: nix develop ./nix -c bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build -j$(nproc)
+direnv allow                                                    # once
+direnv exec . cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo   # once
+direnv exec . cmake --build build
+direnv exec . build/husk-tests                                  # TEST_DESIGN.md
 ```
 
-The binary lands at `build/husk`.
-
-`husk export` decodes `.blp` textures itself, in-memory, no separate step
-needed -- see Usage below. `blp/` (a separate Python subproject, `cd blp &&
-uv sync`) still exists as an independent reference implementation
-`tests/test_blp.cpp` checks the C++ decoder against, not something you need
-to run.
+The binary is `build/husk`. Shell completions (bash/zsh) are generated
+into `completions/` from the real flag definitions.
 
 ## Usage
 
+`husk <command> --help` prints every command's full flags and defaults;
+the generated tables under [Flag reference](#flag-reference-generated)
+are the same text.
+
+| Command | Does |
+|---|---|
+| **Models** | |
+| `info <file.m2> [--json]` | header, record counts, chunk tags, sidecar FileDataIDs, emitter summary |
+| `export -i <file.m2> [-o out.glb]` | M2 → legacy `.glb`; `--bundle-only` writes the canonical bundle instead |
+| `resolve -i <file.m2>` | texture-resolution ledger as JSON: which tier answered each slot |
+| `dump-chunks <file.m2\|.bone\|.phys>` | JSON for data with no glTF slot: Legion+ side chunks, full emitter records, `.bone`, `.phys` |
+| **World** | |
+| `export-terrain <tile.adt> <out>` | one ADT tile → terrain bundle |
+| `export-wmo <root.wmo> <out>` | one WMO → object bundle, doodad sets as placement sets |
+| `export-map <map-dir> <out>` | one map's world document: tile grid, map-wide volumes, zones |
+| `export-world <maps-root> <out> --listfile F --listfile-root D` | every tile of every map plus every placed model and WMO; parallel, resumable |
+| `validate-bundle <path>... [--lint-schema]` | check documents against `schema/` |
+| **Corpus store** | |
+| `export-corpus <out>` | `export-world --all-assets`, `index-tree`, `store-add` in one run |
+| `snapshot` | export the source mount's `live` build into the store, tag it `live` |
+| `store-add <tree>` | record an export tree as `builds/<game>/<husk>/` |
+| `store-prune [--superseded] [--drop <game>/<husk>] [--apply]` | drop old builds and the objects only they listed (dry run without `--apply`) |
+| `mount <mountpoint>` | serve the store read-only; unmount with `fusermount3 -u` |
+| `index-tree <tree>` | (re)build `index/creature_displays.tsv`, `index/chr_models.tsv` |
+| **Data** | |
+| `db2-info <file.db2>` | WDC5 header, layout, sample rows |
+| `db2-export <file.db2>\|--dir <dir> <out.sqlite>` | DB2 → SQLite, real column names with `--dbd-dir` |
+| `db2-build ... -o <out.sqlite>` | knowledge-base database (disabled subsystem, see `STYLE_CLEANUP.md` item 2) |
+| `appearance-string --validate <string>` | validate a `husk-appearance/1` string; resolves `gear` with `--db2-dir`/`--dbd-dir` |
+| `blp-export <file.blp> <out.png>` / `--dir <in> <out>` | BLP2 → PNG, mip 0 |
+| `--version`, `-V` | build version |
+
+### Inputs
+
+- **Sidecars sit next to the model.** `export` finds `.skin`, `.skel`,
+  `.anim`, `.bone`, `.phys` and textures beside the `.m2` by FileDataID
+  (`SFID`/`AFID`/`BFID`/`PFID`/`TXID`) or same-basename name, and announces
+  each choice on stderr.
+- **Flags are three-state**: unset (derive), `none` (don't try), or an
+  explicit value (`DESIGN.md` "Three-state resolution, not two").
+- **Texture resolution** tries, in order: the M2's embedded filename,
+  `<FileDataID>.png|.blp`, the `--listfile` path under `--listfile-root`,
+  then the one unclaimed same-basename file (ambiguity is reported, never
+  guessed). BLP decodes in memory.
+- **DB2-driven data** (`--db2-dir` + `--dbd-dir`) is resolved and attached,
+  never applied: customization choices, geosets, `.bone` sets, creature
+  defaults, character texture layout. Keys: `EXTRAS_SCHEMA.md` (glTF),
+  `REFACTOR/BUNDLE_FORMAT.md` (bundle).
+
+### Config file
+
+TOML defaults for per-machine flags (`dbd-dir`, `db2-dir`, `listfile`,
+`listfile-root`, `textures`, `store`, ...). Lookup: `--config <path>` →
+`$HUSK_CONFIG` → `$XDG_CONFIG_HOME/husk/config.toml` (else
+`~/.config/husk/config.toml`); no file is not an error. An explicit flag
+beats config, config beats the built-in default; `none` opts a configured
+value back out. Details: `DESIGN.md` "Config-file defaults for `export`".
+
+```toml
+dbd-dir = "/home/luna/dev/husk/reference/WoWDBDefs"
+db2-dir = "/media/luna/wow_export/live/dbfilesclient"
+listfile = "/home/luna/dev/husk/development/listfiles"
+listfile-root = "/media/luna/wow_export/live"
 ```
-husk info <file.m2>
-husk export --input <file.m2> [OPTIONS]   (see below -- all flags order-independent)
-husk dump-chunks <file.m2>
-husk dump-chunks <file.bone>
-husk dump-chunks <file.phys>
-husk resolve --input <file.m2> [OPTIONS]   (texture-resolution ledger as JSON, see below)
-husk export-terrain <tile.adt> <out.bundle> [OPTIONS]   (one ADT tile -> terrain bundle, see below)
-husk export-world <maps-root> <out-dir> --listfile F --listfile-root D [OPTIONS]
-husk db2-info <file.db2>   (proof of concept, see below -- not consumed by export yet)
-husk db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]
-husk db2-build --db2-dir <dir> --dbd-dir <dir> --listfile <file> -o <out.sqlite>
-husk blp-export <file.blp> <out.png>   (or --dir <blp-dir> <out-dir>, see below)
-husk appearance-string --validate <string>
-husk --version   (or -V)
-```
 
-husk never touches CASC storage itself, and it never resolves a FileDataID to
-the *real* WoW filename that would live under it -- no CASC/listfile access,
-by design (see `DESIGN.md`'s Non-goals). What it does do is apply one local
-filesystem convention consistently: a real extraction drops an `.m2` and
-everything it needs (`.skin`, `.skel`, `.anim`, converted textures) into one
-directory together, so `export` defaults every optional argument by looking
-next to the model instead of requiring every path spelled out (see `export`'s
-"Defaults" below). Get a real `.m2` out of a WoW install first with a
-separate extraction tool, e.g.
-[`casc-tool`](https://github.com/luna-niemitalo/casc-tool) (a standalone CASC
-browser/extractor CLI, no relation beyond "also reads WoW files"):
+`--listfile` (flag or config) may name a directory: husk then uses its
+alphabetically last `*.csv`. Keep dated snapshots in the gitignored
+`development/listfiles/` as `community-listfile-YYYY-MM-DD.csv` and the
+newest is always picked. The Python tools follow the same rule
+(`tools/listfile_index.py`).
 
-```
-casc-tool extract --storage <wow-install> --listfile <listfile.csv> \
-  character/bloodelf/female/bloodelffemale.m2 /tmp/bloodelffemale.m2
-husk info /tmp/bloodelffemale.m2
-```
+`--listfile` is cached under `$XDG_CACHE_HOME/husk` (`$HUSK_CACHE_DIR`
+overrides): `listfile.sorted.bin` and `listfile.tag`, safe to delete
+(`DESIGN.md` "Listfile cache").
 
-### `husk info <file.m2>`
+### Blender
 
-Parses the header only and prints:
+- **Canonical bundles**: the world-authoring addon in
+  `blender/addons/husk_addon` (`REFACTOR/BLENDER_WORLD_AUTHORING.md`).
+- **Legacy `.glb`**: import with *File > Import > glTF 2.0* at default
+  settings — the only path verified end to end (drag-and-drop and "import
+  with custom settings" both failed in testing). `tools/
+  husk_blender_geoset_mask.py` and `tools/husk_blender_options_panel.py`
+  turn the extras into geoset switches, texture switches, animation assets
+  and jiggle bones (`TOOLS.md`).
 
-- pre-Legion (flat `MD20`) vs. Legion+ (chunked, `MD21`-wrapped), the version,
-  and a best-guess expansion label -- with a loud warning below Wrath, where
-  `parseBones`/`parseSequences`/`parseRibbons`'s fixed record strides are
-  unverified (see `DESIGN.md`).
-- the model's internal name and record counts: sequences, bones, vertices,
-  textures, materials.
-- whether the skeleton is inline or external: zero inline bones plus an `SKID`
-  chunk is stated explicitly ("skeleton is external, see `.skel`") rather than
-  left as a `bones: 0` that reads like "no skeleton".
-- every `textures` entry's `type`/`flags`/`filename` (a real filename only for
-  `type == 0` -- every other type is a runtime-substituted slot, see
-  `src/m2.hpp`'s `Texture` doc comment), cross-referenced against `TXID`
-  FileDataIDs when present.
-- every `materials` entry's `flags`/`blend_mode`.
-- `attachments`/`events`/`lights` records, fully dereferenced (id/bone/
-  position, or type/bone/position for lights); `ribbon_emitters`/
-  `particle_emitters` get a one-line-per-emitter summary (id/bone/position,
-  plus blend/emitter type and tile counts for particles) -- full field/curve
-  data lives in `husk dump-chunks`, not here (see the format matrix).
-  `particle_emitters` stays counts-only below Cataclysm (version 272, see
-  `m2::kMinVerifiedParticleVersion`). `cameras` is still counts-only (not
-  dereferenced -- see the format matrix).
-- sidecar-reference chunks when present: `SFID` (skin FileDataIDs, used by
-  `--skin auto` below), `LDV1` (LOD count), `BFID` (`.bone` FileDataIDs),
-  `AFID` (`.anim` FileDataIDs).
-- for chunked files, every top-level chunk tag found, flagging any tag outside
-  husk's known-M2-chunk-tag list (see `DESIGN.md` for why that matters for
-  this format).
+## Design (the target)
 
-`husk info --json` prints the same information as one structured JSON
-document on stdout instead of the prose above (see
-`src/cmd_info_json.cpp`'s own doc comment for the field-by-field schema) --
-built so `tools/corpus_scan_tasks/*.py` can eventually parse husk's own
-answer instead of regexing prose text husk never promised to keep stable
-(REFACTOR/CLI_AND_TOOLING.md §3; converting those tasks over is separate,
-not-yet-done follow-up work). Purely additive: prose output is unchanged,
-byte for byte, when `--json` isn't given.
+What husk should be. Each line points at the document that defines it.
 
-### `husk export --input <file.m2> [OPTIONS]`
+- **Pipeline**: `parse → resolve → canonical → write`, one resolution
+  boundary, writers that never re-resolve (`REFACTOR/README.md`).
+- **The canonical bundle is the export target**; MantleCore is its
+  consumer. glTF and Blender are tertiary; the glTF pipeline is to be
+  retired (decided, not built). Concept: `CANONICAL_FORMAT.md`; format
+  record: `REFACTOR/BUNDLE_FORMAT.md`.
+- **Six document kinds** — `model`, `placement_set`, `world`, `effect`,
+  `material`, `technique` — under one contract header. `schema/*.schema.json`
+  is the definition (embedded in the binary, checked by `validate-bundle`).
+  Schema versions are `x.y.z`: `y` for breaking changes, `z` for additions.
+- **Invariants** (`REFACTOR/README.md` "Invariants" I1–I8): no paths in
+  `canon::`; one implementation per resolution question; a consumer opens
+  only what the manifest names; resolution announces itself; definition ≠
+  selection; identity is an ID, a name is decoration with a stated source;
+  item identity ≠ slot identity; the payload is preserved, never the
+  proprietary container.
+- **Boundaries**: local files only, never live CASC, no network. Every
+  foreign byte is read through bounds-checked parsing at named offsets and
+  fails with expected vs. actual, never a silent misread (`CLAUDE.md`
+  "Boundaries"). What husk can't resolve is reported, not fabricated.
+- **Documents are deterministic**; a game build's export is stored
+  content-addressed across builds (`REFACTOR/CORPUS_EXPORT.md`).
 
-Resolves the M2's vertices and the `.skin`'s triangle-index lookup into one
-glTF primitive per `.skin` batch, converts WoW's Z-up coordinates to glTF's
-Y-up, and writes a `.glb`. Only `--input`/`-i` is required; every other flag
-is named and order-independent (only `--input`/`-i` and `--output`/`-o` also
-work as bare positionals, first and last -- `husk export model.m2 out.glb`
--- the same universal `tool in out` muscle memory as `cp`/`mv`; every other
-flag must be spelled out, so adding a tenth flag later can never shift what
-a bare word means).
+Design notes on the code as it stands (why each decision): `DESIGN.md`.
+Wiki corrections found against real files: `WIKI_FINDINGS.md`. Why tests
+are transcribed from wowdev.wiki independently of `src/`, so a moving
+format fails a test instead of being misread: `TEST_DESIGN.md`.
 
-**Defaults.** Every flag left unset resolves from what's already sitting
-next to the model, announced on stderr as it's resolved, never silently:
+## Implementation (what exists now)
 
-- unset `--output` -> `<model-basename>.glb`.
-- `--output`/`-o` given but pointing at an existing directory ->
-  `<dir>/<model-basename>.glb` (same "guess the destination filename from
-  the source" convention `cp foo.txt somedir/` uses), and any missing
-  parent directories in the resolved path are created automatically
-  (`mkdir -p`-style) rather than failing -- `-o` is where the file should
-  end up, not an assertion that the directory structure already exists.
-- unset `--skin` -> the literal `auto` (see below).
-- unset `--textures`/`--skin-dir` -> the model's own directory -- a real
-  extraction already drops the `.m2` and everything it needs into one place,
-  so nothing here requires CASC/listfile access, just the filesystem layout
-  you already have.
-- unset `--anim` -> the literal `auto` (see below).
-- unset `--skel`, only relevant when the model has 0 inline bones -> checks
-  for a same-basename `.skel` next to the model; not finding one isn't an
-  error, since plenty of 0-bone models genuinely have no skeleton.
-- unset `--bones-dir`, only relevant when the model has bones at all ->
-  the model's own directory, same as `--textures`/`--skin-dir`.
+A feature is done where its implementation matches its design document.
+Open items live in the linked TODO files (index: `TODO/README.md`).
 
-Each of `--textures`/`--skin-dir`/`--skel`/`--bones-dir` also accepts the
-literal `none`, distinct from leaving it unset: `none` means "don't even
-try," skipping that resolution deliberately (no image embedded/no SFID
-search stage/no same-basename `.skel` lookup/no `.bone` correction data
-attached) rather than best-effort deriving it. Every default is overridable
-by giving that flag explicitly.
+| Feature | Design | Implementation state |
+|---|---|---|
+| M2 parsing (header, geometry, skeleton, `.skel`, animation incl. `.anim` `AFM2`/`AFSB`, aliases, global sequences, materials, emitters, collision, `.bone`, `.phys`) | `M2_COMPLETENESS.md`, `DESIGN.md` | Built. Open: `M2Camera` count only (deprioritized) |
+| M2 → canonical bundle (`export --bundle-only`) | `REFACTOR/CANONICAL_MODEL.md`, `REFACTOR/BUNDLE_FORMAT.md` | Mesh, rig + animation, materials, UV maps, LOD levels, attachments/events/lights/emitters, collision. Open: `REFACTOR/AUDIT.md` |
+| M2 → legacy glTF (`export`) | `DESIGN.md`, `EXTRAS_SCHEMA.md` | Feature-complete; validator- and Blender-checked (`tests/test_conformance.cpp`). Still the default output of `export`; retirement not started |
+| Creature options and presets | `REFACTOR/BUNDLE_FORMAT.md` "Options and presets" | Built from CreatureModelData → CreatureDisplayInfo. Open: `TODO/CREATURE_OPTIONS_TODO.md` |
+| Character customization and humanoid NPCs | `REFACTOR/BUNDLE_FORMAT.md`, `REFACTOR/MATERIALS.md` | Bundle: options and geosets, skin composites as material documents (slice 1), choice textures bound to their image inputs; no bone sets, items are refs only. glTF extras: full chain. Open: `TODO/MATERIALS_TODO.md`, `TODO/EQUIPPED_GEAR_RENDER_TODO.md` |
+| `.bone` correction application | `TODO/BONE_CORRECTION_APPLICATION_TODO.md` | Parsed and selected by customization choice; never applied (semantics unverified against the client) |
+| ADT terrain | `REFACTOR/BUNDLE_FORMAT.md` "Terrain tile bundles" | Heightfield, 0–8 splat layers, ground-cover rules, `MH2O`, placements as two sets, `_lod` levels, `_obj1` distant sets. Open: `TODO/WORLD/ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`, `WORLD_PLACEMENT_TODO.md` |
+| WMO | `REFACTOR/PLACEMENT_SETS.md`, `TODO/WORLD/WMO_GEOMETRY_TODO.md` | Root + groups → object bundle: geometry, materials, doodad sets, lights, `MLIQ`, portals, face-flag channels (collision), GFID levels, fog/volumes as effects. Open: skybox parsed not written, UV set per shader assumed, `MOC2`/`MOM3`, `MOBS` |
+| Maps and worlds | `REFACTOR/BUNDLE_FORMAT.md`, `TODO/WORLD/WDT_TODO.md` | WDT `MAIN`/`MAID`/`MPHD`, world document (grid, `_fogs.wdt`/`_mpv.wdt` volumes, off-grid WMO, zones). Open: `.wdl`, `.pvdata` |
+| Effects (fog, volumes, particles) | `REFACTOR/EFFECTS.md` | Every source exported as a placeholder effect; zone lights; derivation started. Open: classification (Phase 5), zone fog as a medium, M2 particle light roles |
+| Liquids | `REFACTOR/BUNDLE_FORMAT.md` | `MH2O`, `MLIQ`, liquid types from DB2. Open: `TODO/WORLD/LIQUID_TODO.md` §1–2 |
+| Lighting | `TODO/WORLD/LIGHTING_TODO.md` | WMO `MNLD`/`MOLT` static lights, map `Light` zones with `LightParams`. Open: that TODO |
+| Levels of detail | `REFACTOR/BUNDLE_FORMAT.md` "Levels of detail" | M2 `_lodNN` skins, WMO GFID rows, terrain `_lod.adt`. Open: `TODO/WORLD/ADT_LOD_TODO.md`, `MFOB` always empty (`FOG_VOLUMES_TODO.md` §1) |
+| Surface types | `WIKI_FINDINGS/WORLD.md` "Surface types" | TerrainType rows from terrain, WMO materials and faces. Open: ~7% of terrain quads resolve |
+| Corpus store | `REFACTOR/CORPUS_EXPORT.md` | Store, mount, `snapshot`, `export-corpus`, `store-prune`, `index-tree`. Open: shared effects/materials, incremental export, `TODO/CORPUS_EXPORT_TODO.md` |
+| Blender world authoring | `REFACTOR/BLENDER_WORLD_AUTHORING.md` | MVP: import by zone, bake onto any dicing. Open: textures/liquids/LOD on baked tiles |
+| Blender model addon | `REFACTOR/BLENDER_ADDON.md` | Not built. `tests/bundle_import_check.py` reads mesh, skeleton, base-colour materials |
+| Simulation | `REFACTOR/SIMULATION.md` | Proposal, nothing built |
+| DB2 | `DESIGN.md` "DB2 → SQLite" | WDC5 reader, WoWDBDefs naming, typed per-table readers |
+| BLP | `DESIGN.md` | Palettized, DXT1/3/5, BC5, BGRA. Not: JPEG (none in the corpus), palette alpha depth 4 |
+| M3, PM4/PD4 | `DESIGN.md` non-goals, `TODO/WORLD/PM4_PD4_TODO.md` | Not started |
 
-**`--skin`/`-s` argument.** Either a path to the `.skin` matching the LOD
-you want, or `auto` (the default), which tries the M2's own `SFID` chunk
-first -- resolving `<--skin-dir>/<FileDataID>.skin` for the entry `--lod`
-selects (default: entry 0, "the main skin", per wowdev.wiki), the
-FileDataID-renamed-directory convention a `--skin-dir` you populated
-yourself would use -- and falls back to the lowest-numbered (highest-detail)
-`<model-basename><N>.skin` file found in the model's own directory if that
-doesn't resolve (`bloodelffemale.m2` finds `bloodelffemale00.skin` next to
-it, but not `bloodelffemale_hd00.skin` -- a stricter match than a plain
-string prefix, see `src/cmd_export.cpp`'s `findSameBasenameSkins`). `auto`
-announces which stage resolved and what it found; an error, naming both
-attempts, if neither does. `--skin none` is rejected outright (not a real
-state) -- a `.skin` is the sole source of triangle/submesh/batch data, never
-optional enrichment. `--skin-dir`/`--lod` only mean anything alongside
-`--skin auto` (the default); giving either alongside an explicit `.skin`
-path is a usage error.
+### Legacy glTF roadmap
 
-**A model with real geometry but no resolvable `.skin` at all is a real,
-known extraction gap, not a husk bug.** A 130k-file corpus sweep
-found ~267 files -- spell-effect models, but also
-ordinary item pieces (shoulder armor, collections/recolor variants) -- whose
-`SFID` chunk names real FileDataIDs that simply don't exist anywhere in the
-extraction, under any name: not next to the model, not FileDataID-renamed in
-a `--skin-dir`, and not in the extraction tool's own "files it couldn't
-place" bucket either (checked directly). This is the extraction never having
-pulled those specific files, not husk failing to find or guess a real path
-it has access to -- husk has no CASC/listfile access by design (see
-`DESIGN.md`'s Non-goals) and can't re-request anything the extraction
-skipped. `auto`'s error message already names exactly what it tried; there's
-nothing more to try. Re-running the extraction tool (not husk) is the only
-fix, if these specific assets are needed. A 130k-file corpus sweep also
-found 334 genuinely 0-byte `.m2` files (same extraction-completeness class,
-not even a magic value to read) and, separately, a `.skin` whose own
-triangle-index buffer references far more vertices than its `.m2` actually
-has -- confirmed on real quest-helm and raid-helm variant files, roughly
-double the model's real vertex count, not a small offset -- and batch
-records whose `materialIndex`/`textureComboIndex` point one past the end of
-the model's own material/texture-combo array, confirmed uniformly across 16
-real collections/recolor item variants. Both are real, stale/mismatched
-Blizzard source data, not a husk defect: husk already does the right thing
-by refusing to fabricate geometry or guess a material it can't verify,
-failing loudly with the specific out-of-range index/count instead.
+The original M2 → Blender plan. All eight stages are done; `src/` comments
+cite them by number.
 
-**Materials.** Correct `alphaMode`/`doubleSided` from WoW's blend mode/render
-flags, plus a static `baseColorFactor` tint/fade from the batch's `M2Color`/
-`M2TextureWeight` references. When that reference is genuinely animated
-(a real per-sequence or global-sequence keyframe curve, not a single
-constant value -- e.g. an eye-glow or enchant-glow pulse), core glTF still
-has no way to *play back* an animated material property, but the real
-resolved curve is attached as `tint_animation`/`fade_animation` material
-`extras` (see `M2_COMPLETENESS.md`'s "Animated material tint/fade" row) for
-a custom renderer or Blender script to apply itself, rather than silently
-dropped -- `tools/husk_blender_geoset_mask.py`'s `apply_tint_fade_animation`
-(below) is that Blender script. The same applies to a genuinely-animated
-`M2TextureTransform` (UV scroll/rotate/scale that isn't a single constant
-value -- flowing lava/water, a scrolling spell-effect beam): the constant
-case gets a real `KHR_texture_transform`, but the animated case's full
-keyframe curve is attached as `texture_transform_animation` material
-extras (translation/rotation/scaling, each independently, only when that
-specific track is genuinely animated) for the same Blender script's
-`apply_texture_transform_animation` to play back. A texture whose
-`M2Texture::type` is nonzero (a hardcoded/
-replaceable slot -- character skin, hair, item tint, resolved at runtime
-from client-side DB2 data husk doesn't have) is tagged with a `texture_type`
-material extras key, so a missing `baseColorImagePng` reads as "husk can't
-resolve this slot at all," not "the `--textures` directory just didn't have
-the file." Both UV sets are exported (`TEXCOORD_0`/`TEXCOORD_1`);
-`baseColorTexture` samples whichever one the batch's `textureCoordComboIndex`
-points at (pre-Cataclysm models only -- see `src/cmd_export.cpp`'s
-`M2MaterialInputs`).
+1. Static mesh (Z-up → Y-up is `(X, Y, Z)` → `(X, Z, -Y)`, `DESIGN.md`).
+2. Skeleton and skinning.
+3. External `.skel` skeleton.
+4. BLP → PNG (now in-process, `src/blp.cpp`).
+5. Materials: one per `.skin` batch (`DESIGN.md`).
+6. Animation: inline, global-sequence, external `.anim`; plus `.bone`,
+   emitters and `dump-chunks`.
+7. Output hardening: `gltf_validator` and headless Blender in the tests.
+8. Multi-LOD export (`--lod <n>|all`).
 
-**Geosets.** Every primitive carries its submesh's real
-`M2SkinSection.skinSectionId` as glTF `extras`
-(`geoset_id`/`geoset_group`/`geoset_variant`). husk exports every submesh in
-the `.skin`, including mutually-exclusive character-customization options --
-it doesn't currently resolve real DB2 customization-choice data to ground a
-"correct" selection in for the general case (a locally-extracted `.db2`
-file is in scope, per `DESIGN.md`'s Non-goals) -- and prints every
-distinct geoset ID present whenever a `.skin` has more than one. `--db2-dir/
---dbd-dir/--customization-choice-ids` (see above) closes the general-case
-gap for a *specific* real customization choice: `tools/
-husk_blender_geoset_mask.py` reads the resulting `enabled_geosets` extras
-directly and pre-selects the matching dropdown item automatically (see
-below), no manual clicking needed for whatever choices were actually given
-at export time. Every export also carries one inert "tag" joint per
-distinct geoset ID, so Blender's own stock glTF
-importer builds a real per-geoset vertex group with no custom import
-tooling required -- `tools/husk_blender_geoset_mask.py` turns that into a
-Geometry Nodes Menu Switch dropdown per geoset group, letting a human pick
-a variant interactively instead of seeing every option rendered at once
-(one combined boolean "is this vertex visible" expression evaluated once,
-then exactly one `Separate Geometry` call against the pristine mesh --
-not a chain of per-variant separations, which real use once found could
-erode boundary-adjacent geometry). Two real bugs found via interactive
-Blender use (2026-08-08) are both fixed and verified, headlessly and by
-hand: variant 0 of geoset group 0 (`SKIN_OR_HAIR`) is the character's own
-base skin body, not a real hairstyle choice, and is now always visible
-(`ALWAYS_VISIBLE_VARIANTS`); the tabard-flap dropdown (group 12) toggles
-correctly, confirmed with a per-vertex debug-attribute check isolating the
-real int-value-to-item mapping.
-When the export also carried `chr_customization_options` (automatic
-whenever a real `ChrModelID` can be derived at all -- see above), the
-dropdown's own items and group labels use the real DB2 option/choice
-names ("Short Fin" under "Ears") instead of the plain `variant_<n>`
-numbering, for whichever groups/variants a real customization choice
-actually covers; a group with no matching choice (creature models, or a
-group with no player-facing customization at all, e.g. the base body)
-keeps the plain numeric label.
+### Format support matrix (M2 / M3 / WMO / ADT / BLP)
 
-The same script's second, independent job: if the export used `--db2-dir/
---dbd-dir/--char-layout-id` (below), it reads the real `chr_texture_layout`
-extras straight from the already-imported armature (Blender's own glTF
-importer has no supported extras target for a glTF *skin* at all --
-confirmed empirically -- so husk attaches this data to the skin's own root
-joint's node extras instead, which *does* survive import as a real custom
-property; no file path needed) and adds a toggleable magenta section-boundary overlay to
-every material the DB2 data actually concerns (matched by `texture_type`),
-off by default, wired so switching it back off exactly reproduces the
-material's original look. A fourth, independent job (see the Materials
-section above): `apply_texture_transform_animation`/`apply_tint_fade_animation`
-turn the genuinely-animated `texture_transform_animation`/`tint_animation`/
-`fade_animation` material extras into real playback -- a Mapping node (UV
-transform) or direct Principled BSDF drive (tint/fade), recomputed from the
-current scene frame via a `frame_change_pre` handler, looping on each
-curve's own real last-keyframe duration (not a fixed clip length --
-`scene.frame_end` is extended to fit it). Every stage in this script now
-runs independently (a failure in one prints a loud, specific error and
-never blocks the rest), per a real robustness gap this session's own work
-found before adding this fourth job.
+✅ read and exported · 📖 read, diagnostic only (`info`/`dump-chunks`) ·
+🚧 partial · ⬜ not started · ⬛ not a concept in this format. M3 is not
+started in any row (8 `.m3` files exist in the corpus; chunk survey:
+`documentation/wowdev-wiki/md/M3.md`). Per-element depth:
+`M2_COMPLETENESS.md`, `WORLD_COMPLETENESS.md`.
 
-**Second texture layers.** A batch with `textureCount > 1` (e.g. an
-env-mapped "shine" pass) gets a note on export and carries its extra
-layer(s) as material `extras` (FileDataID, UV set, embedded image if
-`--textures` matches) -- only the first layer is ever wired into the
-rendered material, since core glTF has no slot for WoW's fixed-function
-combiner math. Every material also carries `pixel_shader`/`vertex_shader`
-extras (real `Combiners_*`/`Diffuse_*` names, `M2Batch.shaderId` +
-`textureCount` resolved via `husk::m2::resolveShaderNames`, transcribed
-from wowdev.wiki's decompiled Cata+ `M2GetPixelShaderID`/
-`M2GetVertexShaderID`) -- names only, not rendered by husk itself; a
-Blender-side companion script builds the matching node recipe from them
-(`tools/corpus_scan_tasks/render_glb.py`'s `fix_multi_texture_layers`,
-the same site `blend_mode` handling already lives).
+| Concept | M2 | WMO | ADT / WDT | BLP |
+|---|---|---|---|---|
+| Container | ✅ `MD20`/`MD21`; every chunk tag checked against a known list; `WFV1`/`WFV2`/`DPIV`/`AFRA` byte-decoded | ✅ root + group files, reversed tags | ✅ root, `_obj0`, `_tex0`, `_lod`, `_obj1`; WDT | ✅ header, mip table |
+| Header | ✅ every wiki header field, `global_flags` bits, `textureCombinerCombos` | ✅ `MOHD` | ✅ WDT `MPHD`, `MAIN`, `MAID` | ✅ |
+| Geometry | ✅ vertices + `.skin` indices | ✅ `MOVT`/`MOVI`/`MOVX`/`MOBA` | ✅ `MCVT` heights, holes | ⬛ |
+| Normals | ✅ | ✅ `MONR` | ✅ `MCNR` (X, Y, Z on disk) | ⬛ |
+| UVs | ✅ both sets | ✅ every `MOTV` | ⬛ computed from position + layer scale | ⬛ |
+| Vertex colour | ⬛ (`colors` are per-batch tint) | ✅ `MOCV`; ⬜ `MOC2` | ⬜ `MCCV` | ⬛ |
+| Skeleton / skinning | ✅ inline or `.skel`; multi-root forests get a non-joint parent | ⬛ | ⬛ | ⬛ |
+| Animation | ✅ inline, global-sequence, `.anim` (`AFM2`, `AFSB`), alias chains | ✅ `MOUV` UV animation | ⬛ | ⬛ |
+| LOD | ✅ `SFID` skins, `LDV1` | ✅ GFID rows | ✅ `ML*` family | ✅ mip 0 only |
+| Materials | ✅ blend mode, flags, static and animated tint/fade, texture transforms, extra layers, shader names | ✅ `MOMT`, `MOTX`; ⬜ `MOM3` | ✅ `MCLY`, `MCAL` (all three forms), `MTXP`; ⬜ `MTXF` | ⬛ |
+| Texture references | ✅ `TXID`, `textures`, `textureCombos` | ✅ | ✅ `MDID`/`MHID`, `MTEX` via listfile | ⬛ |
+| Texture pixels | ⬛ | ⬛ | ⬛ | ✅ palette, DXT1/3/5, BC5, BGRA; ⬜ JPEG |
+| Collision / physics | ✅ collision mesh (`--collision`), `.phys` anchors; 📖 full `.phys`, `PCOL` | ✅ face flags select collision; ⬜ `MOBN`/`MOBR` BSP | ⬛ | ⬛ |
+| Attachments, events, cameras | ✅ attachments, events; 🚧 `M2Camera` count only | ⬛ | ⬛ | ⬛ |
+| Lights | ✅ | ✅ `MOLT`, `MNLD`, group `MOLS`/`MOLP` light sets | ✅ map `Light` zones (DB2) | ⬛ |
+| Particles / ribbons | ✅ placement anchors; 📖 full records; 📖 `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` | ✅ `MPVD` as effects | ⬛ `MCSE` is sound, not particles | ⬛ |
+| Fog / volumes | ⬛ | ✅ `MFOG`/`MFED`, `MAVG`/`MAVD`/`MBVD` as effects | ✅ `_fogs.wdt`, `_mpv.wdt`; ⬜ `.pvdata` | ⬛ |
+| Liquid | ⬛ | ✅ `MLIQ` | ✅ `MH2O`; ⬜ `MCLQ` (pre-Cata) | ⬛ |
+| Portals / culling | ⬛ | ✅ `MOPV`/`MOPT`/`MOPR`/`MOPE`; ⬜ `MOVV`/`MOVB` | ⬛ | ⬛ |
+| Placement | ⬛ | ✅ `MODS`/`MODN`/`MODI`/`MODD`/`MDDI` → placement sets | ✅ `MDDF`/`MODF`, `MWDR`/`MWDS` → placement sets | ⬛ |
+| Skybox | ⬛ | 🚧 `MOSB`/`MOSI` parsed, not written | ⬛ | ⬛ |
+| Sidecars | ✅ `.skin`, `.skel`, `.anim`, `.bone`, `.phys` by FileDataID or same basename | ✅ GFID → group files | ⬜ `.wdl` | ⬛ |
 
-**Skeleton + animation.** If the M2 has bones -- inline, or via `--skel`
-for models that keep them external instead (see `src/skel.hpp`) -- they
-resolve into a bind-pose glTF skin (`JOINTS_0`/`WEIGHTS_0`, inverse bind
-matrices, joint-node hierarchy), plus real glTF `animation` clips per
-`--anim`/`-a`'s four states:
+WMO chunks not in any row (`MDAL`/`MOPB`, `MOMX`, `MPB*`, v14-alpha
+chunks): dispositions in `WORLD_COMPLETENESS.md`.
 
-- `auto` (default): inline sequences (`flags & 0x20`) + global-sequence bone
-  tracks (eye-glow pulses, torch flicker, idle sway -- each its own
-  `global_seq_<n>` clip, independent of any `M2Sequence`), both resolved
-  straight from the model's own data, *plus* best-effort external-directory
-  search (default: the model's own directory) for sequences stored in an
-  external `.anim` file instead.
-- `inline`: inline sequences + global-sequence tracks only; external search
-  explicitly skipped.
-- `none`: zero `animation` clips at all -- the bind pose itself
-  (`JOINTS_0`/`WEIGHTS_0`, inverse bind matrices) is unaffected, only clips
-  are suppressed.
-- `<dir>`: explicit directory for the external-search stage; inline +
-  global-sequence clips still resolve on top of it, same as `auto`.
+### Known gaps
 
-External `.anim` files resolve either shape husk has seen in real files:
-`AFM2` (flat, inline-boned models) or `AFSB` (`.skel`-linked models' real
-shape, cracked and resolved -- see `DESIGN.md`/`WIKI_FINDINGS/M2/anim.md`). Only
-the `0x40` ("alias") flag case is still skipped, never guessed --
-wowdev.wiki: "I have no clue" where that data lives.
+Found on the WoW Forever survey (2026-11-09), present in both live and
+forever builds; details in `WIKI_FINDINGS/FOREVER.md`.
 
-The external-directory search tries `<FileDataID>.anim` first (via the
-model's/`.skel`'s own `AFID` table), falling back to
-`<model-basename><animId>-<subAnimId>.anim` if that isn't found -- a real
-`wow.export`-style extraction names its files this second way, not by
-FileDataID (same two-stage shape `--skin auto`'s SFID-then-same-basename-scan
-already uses).
+- **WMO group chunk `MOBS`** is present in every WMO group sampled; husk
+  neither parses nor mentions it.
+- **`environments/particulatevolumes/pvdata/*.pvdata`** (85 files; not
+  chunked, a serialized blob starting `u16 4, u16 3`) are not read; husk
+  reads `_mpv.wdt` only.
 
-**`.bone` corrections.** If the model's/`.skel`'s `BFID` array names any
-`.bone` sidecar files and `--bones-dir` resolves any of them to a real
-`<FileDataID>.bone` on disk, husk attaches every resolved file's real
-`(bone_index, correction_matrix)` pairs as `bone_correction_sets` on the
-glTF skin's own `extras` -- and stops there by default. These are never
-applied to the bind pose or any animation: which of a model's several
-`.bone` files is "correct" for a given character is selected by client-side
-customization-choice data (which slider/dropdown value the player picked).
-If `--customization-choice-ids` is also given (see below), any real
-`ChrCustomizationChoiceID` whose `ChrCustomizationBoneSet.BoneFileDataID`
-matches one of these already-resolved sets gets its choice ID added to that
-set's own `selected_by_choice_ids` extras -- still inert, never applied,
-just marking *which* slot a real customization choice actually picks
-(`TODO/BONE_CORRECTION_APPLICATION_TODO.md`, `WIKI_FINDINGS/BONE.md`). A downstream
-renderer or Blender script that wants to apply the right slot has
-everything it needs from this alone -- see `TODO/
-BONE_CORRECTION_APPLICATION_TODO.md` for why nothing does yet (the
-correction's own application semantics were never verified against real
-client behavior, a separate blocker from selection).
+Real source-data defects husk reports instead of guessing (missing `.skin`
+FileDataIDs, 0-byte files, `.skin`/batch indices past the model's own
+arrays): `corpus_reports/REPORT.md`.
 
-**Real geoset/bone-correction-set selection from a customization choice.**
-If `--db2-dir`/`--dbd-dir`/`--customization-choice-ids` are all given, husk
-resolves each real `ChrCustomizationChoiceID` against
-`ChrCustomizationElement`/`ChrCustomizationGeoset`/`ChrCustomizationBoneSet`
-(`src/chrcustomization_db2.hpp`) -- the real DB2 chain a specific
-hairstyle/facial-hair/etc. choice enables. A choice resolving a geoset is
-attached as `{choice_id, geoset_id}` on the glTF skin's own `enabled_geosets`
-extras (`geoset_id` uses the same `group*100+variant` convention as a
-primitive's own `geoset_id` extras, so it can be matched directly); a choice
-resolving a bone-correction set marks the matching `--bones-dir`-resolved
-`bone_correction_sets` entry as described above. Same "inert, husk doesn't
-filter/apply anything itself" treatment as every other DB2 extras feature --
-the caller supplies real choice IDs directly, or lets husk pick a real
-*default* choice per option instead (`--chr-model-id`, see below --
-`ChrCustomizationOption`/`ChrCustomizationChoice`, once confirmed 0 bytes
-in the local extraction, were fetched via the sibling `tact-fetch` project
-and placed locally 2026-08-20). Verified end to end
-against real local `chrcustomizationelement.db2`/`chrcustomizationgeoset.db2`/
-`chrcustomizationboneset.db2` data. `tools/husk_blender_geoset_mask.py`
-reads the resulting `enabled_geosets` extras straight from the
-already-imported armature (same root-joint-extras pattern as
-`chr_texture_layout` below, since skin extras have no supported Blender
-importer target) and pre-selects each geoset group's
-dropdown accordingly -- verified headlessly against a real fixture, including
-the evaluated mesh's own vertex count actually changing between states, not
-just the modifier's stored value.
+## Tooling
 
-**Real texture-material resolution from a customization choice.** The same
-`--customization-choice-ids`/`--chr-model-id` chain above also resolves
-each choice's real `ChrCustomizationMaterialID` (when it has one) through
-`ChrCustomizationMaterial` and `TextureFileData.db2`
-(`src/texturefiledata_db2.hpp`) to a real texture `FileDataID`, attached as
-`{choice_id, chr_model_texture_target_id, material_resources_id,
-file_data_id}` on the glTF skin's own `chr_enabled_materials` extras (0 in
-`file_data_id` when `TextureFileData.db2` couldn't resolve it -- reported,
-not fabricated). `chr_texture_layout`'s own `texture_layers` entries carry
-the matching `chr_model_texture_target_id` join key, so a downstream
-consumer can find a resolved material's real placement rect/blend mode
-without husk resolving that join itself.
+- `tools/` — corpus scans, the headless render pipeline, Blender scripts,
+  shader export: `TOOLS.md`, `tools/CORPUS_SCANS.md`. The full-corpus
+  render is human-gated: never run it without Luna's go-ahead.
+- `blp/` — the Python reference BLP decoder `tests/test_blp.cpp` checks
+  against (`TEST_DESIGN.md`).
 
-husk also attaches the **full** real customization menu -- every real
-`ChrCustomizationOption`/`Choice` for the model, not just the choice(s) a
-given export run happened to resolve above -- as `chr_customization_options`
-extras (one entry per option, each with its own `choices[]`, each choice
-carrying its own real `geoset_id`/`materials[]` resolution). This happens
-**automatically** whenever a real `ChrModelID` can be determined at all --
-`--chr-model-id` defaults to `auto`, so given only `--db2-dir`/`--dbd-dir`
-(no `--chr-model-id`, no `--customization-choice-ids` at all) husk still
-tries to derive one; explicit `--customization-choice-ids` alone also
-triggers the same best-effort attempt purely for this full-menu extras.
-Each option also carries its real `ChrCustomizationCategory` grouping when
-one resolves (`category_id`/`category_name`/`category_order_index` --
-e.g. "Face"/"Hair"/"Body"/"Accessories"/"Markings", the same real section
-headers the in-game character-creation screen uses), present only when a
-real category was found -- absent, not a fabricated `0`/`""`, for an
-option whose `ChrCustomizationCategoryID` is 0 or doesn't resolve.
-`tools/husk_blender_options_panel.py` groups its own option list under
-these real category headers instead of one flat list.
-`--chr-model-id none` explicitly opts out. Deliberately not gated behind
-a magic-words flag, so a downstream Blender script (`TODO/
-CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`) never needs a second export run
-just to enumerate what's selectable.
+## Flag reference (generated)
 
-Deliberately stops here --
-actually compositing the pixels is not husk's job (an earlier attempt at
-doing it in software was reverted; Blender's own shader nodes, which have
-Multiply/Overlay/Screen built in natively, are the right layer for that --
-see `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` for the Blender-side
-node-graph tooling). Verified end to end
-(`tests/test_cli_chrcustomization.cpp`).
-
-**A heuristic default customization choice per option, from real
-`ChrCustomizationOption`/`ChrCustomizationChoice` names.** Given
-`--db2-dir`/`--dbd-dir` and a resolvable `ChrModelID` (no explicit
-`--customization-choice-ids`, which always wins when both are given), husk
-resolves every real `ChrCustomizationOption` belonging to that
-`ChrModelID` and auto-selects the choice with the lowest real `OrderIndex`
-under each one -- mirroring the character-creation UI's own first-shown
-choice (`src/chrcustomization_db2.hpp`'s `defaultChoiceIdsForModel`). Each
-auto-selected choice is then resolved exactly as an explicit
-`--customization-choice-ids` entry would be (same `enabled_geosets`/
-`selected_by_choice_ids` extras), and every real `OptionName -> ChoiceName`
-pair used is printed to stderr (`namedChoicesForModel`) so the caller can
-see what was actually picked. **Not** a client-verified default the way
-`CreatureDisplayInfoGeosetData` is for creatures below -- no DB2 table
-states an explicit default for a player option, this is husk's own
-heuristic. `--chr-model-id` defaults to
-the literal value `auto` (no need to pass it explicitly), which tries two
-real derivation paths in order (`src/chrrace_db2.hpp`):
-
-1. **Primary, via the model's own real FileDataID.** If `--listfile`/
-   `--listfile-root` resolve the input `.m2`'s own real FileDataID, husk
-   chases `CreatureModelData.FileDataID -> CreatureDisplayInfo.ModelID ->
-   ChrModel.DisplayID` -- exact file identity, never ambiguous for a real
-   file. This matters because race+sex alone genuinely can be ambiguous:
-   Dracthyr's dragon form (`dracthyrdragon.m2`, `ChrModel.Sex` 3 --
-   shared, playable by either sex via in-game transformation) and its
-   male Visage form (`dracthyrmale.m2`, `ChrModel.Sex` 0) are both real,
-   valid answers to "Dracthyr, male" -- but only one is the *right*
-   answer for a specific input file. Verified end to end against real
-   local data: `dracthyrmale.m2`'s own FileDataID resolves to exactly
-   `ChrModelID` 127 (not 89, the dragon form), `dracthyrfemale.m2` to
-   128, `dracthyrdragon.m2` to 89 -- each cross-checked directly against
-   `chrmodel.db2`/`creaturedisplayinfo.db2`/`creaturemodeldata.db2`
-   before trusting the CLI's own output.
-2. **Fallback, only when no FileDataID was found** (no `--listfile`
-   given, or this path isn't under `--listfile-root`/in it): parses the
-   input `.m2`'s own filename against WoW's real client-side naming
-   convention (`<ClientFileString><"male"|"female">[_hd].m2`) and
-   resolves `ChrRaces.ClientFileString` + sex to a `ChrModelID` via
-   `ChrRaceXChrModel` -- an exact, case-insensitive match only, never
-   fuzzy. This path *can* be genuinely ambiguous (the Dracthyr case
-   above) since it only knows race+sex, not file identity -- reports both
-   candidates and asks for an explicit ID rather than guessing, same as
-   every other "can't resolve to exactly one real answer" case in this
-   tool.
-
-Either path reports and skips (never guesses) when it can't resolve to
-exactly one real `ChrModelID`. Otherwise (a literal numeric ID, or `auto`
-failing both paths) husk still can't guess which `ChrModelID` applies, so
-the caller supplies it directly, same pattern as
-`--char-layout-id`/`--creature-display-id`. Verified end
-to end against real local data: `ChrModelID` 89 (Dracthyr) resolves 45
-default choices, 7 with real geoset selections (e.g.
-"Ears -> Short Fin", `OrderIndex` 0), cross-checked directly against the
-source DB2 rows.
-
-**Real default geoset selection for creatures/NPCs, from
-`CreatureDisplayInfoGeosetData`.** A genuinely different mechanism from the
-player-character chain above -- creatures/NPCs don't have customization
-choices, they have one real per-display *default* geoset selection baked
-into the data. If `--db2-dir`/`--dbd-dir`/`--creature-display-id` are all
-given, husk resolves that real `CreatureDisplayInfoID` against
-`CreatureDisplayInfoGeosetData.db2` (`src/creature_geoset_db2.hpp`) and
-attaches every matching row as `{geoset_index, geoset_value, geoset_id}` on
-the glTF skin's own `creature_enabled_geosets` extras -- `geoset_id` uses
-`(geoset_index+1)*100+geoset_value` (cross-checked against
-`reference/wow.export`'s own `DBCreatures.js`, deliberately *not* the
-character convention above despite the resemblance). No per-choice caller
-input needed beyond the display ID itself -- unlike
-`--customization-choice-ids`, this *is* a true default. husk still can't
-derive which `CreatureDisplayInfoID` applies to a given `.m2` on its own
-(that's the separate `CreatureDisplayInfo.ModelID` chain), so the caller
-supplies it directly, same pattern as `--char-layout-id`. Verified end to
-end against real local `creaturedisplayinfogeosetdata.db2` data
-(`creature/gnoll2/gnoll2.m2`, display 137795, 13 real rows, every
-`geoset_id` cross-checked by hand against the source DB2 rows).
-
-**`.phys` physics/collision data.** If `--phys` resolves a real `.phys`
-sidecar (see `PFID`'s single-scalar-FileDataID resolution above, mirroring
-`--skel`), husk attaches a minimal per-body placement anchor -- id, owning
-bone, position, body type -- as a `physics_bodies` key, plus a reduced
-per-joint spring/limit summary (source body pair, real spring frequency/
-damping when the joint carries one, and a normalized swing-limit angle
-otherwise) as a sibling `physics_joints` key, both real extras on the
-exported skeleton -- the same "inert
-placement data only" treatment ribbon/particle emitters get. Both are
-deliberately reduced views, not the full record set: `physics_joints`
-carries none of a joint's own frame matrices or shape geometry, and no
-full body/shape/`PHYV` records at all -- a single real file can have 40+
-bodies, each with several shapes/joints, which would bloat every export
-far more than `bone_correction_sets` ever did. The full resolved record set
-is still available separately via `husk dump-chunks <file.phys>` (see the
-Usage section below, which also accepts a `.phys` file directly, same as
-`.bone`) for anything that needs the geometry `physics_joints` leaves out --
-`physics_bodies`/`physics_joints` alone are enough to drive the Blender-side
-jiggle-bone wiring described next, no separate `husk dump-chunks` call
-needed at Blender-import time.
-
-**Turning that into live jiggle in Blender.** husk itself never simulates
-physics -- it only exports the real data. `tools/husk_blender_geoset_mask.py`
-can wire that data into live secondary motion using the third-party
-["Jiggle Physics" Blender addon](https://extensions.blender.org/add-ons/jiggle-physics/)
-(`naelstrof/blender-jiggle-physics` on GitHub; install it yourself via
-*Edit > Preferences > Get Extensions*, search "Jiggle Physics" -- or, in an
-interactive session, let the script offer to: if it finds real
-`physics_bodies`/`physics_joints` extras but the addon isn't installed, it
-pops a native Blender confirm dialog offering to install it from
-extensions.blender.org directly, real install only on a real click -- this
-script itself never downloads or installs anything on its own;
-headless/`--background` runs just print a console note instead, since
-there's no dialog to show). With the addon enabled, running the script
-against a `--phys`-exported `.glb` reads `physics_bodies`/`physics_joints`
-straight from the already-imported armature -- no `husk` binary, no
-separate `.phys` file, and no extra flag needed at Blender-import time,
-since both extras travel inside the `.glb` itself -- and, for every joint
-edge that lines up with a real bone parent/child pair in the imported
-armature, enables `jiggle` on those bones with a root/normal/tip mode and a
-best-effort elasticity derived from the real spring frequency or swing-limit
-data (see `apply_physics_jiggle_bones`'s own doc comment for exactly how --
-Jiggle Physics' own 0-1 "elasticity" knobs are an authorable approximation,
-not a physical unit, so there's no exact conversion from WoW's own Hz/
-damping-ratio spring fields; treat the result as a starting point to tune by
-eye in the viewport, not a faithful port). A joint edge that connects two
-bodies whose bones *aren't* parent/child in the armature is skipped with a
-console note rather than force-fit, since the addon can only simulate along
-the existing bone hierarchy. Verified end to end against a real chain prop
-(`8xp_heartofazeroth_prop_floatychain.phys`, a 5-bone linear chain, every
-joint edge a real parent/child pair) -- not yet verified against a real
-character hair/cloak `.phys` file (none was available locally this session)
-or a file with a genuinely branching joint graph.
-
-**Character texture-layout geometry.** If `--db2-dir`/`--dbd-dir` are
-given, husk resolves a `CharComponentTextureLayoutsID` against four real
-character-texture DB2
-tables (`ChrModelMaterial`/`CharComponentTextureSections`/
-`ChrModelTextureLayer`/`CharComponentTextureLayouts`, `src/chrmodel_db2.hpp`
--- built on `src/db2table.hpp`'s generic named-column reader, itself built
-on `db2.hpp`/`dbd.hpp`) and attaches the real, filtered result -- base atlas
-size, every real placement rect (`SectionType`/`X`/`Y`/`Width`/`Height`),
-every real texture layer (`TextureType`/`Layer`/`BlendMode`/
-`TextureSectionTypeBitMask`) -- as `chr_texture_layout` on the glTF skin's
-own `extras`. Same "inert, never applied to the render" treatment as every
-other DB2/sidecar extras above. `--char-layout-id` itself is optional --
-unset (default) auto-derives it from the resolved `--chr-model-id`'s own
-real `ChrModel.CharComponentTextureLayoutID` column (same table/row
-`--chr-model-id auto` already reads to get the identity itself; same
-`auto`&#124;`none`&#124;`<id>` derivation control as `--chr-model-id` --
-`--chr-model-id none` disables this too); an explicit value always
-overrides. Given `--db2-dir` without `--dbd-dir`, husk prints a
-diagnostic and skips the feature rather than failing the export. Verified
-end to end against the real `bloodelffemale_hd.m2`, both explicitly
-(`--char-layout-id 122`) and auto-derived (`--db2-dir`/`--dbd-dir` only,
-`ChrModelID` 20 derived via `--chr-model-id auto`): 5 materials, 12
-sections, 18 texture layers, real 2048x1024 atlas, headless-Blender-
-import-clean. Since Blender's
-own glTF importer has no supported extras target for a glTF *skin* at all,
-husk attaches this data to the skin's own root joint's node extras instead
-(a real Bone after import, whose custom properties *do* survive) --
-`tools/husk_blender_geoset_mask.py` (above) reads it straight from the
-imported armature and turns it into a toggleable material overlay, the
-practical way to actually see it in Blender.
-
-Flags: this table is generated from `husk export`'s own CLI11 flag
-registrations (`src/cmd_export.cpp`'s `addExportOptions`) -- the exact same
-text `husk export --help` prints, not a second hand-copied explanation. To
-regenerate after changing a flag's description or adding/removing one, run
-`husk --print-flag-docs=export` and paste its output between the markers
-below (`tests/test_cli_flag_docs.cpp` fails the build if it ever drifts).
-See DESIGN.md's "Three-state resolution, not two" for why the `auto`/`none`/
-`<explicit>` convention mentioned in several rows below exists and which
-flags don't get `auto`.
+Generated from the CLI11 registrations by `husk --print-flag-docs=<command>`;
+paste its output between the markers. `tests/test_cli_flag_docs.cpp` fails
+when a table drifts.
 
 <!-- BEGIN GENERATED FLAG TABLE: export -->
 <!-- generated by `husk --print-flag-docs=export` -- do not hand-edit; regenerate with that command whenever export's flags change. -->
@@ -660,334 +295,6 @@ flags don't get `auto`.
 
 <!-- END GENERATED FLAG TABLE: export -->
 
-**Batch export.** `--from-list`/`--output-dir` mirror `casc-tool`'s own
-`extract-batch --from-list <ids-file> <out-dir>` shape: a plain worklist
-file instead of one `.m2` per invocation, opening/loading shared resources
-(today, just `--listfile`) once for the whole run instead of once per file
--- the same problem `tools/export_hd_characters.nu`/`render_sample_driver.py`
-each solved externally by looping `husk export` themselves, now solved
-in-process. Every other flag (`--textures`, `--db2-dir`, `--anim`, ...)
-still applies identically to every entry in the batch, exactly as it would
-to a single `husk export` call with that same model. Example:
-
-```sh
-husk export --from-list corpus_worklist.txt --output-dir out/ \
-  --textures /media/luna/wow_export/live --listfile community-listfile.csv \
-  --listfile-root /media/luna/wow_export/live
-```
-
-Texture resolution deliberately tries real-filename matches before
-`<FileDataID>.png`/`.blp`, for every texture slot, not just ones husk can't
-resolve a FileDataID for -- a real extraction workflow (`reference/
-wow.export`, or a raw CASC export directory of `.blp` files) commonly
-produces descriptively-named files, not FileDataID-named ones. In order:
-(1) an exact match on the M2's own embedded filename, when the file has one
-(real M2 data, older/classic-era files); (2) `<FileDataID>.png` or
-`<FileDataID>.blp`, when that specific file is actually present (`.png`
-wins if both exist); (3) when `--listfile` was given, that FileDataID's
-real corpus-relative path, if it resolves to a real file under
-`--listfile-root` (still deterministic -- real data, not a guess; a
-separate root from `--textures`, see that flag's own row above); (4) the
-sole real file in `--textures` sharing the model's own basename prefix, if
-exactly one
-remains unclaimed (two or more: reported, never guessed at). A `.blp`
-candidate at any of these steps is decoded and PNG-re-encoded in memory
-(`src/blp.cpp`) -- no `husk-blp` invocation, no intermediate file, unless
-`--textures-out` is given. Whichever FileDataID husk resolved for a slot is
-recorded either way (`texture_file_data_id` glTF extras, plus the full
-diagnostic chain in `diagnostic_name` extras, see "Material and texture
-naming" below) even when a differently-named file supplied the actual image.
-Only (1), (2), and (3) above are genuinely deterministic; a match via (4)
-prints a `husk: warning:` line naming the material and file (plus the
-resolved FileDataID, if the slot has one, so it can be checked against a
-listfile/wow.tools by hand -- without `--listfile`, husk itself has no
-other way to verify a FileDataID's real name against the file it claimed).
-
-If no matching image is found in the resolved `--textures` directory,
-materials still carry the correct blend mode, culling, and tint/fade -- they
-render as a flat tinted surface instead of the real WoW texture.
-
-**Slim (external-texture) export.** `--slim-textures` writes each resolved
-base-color texture as a real `<output-dir>/textures/<name>.png` file (named
-per the priority chain below) instead of embedding it in the `.glb`'s own
-binary buffer, setting the glTF `image.uri` to the relative path
-`textures/<name>.png` instead of `image.bufferView` -- a real external glTF
-image reference, resolved by any spec-conformant importer (including
-Blender's own) relative to the `.glb`/`.gltf` file's directory. Materials
-sharing the same resolved image write the file once and share the same
-`uri` (the existing alternate-texture dedup cache, now also gating the
-write). Meaningfully smaller `.glb` files for a real character export, at
-the cost of the `.glb` no longer being a single self-contained file -- the
-`textures/` directory has to travel with it. Additional-texture-layer
-(`textureCount > 1`) and ambiguous-hardcoded-slot-candidate (`alternate_
-textures` extras) images always stay embedded regardless of this flag --
-comparatively rare/small, diagnostic-only pools, out of this flag's scope.
-
-```sh
-husk export bloodelffemale_hd.m2 -o out/bloodelffemale_hd.glb --slim-textures
-# writes out/bloodelffemale_hd.glb *and* out/textures/<name>.png per texture
-```
-
-**Material and texture naming.** A resolved material's own glTF `name`
-(the name Blender's own Material list shows) and, under `--slim-textures`
-above, its written texture filename's stem both follow the same
-human-readable priority chain, most-specific first: (1) a real
-`--listfile` content-path name (e.g. `scalpupperhair00_08`), when
-`--listfile` resolved this material's `baseColorTextureFileDataId`; (2) a
-real `ChrCustomizationOption`/`Choice` name (e.g. `Hair Color: Blonde 01`)
-cross-referenced from `--chr-model-id`/`--db2-dir`'s customization menu,
-when this FileDataID matches a real customization choice; (3) the
-texture's own semantic type name (`m2::textureTypeName`, e.g. `skin`,
-`char_hair`) whenever WoW's own `M2Texture::type` identifies the slot;
-(4) otherwise, the full diagnostic chain
-(`mat<N>_tex<T>_<type>_fdid<id>_<stem>`) husk always computes regardless.
-That diagnostic chain is never discarded -- it's carried on every material
-as `diagnostic_name` glTF extras, so a Blender material can still be
-cross-referenced back to its source `.skin` batch/texture index even once
-`name` itself shows something cleaner. A material with no FileDataID, no
-customization match, and no known texture type (most non-character
-prop/weapon materials) falls straight through to (4), same as before this
-naming priority existed.
-
-Shell completion (bash/zsh) for every subcommand and flag above ships in
-`completions/` -- see that directory's own files, generated from husk's real
-flag definitions via the hidden `--print-completion=<bash|zsh>` flag rather
-than hand-maintained.
-
-Examples:
-
-```
-# everything (.skin, .skel, textures) sits next to the model already
-husk export bloodelffemale.m2
-
-# same, with paths spelled out explicitly
-husk export bloodelffemale.m2 out.glb --skin bloodelffemale00.skin --textures ./png
-
-# FileDataID-renamed-directory workflow, every LOD tier in one .glb
-husk export bloodelffemale.m2 out.glb --skin-dir ./skins --lod all
-
-# .skel-sourced skeleton, external animation data
-husk export bloodelffemale_hd.m2 out.glb --skin bloodelffemale_hd00.skin \
-  --skel bloodelffemale_hd.skel --anim ./anims
-```
-
-### Config file
-
-`husk export` reads default flag values from a TOML config file, when one
-is found -- for the flags that tend to stay the same across every run on a
-given machine (`--dbd-dir`, `--db2-dir`, `--listfile`, `--listfile-root`,
-`--textures`, ...), so they don't need to be typed on every invocation.
-This is [CLI11](https://github.com/CLIUtils/CLI11)'s own built-in
-`App::set_config` support, not a hand-rolled parser: every config key maps
-directly onto the same `add_option` flag registration the CLI itself uses,
-so it gets the exact same `->check()` validators, the exact same "reject
-`--skin none`, reject a non-numeric `--char-layout-id`" foreign-data
-checking every flag already has -- a config value is validated exactly
-like a user typing the equivalent flag by hand, no separate code path to
-keep in sync (and no way for a config value to bypass a check a flag value
-would have hit).
-
-**Precedence: an explicit CLI flag always wins over a config value, which
-always wins over the flag's own built-in default.** Nothing here changes
-what "unset" means for any flag -- a config file is just a different way
-of supplying the value a flag would otherwise take on the command line.
-
-**Opting a single flag back out.** `--db2-dir`, `--dbd-dir`, `--listfile`,
-and `--listfile-root` also accept the literal value `none`, which beats a
-config-supplied value the same way an explicit CLI flag always beats config
--- `husk export model.m2 --listfile none` runs exactly as if `listfile`
-were never set in the config at all, without touching the rest of the
-config. See DESIGN.md's "Three-state resolution, not two" for why these
-four flags don't get `auto` too. Scoped to wherever a config default
-actually exists to opt back out of: all four on `export`; `--listfile`/
-`--listfile-root` on `resolve`; `--dbd-dir` on `db2-export`; `--db2-dir`/
-`--dbd-dir` on `appearance-string`; all four on `export-terrain`; `--db2-dir`/
-`--dbd-dir` on `export-world`. Not on `db2-build`, whose own three are
-required, nor on `export-world`'s `--listfile`/`--listfile-root`, also
-required (no off-state is meaningful for a command that can't run without
-them).
-
-**Path resolution, in order**: `--config <path>` (explicit) ->
-`$HUSK_CONFIG` (env var) -> `$XDG_CONFIG_HOME/husk/config.toml`, falling
-back to `~/.config/husk/config.toml` if `$XDG_CONFIG_HOME` is unset (the
-standard Linux config-dir convention -- same `$XDG_..._HOME` pattern as
-this project's own cache directory usage, just the config variable
-instead of the cache one). No config file at the resolved path is not an
-error -- same "unset is the no-flag state" convention every other opt-in
-sidecar in this project already follows; export runs exactly as if no
-config file support existed at all.
-
-**Deliberately unfiltered, by design.** Every flag `addExportOptions`
-registers -- including `--input`/`--output`, which change per invocation
-rather than per machine -- is technically config-settable, since CLI11's
-config support has no notion of "these flags but not those." The example
-below only demonstrates the genuinely-stable ones on purpose; nothing
-stops a user from setting `output = "..."` too, but doing so isn't
-advertised, and finding it requires reading this section or the source,
-not stumbling into it by accident. Anyone who does set it did so in the
-same validated TOML syntax husk already understands for every other key,
-so there's no new failure mode to guard against -- just a config that
-makes a specific single-model workflow ("run husk on whatever file I
-name, output always lands next to it") awkward, which is the user's own
-choice to make.
-
-Example `~/.config/husk/config.toml`:
-
-```toml
-dbd-dir = "/home/luna/dev/husk/reference/WoWDBDefs"
-db2-dir = "/media/luna/wow_export/live/dbfilesclient"
-listfile = "/home/luna/dev/casc-tool/development/community-listfile-2026-10-08.csv"
-listfile-root = "/media/luna/wow_export/live"
-```
-
-`export`, `resolve`, `export-terrain`, `export-world`, `db2-export`,
-`db2-build`, and `appearance-string` (its `--db2-dir`/`--dbd-dir`, used to
-resolve `gear` entries -- see "`husk appearance-string`" below) support this; `db2-info`/`dump-chunks`/
-`blp-export`/`info` don't, since none of their flags are actually
-per-machine-stable.
-
-### Listfile cache
-
-`--listfile` normally means re-parsing a real `community-listfile.csv`
-(~148MB, ~2.2M rows) from scratch on every invocation -- most of a real
-`husk resolve`/`export` call's own runtime on a simple model. Every
-command that loads `--listfile` (`export`, `resolve`, `db2-build`) now
-does so through a persistent, on-disk, packed-binary cache instead, so
-repeated invocations against the same listfile skip that parse. This is a
-pure optimization: cached or not, resolution results are identical --
-nothing about how `--listfile` behaves from the outside changes.
-
-If you find a `~/.cache/husk/` directory (or `$XDG_CACHE_HOME/husk`) and
-weren't sure what put it there, this is it: `listfile.bin` (the cached
-data) and `listfile.tag` (a freshness marker, content-empty -- only its
-mtime matters). Safe to delete either or both at any time; the next
-`--listfile` invocation just rebuilds them.
-
-**Staleness**: the cache stays warm for 10 minutes of actual use --
-`listfile.tag`'s mtime is refreshed on every hit, so a corpus scan that
-keeps calling `husk` never sees it expire, but an idle machine reparses
-fresh the next time around rather than trusting a cache that might be
-hours or days stale. Independently of that timer, the cache also checks
-the source file's own path/size/mtime on every use within the freshness
-window -- pointing `--listfile` at a different file, or editing the same
-file in place, always forces a rebuild, never a silent stale read.
-
-**Location**: `$XDG_CACHE_HOME/husk`, falling back to `$HOME/.cache/husk`
--- mirrors the sibling `tact-fetch` project's own cache-directory
-convention. `$HUSK_CACHE_DIR` overrides it, if you want the cache
-somewhere else (or want to keep several isolated from each other).
-
-**Measured real-world impact is modest, not dramatic** -- worth stating
-plainly rather than overselling it. `husk resolve` against the real
-`bloodelffemale.m2`/`bloodelffemale_hd.m2` fixture from this project's own
-test corpus, n≥5 per condition, real `--listfile`:
-
-| Model | uncached (pre-cache HEAD) | cold cache (first use) | warm cache |
-|---|---|---|---|
-| simple item, no fuzzy-resolution pool (`cape_special_explorer_b_03.m2`) | ~696ms | ~984ms | ~668ms |
-| customization-heavy character (`bloodelffemale_hd.m2`) | ~17.58s | ~17.81s | ~17.59s |
-
-Warm cache is only about 4% faster than the uncached baseline on the
-simple model, and statistically indistinguishable on the character model
-(whose own same-basename fuzzy-pool resolution -- unrelated to
-`--listfile` -- dominates total runtime there). Cold cache is measurably
-*slower* than the uncached baseline (the same parse, plus a sort and a
-~145MB write, paid once). Root cause and what a real fix would need: see
-`DESIGN.md`'s "Listfile cache" section, specifically the "deliberate
-deviation" note -- eliminating the CSV's own text-scan cost turned out to
-matter less than expected, because building the final 2.2M-entry
-`unordered_map` (not the scan that feeds it) is the actual dominant cost,
-and every current caller still needs that full map.
-
-See `DESIGN.md`'s "Listfile cache" section for the full staleness/
-invalidation/concurrency design and why it's shaped this way.
-
-### Importing into Blender
-
-See `EXTRAS_SCHEMA.md` for the full index of every `extras` key husk
-attaches (where each one lives -- document/root-joint/material/primitive/
-node/animation -- what it carries, and which feature produces it), plus
-the `schema_version` this data is versioned under.
-
-Use **File > Import > glTF 2.0** with its default settings. That's the
-only import path this project's own real-interactive-use testing found to
-work correctly end to end (rest pose, animation playback, orientation,
-node hierarchy) -- other paths found by that testing to *not* work:
-drag-and-drop with default settings looked
-massively wrong (a legacy glTF 1.0 confusion, not a glTF 2.0 issue), and
-"import with custom settings" crashed on every attempt tried (a Blender-side
-bug, not husk's). If Blender ever changes this, re-verify against
-`tests/blender_import_check.py`'s same headless import path before trusting
-a different one.
-
-Each clip's own machine name is `anim_<sequence-id>_<variationIndex>`
-(or `global_seq_<n>` for a global-sequence-driven clip) -- husk also
-attaches a real `AnimationData.db2` name ("Stand", "Walk", ...) as
-`animation_data_name` clip `extras` when `--db2-dir`/`--dbd-dir` are
-given and that sequence id has a real row (current real client
-extractions have dropped the `Name` column from `AnimationData.db2`
-entirely, so this resolves for no real animation today -- see
-`DESIGN.md`). `tools/husk_blender_geoset_mask.py` marks every imported
-Action as a real Blender asset (`action.asset_mark()`) after import, so
-Blender's own Asset Browser works as a per-animation picker instead of
-scrubbing the raw Action/NLA list; when a real `animation_data_name` did
-resolve, the Action is renamed to it (the machine name survives as the
-asset's own description either way).
-
-`tools/husk_blender_options_panel.py` is a separate, persistent N-panel
-(`View3D > husk` tab) for browsing/editing a character's real
-customization-choice menu once imported -- unlike
-`husk_blender_geoset_mask.py` (post-import wiring, run once), this one is
-meant to travel with the `.blend` file itself (embed it as a registered
-`Text` datablock to have it self-install on every future open). Real
-per-model option/choice list, real cross-option dependency status (from
-husk's own resolved `related_choice_id` data), and -- run after
-`husk_blender_geoset_mask.py`'s own node graphs/modifiers exist -- live
-two-way sync with both mechanisms it builds: picking a choice here pushes
-it into the real `NodeSocketMenu` texture-switch sockets on each relevant
-material *and* the real `HuskGeosetSwitch` Geometry Nodes modifier input
-for any choice with a `geoset_id`, and loading reads the current
-selection back from whichever of the two applies, rather than always
-showing each option's first choice. See
-`tools/BLENDER_OPTIONS_PANEL.md` for the full design writeup (including a
-real reference-rig investigation, two dynamic-schema approaches tested
-headlessly before picking one, and how the live node-graph wiring was
-verified against that file's own current node shape) and
-`tools/test_husk_blender_options_panel.py` for its test coverage.
-
-### `husk export-terrain <tile.adt> <out.bundle> [OPTIONS]`
-
-Exports one ADT terrain tile to a bundle: a `model` document
-(`manifest.json`) whose content is a heightfield, plus `terrain.bin`/
-`liquid.bin`, in the tile's own frame (the world places it by
-translation). The schema, coordinate frame and consumer
-notes (splat layers, untextured chunks, tile-edge seams) are in
-`REFACTOR/BUNDLE_FORMAT.md`'s "Terrain tile bundles". Per tile it holds:
-
-- the heightfield: absolute heights, normals and hole masks for each of the
-  256 chunks;
-- ground textures (DDS-housed BLP blocks, PNG only for palettized sources)
-  and each chunk's 0–8 splat layers with 64×64 alpha maps;
-- ground-cover rules (`GroundEffectTexture`/`GroundEffectDoodad`, with
-  `--db2-dir`/`--dbd-dir`): density plus a weighted doodad set per effect,
-  not instances;
-- `MH2O` liquid surfaces, with where each one's heights came from;
-- M2 and WMO placements in the tile's frame, as two placement sets
-  (`doodads`, `map_objects`). Placed assets are references (`--models-dir`
-  links the model and WMO bundles already exported); a WMO placement's
-  active doodad sets are resolved, including `MWDR`/`MWDS`.
-
-The input is the root `<map>_<x>_<y>.adt`; its `_obj0`/`_tex0` siblings and
-the map's `<map>.wdt` are found beside it (`--obj`/`--tex`/`--wdt` override,
-`none` skips), and each choice is announced as a `husk: note:` line. A
-sibling that exists but doesn't parse, or a missing WDT, is a `husk:
-warning:` (expected vs. actual) and only that part is left out; an explicit
-path that doesn't parse fails the export. The tile coordinates in the file
-name are checked against the tile's own chunk positions. Older tiles that name textures and models by
-file path (`MTEX`, `MMDX`/`MWMO`) are resolved through `--listfile` the same
-as FileDataID-named ones; a path the listfile doesn't know stays in the
-bundle as its raw name (`name_source: adt_embedded`).
-
 <!-- BEGIN GENERATED FLAG TABLE: export-terrain -->
 <!-- generated by `husk --print-flag-docs=export-terrain` -- do not hand-edit; regenerate with that command whenever export-terrain's flags change. -->
 
@@ -1007,34 +314,6 @@ bundle as its raw name (`name_source: adt_embedded`).
 
 <!-- END GENERATED FLAG TABLE: export-terrain -->
 
-### `husk export-world <maps-root> <out-dir> --listfile F --listfile-root D [OPTIONS]`
-
-Every tile of every map under `<maps-root>` (one subdirectory per map, as
-`world/maps/` extracts), or only the `--map`s given, in four parallel passes:
-collect what the tiles reference, export each referenced M2 and WMO once
-(`export --bundle-only` in-process; WMOs as `export-wmo` would), export each
-tile, then each map's world document: its tile grid and its fog and
-particulate volumes (`<map>_fogs.wdt`, `<map>_mpv.wdt`; `husk export-map
-<map-dir> <out-dir>` writes one map's, tiles referenced but not exported,
-or linked to an existing export's with `--tiles-from <tree>/maps/<map>`),
-and its zones, named from AreaTable with `--db2-dir`. Output:
-
-```
-<out-dir>/maps/<map>/<map>_<x>_<y>.bundle/   tile bundles
-<out-dir>/maps/<map>/<map>.world.bundle/     the map's world document: tile grid, map-wide volumes
-<out-dir>/models/<fdid>.canon.bundle/        one bundle per placed or ground-cover M2
-<out-dir>/textures/<fdid>.dds|.png           ground textures, shared by every tile
-<out-dir>/errors.log                         phase<TAB>item<TAB>message, one line per failure
-<out-dir>/inputs.log                         output<TAB>input<TAB>md5: the source files each output used
-```
-
-Tile manifests reference shared textures and models by relative `uri`
-(`../../../textures/<fdid>.dds`). A failed tile, model or WDT is logged and
-skipped, never fatal; an unreadable `_obj0`/`_tex0` is logged (`obj`/`tex`
-phase) and its tile exports without it. A map whose WDT is unreadable
-exports its tiles untextured. A rerun skips every output whose `manifest.json`
-already exists (each writer writes it last) and retries the failures.
-
 <!-- BEGIN GENERATED FLAG TABLE: export-world -->
 <!-- generated by `husk --print-flag-docs=export-world` -- do not hand-edit; regenerate with that command whenever export-world's flags change. -->
 
@@ -1052,38 +331,6 @@ already exists (each writer writes it last) and retries the failures.
 | `--link-store` | -- | store each finished output in this canonical store and replace it with a hardlink to the object (export-corpus), so the tree takes no space beyond new content | unset |
 
 <!-- END GENERATED FLAG TABLE: export-world -->
-
-### The canonical store: `husk export-corpus`, `store-add`, `mount`, `index-tree`
-
-A whole game build in canonical form, stored across builds the way
-casc-tool stores the game files: every output file once, named by its md5,
-and a build as the list of paths it holds (`REFACTOR/CORPUS_EXPORT.md`).
-The store path is a config key (`store = ...`); every command below takes
-`--store` to override it.
-
-```
-husk export-corpus <out-dir> [--store DIR|none] [--tag live]   export-world --all-assets, index-tree, store-add
-husk store-add <tree> --game-from /media/luna/wow_export/live   record an export tree as builds/<game>/<husk>/
-husk mount <mountpoint>                                         serve the store read-only: <mnt>/live, <mnt>/games/<game>/<husk>/
-husk index-tree <tree>                                          (re)build index/creature_displays.tsv, index/chr_models.tsv
-```
-
-A stored build is labelled by the game build (from the source mount's tag
-link, or `--game`) and the producer every document names; `store-add`
-refuses a `-dirty` or `unknown` producer, so export from a clean,
-reconfigured build. The same build again is a no-op. The tree's
-`errors.log` and `inputs.log` become the build's `missing.tsv` and
-`inputs.tsv`. `store-add` and `index-tree` print progress as they go,
-and `store-add` journals what it stored to the tree's
-`store-journal.tsv`, so a rerun after a crash skips it. `husk snapshot`
-records the game build the source mount's `live` names (pinned at start) as
-a new build in the store, tagged `live`, the build it replaced tagged
-`previous`, its tree a view under `<store>/views/`. `store-add --link`, and
-`export-corpus` always, turn the tree's files into hardlinks to their
-store objects, so a rebuild takes space only for changed content. While `export-corpus` runs, the mount shows its tree as it
-grows at `games/<game>/<husk>.partial/`. `export-corpus --sample N` exports a fixed seeded choice of
-the listfile's assets, for size and time projections. Unmount with
-`fusermount3 -u <mountpoint>`.
 
 <!-- BEGIN GENERATED FLAG TABLE: export-corpus -->
 <!-- generated by `husk --print-flag-docs=export-corpus` -- do not hand-edit; regenerate with that command whenever export-corpus's flags change. -->
@@ -1117,6 +364,18 @@ the listfile's assets, for size and time projections. Unmount with
 
 <!-- END GENERATED FLAG TABLE: store-add -->
 
+<!-- BEGIN GENERATED FLAG TABLE: store-prune -->
+<!-- generated by `husk --print-flag-docs=store-prune` -- do not hand-edit; regenerate with that command whenever store-prune's flags change. -->
+
+| Flag | Short | Description | Default |
+|---|---|---|---|
+| `--store` | -- | the canonical store directory | -- (required) |
+| `--drop` | -- | drop this build, <game>/<husk> (repeatable) | unset |
+| `--superseded` | -- | drop every build no tag names that is not its game's newest (what a newer husk revision replaced) | unset |
+| `--apply` | -- | remove them; without it only the plan is printed | unset |
+
+<!-- END GENERATED FLAG TABLE: store-prune -->
+
 <!-- BEGIN GENERATED FLAG TABLE: snapshot -->
 <!-- generated by `husk --print-flag-docs=snapshot` -- do not hand-edit; regenerate with that command whenever snapshot's flags change. -->
 
@@ -1149,819 +408,3 @@ the listfile's assets, for size and time projections. Unmount with
 |---|---|---|---|
 
 <!-- END GENERATED FLAG TABLE: index-tree -->
-
-
-### `husk dump-chunks <file.m2>` / `husk dump-chunks <file.bone>` / `husk dump-chunks <file.phys>`
-
-Extracts M2 data that doesn't feed `export`'s glTF output at all into
-readable JSON on stdout. Two categories: Legion+-only chunk tags (mostly
-rendering-effect/gameplay metadata glTF's material model has no equivalent
-for -- see [roadmap stage 6's follow-on](#roadmap-modern-m2--blender-via-gltf)
-and `DESIGN.md` for which chunks and why), and `ribbon_emitters`/
-`particle_emitters` -- core header arrays present in every M2 version, every
-field and every resolved animation curve (procedural emitter data, same "no
-glTF slot" reasoning as the chunks, broadened to this command once real
-particle/ribbon-bearing weapon files made full parsing possible to verify --
-see `WIKI_FINDINGS.md`). `husk export` separately attaches a minimal
-position/bone placement anchor for each emitter directly to the `.glb`'s skin
-`extras`; this command is where the rest of the data lives.
-
-Given a `.bone` file directly (no `.m2`/`.skel` magic to sniff -- husk falls
-back to the `.bone` shape), dumps its per-bone correction matrices (`BIDA`/
-`BOMT`, see `src/bone.hpp` -- reverse-engineered from real files; wowdev.wiki
-documents no `.bone` byte layout at all, only the FileDataID array pointing
-at these files).
-
-Given a `.phys` file directly (sniffed by its own leading `PHYS` chunk tag,
-byte-reversed on disk -- see `src/phys.hpp`), dumps every body/shape/joint/
-`PHYV` record, each shape/joint resolved to its real type-specific data
-inline -- unlike `.bone`, `.phys`'s byte layout *is* documented on
-wowdev.wiki (`documentation/wowdev-wiki/md/PHYS.md`), verified against 103
-real files (`WIKI_FINDINGS/PHYS.md`). `husk export --phys` separately attaches
-a minimal per-body placement anchor to the `.glb`'s skin `extras`; this
-command is where the full record set lives.
-
-### `husk resolve --input <file.m2> [OPTIONS]`
-
-Prints `sources::Catalog`'s texture-resolution ledger as JSON on stdout: one
-entry per `(skin, texture slot)`, with which tier answered it (literal /
-listfile / fuzzy same-basename pool / knowledge base), what it resolved to,
-whether a fuzzy pool was genuinely ambiguous, and the reason on a miss.
-Takes the same `--skin`/`--skin-dir`/`--lod`/`--textures`/`--textures-out`/
-`--listfile`/`--listfile-root`/`--object-skin-texture-id` flags as `export`,
-with the same grammar and defaults, and runs only as much of `export`'s own
-pipeline as answers that question (header + material/texture arrays +
-`.skin` batches, via the same functions `export` itself calls) -- skipping
-vertex data, skeleton/animation/DB2 character resolution, and the final
-`.glb` write entirely, so a corpus scan can ask "where did this resolve"
-at a fraction of a real export's cost. `husk export --explain-textures`
-prints the same ledger inline after a real export, for comparing behavior
-before vs. after a change without a second tool.
-
-### `husk db2-info <file.db2>` (proof of concept)
-
-WDC5 DB2 parser (`src/db2.hpp`/`.cpp`) -- built to let a human poke at
-real `.db2` files independent of any table-specific consumer. Prints the header,
-per-section layout, per-field storage info, and (`--rows N`, default 5, `all`
-for every record) a sample of decoded rows from the first non-encrypted
-section, fixed-width or offset-map/sparse alike: raw values per field plus a
-best-effort string heuristic (`db2::resolveFieldString` for fixed-width
-sections -- interprets a field as a WDC2+-style string offset and checks
-whether it lands on a plausible, printable, null-terminated string, falling
-back to the raw integer otherwise; `db2::decodeOffsetMapRecord` for
-offset-map sections -- real strings are embedded inline rather than
-offset-referenced, so fields are walked with a running bit cursor instead of
-`field_storage_info`'s own `field_offset_bits`, which only describes the
-same table's non-sparse layout). Verified against real files from
-`/media/luna/data/wow_export/dbfilesclient/` (the header/section/field-
-storage layout byte-matches `chrmodelmaterial.db2` exactly; `namesreserved
-.db2` round-trips real UTF-8 strings correctly; the offset-map path decodes
-every record of all 5 real local offset-map files with no errors --
-`conversationline.db2`, `scenescripttext.db2`, and the three
-`collectablesource*sparse.db2` tables) -- and confirmed directly by Luna
-against real `db2-info` output, not just the automated checks above.
-
-Current vs. target, explicitly: `db2-info` itself still identifies fields by
-index only -- real column naming lives in `husk db2-export` instead (below),
-not here. Only WDC5 is implemented (every file checked so far under
-`dbfilesclient/` is WDC5). Offset-map decoding's non-None field-compression
-types (Bitpacked/CommonData/BitpackedIndexed(Array)) are implemented but
-**not verified** against real bytes -- none of the 5 real local offset-map
-files use anything but `field_compression_none` (see `db2.hpp`'s module
-comment). `documentation/wowdev-wiki/md/DB2.md` is community-reverse-
-engineered documentation, not a Blizzard spec -- treated as a strong
-starting point, not unconditionally trusted (see `db2.hpp`'s module comment
-for what's been cross-checked against real bytes and what hasn't).
-
-### `husk db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]`
-
-Converts one WDC5 DB2 file, or (with `--dir`) every `*.db2` file in a
-directory, to a real, browsable SQLite database -- one table per file, one
-row per real record, every unencrypted section exported, fixed-width or
-offset-map/sparse alike (only TACT-encrypted sections are skipped, with a
-count printed, never silently dropped; in `--dir` mode a file that can't be
-parsed or has nothing exportable is skipped with a diagnostic rather than
-failing the whole batch). Real column names/types come from `src/dbd.hpp`/`.cpp`, an
-independent parser for [WoWDBDefs](https://github.com/wowdev/WoWDBDefs)'
-own documented `.dbd` text-format grammar -- resolves a real `.db2` file's
-`table_hash`/`layout_hash` (already parsed by `db2.hpp`) against a local,
-optional `--dbd-dir` checkout (`<dir>/manifest.json` +
-`<dir>/definitions/<TableName>.dbd`, i.e. a plain WoWDBDefs clone) to get
-real per-field names and int/float/string types for that exact build.
-**Never a hard dependency**: husk itself doesn't clone, fetch, or bundle
-WoWDBDefs, and this file's own logic is an independent implementation of
-its documented grammar, not vendored/linked code -- without `--dbd-dir`, or
-when no matching layout is found, columns fall back to generic `field_<N>`
-names instead, the same "expose honestly, don't guess" convention this
-project already uses for undocumented M2 chunk fields (`AFRA`/`DPIV`/
-`WFV1`, `WIKI_FINDINGS/M2.md`). `--dbd-dir none` explicitly opts out even
-when `--config`/`$HUSK_CONFIG` supplies one, same as `export`'s own
-`--dbd-dir` (see "Config file" above). A layout match isn't taken on field *count*
-alone either: each matched field's own declared `<Size>`/`[Length]` is
-cross-checked against that same-position `field_storage_info` entry in the
-real file (`dbd::resolveFieldNames`), so a `.dbd` layout with the right
-field count but the wrong per-field shape (wrong layout hash, or a stale
-WoWDBDefs definition) also falls back to generic names rather than
-returning real-looking names silently misapplied to the wrong bytes.
-
-A `<Table::Col>`-suffixed DBD column type (a real foreign-key target, e.g.
-`int<CharComponentTextureLayouts::ID>`) is resolved into `dbd::Column::
-relation`; in `--dir` mode, a column with a relation target gets a real
-SQLite `FOREIGN KEY` constraint whenever that target table is also part of
-the same export batch, degrading silently to a plain column when it isn't
-(a dangling cross-file reference is a real, expected case, not an error). A
-`header.flags & 0x04` ("has non-inline IDs") table's real ID -- stored in
-WDC5's own separate `idList` array, occupying no field-array slot at all --
-gets a real ID column of its own too (named from the DBD layout's
-`$noninline,id$` annotation when resolved, `id` otherwise), specifically so
-a table like `CharComponentTextureLayouts` (whose ID is non-inline) has a
-real column for other tables' relation columns to join against. A per-
-section `relationship_mapping` (WDC5's own alternate foreign-key storage --
-a `(foreignId, recordId)` array replacing a column that also doubled as a
-lookup key, decoded structurally by `db2::Section::relationshipEntries`,
-`db2-info` prints a summary) also gets a real exported column: a DBD field
-annotated `$noninline,relation$` (occupying no field-array slot at all --
-real for `ChrModelTextureLayer`'s own `CharComponentTextureLayoutsID` under
-some layouts) is resolved per record via `db2::
-nonInlineRelationValuesByRecord` and written as a real, named SQLite
-column, with a real `FOREIGN KEY` constraint under the same
-target-in-batch rule as an ordinary inline relation column.
-
-Verified against real data: `chrmodelmaterial.db2` exports 336 rows with
-real `ID`/`CharComponentTextureLayoutsID`/`TextureType`/`Width`/`Height`/
-`Flags`/`Field_9_0_1_34615_006` columns and plausible real atlas dimensions
-(2048x1024, 512x256, ...) when pointed at a real WoWDBDefs checkout;
-`namesreserved.db2` round-trips real UTF-8 strings (including non-Latin
-text) through the same string-value path `db2-info` already uses. Field
-arrays (WDC5's own `arrayCount` storage, not something DBD tracks the
-length of) get one `<name>_<i>` column per real decoded element -- SQLite
-has no native array column type. The real `chrmodeltexturelayer.db2` (a
-`$noninline,relation$` field, not an inline one) -> `charcomponenttexture
-layouts.db2` chain exports into one SQLite database via `--dir` with a
-real `FOREIGN KEY` constraint on `ChrModelTextureLayer.
-CharComponentTextureLayoutsID`: every one of 922 real rows resolves a
-value, and a real `JOIN` returns rows for every layout ID actually
-present in the local export. The real `chrmodelmaterial.db2` ->
-`charcomponenttexturelayouts.db2` chain (an ordinary *inline* relation)
-exports into one SQLite database via `--dir` with a real `FOREIGN KEY`
-constraint on `ChrModelMaterial.
-CharComponentTextureLayoutsID`, and a real `JOIN` across the two returns the
-same plausible atlas dimensions as above -- the smallest real cross-file
-chain confirmed fully populated locally. The fuller `ChrCustomizationOption`
--> `_Choice` -> `_Material` chain (`src/chrcustomization_db2.hpp`) is now
-verified too, end to end, against real local data (see `CLAUDE_HISTORY.md`
-for the full narrative).
-
-Offset-map/sparse sections (previously skipped entirely, `LoadedFile::
-skippedOffsetMap`) now export real per-field data through the same
-`db2::decodeOffsetMapRecord` path `db2-info` uses -- verified against real
-`scenescripttext.db2` (36,498 rows, real Lua source text in a real `Script`
-column, e.g. a `Name = 'Global Functions - Scene'` row whose `Script`
-contains real `function Scene:WaitTimer(waitTime)` source) and real
-`conversationline.db2` (69,312 rows of real numeric fields, including
-negative/large 32-bit values like `AdditionalDuration = -2500`, correctly
-never misread as text).
-
-### `husk db2-build --db2-dir <dir> --dbd-dir <dir> --listfile <file> -o <out.sqlite>`
-
-Builds husk's own verified knowledge-base SQLite database
-(design history: `git log -p TODO/KNOWLEDGE_BASE_DESIGN.md`, deleted
-2026-09-16 once resolved; live follow-up in `TODO/TEXTURE_POOL_RECALL_TODO.md`)
--- all four flags required, no off-state.
-Ingests `ModelFileData`/`ItemDisplayInfo`/`TextureFileData`/
-`ItemDisplayInfoModelMatRes`/`Item`/`ItemAppearance`/`ItemModifiedAppearance`
-via the same `db2-export` machinery, plus `--listfile`, into a `models`
-table (every `.m2` FileDataID -> real path) and a `textures` table (every
-`.blp`/`.png` FileDataID -> real path), then a resolved
-`model_object_skin_texture` join (model FileDataID -> texture FileDataID via
-`ModelFileData` -> `ItemDisplayInfo` -> `TextureFileData`), filtered by a
-real `Item.InventoryType`-vs-listfile-path slot check to reject
-cross-category collisions (a weapon texture matched to a helmet model). A
-`_meta` table stamps the source `.db2` files' own size+mtime so
-`husk export --knowledge-db` can tell when the built database is stale.
-Local-only, rebuilt on demand -- never fetched, never committed. Same-slot
-collisions (two items for the same equip slot) aren't filtered by this
-check and remain a known real gap -- see `CLAUDE_HISTORY.md`.
-
-### `husk appearance-string --validate <string>`
-
-Validates/normalizes a `husk-appearance/1` string (`race=<id> sex=<0|1>
-cust=<id,id,...> gear=<SLOT:id,SLOT:id,...>`, see `src/appearance_string.hpp`
-for the full grammar) -- husk's own compact "what a character looks like"
-serialization, deliberately not an addon export format (see that file's
-own doc comment for why raw item IDs are the wrong thing to encode
-post-Legion).
-
-With `--db2-dir`/`--dbd-dir`, each `gear=SLOT:id` entry's
-`ItemModifiedAppearanceID` resolves through the real DB2 chain
-(`ItemModifiedAppearance` -> `ItemAppearance` -> `ItemDisplayInfo` ->
-`ItemDisplayInfoModelMatRes`, `src/itemappearance_db2.hpp`) to the real
-equipped item's own `.m2` FileDataID (via `ModelFileData`,
-`src/modelfiledata_db2.hpp`) and texture FileDataID(s) (via
-`TextureFileData`, `src/texturefiledata_db2.hpp`) -- printed per entry,
-e.g. `gear MAINHAND:15 -> ItemDisplayInfoID=1542 model=370361
-texture(type=2)=148134`. Without both flags, `gear` entries stay opaque
-`(slot, ItemModifiedAppearanceID)` pairs. Same "husk resolves, never
-applies" policy as every other DB2-driven feature -- turning the resolved
-FileDataIDs into an actual attached/rendered weapon or armor piece is
-downstream (Blender-side) work, not done by this command. `--db2-dir none`/
-`--dbd-dir none` explicitly opt out even when `--config`/`$HUSK_CONFIG`
-supplies a value, same as `export`'s own instances of these flags (see
-"Config file" above).
-
-### Texture conversion
-
-`husk export` decodes BLP2 textures itself, in-memory, via `src/blp.cpp` --
-no separate tool or step. Supports palettized, DXT1, DXT3, DXT5, BC5
-(two-channel, e.g. liquid normal maps; stored as DDS `ATI2`) and
-uncompressed-BGRA content (JPEG content remains unimplemented -- see the
-format matrix; a 779,056-file local-corpus scan found zero real hits, so
-it's a real, confirmed non-gap, not an oversight). husk reads a material's
-texture FileDataID off the M2's own `TXID` chunk; pass `--textures <dir>` to
-`export` pointing at a directory of `<FileDataID>.png` or raw
-`<FileDataID>.blp` files to have them embedded -- husk doesn't go looking
-for the matching file on its own (same non-goal as `.skin`/`.skel`
-resolution above). Pass `--textures-out <dir>` too if you also want the
-decoded `.png` written to disk, mirroring `--textures`'s own layout.
-
-### `husk blp-export <file.blp> <out.png>` / `--dir <blp-dir> <out-dir>`
-
-That same in-memory decoder is also exposed standalone, for converting
-`.blp` files without a full `husk export`: single-file mode
-(`husk blp-export <file.blp> <out.png>`), or `--dir <blp-dir> <out-dir>`
-(every `*.blp` in `blp-dir`, output filenames mirroring each input's own
-basename; a file that fails to parse is skipped with a diagnostic, not
-fatal to the whole batch, and the command's own exit code reflects
-partial failure) -- mip level 0 (full resolution) only, a thin CLI wrapper
-(`src/cmd_blp.cpp`) around the exact `blp::decode`/`blp::encodePng`
-pipeline `export_texture_resolution.cpp` already uses internally, no new
-decode logic.
-
-`blp/` (`husk-blp`, a small uv-managed Python package) still exists, kept
-deliberately as an independent reference implementation:
-
-```
-cd blp && uv sync
-uv run husk-blp <file.blp> <output.png> [--mip N]
-```
-
-`tests/test_blp.cpp` ports `blp/tests/test_decode.py`'s own fixtures
-directly, checking the C++ decoder against the same expected pixel outputs
--- not running `husk-blp` itself as part of `husk export` in any way.
-
-Every claim above is backed by a real-data run against
-`character/bloodelf/female/bloodelffemale.m2` and its HD variant --
-`tests/` and git history carry the verification detail (byte-exact counts,
-the bugs it caught, the regression tests it left behind).
-
-## Format support matrix (M2 / M3 / WMO / ADT / BLP)
-
-The single source of truth for "does husk handle X yet." Rows are grouped
-by feature area, not by chunk tag — WMO alone has ~70 documented chunk
-tags across its root and group files, most of them small variants of a
-handful of real features, so tracking by chunk would be noise. Every chunk
-tag this matrix is built from is still named in the table/footnotes so
-nothing is silently dropped, just grouped sensibly.
-
-Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
-2026-07-24). **ADT column added 2026-07-31** — a scope declaration, not a
-researched breakdown: husk's own domain was always meant to be "unmangle
-WoW's proprietary static files into industry-standard/engine-agnostic
-ones," and terrain (crucial for any actual rendered world, not just
-props/buildings) was simply missed when this project was first scoped, not
-deliberately excluded. Grounded in one read of wowdev.wiki's `ADT/v18`
-page (already mirrored locally) and its real chunk-tag list, not yet
-cross-checked against real files or read in the depth M2/WMO's existing
-columns were — several cells below are marked ❔ for exactly that reason,
-and even the ⬜ cells should be read as "real chunk identified, not yet
-verified" rather than "confirmed correct." **Update, 2026-10:** the 📖
-ADT cells are `husk export-terrain`/`export-world` (see Usage), each
-verified against real tiles — `WIKI_FINDINGS/WORLD.md` has the evidence
-and the wiki corrections it found; `WORLD_COMPLETENESS.md` has the
-per-concept breakdown.
-
-**Legend:**
-
-| Symbol | Meaning |
-|---|---|
-| ✅ | Read + write implemented |
-| 📖 | Read implemented, write not started |
-| 🚧 | Partially read (some fields/counts only, not full contents) — current MVP state |
-| ⬜ | Not started |
-| ⬛ | N/A — this concept doesn't exist in this format |
-| ❔ | Blocked — not fully documented upstream as of the 2026-07-24 fetch, not just untackled by us |
-
-| Feature | M2 | M3 | WMO | ADT | BLP |
-|---|---|---|---|---|---|
-| Chunk container / magic detection | 📖 `MD20`/`MD21` detected, generic (tag-agnostic) chunk reader in `src/chunk.*`; every top-level chunk tag found is tracked (`Header::chunkTags`) and cross-checked against a wiki-sourced known-tag list (`husk info`'s `documentedM2ChunkTags`), flagging anything husk has never seen — see `DESIGN.md` for why this format needs that. `WFV1`/`WFV2`/`DPIV`/`AFRA` (no wowdev.wiki struct at all) are now byte-decoded and structurally parsed by `husk dump-chunks` too, not left as a raw hex dump — see `WIKI_FINDINGS.md` | ⬜ (chunked like WMO, 16-byte chunk header + property fields) | ⬜ (`MOMO` wrapper, Legion+) | 📖 byte-reversed tags read by the same generic chunk reader (`src/adt.cpp`); the Cata+ split is read as root + `_obj0` + `_tex0` (`_obj1`/`_tex1`/`_lod` not read) | ⬛ flat header, not chunked |
-| Header / global metadata | 📖 `husk info` reads magic/version/name/bounding boxes/array counts, `global_flags` decoded into its wiki-named bits (`m2::globalFlagNames`, alongside the raw hex value), and `textureCombinerCombos` (the header struct's own last field, only present when `flag_use_texture_combiner_combos` is set) — every field the wowdev.wiki header struct documents, not just counts, though a real 130,576-file local-corpus scan found zero files with that one flag actually set | ⬜ `M3DT` (376 bytes: flags, 2 bounding boxes, particle count) | ⬜ `MOHD` (counts, ambient color, WMOID, bounding box, flags) | ⬜ `MHDR` (offsets to every sub-chunk region, flags) | ⬜ 148-byte header + 1024-byte palette/JPEG region |
-| Skeleton / bone hierarchy | 📖 `bones` resolved to `key_bone_id`/`flags`/`parent_bone`/`pivot` (`src/m2.cpp`'s `parseBones`) whether inline in the M2 or, via `SKID` → `.skel` → `SKB1` (`src/skel.cpp`, `husk export`'s optional 4th argument), in an external file — both feed the same bind-pose glTF joint hierarchy, and (see the next row) the same animation resolution. `SKB1`'s own `key_bone_lookup` field, and `.skel`'s `SKL1`/`SKA1`/`SKPD` chunks, are still unread — none needed for a bind-pose skeleton or its animation. `husk info` flags when a model needs this (0 inline bones + an `SKID` chunk present) instead of silently reading as bone-less. A real M2 bone array is often a forest, not a tree — WoW never required a single root (35% of a real 130k-file corpus has more than one root bone, `tools/find_multiroot_skeletons.py`); `husk export` represents this faithfully by synthesizing one plain, non-joint glTF node as the parent of every real root joint (never a fake extra joint, never a dropped bone) so glTF tooling built around a single common root, `gltf_validator` included, doesn't misbehave — see `DESIGN.md`'s Key design decisions. | ❔ no joint-hierarchy chunk documented — only per-vertex weights/bind-poses exist (`VWTS`/`VIBP`) | ⬛ no skeleton | ⬛ no skeleton | ⬛ |
-| Vertex skinning (bone weights/indices) | 📖 read as part of `M2Vertex` (`bone_weights[4]`/`bone_indices[4]`), wired into a glTF skin (`JOINTS_0`/`WEIGHTS_0`) via `husk export` | ⬜ `VWTS` (weights), `VIBP` (inverse bind poses) | ⬛ | ⬛ | ⬛ |
-| Mesh geometry (positions, indices) | 📖 `vertices` array resolved to real `M2Vertex` records (`src/m2.cpp`); triangle indices resolved via one explicitly-given `.skin` file (`src/skin.cpp`); exported to glTF via `husk export` | ⬜ `VPOS`/`VINX`/`VGEO`+`Geoset`/`LODS`/`RBAT` | ⬜ `MOVT`/`MOVI`/`MOVX`, `MOBA` batches, `MORI`/`MORB` triangle-strip variants | 📖 `MCVT` (per-`MCNK` 9×9+8×8 heightmap grid, one of 256 `MCNK`s per tile) + both hole maps, exported as a heightfield (absolute heights, topology named, not stored) by `husk export-terrain` | ⬛ |
-| Normals | 📖 part of `M2Vertex`, resolved | ⬜ `VNML` | ⬜ `MONR` | 📖 `MCNR` (X, Y, Z on disk, not the wiki's X, Z, Y — `WIKI_FINDINGS/WORLD.md`) | ⬛ |
-| UV / texture coordinates | 📖 both `tex_coords[2]` sets resolved and both exported to glTF (`TEXCOORD_0`/`TEXCOORD_1`); a material's `baseColorTexture` samples whichever set the batch's `textureCoordComboIndex` selects (pre-Cataclysm models only — see `src/cmd_export.cpp`) | ⬜ `VUV0`–`VUV5` (up to 6 sets) | ⬜ `MOTV` | ⬛ not stored as an explicit array — terrain texture mapping is reportedly computed from world position + each `MCLY` layer's own scale (inferred from general ADT structure, not confirmed against wiki text this session) | ⬛ |
-| Tangents | ❔ not in the documented base header — appears to be runtime-computed, not stored | ⬜ `VTAN` | ⬜ `MOTA` (often auto-generated client-side for shaders 10/14) | ❔ not checked | ⬛ |
-| Per-vertex colors | 📖 not truly per-vertex (M2's `colors`/`textureWeights` are per-*batch* material tint/fade, not per-vertex mesh color — see `src/m2.cpp`'s `Color`/`TextureWeight`); resolved into glTF `baseColorFactor` by `husk export` as a *static* approximation (only when the underlying `M2Track` is unambiguously constant — real keyframe animation is stage 6, see `DESIGN.md`) | ⬜ `VCL0`/`VCL1` | ⬜ `MOCV`/`MOC2` | ⬜ `MCCV` — genuinely per-vertex here, unlike M2's per-batch tint | ⬛ |
-| LOD / mesh views | 🚧 each LOD tier's `.skin` file's `vertices`/`indices` lookup tables, plus `submeshes`/`batches` (material/texture linkage per submesh, `src/skin.cpp`'s `Submesh`/`Batch`) read directly; `.skin` filename can be given explicitly, or auto-selected via the M2's own `SFID` chunk + `husk export --skin-dir <dir>` (`--skin` defaults to `auto`; defaults to the highest-detail LOD; `--lod <n>` picks a specific `SFID` entry, `--lod all` exports every entry as its own named node in one `.glb`, roadmap stage 8, see Usage) — `LDV1` `lod_count` (`husk info`) is now a real `--lod <n>` range-check consumer, not just display; `Submesh.skinSectionId` (the "geoset ID") is read and carried into every exported primitive as glTF `extras`, but not filtered on (no CASC/DBC data to ground a selection in, see `DESIGN.md`) — every submesh, including mutually-exclusive character-customization options, is always exported; still 🚧 because `Submesh`/`Batch`'s other non-material fields (culling/sort/hardware-bone-limit metadata `src/skin.hpp` documents but doesn't read -- husk exports full per-vertex global joint indices instead of the engine's per-drawcall bone-limit mechanism these exist for, see `src/cmd_export.cpp`'s `buildSkinning`) still aren't | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ real and reportedly substantial (see `ADTLodImplementation.md`, already mirrored locally in `wow_modding`) — not read this session | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
-| Collision / physics | 📖 `bounding_box`/`collision_box`/`collision_sphere_radius` scalars printed by `husk info`; the low-poly hit-test mesh's own content is real, dereferenced data (`m2::CollisionMesh`/`parseCollisionMesh`, `src/m2.cpp`) — `husk export` writes it as a plain indexed triangle mesh in the `.glb` (one more `gltf::NamedMesh`, unskinned even when the render mesh shares a skeleton, per-vertex normals averaged from the M2's own per-face `collision_face_normals`), tagged `{"collision": true}` in glTF node `extras` so a renderer/Blender script can filter it out — not applied to any render/physics behavior itself, this tool has no runtime. The `.phys` sidecar's own *content* (rigid bodies, collision shapes, joints for Blizzard's "Domino" physics engine) is now fully parsed too (`src/phys.hpp`/`phys.cpp`, documented on wowdev.wiki, verified against 103 real files — `WIKI_FINDINGS/PHYS.md`): `husk export --phys` attaches a minimal per-body placement anchor (`physics_bodies` extras, same id/bone/position pattern as ribbon/particle emitters below) plus a reduced per-joint spring/limit summary (`physics_joints` extras -- body pair, spring frequency/damping or swing-limit angle, no frame matrices/shape geometry), full body/shape/joint/`PHYV` records (including geometry) still needing `husk dump-chunks <file.phys>` (see the Usage section's "`.phys` physics/collision data" paragraph). `PCOL` (player-housing collision, War Within 11.1.7+) is also fully parsed, diagnostic-only via `husk dump-chunks` — four independent `(count, offset)` regions (`vertexPositions`/`faceNormals`/`indices`/`flags`), verified against all 2,354 real `PCOL`-bearing files in the local corpus (`WIKI_FINDINGS/M2.md`); no glTF slot, same class as `EXP2`/`PFDC`/`DETL` | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ no separate chunk found — terrain collision is presumably the render mesh itself (inferred, not confirmed) | ⬛ |
-| Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided`, plus a static color tint/alpha-fade into `baseColorFactor` (see Per-vertex colors above), by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool); a batch's additional texture layers (`M2Batch.textureCount > 1` — a real second env-mapped/blended layer, wowdev.wiki M2/.skin#Texture_units) are resolved and surfaced as glTF `extras` (FileDataID/UV set, plus a real embedded-but-unused image if `--textures` has a match) but not rendered — core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map blending) to translate into; a batch's UV scroll/rotate/scale animation (`M2TextureTransform`, `Header::textureTransforms` + `.skin`'s `Batch.textureTransformComboIndex` — flowing lava/water, some portal/aura effects) is likewise resolved (`m2::parseTextureTransforms`) and, for the constant case, translated to a real `KHR_texture_transform` on `baseColorTexture` (`gltf_mesh.cpp`'s `textureTransformToKhr`, pivot-corrected from WoW's texture-center rotation to the extension's own origin-based one, verified against real `bloodknightcharger.m2` data — see `DESIGN.md`'s Key design decisions); the animated case (almost certainly the common one for a real scrolling-UV model) has no such representation regardless of effort, since the extension itself has no animation-channel target, and stays `extras`-only (`gltf::Material::textureTransform`), same as every raw value always is, diagnostically — see `src/m2.hpp`'s `TextureTransform` doc comment | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | 📖 `MCLY` layers (0–8 per chunk) + `MCAL` alpha maps (all three on-disk forms) + `MTXP` texture scale/height params, as splat layers; `MTXF` not read | ⬛ |
-| Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | 📖 `MDID`/`MHID` FileDataIDs, or the older `MTEX` filename table, resolved through `--listfile` | ⬛ BLP is the referenced asset, not a referencer |
-| Texture pixel data | ⬛ | ⬛ | ⬛ | ⬛ BLP is the referenced asset, not a referencer (same as M2/WMO) | 📖 `src/blp.cpp` (C++, embedded in `husk export` itself) — header + mip table resolved, palette/DXT1/DXT3/DXT5/BC5/BGRA decode to PNG done in-memory (DXT3 confirmed correct against a real one, part of a 779,056-file local-corpus scan that found 6,759 real DXT3 files); JPEG content unimplemented and confirmed genuinely absent from that same corpus (zero real hits, not just unseen in this repo's own small test set). `blp/` (Python, `husk-blp` CLI) still exists as an independent reference implementation `tests/test_blp.cpp` checks the C++ decoder against |
-| Animation sequences / tracks | 📖 `sequences` resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`) whether inline (`src/m2.cpp`'s `parseSequences`) or `.skel`-sourced (`SKS1`, `src/skel.cpp`'s `parseSequences`); each bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives inline (`flags & 0x20`) *or* an external `.anim` file resolved via `--anim` + the model's own `AFID` chunk (or the `.skel`'s own separate `AFID` table, for a `.skel`-sourced skeleton), falling back to a same-basename filename convention when no `AFID`-mapped file resolves — verified against real files both ways (see the Usage section and roadmap stage 6), `AFM2`- and `AFSB`-shaped external files alike (`AFSB` is the real shape for `.skel`-linked models; its undocumented byte layout was cracked — `SKB1`'s own per-bone/per-sequence descriptors point directly into it, no new parser needed, see `WIKI_FINDINGS/M2/anim.md`'s follow-up). A bone track whose `global_sequence` field is set (continuous, `M2Sequence`-independent looping — glow pulses, idle sway) also resolves to its own real glTF clip (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, one clip per distinct global-sequence index actually used), for inline and `.skel`-sourced bones alike. Still unresolved: sequences with `flags & 0x40` ("alias", wowdev.wiki: "I have no clue" where that data lives) | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ no animation in core terrain data | ⬛ |
-| Interaction points (attachments, cameras, events) | 🚧 `attachments`/`events` resolved to real records (`id`/`bone`/`position` for attachments, `identifier`/`data`/`bone`/`position` for events — both static-fields-only, their own `M2Track` sub-fields skipped, `src/m2.cpp`'s `parseAttachments`/`parseEvents`, surfaced via `husk info`); `cameras` still count/offset-only — `M2Camera` is almost entirely `M2SplineKey`-animated data with a version-ambiguous field layout, not attempted yet | ❔ not present in the fetched chunk list | ⬛ | ⬛ | ⬛ |
-| Lights | 🚧 `lights` resolved to `type`/`bone`/`position` (`src/m2.cpp`'s `parseLights`, static fields only — ambient/diffuse color+intensity and attenuation are all `M2Track`-animated and skipped), surfaced via `husk info` | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ❔ not checked — outdoor lighting may be zone/`Light.dbc`-driven rather than stored per-ADT, unconfirmed | ⬛ |
-| Particles / ribbons (effects) | 📖 both `m2::Ribbon`/`parseRibbons` and `m2::ParticleEmitter`/`parseParticles` (`src/m2.cpp`) fully dereference every field, including the M2Track/FBlock-based animation curves — Ribbon's 6 tracks and Particle's ~10 `M2Track<float>` simulation parameters resolved per-sequence (or via the global-sequence resolver, `resolveFloatTrackSequence`/`resolveVec3TrackSequence`/`resolveRawIntTrackSequence`), Particle's Wrath+ `FBlock`-based color/alpha/scale/UV curves resolved directly (no per-sequence indirection, `resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`) — verified against real weapon particle data (`mace_2h_bolvar_d_01.m2`: decoded colors form a real fire/ember gradient, alpha/scale curves are clean envelopes, the `MultiTexture` flag bit correlates exactly with non-zero `multiTexScale` — see `WIKI_FINDINGS.md`). `M2Particle` is gated to `kMinVerifiedParticleVersion` (272, Cataclysm — the shape genuinely changed there, unlike Ribbon/Bone/Sequence's Wrath floor); below that, count-only with a loud warning, same policy as `kMinVerifiedRecordStrideVersion`. Neither type has a native glTF representation (procedural emitters, not geometry): the **full** record (every field, every resolved curve) is `husk dump-chunks`'s JSON output (`ribbon_emitters`/`particle_emitters` keys, broadened from that command's original Legion+-chunk-only scope — see `src/cmd_dump.cpp`'s doc comment); `husk export` additionally attaches a **minimal** placement anchor (id/bone/position only) to the `.glb` skin's `extras`, so a Blender script can place a marker without needing the JSON at all. `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` (small per-particle side-chunks, a separate concern from the M2Particle record itself) remain `dump-chunks`-only, not integrated into glTF | ❔ `M3PT` chunk family declared but wiki notes "not yet seen in files" | ⬜ `MPVD` particulate volumes, `MAVG`/`MAVD`/`MBVD` ambient/box volumes + their `*VR` reference lists | ⬛ `MCSE` (sound-emitter placement) exists but is a distinct concept from particle emitters, not conflated here | ⬛ |
-| Fog / environment volumes | ⬛ | ⬛ | ⬜ `MFOG` + `MFED` extra data + `MFOB` fog objects | ❔ not checked | ⬛ |
-| Liquid / water | ⬛ | ⬛ | ⬜ `MLIQ` | 📖 `MH2O` (all four vertex layouts, inferred without DB2s) / ⬜ `MCLQ` (legacy, pre-Cata, superseded by `MH2O`) | ⬛ |
-| Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ not an ADT concept (WMO-specific) | ⬛ |
-| Doodad / object placement (scene composition) | ⬛ | ⬛ | ⬜ `MODS`/`MODN`/`MODI`/`MODD`/`MODR` + `MDDI`/`MDDL` additional info | 📖 `MDDF` (M2 doodad placement) + `MODF` (WMO placement), FileDataID-flagged or backed by `MMDX`/`MMID` and `MWMO`/`MWID` filename tables, converted to world-frame position + rotation; placed M2s export as linked model bundles (`export-world`), WMOs as identity-only references (no WMO geometry yet) | ⬛ |
-| World/group structure (root+group files, skybox) | ⬛ | ⬛ single-file, no group split | ⬜ `MOGN`/`MOGI`/`MOGP`/`MOGX`/`GFID` + `MOSB`/`MOSI` skybox + `MGI2` group-info-v2 | ⬜ no group-file split the way WMO has, but Cata+ splits one logical tile across root/`_obj0`/`_obj1`/`_tex0`/`_tex1`/`_lod` files — see row 1's caveat | ⬛ |
-| Sidecar FileDataID resolution | 📖 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a *WoW/CASC* path (no CASC/listfile access, by design, see the README's Usage section) — that CASC-resolution half is a deliberate non-goal, not a deferred read (`DESIGN.md`'s Non-goals), so *local-file* resolution (all six IDs, below) is the full scope of "read" this row measures, and it's fully implemented; `SKID` is surfaced as a raw ID only (`husk info`; `Header::skeletonFileId`), and `SFID`/`TXID`/`AFID`/`BFID` get a *local-directory* resolution convention -- `husk export`'s `--skin-dir <dir>`/`--textures <dir>`/`--anim <dir>`/`--bones-dir <dir>` look for `<dir>/<FileDataID>.skin`/`.png`/`.anim`/`.bone`, a directory the user populates themselves (e.g. via `husk-blp`), never CASC. `PFID` gets a *same-basename-file* resolution convention instead, mirroring `SKID`/`.skel` (`PFID`, like `SKID`, is a single scalar FileDataID, not an array) -- `husk export --phys <path|none>` (unset: auto-detects a same-basename `.phys` next to the model). `.skin`/`.skel`/`.phys` paths can also still be given explicitly instead, and so can a `.bone` or `.phys` file directly to `dump-chunks` (see the Usage section) -- `.bone` *content* itself is parsed (`src/bone.hpp`, reverse engineered, no wowdev.wiki byte layout exists for it) and, via `--bones-dir`, attached to the exported glTF skin as inert `bone_correction_sets` extras, never applied by `husk export` itself -- see the Usage section's "`.bone` corrections" paragraph, `TODO/BONE_CORRECTION_APPLICATION_TODO.md`. `.phys` *content* is parsed too (`src/phys.hpp`, documented on wowdev.wiki, verified against real files -- `WIKI_FINDINGS/PHYS.md`) and, via `--phys`, attached as inert `physics_bodies` extras (never applied to the render) | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | 📖 `MDID`/`MHID` (terrain diffuse/height textures) and FileDataID-flagged `MDDF`/`MODF` names resolved through `--listfile`; `MWDR`/`MWDS` not read | ⬛ |
-
-**Not individually rowed above** (still real, just low-priority/niche —
-tracked here so nothing's silently dropped): WMO's `MOQG`/`MOGX` per-face
-`groundType` gameplay metadata; `MDAL`/`MOPB` material/prepass-batch
-overrides; `MOMX` (structure entirely unknown, "just a guess" per the
-wiki itself); `MPB*` (present in exactly one known alpha file, never read
-by any shipped client — not planned). v14-alpha-only WMO chunks (`MOLV`,
-`MOIN`, pre-1.0 `MOLM`/`MOLD`) are real but scoped out until there's an
-actual reason to read a 2004-era WMO.
-
-**Related sidecar/dependency formats** (their own files, not covered by
-the matrix above, will need their own row set once work starts on them):
-M2's `.skin` (mesh/LOD views), `.anim` (offloaded animation data),
-`.bone`, `.phys`, `.skel`; M3's `.mtl3lib` (`MaterialLibrary`) and the
-`GFAT`/`BLS` compiled-shader files it points to; ADT's own `.wdt` (per-map
-index of which ADT tiles exist, plus the global WMO placement for maps
-that are a single WMO — an instance dungeon, say — instead of open
-terrain) and `.wdl` (a coarse, whole-continent low-resolution heightmap,
-used for distant/minimap-scale terrain — the wiki page is already mirrored
-locally as a directory, `wowdev-wiki/md/WDL/`). All: not started.
-
-## Roadmap: modern M2 → Blender, via glTF
-
-The eventual goal is a real Blender import path — mesh, skeleton, textures,
-materials, and animation, for a *modern* (Legion+ chunked) M2. The core
-target is still a sensible glTF 2.0 export (binary `.glb`, core PBR
-metallic-roughness material model) that Blender's own built-in glTF importer
-can open unmodified — but `tools/` has since grown substantial Blender-side
-tooling beyond that (`husk_blender_geoset_mask.py`/`husk_blender_options_panel.py`:
-Geometry Nodes switches, shader node graphs, jiggle-physics wiring, a
-registered `View3D` panel), run as standalone scripts, not yet packaged as an
-installable Blender addon — see `DESIGN.md`'s Non-goals for the current/target
-split, and `REFACTOR/BLENDER_ADDON.md` for the tracked packaging plan.
-
-The order below is a dependency chain, not a wishlist — each stage only
-makes sense once the one before it works, and each is meant to be a
-demoable milestone (something you can actually open in Blender and look
-at), not an invisible internal refactor. Current status per piece is
-tracked precisely in the [format support matrix](#format-support-matrix-m2--m3--wmo--blp)
-above; this section is about *sequencing* that work, not duplicating it.
-
-1. **Static mesh, no material. Done** — `husk export <file.m2> <file.skin>
-   <out.glb>` (see [Usage](#usage) above). Resolves the `vertices` array's
-   actual contents (`M2Vertex`: `pos`, `bone_weights[4]`, `bone_indices[4]`,
-   `normal`, `tex_coords[2]`), not just the array's `(count, offset)` pair.
-   M2 itself has no triangle indices; those come from a `.skin` file
-   (LOD/submesh views) — its filename is given explicitly on the command
-   line for now, not yet resolved automatically via the Legion+ `SFID`
-   chunk (that's still open, see the format matrix's "Sidecar FileDataID
-   resolution" row). Positions/normals/UVs/indices get written into a
-   minimal glTF (no material, no image — Blender will render it flat gray).
-   The Z-up (WoW) → Y-up (glTF) coordinate flip is applied in
-   `src/gltf.cpp`'s `zUpToYUp` — **`(X, Y, Z)` → `(X, Z, -Y)`**, not the
-   `(X, -Z, Y)` wowdev.wiki's own note literally states: that literal
-   formula, composed with Blender's own glTF-import axis convention,
-   produced a real, measurably upside-down import (found much later, once
-   Blender actually entered the picture — see `TRANSFORM_TRIAGE.md` for the
-   full investigation and fix). Verified against `bloodelffemale.m2` +
-   `bloodelffemale00.skin` (8061 vertices, 10,458 triangles, glTF binary
-   framing round-trips through tinygltf's own loader intact); the
-   Blender-specific verification this stage's own text originally flagged
-   as missing is now real, automated, headless coverage (see "Testing"
-   below) — a real animated pose visually confirmed in Blender's own GUI
-   was the one remaining open item, and is now done too ("Animation looks
-   OK," 2026-08-08).
-2. **Skeleton + skinning, still untextured. Done** — `husk export` now
-   resolves the `bones` array (`M2CompBone`: `parent_bone`, `pivot`,
-   `flags`, `key_bone_id`; the embedded `M2Track` animation blocks are
-   skipped, not parsed — that's stage 6 below) and wires `M2Vertex`'s
-   `bone_weights`/`bone_indices` into a glTF skin (`JOINTS_0`/`WEIGHTS_0`
-   accessors, inverse bind matrices, a joint-node hierarchy from the bone
-   parent chain, see `src/gltf.hpp`'s `Skeleton`). `M2Vertex.bone_indices`
-   are direct indices into the M2's own `bones` array — confirmed against
-   [pywowlib](https://github.com/wowdev/pywowlib)'s M2 writer, since the
-   `.skin` file's own, *differently*-indirected `bones` lookup table (see
-   its wiki page's debated remarks) is a separate, unrelated field this
-   parser doesn't touch. Since M2's bind pose has no baked rotation/scale,
-   each joint's inverse bind matrix is a plain translation by its negated
-   absolute pivot — no matrix-chain composition needed. Success at this
-   stage is "imports as an armature-bound mesh in the correct bind pose" —
-   no animation playback yet. Verified against `bloodelffemale.m2` (119
-   bones): exports cleanly, round-trips through tinygltf's own loader with
-   a populated skin/joint hierarchy; bind pose confirmed correct in
-   Blender's own GUI too (same "Animation looks OK" pass as stage 1).
-   Models with a genuinely empty inline `bones`
-   array correctly fall back to an unskinned mesh, same as stage 1's
-   output — but as stage 3 below explains, "inline `bones` array is empty"
-   and "this model has no skeleton" turned out to be different things, so
-   that fallback currently fires for some models that do have one.
-3. **External skeleton sidecar (`.skel` via `SKID`). Done** — belongs here,
-   not down in the animation stage, because what it resolves is structural
-   (bind-pose bones), the same category of thing as stage 2 above — it
-   just lives in a different file for some models. Legion+ (7.3+) can
-   move a model's `bones` array out of the M2 entirely: an `SKID` chunk
-   (`uint32_t SKeletonfileID`) points at a `.skel` file, itself chunked
-   (`SKL1` header, `SKA1` attachments, `SKS1` sequences, optional `SKPD`
-   for parent-skeleton dedup — see [wowdev.wiki
-   M2/.skel](https://wowdev.wiki/M2/.skel)), whose `SKB1` chunk holds
-   `M2Array<M2CompBone> bones` — the *identical* struct `m2::parseBones`
-   already read for stage 2, just relocated (`src/skel.cpp` reuses it
-   directly rather than re-parsing bones a second way). So this stage
-   turned out to be exactly "find and read one more chunk + one more
-   file," not a new struct to reverse-engineer. `husk export` takes the
-   `.skel` path as an optional 4th argument, used only when the M2's own
-   `bones` array is empty (a model with inline bones takes priority; a
-   redundant `.skel` argument is noted on stderr and ignored, not an
-   error); `husk info` now also flags the `SKID` file data ID when it's
-   present and inline bones are empty, so the "0 bones" gap this stage
-   closes doesn't have to be rediscovered by hand again. Deliberately
-   **not** in scope for this stage: the `BFID` chunk (`.skel`'s or M2's)
-   pointing at numbered `${basename}_${i}.bone` files — per wowdev.wiki,
-   those replaced *per-bone animation track* data (the same category as
-   `.anim`/`AFID`), not bind-pose structure, so they're a stage-6 concern,
-   not this one. Verified against `bloodelffemale_hd.m2` +
-   `bloodelffemale_hd.skel` in this repo's test data: resolves all 245
-   bones from a 23.4 MB `.skel` file (dominated by embedded `M2Track`
-   keyframe data -- stage 3 itself only reads the bind pose, this stage's
-   job; stage 6 below is what later put that keyframe data to use) in well
-   under a second, and produces a glTF skin that round-trips through
-   tinygltf's own loader the same as stage 2's inline-bones case.
-4. **Textures: BLP → PNG. Done** — a hard prerequisite for materials to
-   show anything other than gray, and genuinely separate work from M2
-   parsing. Originally shipped as a separate Python tool, kept out of the
-   `husk` binary entirely: `blp/` is a small Python package (`husk-blp
-   <file.blp> <out.png> [--mip N]`, uv-managed, `nix develop` provides `uv`
-   — see the flake and `blp/pyproject.toml`). Later embedded directly into
-   `husk export` itself (`src/blp.cpp`, in-memory, no separate step —
-   see the Usage section's "Texture conversion") once that process boundary
-   started conflicting with husk's own single-tool-usable-standalone goal;
-   `blp/` is kept as an independent reference implementation, not part of
-   the real `husk export` pipeline anymore. Split of responsibility inside
-   `blp/` itself, still true of the ported C++ version: the
-   BLP2 container format itself (148-byte header + 1024-byte
-   palette/JPEG-header region, mip offset/size tables) is hand-rolled and
-   independently spec-transcribed, same rigor as husk's C++ modules — it's
-   plain structured data, nothing fuzzy about it. Actual DXT1/DXT3/DXT5
-   block decoding is *not* hand-rolled: `husk_blp/decode.py` wraps the raw
-   compressed bytes from a mip level in a minimal synthetic DDS container
-   (bit-for-bit the same block layout) and hands that to Pillow's own,
-   battle-tested DDS reader, rather than reimplementing color/alpha
-   interpolation math — confirmed pixel-correct against hand-built
-   single-block fixtures first (`blp/tests/test_decode.py`), not assumed.
-   Scoped initially to the encodings this repo's real test data (1021
-   `.blp` files under `test_data/character/bloodelf/female/`) actually
-   contained — Palettized (alpha depth 0), DXT1 (opaque), DXT5
-   (interpolated alpha) — checked empirically before writing any decode
-   code, not assumed; uncompressed BGRA is also implemented (trivial, no
-   library needed) even though this test data doesn't happen to use it.
-   DXT3 is implemented too (`src/blp.cpp`'s generic BC1/BC2/BC3 block
-   decode already covered it structurally; a later 779,056-file
-   local-corpus scan confirmed it pixel-correct against 6,759 real DXT3
-   files, see the format matrix above). Explicitly deferred: JPEG content
-   (wiki: rare in BLP2, confirmed zero real hits in that same corpus scan).
-   Palette alpha depth 4 is
-   also deliberately unimplemented and raises a clear error rather than
-   guessing — the wiki's own spec table doesn't clearly document that
-   value's bit layout, unlike the other three depths. Verified against
-   three real files, one per implemented DXT/palette encoding, output
-   inspected directly (not just "didn't crash"): a DXT1 face texture, a
-   DXT5 particle-effects atlas with working transparency, and a palettized
-   face-detail texture — all visually correct, unmistakably the right
-   image content, not garbage that merely happened to be the right
-   dimensions.
-5. **Materials. Done** — resolves the `.skin` file's `batches` array
-   (`M2Batch`, wowdev.wiki M2/.skin#Texture_units, `src/skin.cpp`'s
-   `Batch`) into one glTF material + primitive per batch: `batch ->
-   submesh` (a slice of the already-resolved triangle-index buffer, via
-   `Submesh.indexStart`/`indexCount`) `-> materialIndex` (M2's own
-   `materials` array, `m2::Material`'s `flags`/`blendMode`) `->
-   textureComboIndex` (through the header's `textureCombos` lookup table,
-   wowdev.wiki's "Texture lookup table") `-> textures` array entry. WoW's
-   `M2BLEND_*` blend mode collapses to glTF's three-way `alphaMode`
-   (`0`→`OPAQUE`, `1`→`MASK`, everything else — real alpha blend plus the
-   additive/multiply modes glTF's core material model has no equivalent
-   for — `BLEND` as the closest approximation). The real, un-collapsed
-   blend mode is also attached as a `blend_mode` material `extras` value
-   whenever it's `> 2` (i.e. exactly the range the collapse above throws
-   information away for) — the corpus render pipeline's own
-   `tools/corpus_scan_tasks/render_glb.py` reads it back to rebuild a true
-   additive shader for modes 3/4, since a naive alpha-blend import of an
-   additive-designed texture (typically mostly-black, meant to contribute
-   nothing where black) shows a solid dark panel instead — confirmed
-   against a real corpus file,
-   `creature/celestialfoxwyvern/celestialfoxwyvern.m2`. Modes 5/6 (Mod/
-   Mod2x, multiply) are a real, separate, un-attempted gap. A `MASK`-mode
-   material's `alphaCutoff` is set explicitly to the real client's own
-   alpha-test threshold (`128.0/255.0` — `reference/wow.export`'s
-   `M2RendererGL.js`, `u_alpha_test = 0.501960814`) rather than trusting
-   glTF's own implicit `0.5` default to coincidentally match, which it
-   does for every byte-quantized alpha value but wasn't guaranteed to.
-   The material's
-   "two-sided" render flag (`0x04`) becomes glTF `doubleSided`
-   (`src/export_texture_resolution.cpp`'s `alphaModeForBlend`). Deliberately **not**
-   attempting real PBR authoring (roughness/metalness/normal maps) — WoW's
-   own shader model doesn't map cleanly onto metallic-roughness, and
-   faking plausible-looking values is a separate, later problem from
-   "does the right blend mode show up on the right part of the mesh."
-   One glTF material per *batch* rather than per M2 material index is
-   deliberate: a batch is the thing that actually pins down both blend
-   mode *and* texture together, and nothing in the format guarantees two
-   batches sharing a `materialIndex` also share a texture (this repo's
-   real test data happens to keep that 1:1, but the spec doesn't promise
-   it) — some duplicate-looking glTF materials is a fair trade for never
-   guessing.
-   `baseColorTexture` embedding is real, not just metadata: husk still
-   doesn't resolve a texture's FileDataID to a WoW/CASC path itself (same
-   non-goal as `.skin`/`.skel`, see Usage below and the format matrix's
-   Sidecar row) — but `husk export --textures <dir>` embeds an actual PNG
-   when one already exists at `<dir>/<FileDataID>.png` (produced by
-   `blp/`'s `husk-blp`, roadmap stage 4), closing the loop between the two
-   tools without husk ever touching CASC or a listfile. Without
-   `--textures`, materials still get the right `alphaMode`/`doubleSided`,
-   just no image — both paths verified against real data (see Usage).
-   Four follow-on pieces extend this stage rather than opening a new one:
-   **vertex-color/transparency** (`M2Color`/`M2TextureWeight`, resolved
-   into `baseColorFactor` as a *static* value only when the underlying
-   `M2Track` is unambiguously constant — see `DESIGN.md` for
-   why that safeguard exists, and `src/m2.cpp`'s `Color`/`TextureWeight`);
-   **the second UV set** (`TEXCOORD_1`, plus per-material `texCoord`
-   selection via `textureCoordCombos`, pre-Cataclysm-only); **LOD
-   auto-selection** (`SFID` + `husk export --skin-dir <dir>` -- `--skin` defaults to `auto`,
-   `LDV1`'s `lodCount` surfaced for information); and **`BFID`/`AFID`
-   surfaced as raw FileDataIDs** (`husk info`), the same
-   surface-now-resolve-later treatment `SKID` got before `.skel` support
-   existed — real `.anim` *content* parsing (and `.bone`'s, though not
-   integrated into glTF export) is stage 6 below.
-6. **Animation. Done, for inline bones and `.skel`-sourced bones alike,
-   verified against real data both ways.** `husk export` resolves
-   `sequences` into real `M2Sequence` records -- inline (`src/m2.cpp`'s
-   `parseSequences`) or, for a `.skel`-sourced skeleton, that `.skel`'s own
-   `SKS1` chunk (`src/skel.hpp`'s `parseSequences`, same struct/stride) --
-   and each bone's `translation`/`rotation`/`scale` `M2Track`s into
-   per-sequence keyframes (`resolveVec3TrackSequence`/
-   `resolveQuatTrackSequence`) -- one glTF `animation` clip per sequence
-   with real inline data (`M2Sequence.flags & 0x20`, wowdev.wiki: "the
-   animation data is in the .m2 file"), covering every bone that actually
-   has keyframes for it. Translation keyframes are the bind-pose local
-   offset (`Skeleton::Joint::localTranslation`) plus the animated delta --
-   glTF's animated translation *replaces* a node's translation at sampled
-   times rather than adding to it, so the bind offset has to be baked into
-   every keyframe. Rotation/scale keyframes are converted from WoW's Z-up
-   space the same way positions are (see `src/cmd_export.cpp`'s
-   `toGltf(m2::Quat)`/`toGltfScale`) -- derived from general
-   change-of-basis principles and checked numerically against several test
-   rotations rather than taken from an explicit wowdev.wiki formula (none
-   is documented for this specific step). Verified against
-   `bloodelffemale.m2`: 258 animation clips (256 per-`M2Sequence` + 2
-   `global_seq_<n>`, see below), 73,465 rotation keyframes, all finite and
-   unit-norm; and against the `.skel`-sourced `bloodelffemale_hd.m2`: 334
-   clips, 84,486 sampler channels, zero non-finite/non-monotonic keyframes
-   (see the Usage section's verified-numbers paragraphs) -- playback also
-   confirmed to look correct in Blender's own GUI ("Animation looks OK,"
-   2026-08-08), not just structurally valid data. A bone track whose
-   `global_sequence` field is set instead of belonging to any `M2Sequence`
-   (a continuously-looping animation -- eye-glow pulses, torch flicker,
-   idle sway, wowdev.wiki "Global Sequences": "always loops") resolves the
-   same way, just against its own single outer sub-array instead of a
-   per-`M2Sequence` one (`resolveVec3GlobalSequenceTrack`/
-   `resolveQuatGlobalSequenceTrack`) -- one further glTF clip per distinct
-   global-sequence index a model's bones actually use, alongside (not
-   instead of) the per-sequence clips above. `bloodelffemale_hd.m2`'s own
-   334-clip count above predates this specific addition and wasn't
-   re-verified against it (the file isn't in this repo's committed test
-   data) -- expect it to gain further clips the same way `bloodelffemale.m2`
-   did (256 → 258) if re-checked.
-   **External `.anim`-file sequences: also done and now verified against
-   real files, for both inline and `.skel`-sourced models.** `flags`
-   without `0x20` (and without `0x40`, "alias" -- wowdev.wiki: "stored...
-   somewhere. I have no clue," skipped entirely rather than guessed at)
-   means a sequence's data lives in a `.anim` file instead, resolved via
-   an `AFID` chunk (`animId`/`subAnimId` -> FileDataID -- the model's own
-   for inline bones, or the `.skel`'s own separate `AFID` table for a
-   `.skel`-sourced skeleton, `skel::findAnimFileIds`) and
-   `export --anim <dir>` (same local-directory-by-FileDataID
-   convention as `--skin-dir`/`--textures`). The owning descriptor's own
-   per-bone `M2Track` fields are still what's read
-   (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`'s
-   `externalDataBlob` parameter) -- per wowdev.wiki, "these files are just
-   a blob of data... pointed to by the first array_ref layer," meaning the
-   per-sequence inner `M2Array`'s `offset` field is real, just relative to
-   the `.anim` file's blob instead of the M2's/`.skel`'s
-   (`m2::extractAnimBlob` resolves that file's own optionally-chunked
-   shape, keyed off the model's `global_flags & 0x200000`). For an inline
-   model (`bloodelffemale.m2`), this held up byte-for-byte against real
-   data on the first try: all 50 of the model's own real `.anim` files
-   (renamed to `<FileDataID>.anim` per its `AFID` table) resolved cleanly,
-   306 total clips, zero malformed reads. For a `.skel`-sourced model
-   (`bloodelffemale_hd.m2`), it did *not* -- see the next paragraph.
-   **`.skel`-sourced external `.anim` files: real per-bone data lives in an
-   `AFSB` chunk almost universally, not `AFM2` -- and `AFSB`'s undocumented
-   byte layout has since been cracked and resolved, not just detected.**
-   All 54 of `bloodelffemale_hd.m2`'s own real `.anim` files (resolved
-   through the `.skel`'s own `AFID` table) turned out to carry an `AFSB`
-   chunk -- either alone (13 files) or alongside a small (16-1344 bytes
-   across the full corpus, always a multiple of 16, and near-zero) `AFM2`
-   "stub" that is *not* real track data (confirmed by trying to resolve
-   against it anyway and getting a real "claims more keyframes than this
-   blob holds" bounds error, not silently wrong output). The crack: `AFSB`
-   isn't a new format at all -- it's the same per-bone `M2Track` data
-   `.skel`'s `SKB1` chunk already describes, just stored in the external
-   `.anim` file's `AFSB` payload instead of `SKB1` itself. `SKB1`'s own
-   per-bone, per-sequence `(count, offset)` descriptors (the exact ones
-   `resolveVec3TrackSequence`/`resolveQuatTrackSequence` already resolve
-   for the `AFM2`-external case above) turn out to be real and non-zero far
-   more often than assumed -- the `offset` just needed to be read against
-   `AFSB`'s payload, the same `externalDataBlob` mechanism already used one
-   paragraph up, not a new parser. `husk export`'s external-file loading
-   now extracts `AFSB`'s own chunk payload directly as that blob whenever
-   present (taking priority over the `AFM2` stub, same "husk doesn't have
-   this one" skip only for a truly unrecognized future shape -- neither
-   chunk present at all). Verified against the entire real 104-file
-   `bloodelffemale_hd_*.anim` corpus (every bone/sequence combination's
-   timestamps monotonic and in-bounds, every decoded value finite, rotation
-   quaternions unit-length) and, end to end, three independent ways: husk
-   itself now reports 336 real animation clips for this model (up from the
-   inline/global-sequence-only clips available before), the Khronos
-   `gltf_validator` reports zero new errors, and Blender's own glTF
-   importer, run headlessly, independently counts 336 actions -- see
-   `WIKI_FINDINGS/M2/anim.md`'s follow-up for the full byte-level writeup.
-   **`.bone` (`BFID`) content: done, structure reverse engineered from real
-   files (no wowdev.wiki documentation exists for it at all); selection is
-   done too, application is not.** A `.bone` file (`src/bone.hpp`) is a
-   4-byte version field followed by two chunks in the same generic
-   container M2/`.skel` use: `BIDA`, a flat `uint16_t` bone-index array, and
-   `BOMT`, a flat array of 4x4 row-major float matrices in lockstep with
-   `BIDA` (`husk dump-chunks <file.bone>` dumps both as `(bone_index,
-   matrix)` pairs). Confirmed against 6 real `bloodelffemale_hd_*.bone`
-   files: every matrix's last column reads exactly `(0,0,0,1)` and the
-   upper-left 3x3 stays near-identity with small (millimeter-to-centimeter)
-   translation-sized deltas -- the signature of a small corrective delta
-   transform per listed bone, not arbitrary data or a full replacement
-   pose. LOD is ruled out as the selector by real data (all 20 of a real
-   model's `.bone` files don't fit its 7-tier LOD count, collapse into only
-   5 distinct bone-index sets with heavy exact duplication, and share
-   corrections that are pure magnitude scales along one of two fixed
-   directions -- the signature of a customization-choice lookup, not a
-   detail-reduction ladder; see `WIKI_FINDINGS/BONE.md` and
-   `TODO/BONE_CORRECTION_APPLICATION_TODO.md`). The real selector (a
-   `ChrCustomizationChoiceID` -> `ChrCustomizationBoneSet.BoneFileDataID`
-   join) is resolved now, not out of reach -- `husk export --db2-dir/
-   --dbd-dir/--customization-choice-ids` (`src/chrcustomization_db2.hpp`)
-   marks the matching resolved `.bone` correction set given a real choice
-   ID. What's still open is *applying* that correction in Blender -- its
-   composition semantics (multiply order, local-vs-model space) were never
-   verified against real client behavior, tracked separately in
-   `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, gated on a real client
-   comparison, not an external-data wall.
-   **Particles/ribbons: fully parsed, split across a `.glb` anchor and
-   `dump-chunks` JSON.** `M2Ribbon`/`M2Particle` (`m2::parseRibbons`/
-   `parseParticles`, `src/m2.cpp`) are now fully dereferenced -- every
-   static field, plus every M2Track/FBlock animation curve, resolved and
-   real-data-verified against actual weapon particle effects (fire/ember
-   color gradients, alpha fade envelopes, growing scale curves -- see
-   `WIKI_FINDINGS.md`). Like `.bone` corrections, neither type has a
-   native glTF representation (procedural emitters, not geometry), but
-   unlike the small, bounded `.bone`-correction/geoset/texture-transform
-   `extras`, this data can be large (dozens of emitters, each with several
-   curves) -- so it's deliberately split: `husk export` attaches only a
-   minimal placement anchor (id/bone/position) to the `.glb`'s skin
-   `extras`, and the full record lives in `husk dump-chunks`'s JSON output
-   instead (see below). `M2Particle`'s record shape is version-gated
-   (Cataclysm+, `m2::kMinVerifiedParticleVersion`) the same way Bone/
-   Sequence/Ribbon already gate on Wrath.
-   **Simple, unintegrated M2 chunks: extracted to JSON, not glTF.**
-   `husk dump-chunks <file.m2>` (`src/cmd_dump.cpp`) pulls `TXAC`/`EXPT`/
-   `PABC`/`PADC`/`PSBC`/`PEDC`/`RPID`/`GPID`/`PGD1`/`WFV3`/`NERF`/`EDGF`/
-   `DBOC`/`TEXL` -- all reasonably well documented, but genuinely unrelated to
-   glTF's own material/animation model (parent-sequence overrides,
-   PBR-ish waterfall shader constants, per-model alpha-distance falloff,
-   edge fade, ...) -- into readable JSON, a new intermediary format rather
-   than folding into `export`'s output. Chunks with no documented byte
-   layout, or a wiki-acknowledged-uncertain one (`WFV1`/`WFV2`/`DPIV`/
-   `AFRA`), are still included as a raw hex dump plus a note explaining
-   why, rather than silently dropped -- see `DESIGN.md` for the per-chunk
-   reasoning. `DETL`/`PFDC`/`PCOL`/`EXP2` all had their own byte layout
-   corrected and confirmed against real files since this fallback list was
-   first written, and are now fully parsed into structured JSON, not
-   fallback hex. This same command also now
-   carries the full `ribbon_emitters`/`particle_emitters` records (see
-   above) -- a deliberate broadening from its original Legion+-chunk-only
-   scope, since the "no glTF slot" rationale applies equally to both.
-7. **Output hardening. Done** — every real-data export
-   (`tests/test_conformance.cpp`) now runs through two independent, real
-   downstream consumers, not just tinygltf's own (fairly permissive)
-   reader: the Khronos glTF-Validator CLI (`gltf_validator`, packaged in
-   `nix/flake.nix` from the official precompiled release -- see that
-   file's own comment for a real packaging gotcha this surfaced: the
-   binary is Dart-AOT, and both `autoPatchelfHook`'s ELF rewrite *and*
-   stdenv's default strip step independently corrupt its embedded VM
-   snapshot; fixed with `dontPatchELF`/`dontStrip` plus a `steam-run-free`
-   wrapper instead of patching the file at all), asserting zero validator
-   errors; and Blender itself, run headlessly (`blender --background
-   --factory-startup`) via `tests/blender_import_check.py`, cross-checked
-   against tinygltf's own reading of the same file (bone count, animation
-   clip count) so the test can't pass by both readers sharing the same
-   blind spot. Verified against real data: `bloodelffemale.m2`'s export
-   passes the validator with 0 errors/0 warnings, and Blender's importer
-   agrees with tinygltf on both bone count (119) and animation clip count
-   (258). ~~Decide the LOD/skin-profile policy~~ Done, then extended --
-   see stage 8 below: the default stayed "always emit the highest-detail
-   skin profile," but it's no longer the only option.
-8. **Multi-LOD export (`--lod`). Done** — `husk export`'s default (`--skin auto`)
-   (SFID entry 0, stage 7's policy) can now be overridden: `--lod <n>`
-   picks a specific SFID entry instead (`husk info`'s `skin_file_data_ids`
-   shows how many a model has), and `--lod all` resolves every entry and
-   exports all of them into one `.glb`, each as its own named glTF node
-   (`gltf::writeGlbMulti`, `src/gltf.cpp`) with its own primitives/
-   materials -- sharing one skeleton and one set of animation clips, since
-   every LOD tier of one M2 draws from the same `bones` array (only the
-   triangle/vertex-index *subset* a `.skin` selects differs per LOD, see
-   `src/skin.hpp`). `LDV1`'s `lod_count` (surfaced by `husk info` since
-   before this stage, but previously never consumed by anything -- see the
-   format matrix) now has a real consumer: an out-of-range `--lod <n>`
-   reports it in the error message.
-
-Explicitly not in this chain yet: WMO, M3, and anything in the
-"write"/round-trip direction (a real Blender import *addon* rather than a
-glTF file Blender happens to be able to open).
-
-## Corpus-scale tooling (`tools/`)
-
-Separate from `husk` itself: a set of Python scripts for running `husk`
-across an entire local corpus (a `casc-tool`-extracted `wow_export` tree,
-tens to hundreds of thousands of files) rather than one file at a time --
-full-corpus structural validation, targeted scans for specific gaps, and
-an end-to-end `husk export` → headless-Blender render pipeline for visual
-review. `tools/CORPUS_SCANS.md` covers the scan framework (how to run an
-existing scan, how to write a new one, and two real performance gotchas
-from real incidents, not hypothetical ones). `tools/full_render.py` runs
-the full render pipeline with fresh corpus discovery every run (never a
-stale file-list snapshot) and a `.renderignore` file at the repo root
-(gitignore-style glob patterns, e.g. `character/`) for excluding
-directories/files that are structurally out of scope rather than
-maintaining a separate, scan-result-derived exclusion list by hand --
-`direnv exec . tools/venv/bin/python tools/full_render.py` (add
-`--dry-run` to preview counts without rendering).
-
-## Testing
-
-See `TEST_DESIGN.md` for the full testing architecture — four tiers
-(pure-logic, command-layer, integration against real game-extracted
-fixtures, and conformance against external consumers like `gltf_validator`
-and headless Blender). Build and run:
-
-```
-cmake --build build -j$(nproc)
-./build/husk-tests                                    # pure-logic only
-HUSK_TEST_M2=test_data/bloodelffemale.m2 \
-HUSK_TEST_SKIN=test_data/bloodelffemale00.skin \
-  ./build/husk-tests                                  # + integration
-```
-
-`blp/` (Python) has its own, separate test suite -- same two-tier shape
-(synthetic `test_header.py`/`test_decode.py`, always run; real-file
-`test_integration.py`, skipped unless `HUSK_TEST_BLP_DXT1`/
-`HUSK_TEST_BLP_DXT5`/`HUSK_TEST_BLP_PALETTE` point at real files):
-
-```
-cd blp
-uv sync
-uv run pytest                                          # pure-logic only
-HUSK_TEST_BLP_DXT1=../test_data/character/bloodelf/female/bloodelffemale_hd_face_3500074.blp \
-HUSK_TEST_BLP_DXT5=../test_data/character/bloodelf/female/bloodelffemale_hd_4530998.blp \
-HUSK_TEST_BLP_PALETTE=../test_data/character/bloodelf/female/bloodelffemalefacelower10_00.blp \
-  uv run pytest                                        # + integration
-```
-
-## Design notes
-
-Architecture and design rationale — why the code is shaped the way it is,
-not just what it currently does — live in `DESIGN.md`, not here, so a
-structural change has one canonical place to be checked against. That
-includes: the chunk-tag-tracking/diagnostic mechanism, the `.skel`/`.bone`
-sidecar reuse pattern, the `M2Track` constant-value safeguard and the real
-bug that motivated it, external `.anim` blob splicing and the `AFSB`
-crack, the `M2Sequence`-is-64-bytes finding, the bone-track Z-up→Y-up
-quaternion/scale conversion, why glTF output goes through tinygltf, why
-`dump-chunks` is a separate JSON format, why LOD tiers share one skeleton,
-and why `blp/` stays a separate Python process. Real-file
-reverse-engineering findings specifically (the wowdev.wiki gaps/errors
-found along the way) are their own document, `WIKI_FINDINGS.md`, cited
-from `DESIGN.md` and from the Usage/roadmap sections above where relevant.
-
-## Disclaimer
-
-This tool is co-coded by AI, verified by a massively autistic developer —
-every field-offset claim here was checked against the real spec and a real
-game file, not taken on faith.

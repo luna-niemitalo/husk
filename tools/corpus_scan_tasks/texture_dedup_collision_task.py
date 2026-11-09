@@ -54,6 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; ROOT/LISTFILE/HUSK_BIN read from there, see REFACTOR/CLI_AND_TOOLING.md §4
+import listfile_index  # noqa: E402 -- same sys.path.insert
 
 HUSK_BIN = csf.HUSK_BIN
 TIMEOUT = 15.0
@@ -125,29 +126,12 @@ def _find_same_basename_skins(m2_path: Path) -> list[Path]:
     return sorted(two_digit) if two_digit else sorted(any_digit)
 
 
-@functools.lru_cache(maxsize=1)
-def _load_listfile() -> dict[int, str]:
-    table: dict[int, str] = {}
-    if not csf.LISTFILE.exists():
-        return table
-    with csf.LISTFILE.open("r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            fdid_str, _, rel_path = line.partition(";")
-            if not rel_path:
-                continue
-            try:
-                table[int(fdid_str)] = rel_path.rstrip("\n")
-            except ValueError:
-                continue
-    return table
-
-
 def _resolve_texture_path(model_dir: Path, fdid: int) -> Path | None:
     for suffix in (".blp", ".png"):
         p = model_dir / f"{fdid}{suffix}"
         if p.exists():
             return p
-    rel_path = _load_listfile().get(fdid)
+    rel_path = listfile_index.open_listfile(csf.LISTFILE).get(fdid)
     if rel_path is not None:
         stem = csf.ROOT / Path(rel_path).with_suffix("")
         for suffix in (".png", ".blp"):

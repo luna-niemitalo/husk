@@ -15,7 +15,7 @@ def main [
     out: string            # scene directory to write
     ...tiles: string       # root .adt files, e.g. .../azeroth/azeroth_32_49.adt
     --corpus-root: string = "/media/luna/wow_export/live"
-    --listfile: string = "/media/luna/userdata/Downloads/community-listfile.csv"
+    --listfile: string = "/home/luna/dev/husk/development/listfiles"  # husk picks the newest snapshot
     --db2-dir: string = "/media/luna/wow_export/live/dbfilesclient"
     --dbd-dir: string = "/home/luna/dev/husk/reference/WoWDBDefs"
     --husk-bin: string = "/home/luna/dev/husk/build/husk"

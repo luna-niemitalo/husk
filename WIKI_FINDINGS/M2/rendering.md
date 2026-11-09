@@ -4,7 +4,7 @@ Current, correct facts only, read from the 12.1.0 client's own compiled
 shaders (`tools/export_shaders.py`'s `dx_5_0` assembly; container format in
 `../BLS.md`). Nothing here was checked against the running client, and
 everything below is **verified** against shader code unless tagged
-otherwise. Full evidence trail: `../../WIKI_FINDINGS_HISTORY.md` §19, §20.
+otherwise. Full evidence trail: `../HISTORY.md` §19, §20.
 
 Wiki pages: `Pixel_shader_logic_for_mixing_colors.md` (**P** below),
 `M2/Rendering.md` (**R**), `M2/.skin.md` (shader enums), `M2.md`

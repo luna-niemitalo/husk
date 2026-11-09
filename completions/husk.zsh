@@ -25,6 +25,7 @@ _husk() {
         'validate-bundle:check bundle documents against the format's schema'
         'export-world:export every ADT tile of every map to a canonical scene'
         'store-add:record an export tree as a build in the canonical store'
+        'store-prune:drop builds from the canonical store and the objects only they listed'
         'export-corpus:every map and every M2/WMO of a game build, optionally into the store'
         'snapshot:record the source mount's current game build in the canonical store'
         'index-tree:(re)build an export tree's index/ lookup tables'
@@ -174,6 +175,7 @@ _husk() {
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
                 '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--tiles-from[--tiles-from]:value:_files' \
                 '1:model:_files'
             ;;
         validate-bundle)
@@ -208,6 +210,16 @@ _husk() {
                 '--game[--game]:value:_files' \
                 '--game-from[--game-from]:value:_files' \
                 '--tag[--tag]:value:_files' \
+                '1:model:_files'
+            ;;
+        store-prune)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--store[--store]:value:_files' \
+                '--drop[--drop]:value:_files' \
+                '--superseded[--superseded]' \
+                '--apply[--apply]' \
                 '1:model:_files'
             ;;
         export-corpus)

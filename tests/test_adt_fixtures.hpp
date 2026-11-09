@@ -398,6 +398,8 @@ struct WdtSpec {
     std::optional<MapObjectSpec> mapObject;
     std::string mapObjectName;  // MWMO, written when non-empty
     bool writeMaid = false;
+    std::vector<std::pair<std::pair<uint32_t, uint32_t>, uint32_t>> flowIds;  // MAI2 field 0, written when non-empty
+    size_t mai2Size = 64 * 64 * 32;
 };
 
 std::vector<uint8_t> wdtFile(const WdtSpec& spec) {
@@ -412,6 +414,11 @@ std::vector<uint8_t> wdtFile(const WdtSpec& spec) {
         std::vector<uint8_t> maid(64 * 64 * 32, 0);
         for (const auto& [tile, id] : spec.rootIds) setU32(maid, (tile.second * 64 + tile.first) * 32, id);
         appendChunk(out, "MAID", maid);
+    }
+    if (!spec.flowIds.empty()) {
+        std::vector<uint8_t> mai2(spec.mai2Size, 0);
+        for (const auto& [tile, id] : spec.flowIds) setU32(mai2, (tile.second * 64 + tile.first) * 32, id);
+        appendChunk(out, "MAI2", mai2);
     }
     if (!spec.mapObjectName.empty()) {
         std::vector<uint8_t> mwmo(spec.mapObjectName.begin(), spec.mapObjectName.end());

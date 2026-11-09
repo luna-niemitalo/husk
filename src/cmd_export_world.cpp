@@ -532,15 +532,16 @@ int exportWorld(int argc, char** args) {
                         loadSidecar(t.root, "auto", "_obj1.adt", "--obj1", &adt::parseObj1);
                     if (!obj1Sidecar.warning.empty()) errors.add("obj1", t.root.string(), obj1Sidecar.warning);
                     auto wdt = wdts.find(t.map);
-                    auto [mapTexture, mapNormalTexture] =
-                        mapTextureIds(name, wdt != wdts.end() ? &wdt->second : nullptr, listfile.get());
+                    TileTextureIds tileTextures =
+                        tileTextureIds(name, wdt != wdts.end() ? &wdt->second : nullptr, listfile.get());
 
                     std::filesystem::path relToOut = std::filesystem::relative(out, bundle);
                     adtinput::TextureResolutions textures;
                     writers::AssetUris textureUris;
                     std::vector<uint32_t> textureIds;
                     if (tex) textureIds = adtinput::textureFileDataIds(*tex, gamePaths);
-                    for (std::optional<uint32_t> fdid : {mapTexture, mapNormalTexture}) {
+                    for (std::optional<uint32_t> fdid :
+                         {tileTextures.mapTexture, tileTextures.mapNormalTexture, tileTextures.liquidFlow}) {
                         if (fdid) textureIds.push_back(*fdid);
                     }
                     if (liquids) {
@@ -555,8 +556,9 @@ int exportWorld(int argc, char** args) {
                     }
                     adtinput::TileSources sources{root, obj, tex, flags, name.map, name.x, name.y,
                                                   lodSidecar.value ? &*lodSidecar.value : nullptr,
-                                                  obj1Sidecar.value ? &*obj1Sidecar.value : nullptr, mapTexture,
-                                                  mapNormalTexture};
+                                                  obj1Sidecar.value ? &*obj1Sidecar.value : nullptr,
+                                                  tileTextures.mapTexture, tileTextures.mapNormalTexture,
+                                                  tileTextures.liquidFlow};
                     canon::Terrain terrain = adtinput::buildCanonTerrain(
                         sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
                     nameModelRefs(terrain, *listfile);

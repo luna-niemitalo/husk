@@ -353,6 +353,7 @@ struct AllSubcommandOpts {
     husk::commands::ExportMapOptions exportMapOpts;
     husk::commands::ValidateBundleOptions validateBundleOpts;
     husk::commands::StoreAddOptions storeAddOpts;
+    husk::commands::StorePruneOptions storePruneOpts;
     husk::commands::MountOptions mountOpts;
     husk::commands::ExportCorpusOptions exportCorpusOpts;
     husk::commands::IndexTreeOptions indexTreeOpts;
@@ -418,6 +419,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
 
     CLI::App* storeAddSub = root.add_subcommand("store-add", "record an export tree as a build in the canonical store");
     husk::commands::addStoreAddOptions(*storeAddSub, opts.storeAddOpts);
+
+    CLI::App* storePruneSub =
+        root.add_subcommand("store-prune", "drop builds from the canonical store and the objects only they listed");
+    husk::commands::addStorePruneOptions(*storePruneSub, opts.storePruneOpts);
 
     CLI::App* exportCorpusSub =
         root.add_subcommand("export-corpus", "every map and every M2/WMO of a game build, optionally into the store");
@@ -677,6 +682,9 @@ int main(int argc, char** argv) {
     }
     if (command == "store-add") {
         return husk::commands::storeAdd(restArgc, rest);
+    }
+    if (command == "store-prune") {
+        return husk::commands::storePrune(restArgc, rest);
     }
     if (command == "index-tree") {
         return husk::commands::indexTree(restArgc, rest);

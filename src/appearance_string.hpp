@@ -14,10 +14,8 @@
 //   - cust: ChrCustomizationChoiceID, same ID space as `husk export
 //     --customization-choice-ids` (src/chrcustomization_db2.hpp).
 //   - gear: (slot, ItemModifiedAppearanceID) -- the appearance actually
-//     displayed, not the equipped item's own ID. husk has no code yet that
-//     resolves an ItemModifiedAppearanceID to a texture (see cmd_appearance.cpp's
-//     doc comment) -- this format only carries the data forward until that
-//     chain exists.
+//     displayed, not the equipped item's own ID; itemappearance_db2.hpp
+//     resolves it to model and texture FileDataIDs.
 //
 // Grammar (v1), space-separated fields after a version tag:
 //   husk-appearance/1 race=<ChrRacesID> sex=<0|1> cust=<id,id,...> gear=<SLOT:id,SLOT:id,...>

@@ -5,7 +5,7 @@ files in the 12.1.0 corpus (`/media/luna/data/wow_export/shaders/`).
 `tools/export_shaders.py` relies on each container-layout fact and fails a
 file loudly, with expected and actual values, if one stops holding. The
 block-header, hash and `RDEF` facts come from its output manifests
-(`../WIKI_FINDINGS_HISTORY.md` §19, §20). What the shaders themselves compute
+(`HISTORY.md` §19, §20). What the shaders themselves compute
 is in `M2/rendering.md`, `ADT.md`, `WORLD.md` and `RENDERING.md`.
 
 ## Inventory (12.1.0)

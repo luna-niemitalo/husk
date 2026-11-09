@@ -383,9 +383,17 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
 
             auto [it, added] = presetByChoices.emplace(key, model.presets.size());
             if (added) model.presets.push_back(std::move(preset));
-            model.presets[it->second].sources.push_back(
-                {canon::Ref{canon::Db2Row{"CreatureDisplayInfo", display.id}, "", canon::NameSource::None},
-                 display.scale, modelData.scale});
+            canon::PresetSource source{
+                canon::Ref{canon::Db2Row{"CreatureDisplayInfo", display.id}, "", canon::NameSource::None},
+                display.scale, modelData.scale, {}};
+            if (auto creatures = data.creaturesByDisplay.find(display.id); creatures != data.creaturesByDisplay.end()) {
+                for (const creaturedisplay::Creature& creature : creatures->second) {
+                    canon::NameSource nameSource = creature.name.empty() ? canon::NameSource::None : canon::NameSource::Db2;
+                    source.users.push_back(
+                        {canon::Ref{canon::Db2Row{"Creature", creature.id}, creature.name, nameSource}, creature.title});
+                }
+            }
+            model.presets[it->second].sources.push_back(std::move(source));
         }
     }
 }

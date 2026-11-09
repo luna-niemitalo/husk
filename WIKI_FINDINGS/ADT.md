@@ -80,7 +80,7 @@ real tiles from the local corpus. The code that relies on each one is
 ## Terrain shader (client `terrain` pixel shader, 12.1.0)
 
 Read from the client's compiled shaders, not from tiles
-(`../WIKI_FINDINGS_HISTORY.md` §19). husk exports the inputs, not this
+(`HISTORY.md` §19). husk exports the inputs, not this
 blend.
 
 - The wiki's height-blend pseudocode (`ADT/v18.md`, "MTXP") is exactly the

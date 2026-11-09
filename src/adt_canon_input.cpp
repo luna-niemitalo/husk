@@ -424,6 +424,13 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
     canon::Vec2 corner = canon::terrainTileCorner(sources.tileX, sources.tileY);
     for (const adt::MapChunk& mc : root.chunks) out.chunks.push_back(buildChunk(mc, corner));
     out.lod = buildLod(sources, resolutions);
+    if (sources.liquidFlowTexture) {
+        // Unlike the map textures, an unresolved flow map is dropped: the WDT
+        // can name one the build doesn't ship (live kalimdor.wdt), and a
+        // dangling reference would claim a flow map the tile doesn't have.
+        canon::TextureRef flow = textureFor(*sources.liquidFlowTexture, resolutions);
+        if (flow.state == canon::TextureRef::State::Resolved) out.liquidFlow = std::move(flow);
+    }
 
     if (sources.tex) {
         if (!sources.wdtFlags) {

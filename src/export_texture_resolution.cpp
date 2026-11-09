@@ -63,9 +63,9 @@ float decodeFixed16(uint32_t bits) {
 // `'hair style'`/`'facial'`) and the explicit "blindfold = type 9" comment
 // on `apply_skinned_model_textures` (~line 791). Types 1 (skin) and 8
 // (skin_extra) are the two the same function shows binding a *composite* of
-// several blended layers at runtime, not one raw file -- husk has no
-// compositing engine (would need real ChrModelTextureLayer blend-order/DB2
-// data it deliberately doesn't have, see DESIGN.md's Non-goals), so
+// several blended layers at runtime, not one raw file -- husk reads the
+// ChrModelTextureLayer layout (chrmodel_db2.hpp) but describes composites
+// rather than rendering them, and this path has no composited result, so
 // "skin_color"/"face"/"body_jewelry"/"bracelets" all stay valid candidates
 // for those two types -- see `orderCandidatesForDefault` for how the
 // default is actually chosen among them (real decoded pixel area, not a

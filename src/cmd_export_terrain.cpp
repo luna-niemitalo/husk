@@ -207,13 +207,14 @@ int exportTerrain(int argc, char** args) {
             }
         }
 
-        auto [mapTexture, mapNormalTexture] = mapTextureIds(tile, nullptr, listfile.get());
-        for (std::optional<uint32_t> fdid : {mapTexture, mapNormalTexture}) {
+        TileTextureIds tileTextures = tileTextureIds(tile, nullptr, listfile.get());
+        for (std::optional<uint32_t> fdid : {tileTextures.mapTexture, tileTextures.mapNormalTexture, tileTextures.liquidFlow}) {
             if (fdid && listfile) textures.emplace(*fdid, resolveTexture(*fdid, *listfile, listfileRoot));
         }
         adtinput::TileSources sources{root, obj, tex, wdtFlags, tile.map, tile.x, tile.y,
                                       lodSidecar.value ? &*lodSidecar.value : nullptr,
-                                      obj1Sidecar.value ? &*obj1Sidecar.value : nullptr, mapTexture, mapNormalTexture};
+                                      obj1Sidecar.value ? &*obj1Sidecar.value : nullptr, tileTextures.mapTexture,
+                                      tileTextures.mapNormalTexture, tileTextures.liquidFlow};
         canon::Terrain terrain = adtinput::buildCanonTerrain(
             sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
         if (listfile) nameModelRefs(terrain, *listfile);
