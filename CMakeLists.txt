@@ -351,6 +351,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_flag_docs.cpp
     tests/test_cli_skin.cpp
     tests/test_cli_anim.cpp
+    tests/test_cli_animationdata.cpp
     tests/test_cli_anim_skel.cpp
     tests/test_cli_skel.cpp
     tests/test_cli_phys.cpp
