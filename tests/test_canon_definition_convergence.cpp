@@ -135,26 +135,28 @@ TEST_CASE("canon::assembleDefinition converges with chrcustomization::Data again
                 }
             }
         }
-        if (!std::holds_alternative<canon::Db2Row>(opt.category.ref.id)) {
+        // CategoryID 0 means no category; any other ID a Db2Row reference.
+        if (opt.category.has_value() != (expectedOpt.categoryId != 0) ||
+            (opt.category && !std::holds_alternative<canon::Db2Row>(opt.category->ref.id))) {
             if (!categoryRefKindMismatch) categoryRefKindMismatch = oi;
         } else if (expectedCategory != nullptr) {
             bool categoryMatches =
-                std::get<canon::Db2Row>(opt.category.ref.id).row == expectedCategory->id &&
-                opt.category.orderIndex == expectedCategory->orderIndex;
+                std::get<canon::Db2Row>(opt.category->ref.id).row == expectedCategory->id &&
+                opt.category->orderIndex == expectedCategory->orderIndex;
             if (!categoryMatches && !categoryRowMismatch) categoryRowMismatch = oi;
-            if (opt.category.orderIndex != expectedCategory->orderIndex && !categoryOrderMismatch) {
+            if (opt.category->orderIndex != expectedCategory->orderIndex && !categoryOrderMismatch) {
                 categoryOrderMismatch = oi;
             }
             bool categoryNameMatches = expectedCategory->name.empty()
-                                            ? (opt.category.ref.name.empty() &&
-                                               opt.category.ref.source == canon::NameSource::None)
-                                            : (opt.category.ref.name == expectedCategory->name &&
-                                               opt.category.ref.source == canon::NameSource::Db2);
+                                            ? (opt.category->ref.name.empty() &&
+                                               opt.category->ref.source == canon::NameSource::None)
+                                            : (opt.category->ref.name == expectedCategory->name &&
+                                               opt.category->ref.source == canon::NameSource::Db2);
             if (!categoryNameMatches && !categoryNameMismatch) categoryNameMismatch = oi;
         } else {
-            bool noCategoryMatches = std::get<canon::Db2Row>(opt.category.ref.id).row == 0 &&
-                                       opt.category.ref.name.empty() &&
-                                       opt.category.ref.source == canon::NameSource::None;
+            bool noCategoryMatches = std::get<canon::Db2Row>(opt.category->ref.id).row == 0 &&
+                                       opt.category->ref.name.empty() &&
+                                       opt.category->ref.source == canon::NameSource::None;
             if (!noCategoryMatches && !categoryRowMismatch) categoryRowMismatch = oi;
         }
 
@@ -336,8 +338,7 @@ TEST_CASE("canon::assembleDefinition: an option whose ChrCustomizationCategoryID
 
     canon::Definition result = assemble(data, 42);
     REQUIRE(result.options.size() == 1);
-    CHECK(result.options[0].category.ref.name.empty());
-    CHECK(result.options[0].category.ref.source == canon::NameSource::None);
+    CHECK_FALSE(result.options[0].category.has_value());
 }
 
 TEST_CASE("canon::assembleDefinition: an option whose ChrCustomizationCategoryID is a dangling "
@@ -349,8 +350,8 @@ TEST_CASE("canon::assembleDefinition: an option whose ChrCustomizationCategoryID
 
     canon::Definition result = assemble(data, 42);
     REQUIRE(result.options.size() == 1);
-    CHECK(result.options[0].category.ref.name.empty());
-    CHECK(result.options[0].category.ref.source == canon::NameSource::None);
+    CHECK((!result.options[0].category || result.options[0].category->ref.name.empty()));
+    CHECK((!result.options[0].category || result.options[0].category->ref.source == canon::NameSource::None));
 }
 
 TEST_CASE("canon::assembleDefinition: a choice with a real geoset element decodes to the same "

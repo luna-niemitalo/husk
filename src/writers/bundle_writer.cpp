@@ -75,13 +75,15 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
     writeRef(w, canon::Ref{canon::Db2Row{"ChrModel", chrModelId}, "", canon::NameSource::None});
     w.key("order");
     w.value(static_cast<int64_t>(option.orderIndex));
-    w.key("category");
-    w.beginObject();
-    w.key("ref");
-    writeRef(w, option.category.ref);
-    w.key("order");
-    w.value(static_cast<int64_t>(option.category.orderIndex));
-    w.endObject();
+    if (option.category) {
+        w.key("category");
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, option.category->ref);
+        w.key("order");
+        w.value(static_cast<int64_t>(option.category->orderIndex));
+        w.endObject();
+    }
     w.key("choices");
     w.beginArray();
     for (const canon::Choice& choice : option.choices) {

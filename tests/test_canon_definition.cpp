@@ -27,9 +27,10 @@ TEST_CASE("Option: a Category plus multiple Choices, one with a geoset element, 
     option.ref.source = NameSource::Db2;
     option.orderIndex = 0;
 
-    option.category.ref.id = Db2Row{"ChrCustomizationCategory", 1};
-    option.category.ref.name = "Face";
-    option.category.orderIndex = 0;
+    option.category = Category{};
+    option.category->ref.id = Db2Row{"ChrCustomizationCategory", 1};
+    option.category->ref.name = "Face";
+    option.category->orderIndex = 0;
 
     Choice finned;
     finned.ref.id = Db2Row{"ChrCustomizationChoice", 200};
@@ -54,7 +55,7 @@ TEST_CASE("Option: a Category plus multiple Choices, one with a geoset element, 
     CHECK(option.choices[1].ref.name.empty());
     CHECK_FALSE(option.choices[1].geoset.has_value());
 
-    CHECK(option.category.ref.name == "Face");
+    CHECK(option.category->ref.name == "Face");
 }
 
 TEST_CASE("Definition: chrModelId scopes the whole catalog, distinct catalogs reach the same index differently") {

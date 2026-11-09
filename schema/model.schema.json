@@ -272,7 +272,7 @@
                   },
                   "category": {
                     "type": "object",
-                    "description": "The category the option is listed under.",
+                    "description": "The category the option is listed under; absent when the option has none (CategoryID 0).",
                     "properties": {
                       "ref": {
                         "$ref": "common.schema.json#/definitions/ref",
@@ -380,7 +380,6 @@
                   "ref",
                   "chr_model",
                   "order",
-                  "category",
                   "choices"
                 ]
               }

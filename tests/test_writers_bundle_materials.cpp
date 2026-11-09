@@ -203,7 +203,7 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     customization.chrModelId = 45;
     canon::Option hair;
     hair.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "Hair Style", canon::NameSource::Db2};
-    hair.category.ref = canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None};
+    hair.category = canon::Category{canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None}, 0};
     canon::Choice longHair;
     longHair.ref = canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 30}, "", canon::NameSource::None};
     longHair.geoset = canon::Geoset::fromRawId(203);
@@ -283,7 +283,7 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
     customization.chrModelId = 1;
     canon::Option jaw;
     jaw.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 8}, "Jaw", canon::NameSource::Db2};
-    jaw.category.ref = canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None};
+    jaw.category = canon::Category{canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None}, 0};
     canon::Choice wide;
     wide.ref = canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 80}, "", canon::NameSource::None};
     jaw.choices = {wide};
@@ -402,7 +402,7 @@ TEST_CASE("writeBundle: material documents beside the model; a slot's composite 
     canon::Definition customization;
     canon::Option face;
     face.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "Face", canon::NameSource::Db2};
-    face.category.ref = canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None};
+    face.category = canon::Category{canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None}, 0};
     canon::Choice first;
     first.ref = canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 30}, "", canon::NameSource::None};
     face.choices = {first};
@@ -449,7 +449,7 @@ TEST_CASE("validateDocument: a choice binding an input its material doesn't decl
     canon::Definition customization;
     canon::Option face;
     face.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "Face", canon::NameSource::Db2};
-    face.category.ref = canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None};
+    face.category = canon::Category{canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None}, 0};
     face.choices = {canon::Choice{canon::Ref{canon::Db2Row{"ChrCustomizationChoice", 30}, "", canon::NameSource::None}, 0, std::nullopt}};
     customization.options = {face};
     model.customization = {customization};

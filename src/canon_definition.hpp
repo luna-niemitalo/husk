@@ -55,7 +55,7 @@ struct Choice {
 struct Option {
     Ref ref;  // id = Db2Row{"ChrCustomizationOption", row}, name = Name_lang
     uint32_t orderIndex = 0;
-    Category category;
+    std::optional<Category> category;  // absent when ChrCustomizationCategoryID is 0
     std::vector<Choice> choices;
 };
 

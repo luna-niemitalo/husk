@@ -40,8 +40,11 @@ Definition assembleDefinition(const chrcustomization::Data& data, uint32_t chrMo
             Option opt;
             opt.ref = makeRef("ChrCustomizationOption", nc.optionId, nc.optionName);
             opt.orderIndex = nc.optionOrderIndex;
-            opt.category.ref = makeRef("ChrCustomizationCategory", nc.categoryId, nc.categoryName);
-            opt.category.orderIndex = nc.categoryOrderIndex;
+            // CategoryID 0 names no row: no category, not a reference to row 0.
+            if (nc.categoryId != 0) {
+                opt.category = canon::Category{makeRef("ChrCustomizationCategory", nc.categoryId, nc.categoryName),
+                                               nc.categoryOrderIndex};
+            }
             options.push_back(std::move(opt));
             optIt = options.end() - 1;
         }
