@@ -19,24 +19,27 @@ file:
     magic, chunk-container corruption, array-bounds violation, ...), and
     cross-checks against an independent from-scratch Python header read
     (not calling husk at all) as a genuine second opinion.
-  - export: husk export produces a well-formed (correct magic, non-empty)
-    .glb.
+  - export: husk export writes a model bundle whose manifest.json parses
+    and is a `model` document.
   - dump-chunks: (chunked files only) valid JSON output.
   - fidelity: the *independently* parsed M2 header's vertex/bone counts
-    exactly match the exported glTF's actual accessor/skin counts -- same
-    exact-match precedent tests/test_conformance.cpp's case-1/case-2
-    checks established against curated fixtures, generalized to work
-    without a hardcoded expected value.
-  - finite: every FLOAT accessor (positions, normals, UVs, *and* every
-    animation keyframe) is swept for NaN/Inf -- a static proxy for "doesn't
-    explode when animated": a keyframe that's already non-finite at rest
-    will definitely misbehave the moment anything interpolates it.
-  - mesh_completeness: every primitive actually carries TEXCOORD_0 (UV
-    data genuinely present, not just assumed).
-  - validate: zero gltf_validator errors -- schema-level glTF correctness
-    (joint hierarchy, weight normalization, etc.) is *not* reimplemented
-    here; it's exactly what a mature, already-comprehensive validator is
-    for.
+    exactly match the bundle's mesh vertex count and skeleton joint count
+    -- same exact-match bar tests/test_conformance.cpp's fixture checks
+    use, generalized to work without a hardcoded expected value.
+  - finite: every f32 array the manifest names (positions, normals, UVs,
+    every LOD level, skeleton, *and* every animation keyframe) is swept for
+    NaN/Inf -- a static proxy for "doesn't explode when animated": a
+    keyframe that's already non-finite at rest will definitely misbehave
+    the moment anything interpolates it.
+  - mesh_completeness: the mesh and every LOD level carry UV set 0 for
+    every vertex, and every primitive names a material the bundle has.
+  - validate: zero `husk validate-bundle` problems -- schema-level bundle
+    correctness is *not* reimplemented here; the embedded schemas are the
+    format's definition.
+
+The bundle reader and the export/content/validate checks live in
+corpus_checks.py (one implementation; this runner adds scheduling and
+reporting).
 
 Dependencies (tqdm, rich) live in tools/venv, a uv-managed venv -- not
 this project's usual bare-stdlib scratch-script convention, deliberately:
@@ -51,30 +54,20 @@ Usage (direnv -> uv run -> the venv's python -> this script):
     direnv exec . uv run --python tools/venv/bin/python tools/corpus_test.py --limit 200 --verbose
     direnv exec . uv run --python tools/venv/bin/python tools/corpus_test.py --sample 5000 --report /tmp/report.json
 
-Why gltf_validator runs are batched AND pooled, not one-per-file: gltf_validator
-is a Dart program, and its per-invocation VM startup cost dominates its
-actual (near-instant) validation work -- spawning it once per file
-serializes the whole run behind that startup tax. It also supports pointing
-at a *directory* and recursively validating every *.glb inside in one
-process (one VM startup for the whole batch), writing a
-`<name>.glb.report.json` sidecar per asset. Measured empirically on this
-machine (32 cores): validating a fixed corpus with 1 process takes about
-the same wall time as splitting it 8 ways across 8 concurrent processes
-(no speedup at all -- Dart VMs are heavy enough that 8 concurrent instances
-hit real contention), but running the *same full corpus* through 2 or 4
-concurrent processes scales almost linearly. So: husk's own info/export/
-dump-chunks run on a large thread pool (they scale cleanly, no such
-ceiling); gltf_validator runs on a small, fixed-size pool of persistent
-worker threads (--validator-workers, default 4), each pulling one
+Why validation is batched AND pooled, not one-per-file: each `husk
+validate-bundle` invocation pays process startup and the embedded schema
+load once (about half a second) and takes any number of bundle
+directories, so one invocation per batch amortizes that. husk's own info/
+export/dump-chunks run on a large thread pool; validation runs on a small
+pool of persistent worker threads (--validator-workers), each pulling one
 already-exported batch at a time off a *bounded* queue.Queue so the export
 producer can't race arbitrarily far ahead of validation and pile up
-unbounded .glb data in tmpfs.
+unbounded bundle data in tmpfs.
 """
 
 import argparse
 import concurrent.futures
 import json
-import math
 import os
 import queue
 import random
@@ -88,6 +81,9 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import corpus_checks as cc
+from corpus_checks import AssertResult, TestResult
 
 try:
     from tqdm import tqdm
@@ -103,24 +99,6 @@ except ImportError:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_HUSK_BIN = REPO_ROOT / "build" / "husk"
 DEFAULT_CORPUS_ROOT = Path("/media/luna/wow_export/live")
-
-
-@dataclass
-class AssertResult:
-    name: str
-    passed: bool
-    code: str = ""     # short, groupable failure category (e.g. a gltf_validator "code")
-    detail: str = ""   # only populated on failure -- no point keeping noise for a pass
-
-
-@dataclass
-class TestResult:
-    name: str
-    asserts: list  # list[AssertResult]
-
-    @property
-    def passed(self) -> bool:
-        return all(a.passed for a in self.asserts)
 
 
 @dataclass
@@ -268,25 +246,9 @@ def test_header(husk_bin, m2_path, timeout):
     return TestResult("header", asserts), "Legion+ chunked" in out, independent
 
 
-def test_export(husk_bin, m2_path, out_glb, anim_mode, timeout):
-    cmd = [
-        str(husk_bin), "export", str(m2_path), "-o", str(out_glb),
-        "--textures", "none", "--anim", anim_mode, "--bones-dir", "none",
-    ]
-    code, out = run_cmd(cmd, timeout)
-    exists = out_glb.exists()
-    size_ok = exists and out_glb.stat().st_size > 12
-    magic_ok = False
-    if size_ok:
-        with open(out_glb, "rb") as f:
-            magic_ok = f.read(4) == b"glTF"
-    asserts = [
-        AssertResult("exit_code_0", code == 0, detail=last_meaningful_line(out) if code != 0 else ""),
-        AssertResult("glb_written", exists, detail="" if exists else "no output file"),
-        AssertResult("glb_nonempty", size_ok, detail="" if size_ok else "empty or missing"),
-        AssertResult("glb_magic", magic_ok, detail="" if magic_ok else "bad glTF magic bytes"),
-    ]
-    return TestResult("export", asserts), exists
+def test_export(m2_path, bundle_dir, anim_mode):
+    args = ["--textures", "none", "--anim", anim_mode, "--bones-dir", "none"]
+    return cc._export_result(m2_path, bundle_dir, args), (bundle_dir / "manifest.json").exists()
 
 
 def test_dump_chunks(husk_bin, m2_path, timeout):
@@ -299,269 +261,72 @@ def test_dump_chunks(husk_bin, m2_path, timeout):
     return TestResult("dump-chunks", asserts)
 
 
-# ---------------------------------------------------------------------------
-# glTF content correctness (fidelity/finite/mesh_completeness): a minimal,
-# from-scratch glb reader -- deliberately not a dependency like pygltflib,
-# since all that's needed is "read this accessor's raw values," and every
-# glb husk produces uses plain (non-sparse), single-bufferView accessors.
-# Sparse accessors are recognized and skipped (husk doesn't emit them; a
-# skip here just means "not checked," never a silent misread).
-# ---------------------------------------------------------------------------
-
-_COMPONENT_TYPES = {
-    5120: ("b", 1), 5121: ("B", 1), 5122: ("h", 2),
-    5123: ("H", 2), 5125: ("I", 4), 5126: ("f", 4),
-}
-_TYPE_COMPONENT_COUNTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "MAT4": 16}
-
-
-def read_glb(glb_path: Path):
-    data = glb_path.read_bytes()
-    magic, version, length = struct.unpack_from("<4sII", data, 0)
-    if magic != b"glTF":
-        raise ValueError("bad glb magic")
-    off = 12
-    gltf_json, bin_chunk = None, b""
-    while off + 8 <= length:
-        chunk_len, chunk_type = struct.unpack_from("<I4s", data, off)
-        off += 8
-        chunk_data = data[off:off + chunk_len]
-        if chunk_type == b"JSON":
-            gltf_json = json.loads(chunk_data)
-        elif chunk_type == b"BIN\x00":
-            bin_chunk = chunk_data
-        off += chunk_len
-    if gltf_json is None:
-        raise ValueError("no JSON chunk in glb")
-    return gltf_json, bin_chunk
-
-
-def read_accessor_values(gltf, bin_chunk, accessor_index):
-    """Returns a flat list of component values for the accessor, or None if
-    it's a shape this reader deliberately doesn't handle (sparse, or no
-    bufferView -- the latter is spec-valid (implicit zeros) but husk never
-    emits it, so treating it as "not checked" rather than guessing is safer.
-    """
-    acc = gltf["accessors"][accessor_index]
-    if "sparse" in acc or "bufferView" not in acc:
-        return None
-    comp_fmt, comp_size = _COMPONENT_TYPES[acc["componentType"]]
-    n_comp = _TYPE_COMPONENT_COUNTS[acc["type"]]
-    bv = gltf["bufferViews"][acc["bufferView"]]
-    base_offset = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
-    stride = bv.get("byteStride", n_comp * comp_size)
-    count = acc["count"]
-    fmt = f"<{n_comp}{comp_fmt}"
-    values = []
-    for i in range(count):
-        values.extend(struct.unpack_from(fmt, bin_chunk, base_offset + i * stride))
-    return values
-
-
-def collision_mesh_indices(gltf) -> set:
-    # The collision mesh (if present) is a genuinely separate NamedMesh with
-    # its own, unrelated, much smaller vertex buffer and no UV data at all
-    # (see cmd_export.cpp/gltf.cpp's isCollision handling) -- tagged via
-    # {"collision": true} on its *node*, not the mesh itself. Both
-    # test_fidelity (vertex-count consistency) and test_mesh_completeness
-    # (UV presence) need to exclude it, or every collision-bearing export
-    # would falsely look like a regression.
-    return {
-        node["mesh"] for node in gltf.get("nodes", [])
-        if node.get("extras", {}).get("collision") is True and "mesh" in node
-    }
-
-
-def test_fidelity(gltf, header_summary):
-    """Cross-checks husk's exported glTF against an *independently* parsed
-    M2 header -- not a hardcoded expected value, so this generalizes to any
-    file. Exact match, no tolerance: same precedent as
-    tests/test_conformance.cpp's case-1/case-2 checks (vertex count, bone
-    count) against real fixtures -- see CLAUDE.md's Resume for how those
-    were established and why exact (not "> 0") is the right bar here.
-    """
-    asserts = []
-    if header_summary is None:
-        return None  # independent parse itself failed -- nothing to cross-check
-    meshes = gltf.get("meshes", [])
-    accessors = gltf.get("accessors", [])
-    excluded = collision_mesh_indices(gltf)
-    position_counts = {
-        accessors[prim["attributes"]["POSITION"]]["count"]
-        for mi, mesh in enumerate(meshes) if mi not in excluded
-        for prim in mesh.get("primitives", [])
-        if "POSITION" in prim.get("attributes", {})
-    }
-    # All primitives share one vertex buffer in husk's own design (only
-    # `indices` differs per submesh/batch) -- so every primitive's POSITION
-    # accessor should report the *same* count; more than one distinct value
-    # here would itself be a real regression, not just a fidelity mismatch.
-    if position_counts:
-        consistent = len(position_counts) == 1
-        asserts.append(AssertResult("one_consistent_vertex_count", consistent,
-                                     detail="" if consistent
-                                     else f"primitives disagree on vertex count: {position_counts}"))
-        vertex_count = next(iter(position_counts)) if consistent else None
-        if vertex_count is not None:
-            asserts.append(AssertResult(
-                "vertex_count_matches_header", vertex_count == header_summary["vertex_count"],
-                detail="" if vertex_count == header_summary["vertex_count"]
-                else f"glb has {vertex_count}, header says {header_summary['vertex_count']}"))
-
-    # header_summary["bone_count"] == 0 legitimately means "bones live in an
-    # external .skel file, not inline" (husk export --skel; see DESIGN.md's
-    # CLI grammar section) -- this independent reader doesn't parse .skel,
-    # so it has no expected count to check in that case. Only assert when
-    # the M2 itself claims inline bones.
-    skins = gltf.get("skins", [])
-    if skins and header_summary["bone_count"] > 0:
-        joint_count = len(skins[0].get("joints", []))
-        asserts.append(AssertResult(
-            "bone_count_matches_header", joint_count == header_summary["bone_count"],
-            detail="" if joint_count == header_summary["bone_count"]
-            else f"glb skin has {joint_count} joints, header says {header_summary['bone_count']} bones"))
-
-    return TestResult("fidelity", asserts) if asserts else None
-
-
-def test_finite(gltf, bin_chunk):
-    """Sweeps every FLOAT accessor -- vertex positions/normals/UVs *and*
-    every animation sampler's keyframe input/output, since those are all
-    just entries in the same top-level `accessors` array -- for NaN/Inf.
-    This is a static check on stored data, not a full animation-playback
-    simulation, but a keyframe that's already non-finite at rest will
-    definitely "explode" the moment anything samples/interpolates it.
-    """
-    bad = []
-    for i, acc in enumerate(gltf.get("accessors", [])):
-        if acc.get("componentType") != 5126:  # FLOAT only
-            continue
-        values = read_accessor_values(gltf, bin_chunk, i)
-        if values is None:
-            continue
-        if not all(math.isfinite(v) for v in values):
-            bad.append(i)
-    passed = not bad
-    return TestResult("finite", [AssertResult(
-        "all_float_accessors_finite", passed,
-        detail="" if passed else f"non-finite values in accessor(s) {bad[:10]}")])
-
-
-def test_mesh_completeness(gltf):
-    """Does every primitive actually carry UV data, not just claim to via a
-    material reference -- a real "meshes have UV information" check, not a
-    guess. husk always exports UVs when the M2 vertex format has them
-    (effectively always for real character/creature/item models), so a
-    primitive missing TEXCOORD_0 is worth a look, not expected noise.
-    """
-    excluded = collision_mesh_indices(gltf)  # never textured/UV-mapped by design
-    missing = []
-    for mi, mesh in enumerate(gltf.get("meshes", [])):
-        if mi in excluded:
-            continue
-        for pi, prim in enumerate(mesh.get("primitives", [])):
-            if "TEXCOORD_0" not in prim.get("attributes", {}):
-                missing.append(f"mesh{mi}/prim{pi}")
-    passed = not missing
-    return TestResult("mesh_completeness", [AssertResult(
-        "every_primitive_has_texcoord0", passed,
-        detail="" if passed else f"missing on {missing[:10]}")])
-
-
-def test_glb_content(glb_path: Path, header_summary):
-    """Runs fidelity/finite/mesh_completeness together against one glb parse
-    (avoids reading+decoding the same file 3 times). Returns the list of
-    TestResults that actually apply -- a glb this reader can't even open
-    (should be unreachable if export's own magic-byte check passed, but
-    defensive regardless) reports that failure once instead of silently
-    skipping every content check.
+def test_bundle_content(bundle_dir: Path, header_summary):
+    """Runs fidelity/finite/mesh_completeness against one manifest read (a
+    character manifest is over 100 MB of JSON). A manifest this reader
+    can't open reports that failure once instead of silently skipping
+    every content check.
     """
     try:
-        gltf, bin_chunk = read_glb(glb_path)
-    except (ValueError, KeyError, struct.error, json.JSONDecodeError) as e:
-        return [TestResult("glb_content", [AssertResult("glb_parseable", False, detail=str(e))])]
-
-    results = []
-    fidelity = test_fidelity(gltf, header_summary)
-    if fidelity is not None:
-        results.append(fidelity)
-    results.append(test_finite(gltf, bin_chunk))
-    results.append(test_mesh_completeness(gltf))
-    return results
-
-
-def validate_result_from_report(report_path: Path, run_out: str) -> TestResult:
-    # gltf_validator's own documented contract: nonzero process exit iff
-    # >= 1 error anywhere in the batch -- that tells us nothing about
-    # *this* file, so read this file's own report.json (issues.numErrors/
-    # messages) instead of the batch-wide exit code.
-    if not report_path.exists():
-        return TestResult("validate", [AssertResult(
-            "zero_errors", False, code="NO_REPORT",
-            detail=f"no report.json produced (validator output: {last_meaningful_line(run_out)})")])
-    try:
-        report = json.loads(report_path.read_text())
+        manifest = cc.read_manifest(bundle_dir)
     except (OSError, json.JSONDecodeError) as e:
-        return TestResult("validate", [AssertResult("zero_errors", False, code="BAD_REPORT", detail=str(e))])
-    issues = report.get("issues", {})
-    errors = [m for m in issues.get("messages", []) if m.get("severity") == 0]
-    if not errors:
-        return TestResult("validate", [AssertResult("zero_errors", True)])
-    first = errors[0]
-    return TestResult("validate", [AssertResult(
-        "zero_errors", False, code=first.get("code", "?"),
-        detail=f"{first.get('code')}: {first.get('message')} ({first.get('pointer')})"
-               + (f" [+{len(errors) - 1} more]" if len(errors) > 1 else ""))])
+        return [TestResult("bundle_content", [AssertResult("manifest_parseable", False, detail=str(e))])]
+    results = [
+        cc.fidelity_result(manifest, header_summary),
+        cc.finite_result(bundle_dir, manifest),
+        cc.mesh_completeness_result(manifest),
+    ]
+    return [r for r in results if r is not None]
 
 
 _name_counter = 0
 _name_counter_lock = threading.Lock()
 
 
-def unique_glb_path(batch_dir, m2_path):
+def unique_bundle_path(batch_dir, m2_path):
     global _name_counter
     with _name_counter_lock:
         _name_counter += 1
         n = _name_counter
-    return batch_dir / f"{n}_{Path(m2_path).stem}.glb"
+    return batch_dir / f"{n}_{Path(m2_path).stem}.bundle"
 
 
 def process_file_phase1(m2_path, batch_dir, husk_bin, opts):
     """Runs every check that's fast/native and scales cleanly with a large
-    thread pool: husk info/export/dump-chunks, plus the glb content checks
-    (fidelity/finite/mesh_completeness -- pure Python, no subprocess, so
-    they belong here, not on the small gltf_validator worker pool). Does
-    NOT run gltf_validator itself -- that's batched separately (see module
-    docstring) -- and does NOT delete the .glb: the caller needs it around
-    for the batch-wide validator pass, and cleans up the whole batch
-    directory afterward instead.
+    thread pool: husk info/export/dump-chunks, plus the bundle content
+    checks (fidelity/finite/mesh_completeness -- pure Python, no
+    subprocess, so they belong here, not on the small validator worker
+    pool). Does NOT run the validator itself -- that's batched separately
+    (see module docstring) -- and does NOT delete the bundle: the caller
+    needs it around for the batch-wide validator pass, and cleans up the
+    whole batch directory afterward instead.
     """
     result = FileResult(path=str(m2_path))
-    glb_path = unique_glb_path(batch_dir, m2_path)
+    bundle_dir = unique_bundle_path(batch_dir, m2_path)
 
     header_result, is_chunked, header_summary = test_header(husk_bin, m2_path, opts.timeout)
     result.tests.append(header_result)
 
-    export_result, glb_exists = test_export(husk_bin, m2_path, glb_path, opts.anim, opts.timeout)
+    export_result, bundle_exists = test_export(m2_path, bundle_dir, opts.anim)
     result.tests.append(export_result)
 
     if is_chunked and not opts.skip_dump:
         result.tests.append(test_dump_chunks(husk_bin, m2_path, opts.timeout))
 
-    if glb_exists and not opts.skip_content_checks:
-        result.tests.extend(test_glb_content(glb_path, header_summary))
+    if bundle_exists and not opts.skip_content_checks:
+        result.tests.extend(test_bundle_content(bundle_dir, header_summary))
 
-    return result, (glb_path if glb_exists else None)
+    return result, (bundle_dir if bundle_exists else None)
 
 
-def validate_and_report_batch(batch_dir, file_results, glb_to_result, gltf_validator_bin,
+def validate_and_report_batch(batch_dir, file_results, bundle_to_result,
                                opts, reporter, results, results_lock):
     """Owns one batch's validation, reporting, and cleanup end to end -- the
     unit of work a validator worker pulls off the bounded queue (see
-    validator_worker_loop/main()). Runs exactly one gltf_validator
-    invocation for the whole batch (amortizing its Dart VM startup cost
-    across every file in it, see module docstring), merges each file's own
-    report.json back into its FileResult, then reports and records every
+    validator_worker_loop/main()). Runs exactly one `husk validate-bundle`
+    invocation for the whole batch (amortizing its startup across every
+    file in it, see module docstring), merges each bundle's own report
+    back into its FileResult, then reports and records every
     file in this batch itself: this worker owns this batch's output start
     to finish, so multiple validator workers running concurrently never
     contend over a single central "merge results" step -- only the shared
@@ -570,11 +335,11 @@ def validate_and_report_batch(batch_dir, file_results, glb_to_result, gltf_valid
     from worker threads.
     """
     try:
-        if not opts.skip_validator and gltf_validator_bin and glb_to_result:
-            code, out = run_cmd([str(gltf_validator_bin), "-a", str(batch_dir)], opts.validator_timeout)
-            for glb_path, result in glb_to_result.items():
-                report_path = glb_path.with_name(glb_path.name + ".report.json")
-                result.tests.append(validate_result_from_report(report_path, out))
+        if not opts.skip_validator and bundle_to_result:
+            cc.run_bundle_validator(list(bundle_to_result), opts.validator_timeout)
+            for bundle_dir, result in bundle_to_result.items():
+                report = json.loads(cc.validator_report_path(bundle_dir.resolve()).read_text())
+                result.tests.append(cc.validate_result_from_report(report))
         with results_lock:
             results.extend(file_results.values())
         for result in file_results.values():
@@ -583,15 +348,15 @@ def validate_and_report_batch(batch_dir, file_results, glb_to_result, gltf_valid
         shutil.rmtree(batch_dir, ignore_errors=True)
 
 
-def validator_worker_loop(work_queue, gltf_validator_bin, opts, reporter, results, results_lock):
+def validator_worker_loop(work_queue, opts, reporter, results, results_lock):
     """Runs forever in its own thread, pulling one already-exported batch at
     a time off `work_queue` -- one persistent 'parser' per worker, matching
-    export's own per-file worker shape but at batch granularity, since
-    gltf_validator's fixed per-invocation cost (see module docstring) needs
+    export's own per-file worker shape but at batch granularity, since the
+    validator's fixed per-invocation cost (see module docstring) needs
     many files per invocation to amortize well. `work_queue` is a *bounded*
     queue.Queue (see main()): its own put()/get() blocking is what keeps the
     export producer from racing arbitrarily far ahead and piling up
-    unbounded .glb data in tmpfs -- a plain generator can lazily produce
+    unbounded bundle data in tmpfs -- a plain generator can lazily produce
     batches, but only a bounded queue between threads actually throttles
     the producer against how fast these workers are draining it.
     """
@@ -600,9 +365,9 @@ def validator_worker_loop(work_queue, gltf_validator_bin, opts, reporter, result
         try:
             if item is None:  # sentinel: no more batches, this worker is done
                 return
-            batch_dir, file_results, glb_to_result = item
-            validate_and_report_batch(batch_dir, file_results, glb_to_result,
-                                       gltf_validator_bin, opts, reporter, results, results_lock)
+            batch_dir, file_results, bundle_to_result = item
+            validate_and_report_batch(batch_dir, file_results, bundle_to_result,
+                                       opts, reporter, results, results_lock)
         finally:
             work_queue.task_done()
 
@@ -710,12 +475,13 @@ def main():
     ap.add_argument("--husk-bin", type=Path, default=DEFAULT_HUSK_BIN, help="path to the compiled husk binary")
     ap.add_argument("--pattern", default="*.m2", help="glob pattern under --root (default: *.m2)")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 4, help="parallel worker count for husk calls")
-    ap.add_argument("--batch-size", type=int, default=500,
-                     help="files per gltf_validator batch (one Dart VM startup per batch, not per file)")
+    # Small: one validate-bundle startup (~0.5 s) is already negligible per
+    # file at 50, and every bundle of a batch sits in tmpfs until the batch
+    # is validated -- a character bundle is ~340 MB.
+    ap.add_argument("--batch-size", type=int, default=50,
+                     help="files per `husk validate-bundle` batch (one startup per batch, not per file)")
     ap.add_argument("--validator-workers", type=int, default=4,
-                     help="concurrent gltf_validator processes (default: 4 -- empirically the sweet spot on "
-                          "this machine; unlike husk itself, running many more concurrent Dart VMs measured "
-                          "no faster than 1, see module docstring)")
+                     help="concurrent `husk validate-bundle` processes (default: 4)")
     ap.add_argument("--limit", type=int, default=None, help="only process the first N discovered files")
     ap.add_argument("--sample", type=int, default=None, help="randomly sample N files instead of all")
     ap.add_argument("--seed", type=int, default=0, help="RNG seed for --sample (reproducible by default)")
@@ -723,13 +489,14 @@ def main():
                      help="--anim mode passed to husk export (default: auto, most thorough; "
                           "use 'inline' for a faster pass that skips external .anim directory search)")
     ap.add_argument("--timeout", type=float, default=30.0, help="per-husk-invocation timeout, seconds")
-    ap.add_argument("--validator-timeout", type=float, default=120.0, help="per-batch gltf_validator timeout, seconds")
-    ap.add_argument("--skip-validator", action="store_true", help="skip the gltf_validator pass entirely")
+    ap.add_argument("--validator-timeout", type=float, default=120.0,
+                     help="per-batch `husk validate-bundle` timeout, seconds")
+    ap.add_argument("--skip-validator", action="store_true", help="skip the validate-bundle pass entirely")
     ap.add_argument("--skip-dump", action="store_true", help="skip the dump-chunks pass on chunked files")
     ap.add_argument("--skip-content-checks", action="store_true",
-                     help="skip fidelity/finite/mesh_completeness glb content checks")
+                     help="skip fidelity/finite/mesh_completeness bundle content checks")
     ap.add_argument("--ram-dir", type=Path, default=Path("/dev/shm"),
-                     help="tmpfs root for scratch .glb output (default: /dev/shm)")
+                     help="tmpfs root for scratch bundle output (default: /dev/shm)")
     ap.add_argument("--quiet", action="store_true", help="progress bar only, no per-file lines")
     ap.add_argument("--only-failures", action="store_true", help="print per-file lines only for failures")
     ap.add_argument("--no-color", action="store_true", help="disable colored output")
@@ -744,10 +511,10 @@ def main():
         print(f"error: corpus root {opts.root} does not exist", file=sys.stderr)
         return 1
 
-    gltf_validator_bin = None if opts.skip_validator else shutil.which("gltf_validator")
-    if not opts.skip_validator and not gltf_validator_bin:
-        print("warning: gltf_validator not found on PATH -- validate pass will be skipped for every file",
-              file=sys.stderr)
+    # The export and validate runs are corpus_checks.py's; its globals are
+    # its one configuration point.
+    cc.HUSK_BIN = str(opts.husk_bin)
+    cc.TIMEOUT = opts.timeout
 
     use_color = (not opts.no_color) and sys.stdout.isatty()
     console = Console(force_terminal=use_color, no_color=not use_color, highlight=False)
@@ -759,7 +526,7 @@ def main():
         print("no files matched -- nothing to do", file=sys.stderr)
         return 0
     print(f"{total} file(s) to test, {opts.workers} husk worker(s), "
-          f"{opts.validator_workers} gltf_validator worker(s) x {opts.batch_size} files/batch, "
+          f"{opts.validator_workers} validator worker(s) x {opts.batch_size} files/batch, "
           f"scratch in tmpfs ({opts.ram_dir})",
           file=sys.stderr)
 
@@ -774,25 +541,19 @@ def main():
     results_lock = threading.Lock()
     start = time.time()
 
-    # husk's info/export/dump-chunks are cheap native calls that scale
-    # cleanly with --workers (measured ~218 files/s at 32 workers on this
-    # machine); gltf_validator does not -- it's a Dart program, and
-    # empirically (see module docstring) running more than a handful
-    # concurrently hits a wall on this machine (8 concurrent instances
-    # measured no faster than 1; 2-4 scaled almost linearly). So export
-    # stays on a large thread pool, while opts.validator_workers persistent
-    # threads (validator_worker_loop) each pull one already-exported batch
-    # at a time off `work_queue` -- a *bounded* queue.Queue, not a plain
-    # generator or an executor's own (unbounded) internal queue: its
-    # maxsize is what stops the export producer from racing arbitrarily far
-    # ahead and piling up unbounded .glb data in tmpfs while validation
-    # lags behind. A small multiple of validator_workers keeps a little
+    # Export stays on a large thread pool, while opts.validator_workers
+    # persistent threads (validator_worker_loop) each pull one
+    # already-exported batch at a time off `work_queue` -- a *bounded*
+    # queue.Queue, not a plain generator or an executor's own (unbounded)
+    # internal queue: its maxsize is what stops the export producer from
+    # racing arbitrarily far ahead and piling up unbounded bundle data in
+    # tmpfs while validation lags behind. A small multiple of validator_workers keeps a little
     # look-ahead (so a worker never idles waiting on the next batch) without
     # letting the producer run away.
     work_queue = queue.Queue(maxsize=opts.validator_workers * 2)
     validator_threads = [
         threading.Thread(target=validator_worker_loop,
-                          args=(work_queue, gltf_validator_bin, opts, reporter, results, results_lock),
+                          args=(work_queue, opts, reporter, results, results_lock),
                           daemon=True)
         for _ in range(opts.validator_workers)
     ]
@@ -805,16 +566,16 @@ def main():
             batch_dir = run_root / f"batch-{i}"
             batch_dir.mkdir()
             file_results = {}
-            glb_to_result = {}
+            bundle_to_result = {}
             futures = [export_pool.submit(process_file_phase1, f, batch_dir, opts.husk_bin, opts)
                        for f in batch_files]
             for fut in concurrent.futures.as_completed(futures):
-                result, glb_path = fut.result()
+                result, bundle_dir = fut.result()
                 file_results[result.path] = result
-                if glb_path is not None:
-                    glb_to_result[glb_path] = result
+                if bundle_dir is not None:
+                    bundle_to_result[bundle_dir] = result
 
-            work_queue.put((batch_dir, file_results, glb_to_result))  # blocks once queue is full
+            work_queue.put((batch_dir, file_results, bundle_to_result))  # blocks once queue is full
     except KeyboardInterrupt:
         print("\ninterrupted -- reporting partial results...", file=sys.stderr)
     finally:

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Library of idempotent, per-file M2 corpus checks.
 
-Extracted from corpus_test.py (kept as-is, untouched, as a reference for
-its own now-superseded threading/tqdm/batching approach -- this file
-replaces that approach, not that file). Every public check function below
+Every public check function below
 takes exactly one argument, an `.m2` path, and its only output is a
 read-modify-write of that file's own status JSON under STATUS_DIR -- never
 shared state, never another file's status JSON. That's what makes them
@@ -23,20 +21,26 @@ module's own globals (CORPUS_ROOT, STATUS_DIR, SCRATCH_DIR, HUSK_BIN, ...)
 a minimal end-to-end usage.
 
 validate is the one check split into two halves on purpose: producing a
-gltf_validator report (run_gltf_validator) is a batchable, orchestration-
-level concern -- gltf_validator's own per-invocation Dart VM startup cost
-makes calling it once per file dramatically slower than pointing it at a
-directory of many already-exported files at once (see run_gltf_validator's
-own docstring) -- while consuming that report into a file's status JSON
-(test_validate) stays a plain, idempotent, single-file-path check like
-everything else. Building the batching itself is the caller's call.
+`husk validate-bundle` report (run_bundle_validator) is a batchable,
+orchestration-level concern -- one invocation takes any number of bundle
+directories and pays its startup and embedded-schema load once (see
+run_bundle_validator's own docstring) -- while consuming that report into
+a file's status JSON (test_validate) stays a plain, idempotent,
+single-file-path check like everything else. Building the batching itself
+is the caller's call.
+
+The bundle content checks (fidelity/finite/mesh_completeness) exist as
+pure functions over an already-read manifest (*_result below) so
+corpus_test.py runs the same checks without the status-JSON plumbing.
 """
 
 import json
 import math
+import re
 import shutil
 import struct
 import subprocess
+from array import array
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,16 +52,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # after that -- nothing here is ever written per-file.
 CORPUS_ROOT: Path | None = None            # root every mirrored path is relative to
 STATUS_DIR: Path | None = None             # per-file <name>.status.json, mirrored under here
-SCRATCH_DIR: Path | None = None            # per-file scratch .glb + validator report, mirrored (put this on tmpfs)
-# PATH first, falling back to the known-good local build path -- verified
-# live that the flake dev shell does NOT currently put husk on PATH
-# (CLI_AND_TOOLING.md §4's claim that it does is stale), so a bare "husk"
-# alone would break every real invocation; shutil.which-first matches this
-# module's own GLTF_VALIDATOR_BIN idiom below.
+SCRATCH_DIR: Path | None = None            # per-file scratch bundle dir + validator report, mirrored
+# PATH first, falling back to the local build path: the flake dev shell
+# provides husk's build tools, not a built husk, so a bare "husk" alone
+# would break every invocation there.
 HUSK_BIN = shutil.which("husk") or str(REPO_ROOT / "build" / "husk")
-GLTF_VALIDATOR_BIN = shutil.which("gltf_validator")
 TIMEOUT = 30.0                             # seconds, per husk invocation
-VALIDATOR_TIMEOUT = 120.0                  # seconds, per gltf_validator invocation
+VALIDATOR_TIMEOUT = 120.0                  # seconds, per `husk validate-bundle` invocation
 ANIM_MODE = "auto"                         # passed straight through to `husk export --anim`
 
 
@@ -104,14 +105,16 @@ def status_path(m2_path) -> Path:
     return STATUS_DIR / rel.parent / (rel.name + ".status.json")
 
 
-def scratch_glb_path(m2_path) -> Path:
+def scratch_bundle_path(m2_path) -> Path:
     rel = _relative(m2_path)
-    return SCRATCH_DIR / rel.parent / (rel.name + ".glb")
+    return SCRATCH_DIR / rel.parent / (rel.name + ".bundle")
 
 
-def _report_path(glb_path: Path) -> Path:
-    # gltf_validator's own naming convention (single-file or directory mode alike).
-    return glb_path.with_name(glb_path.name + ".report.json")
+def validator_report_path(bundle_dir) -> Path:
+    # A sibling, not inside the bundle: `husk export` writes over the
+    # bundle directory, and the report must not look like a bundle file.
+    bundle_dir = Path(bundle_dir)
+    return bundle_dir.with_name(bundle_dir.name + ".validate.json")
 
 
 def _load_status(m2_path) -> dict:
@@ -259,34 +262,45 @@ def test_header(m2_path) -> bool:
     return _record(m2_path, TestResult("header", asserts))
 
 
-def test_export(m2_path) -> bool:
-    out_glb = scratch_glb_path(m2_path)
-    out_glb.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        str(HUSK_BIN), "export", str(m2_path), "-o", str(out_glb),
-        "--textures", "none", "--anim", ANIM_MODE, "--bones-dir", "none",
-    ]
+def _export_result(m2_path, bundle_dir: Path, extra_args) -> TestResult:
+    """Shared by test_export and m2_full_validation_task's rich export:
+    the scratch bundle is cleared first so a rerun never reads a previous
+    run's leftover bin (husk writes over a bundle but doesn't empty it).
+    """
+    shutil.rmtree(bundle_dir, ignore_errors=True)
+    bundle_dir.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [str(HUSK_BIN), "export", str(m2_path), "-o", str(bundle_dir), *extra_args]
     code, out = run_cmd(cmd, TIMEOUT)
-    exists = out_glb.exists()
-    size_ok = exists and out_glb.stat().st_size > 12
-    magic_ok = False
-    if size_ok:
-        with open(out_glb, "rb") as f:
-            magic_ok = f.read(4) == b"glTF"
-    asserts = [
+    manifest_path = bundle_dir / "manifest.json"
+    written = manifest_path.exists()
+    kind = None
+    parse_error = "no manifest.json"
+    if written:
+        try:
+            kind = json.loads(manifest_path.read_bytes()).get("kind")
+            parse_error = ""
+        except (OSError, json.JSONDecodeError, AttributeError) as e:
+            parse_error = str(e)
+    return TestResult("export", [
         AssertResult("exit_code_0", code == 0, detail=_last_meaningful_line(out) if code != 0 else ""),
-        AssertResult("glb_written", exists, detail="" if exists else "no output file"),
-        AssertResult("glb_nonempty", size_ok, detail="" if size_ok else "empty or missing"),
-        AssertResult("glb_magic", magic_ok, detail="" if magic_ok else "bad glTF magic bytes"),
-    ]
-    return _record(m2_path, TestResult("export", asserts))
+        AssertResult("manifest_written", written, detail="" if written else "no manifest.json in the bundle"),
+        AssertResult("manifest_parseable", not parse_error, detail=parse_error),
+        AssertResult("manifest_kind_model", kind == "model",
+                     detail="" if kind == "model" else f"expected kind 'model', got {kind!r}"),
+    ])
+
+
+def test_export(m2_path) -> bool:
+    bundle_dir = scratch_bundle_path(m2_path)
+    args = ["--textures", "none", "--anim", ANIM_MODE, "--bones-dir", "none"]
+    return _record(m2_path, _export_result(m2_path, bundle_dir, args))
 
 
 def test_dump_chunks(m2_path) -> bool:
     """Runs unconditionally on every file, chunked or not: src/cmd_dump.cpp's
     `header.chunked` early-return only gates the Legion+ chunk-tag section
-    now -- ribbon/particle-emitter JSON is emitted for every M2 version
-    (see CLAUDE.md's Resume) -- so there's no format this can be N/A for.
+    -- ribbon/particle-emitter JSON is emitted for every M2 version -- so
+    there's no format this can be N/A for.
     """
     code, out = run_cmd([str(HUSK_BIN), "dump-chunks", str(m2_path)], TIMEOUT)
     looks_json = out.strip().startswith("{")
@@ -297,260 +311,335 @@ def test_dump_chunks(m2_path) -> bool:
     return _record(m2_path, TestResult("dump-chunks", asserts))
 
 
-# --- glb content checks (fidelity/finite/mesh_completeness) --------------
-# A minimal, from-scratch glb reader -- deliberately not a dependency like
-# pygltflib, since all that's needed is "read this accessor's raw values,"
-# and every glb husk produces uses plain (non-sparse), single-bufferView
-# accessors. Sparse accessors are recognized and skipped (husk doesn't emit
-# them; a skip here just means "not checked," never a silent misread).
+# --- bundle reader ------------------------------------------------------
+# From scratch, no dependency: a bundle is one JSON manifest plus raw
+# little-endian bins, and every array in a bin is a buffer_slice
+# (schema/common.schema.json): {file, byte_offset, byte_length,
+# component_type, component_count, count}. Not husk's own reader, so the
+# content checks below are a second opinion, not husk checking itself.
 
-_COMPONENT_TYPES = {
-    5120: ("b", 1), 5121: ("B", 1), 5122: ("h", 2),
-    5123: ("H", 2), 5125: ("I", 4), 5126: ("f", 4),
-}
-_TYPE_COMPONENT_COUNTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "MAT4": 16}
+_COMPONENT_FORMATS = {"u8": "B", "u16": "H", "u32": "I", "i32": "i", "f32": "f"}
+_SLICE_KEYS = {"file", "byte_offset", "byte_length", "component_type", "component_count", "count"}
 
 
-def _read_glb(glb_path: Path):
-    data = glb_path.read_bytes()
-    magic, _version, length = struct.unpack_from("<4sII", data, 0)
-    if magic != b"glTF":
-        raise ValueError("bad glb magic")
-    off = 12
-    gltf_json, bin_chunk = None, b""
-    while off + 8 <= length:
-        chunk_len, chunk_type = struct.unpack_from("<I4s", data, off)
-        off += 8
-        chunk_data = data[off:off + chunk_len]
-        if chunk_type == b"JSON":
-            gltf_json = json.loads(chunk_data)
-        elif chunk_type == b"BIN\x00":
-            bin_chunk = chunk_data
-        off += chunk_len
-    if gltf_json is None:
-        raise ValueError("no JSON chunk in glb")
-    return gltf_json, bin_chunk
+def read_manifest(bundle_dir) -> dict:
+    return json.loads((Path(bundle_dir) / "manifest.json").read_bytes())
 
 
-def _read_accessor_values(gltf, bin_chunk, accessor_index):
-    acc = gltf["accessors"][accessor_index]
-    if "sparse" in acc or "bufferView" not in acc:
-        return None
-    comp_fmt, comp_size = _COMPONENT_TYPES[acc["componentType"]]
-    n_comp = _TYPE_COMPONENT_COUNTS[acc["type"]]
-    bv = gltf["bufferViews"][acc["bufferView"]]
-    base_offset = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
-    stride = bv.get("byteStride", n_comp * comp_size)
-    count = acc["count"]
-    fmt = f"<{n_comp}{comp_fmt}"
-    values = []
-    for i in range(count):
-        values.extend(struct.unpack_from(fmt, bin_chunk, base_offset + i * stride))
+def buffer_slices(node):
+    """Every buffer_slice anywhere in a manifest subtree, in document order."""
+    if isinstance(node, dict):
+        if _SLICE_KEYS <= node.keys():
+            yield node
+            return
+        for value in node.values():
+            yield from buffer_slices(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from buffer_slices(value)
+
+
+def read_slice(bundle_dir, slice_, bins: dict) -> array:
+    """The slice's flat component values. `bins` caches each bin file's
+    bytes across calls (file name -> bytes). Raises ValueError on a slice
+    whose declared shape doesn't fit its bin -- the expected/actual sizes
+    in the message are the finding.
+    """
+    fmt = _COMPONENT_FORMATS.get(slice_["component_type"])
+    if fmt is None:
+        raise ValueError(f"{slice_['file']}@{slice_['byte_offset']}: component_type "
+                         f"{slice_['component_type']!r} not one of {sorted(_COMPONENT_FORMATS)}")
+    values = array(fmt)
+    expected_length = slice_["count"] * slice_["component_count"] * values.itemsize
+    if slice_["byte_length"] != expected_length:
+        raise ValueError(f"{slice_['file']}@{slice_['byte_offset']}: byte_length {slice_['byte_length']}, "
+                         f"expected count*component_count*size = {expected_length}")
+    name = slice_["file"]
+    if name not in bins:
+        bins[name] = (Path(bundle_dir) / name).read_bytes()
+    data = bins[name]
+    start, end = slice_["byte_offset"], slice_["byte_offset"] + slice_["byte_length"]
+    if end > len(data):
+        raise ValueError(f"{name}@{start}: slice ends at byte {end}, file has {len(data)} bytes")
+    values.frombytes(data[start:end])
     return values
 
 
-def _collision_mesh_indices(gltf) -> set:
-    # The collision mesh (if present) is a genuinely separate NamedMesh with
-    # its own, unrelated, much smaller vertex buffer and no UV data at all
-    # -- tagged via {"collision": true} on its *node*. fidelity (vertex-count
-    # consistency) and mesh_completeness (UV presence) both exclude it.
-    return {
-        node["mesh"] for node in gltf.get("nodes", [])
-        if node.get("extras", {}).get("collision") is True and "mesh" in node
-    }
+def _mesh(manifest):
+    return manifest.get("resources", {}).get("geometry", {}).get("mesh")
 
 
-def _load_glb_for_content_check(m2_path):
-    """Shared by test_fidelity/test_finite/test_mesh_completeness -- each
-    still takes only m2_path and is independently callable, this just
-    avoids parsing the same glb three times when all three run back to
-    back, the normal case (third real occurrence of this exact read --
-    this codebase's own bar for a shared helper). Returns (gltf, bin_chunk),
-    or None if the glb isn't there yet (test_export hasn't run) or doesn't
-    parse.
+def _vertex_streams(mesh) -> dict:
+    """Every per-vertex stream of one mesh or mesh level, by name."""
+    streams = {name: mesh[name] for name in ("positions", "normals", "joints0", "weights0") if name in mesh}
+    streams.update({f"uv_sets[{k}]": s for k, s in enumerate(mesh.get("uv_sets", []))})
+    streams.update({f"colors[{k}]": s for k, s in enumerate(mesh.get("colors", []))})
+    return streams
+
+
+def fidelity_result(manifest, header_summary):
+    """Cross-checks the bundle against an *independently* parsed M2 header
+    -- not a hardcoded expected value, so this generalizes to any file.
+    Exact match, no tolerance (same bar as tests/test_conformance.cpp's
+    fixture checks). None when the independent parse failed: nothing to
+    cross-check against.
     """
-    glb_path = scratch_glb_path(m2_path)
-    if not glb_path.exists():
+    if header_summary is None:
         return None
+    asserts = []
+    mesh = _mesh(manifest)
+    vertex_count = 0
+    if mesh is not None:
+        counts = {name: s["count"] for name, s in _vertex_streams(mesh).items()}
+        consistent = len(set(counts.values())) == 1
+        asserts.append(AssertResult("vertex_streams_agree", consistent,
+                                    detail="" if consistent else f"per-vertex stream counts differ: {counts}"))
+        vertex_count = mesh["positions"]["count"]
+    # A bundle with no mesh at all must come from an M2 that declares no
+    # vertices; geometry-less models are real (a whole corpus class).
+    asserts.append(AssertResult(
+        "vertex_count_matches_header", vertex_count == header_summary["vertex_count"],
+        detail="" if vertex_count == header_summary["vertex_count"]
+        else f"bundle mesh has {vertex_count} vertices, header says {header_summary['vertex_count']}"))
+
+    # bone_count == 0 means the bones live in an external .skel, which this
+    # independent reader doesn't parse -- no expected count to check then.
+    if header_summary["bone_count"] > 0:
+        skeleton = manifest.get("resources", {}).get("rig", {}).get("skeleton")
+        joint_count = skeleton["joint_count"] if skeleton else 0
+        asserts.append(AssertResult(
+            "bone_count_matches_header", joint_count == header_summary["bone_count"],
+            detail="" if joint_count == header_summary["bone_count"]
+            else f"bundle skeleton has {joint_count} joints, header says {header_summary['bone_count']} bones"))
+    return TestResult("fidelity", asserts)
+
+
+def finite_result(bundle_dir, manifest) -> TestResult:
+    """Sweeps every f32 buffer_slice the manifest names -- mesh and every
+    LOD level, skeleton, every animation curve's times and values,
+    collision -- for NaN/Inf. A static check on stored data, not playback,
+    but a keyframe that's non-finite at rest will "explode" the moment
+    anything interpolates it. Slices shared between LOD levels are read
+    once.
+    """
+    bins = {}
+    seen = set()
+    unreadable, bad = [], []
+    for s in buffer_slices(manifest):
+        key = (s["file"], s["byte_offset"], s["byte_length"], s["component_type"])
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            values = read_slice(bundle_dir, s, bins)
+        except (OSError, ValueError) as e:
+            unreadable.append(str(e))
+            continue
+        if s["component_type"] == "f32" and not all(math.isfinite(v) for v in values):
+            bad.append(f"{s['file']}@{s['byte_offset']}")
+    return TestResult("finite", [
+        AssertResult("all_slices_readable", not unreadable,
+                     detail="" if not unreadable else f"{len(unreadable)} unreadable: {unreadable[:3]}"),
+        AssertResult("all_f32_slices_finite", not bad,
+                     detail="" if not bad else f"non-finite values in slice(s) {bad[:10]}"),
+    ])
+
+
+def mesh_completeness_result(manifest):
+    """Every M2 vertex carries UV set 0 (the vertex record has fixed UV
+    fields), so the mesh and every LOD level must hold a UV set 0 as long
+    as their positions; and every primitive, at every level, must name a
+    material the bundle actually has. None for a bundle with no mesh.
+    """
+    mesh = _mesh(manifest)
+    if mesh is None:
+        return None
+    lod = manifest["resources"]["geometry"].get("lod", {})
+    levels = [("mesh", mesh)] + [(f"lod{i}", level) for i, level in enumerate(lod.get("levels", []))]
+    material_count = len(manifest["resources"].get("materials", []))
+    missing_uv, bad_material = [], []
+    for name, level in levels:
+        uv_sets = level.get("uv_sets", [])
+        if not uv_sets or uv_sets[0]["count"] != level["positions"]["count"]:
+            missing_uv.append(f"{name}: positions {level['positions']['count']}, "
+                              f"uv_sets[0] {uv_sets[0]['count'] if uv_sets else 'absent'}")
+        for pi, prim in enumerate(level.get("primitives", [])):
+            index = prim.get("material_index")
+            if index is None or not 0 <= index < material_count:
+                bad_material.append(f"{name}/prim{pi}: material_index {index}, {material_count} materials")
+    return TestResult("mesh_completeness", [
+        AssertResult("uv_set_0_covers_vertices", not missing_uv,
+                     detail="" if not missing_uv else "; ".join(missing_uv[:10])),
+        AssertResult("every_primitive_has_material", not bad_material,
+                     detail="" if not bad_material else "; ".join(bad_material[:10])),
+    ])
+
+
+def _load_bundle_for_content_check(m2_path):
+    """Shared by test_fidelity/test_finite/test_mesh_completeness. Returns
+    (bundle_dir, manifest), or None if the bundle isn't there yet
+    (test_export hasn't run) or its manifest doesn't parse -- test_export
+    already records that failure.
+    """
+    bundle_dir = scratch_bundle_path(m2_path)
     try:
-        return _read_glb(glb_path)
-    except (ValueError, KeyError, struct.error, json.JSONDecodeError):
+        return bundle_dir, read_manifest(bundle_dir)
+    except (OSError, json.JSONDecodeError):
         return None
 
 
 def test_fidelity(m2_path):
-    """Cross-checks husk's exported glTF against an *independently* parsed
-    M2 header -- not a hardcoded expected value, so this generalizes to any
-    file. Exact match, no tolerance (same precedent as
-    tests/test_conformance.cpp's case-1/case-2 checks). Returns None (no
-    status entry written) when the glb or the independent parse isn't
-    available yet -- not a failure, just not applicable yet.
+    """None (no status entry written) when the bundle or the independent
+    header parse isn't available yet -- not a failure, just not applicable.
     """
-    loaded = _load_glb_for_content_check(m2_path)
-    header_summary = read_m2_header_summary(m2_path)
-    if loaded is None or header_summary is None:
+    loaded = _load_bundle_for_content_check(m2_path)
+    if loaded is None:
         return None
-    gltf, _bin_chunk = loaded
-    asserts = []
-    meshes = gltf.get("meshes", [])
-    accessors = gltf.get("accessors", [])
-    excluded = _collision_mesh_indices(gltf)
-    position_counts = {
-        accessors[prim["attributes"]["POSITION"]]["count"]
-        for mi, mesh in enumerate(meshes) if mi not in excluded
-        for prim in mesh.get("primitives", [])
-        if "POSITION" in prim.get("attributes", {})
-    }
-    if position_counts:
-        # All primitives share one vertex buffer in husk's own design, so
-        # every primitive's POSITION accessor should report the same count.
-        consistent = len(position_counts) == 1
-        asserts.append(AssertResult("one_consistent_vertex_count", consistent,
-                                     detail="" if consistent
-                                     else f"primitives disagree on vertex count: {position_counts}"))
-        if consistent:
-            vertex_count = next(iter(position_counts))
-            asserts.append(AssertResult(
-                "vertex_count_matches_header", vertex_count == header_summary["vertex_count"],
-                detail="" if vertex_count == header_summary["vertex_count"]
-                else f"glb has {vertex_count}, header says {header_summary['vertex_count']}"))
-
-    # header_summary["bone_count"] == 0 legitimately means bones live in an
-    # external .skel file, not inline -- this independent reader doesn't
-    # parse .skel, so only assert when the M2 itself claims inline bones.
-    skins = gltf.get("skins", [])
-    if skins and header_summary["bone_count"] > 0:
-        joint_count = len(skins[0].get("joints", []))
-        asserts.append(AssertResult(
-            "bone_count_matches_header", joint_count == header_summary["bone_count"],
-            detail="" if joint_count == header_summary["bone_count"]
-            else f"glb skin has {joint_count} joints, header says {header_summary['bone_count']} bones"))
-
-    if not asserts:
-        return None
-    return _record(m2_path, TestResult("fidelity", asserts))
+    result = fidelity_result(loaded[1], read_m2_header_summary(m2_path))
+    return None if result is None else _record(m2_path, result)
 
 
 def test_finite(m2_path):
-    """Sweeps every FLOAT accessor -- vertex positions/normals/UVs *and*
-    every animation sampler's keyframe input/output -- for NaN/Inf. A
-    static check on stored data, not a full animation-playback simulation,
-    but a keyframe that's already non-finite at rest will definitely
-    "explode" the moment anything interpolates it.
-    """
-    loaded = _load_glb_for_content_check(m2_path)
+    loaded = _load_bundle_for_content_check(m2_path)
     if loaded is None:
         return None
-    gltf, bin_chunk = loaded
-    bad = []
-    for i, acc in enumerate(gltf.get("accessors", [])):
-        if acc.get("componentType") != 5126:  # FLOAT only
-            continue
-        values = _read_accessor_values(gltf, bin_chunk, i)
-        if values is None:
-            continue
-        if not all(math.isfinite(v) for v in values):
-            bad.append(i)
-    passed = not bad
-    return _record(m2_path, TestResult("finite", [AssertResult(
-        "all_float_accessors_finite", passed,
-        detail="" if passed else f"non-finite values in accessor(s) {bad[:10]}")]))
+    return _record(m2_path, finite_result(*loaded))
 
 
 def test_mesh_completeness(m2_path):
-    """Does every primitive actually carry UV data, not just claim to via a
-    material reference. husk always exports UVs when the M2 vertex format
-    has them (effectively always for real character/creature/item models),
-    so a primitive missing TEXCOORD_0 is worth a look, not expected noise.
-    """
-    loaded = _load_glb_for_content_check(m2_path)
+    loaded = _load_bundle_for_content_check(m2_path)
     if loaded is None:
         return None
-    gltf, _bin_chunk = loaded
-    excluded = _collision_mesh_indices(gltf)  # never textured/UV-mapped by design
-    missing = []
-    for mi, mesh in enumerate(gltf.get("meshes", [])):
-        if mi in excluded:
-            continue
-        for pi, prim in enumerate(mesh.get("primitives", [])):
-            if "TEXCOORD_0" not in prim.get("attributes", {}):
-                missing.append(f"mesh{mi}/prim{pi}")
-    passed = not missing
-    return _record(m2_path, TestResult("mesh_completeness", [AssertResult(
-        "every_primitive_has_texcoord0", passed,
-        detail="" if passed else f"missing on {missing[:10]}")]))
+    result = mesh_completeness_result(loaded[1])
+    return None if result is None else _record(m2_path, result)
 
 
 # --- validate: production (batchable) / consumption (per-file) split -----
 
-def run_gltf_validator(target, timeout=None):
-    """Runs the real gltf_validator CLI against `target`, which may be a
-    single .glb file or a directory -- gltf_validator recurses through a
-    directory itself, one Dart VM startup shared across every asset inside
-    (see `gltf_validator --help`). That's the entire reason pointing this
-    at a directory of many already-exported glbs is dramatically faster,
-    per file, than calling it once per file: batching here is purely a
-    matter of which `target` you pass in, not a separate code path.
-    Writes `<glb>.report.json` next to each asset it touches -- read that
-    back per file via test_validate, which this function deliberately does
-    not do itself. Returns (returncode, combined stdout+stderr); a nonzero
-    return means *some* asset under target had an error, not necessarily
-    the one you care about if target was a directory -- read the per-file
-    report via test_validate, don't trust this return value alone.
+_POINTER_INDEX = re.compile(r"/\d+(?=/|$)")
+
+
+def parse_validator_output(bundle_dirs, code, out) -> dict:
+    """Splits one `husk validate-bundle` run's output into a report per
+    bundle dir. Each problem line is `<where>: <message>`, where `<where>`
+    is the document's path (as derived from the path husk was given) plus
+    `#<json pointer>`; a line is this bundle's when `<where>` lies under its
+    directory. A problem under none of them is put in every report's
+    `unattributed`, so it fails each file instead of vanishing.
     """
-    if GLTF_VALIDATOR_BIN is None:
-        raise RuntimeError("GLTF_VALIDATOR_BIN not set / gltf_validator not found on PATH")
-    return run_cmd([str(GLTF_VALIDATOR_BIN), str(target)], VALIDATOR_TIMEOUT if timeout is None else timeout)
+    dirs = [str(d) for d in bundle_dirs]
+    reports = {d: {"exit_code": code, "problems": [], "warnings": [], "unattributed": [], "summary": ""}
+               for d in dirs}
+    summary = ""
+    unattributed = []
+    for line in out.splitlines():
+        if re.match(r"^\d+ documents checked, ", line):
+            summary = line
+            continue
+        where, sep, message = line.partition(": ")
+        if not sep:
+            continue
+        bucket = "problems"
+        if message.startswith("warning: "):
+            bucket, message = "warnings", message[len("warning: "):]
+        entry = {"where": where, "message": message}
+        owner = next((d for d in dirs if where == d or where.startswith(d + "/") or where.startswith(d + "#")), None)
+        if owner is None:
+            if bucket == "problems":
+                unattributed.append(entry)
+            continue
+        reports[owner][bucket].append(entry)
+    for report in reports.values():
+        report["summary"] = summary
+        report["unattributed"] = unattributed
+        if not summary:
+            report["run_failed"] = _last_meaningful_line(out)
+    return reports
+
+
+def run_bundle_validator(bundle_dirs, timeout=None):
+    """Runs `husk validate-bundle` once over every bundle dir in
+    `bundle_dirs` (a single path is fine too) and writes each one's
+    report to validator_report_path(bundle_dir) -- read that back per file
+    via test_validate, which this function deliberately does not do
+    itself. Batching is purely a matter of how many dirs one call gets:
+    each invocation pays process startup and the embedded schema load
+    once, about half a second, so batching many bundles amortizes it.
+    Returns (returncode, combined output); a nonzero return means *some*
+    bundle had a problem -- read the per-file report via test_validate.
+    """
+    if isinstance(bundle_dirs, (str, Path)):
+        bundle_dirs = [bundle_dirs]
+    # Resolved, so the problem paths husk derives (manifest.json and the
+    # documents it references, which husk canonicalizes) share the prefix.
+    dirs = [Path(d).resolve() for d in bundle_dirs]
+    code, out = run_cmd([str(HUSK_BIN), "validate-bundle", *map(str, dirs)],
+                        VALIDATOR_TIMEOUT if timeout is None else timeout)
+    for d, report in parse_validator_output(dirs, code, out).items():
+        validator_report_path(d).write_text(json.dumps(report, indent=2))
+    return code, out
+
+
+def validate_result_from_report(report: dict) -> TestResult:
+    """Problems group across a corpus by their JSON pointer with array
+    indices folded (`/resources/geometry/mesh/uv_sets/N`); warnings
+    (placeholder effects) don't fail outside a release build, matching
+    validate-bundle's own exit code.
+    """
+    if "run_failed" in report:
+        return TestResult("validate", [AssertResult(
+            "zero_problems", False, code="VALIDATOR_RUN_FAILED", detail=report["run_failed"])])
+    problems = report["problems"] + report["unattributed"]
+    if not problems:
+        return TestResult("validate", [AssertResult("zero_problems", True)])
+    first = problems[0]
+    pointer = first["where"].partition("#")[2]
+    code = "UNATTRIBUTED" if not report["problems"] else (_POINTER_INDEX.sub("/N", pointer) or "DOCUMENT")
+    return TestResult("validate", [AssertResult(
+        "zero_problems", False, code=code,
+        detail=f"{first['where']}: {first['message']}"
+               + (f" [+{len(problems) - 1} more]" if len(problems) > 1 else ""))])
 
 
 def test_validate(m2_path):
-    """Consumes whatever `<glb>.report.json` is already sitting next to
-    this file's scratch glb -- produced by a prior run_gltf_validator call,
-    targeted at this file alone or as part of a directory-wide batch (see
-    run_gltf_validator). Deliberately does not invoke the validator itself:
-    production (batchable) and consumption (per-file, idempotent) are
-    separate concerns. Returns None if no report exists yet -- not a
-    failure, just not run yet.
+    """Consumes whatever report is already sitting next to this file's
+    scratch bundle -- produced by a prior run_bundle_validator call,
+    targeted at this file alone or as part of a batch. Deliberately does
+    not invoke the validator itself: production (batchable) and
+    consumption (per-file, idempotent) are separate concerns. Returns None
+    if no report exists yet -- not a failure, just not run yet.
     """
-    report_path = _report_path(scratch_glb_path(m2_path))
+    report_path = validator_report_path(scratch_bundle_path(m2_path))
     if not report_path.exists():
         return None
     try:
         report = json.loads(report_path.read_text())
     except (OSError, json.JSONDecodeError) as e:
         return _record(m2_path, TestResult("validate", [AssertResult(
-            "zero_errors", False, code="BAD_REPORT", detail=str(e))]))
-    issues = report.get("issues", {})
-    errors = [m for m in issues.get("messages", []) if m.get("severity") == 0]
-    if not errors:
-        return _record(m2_path, TestResult("validate", [AssertResult("zero_errors", True)]))
-    first = errors[0]
-    return _record(m2_path, TestResult("validate", [AssertResult(
-        "zero_errors", False, code=first.get("code", "?"),
-        detail=f"{first.get('code')}: {first.get('message')} ({first.get('pointer')})"
-               + (f" [+{len(errors) - 1} more]" if len(errors) > 1 else ""))]))
+            "zero_problems", False, code="BAD_REPORT", detail=str(e))]))
+    return _record(m2_path, validate_result_from_report(report))
 
 
 def cleanup(m2_path) -> None:
-    """Removes this file's scratch .glb and validator report sidecar (both
-    under SCRATCH_DIR) -- everything test_export/run_gltf_validator wrote
-    that isn't the status json, which is the actual output and is never
-    touched here. Safe to call regardless of whether those files exist or
+    """Removes this file's scratch bundle dir and validator report (both
+    under SCRATCH_DIR) -- everything test_export/run_bundle_validator
+    wrote that isn't the status json, which is the actual output and is
+    never touched here. Safe to call regardless of whether those exist or
     whether earlier checks even ran.
     """
-    glb_path = scratch_glb_path(m2_path)
-    _report_path(glb_path).unlink(missing_ok=True)
-    glb_path.unlink(missing_ok=True)
+    bundle_dir = scratch_bundle_path(m2_path)
+    validator_report_path(bundle_dir).unlink(missing_ok=True)
+    shutil.rmtree(bundle_dir, ignore_errors=True)
 
 
 # The order to run these in for one file. test_validate is the one
 # exception to "fully self-contained": it only finds something once a
-# separate run_gltf_validator(target) call -- single-file, or (much faster)
-# batched across many already-exported glbs -- has produced a report.json
-# for this file's scratch glb; that call is not itself in this list because
-# it doesn't take a single m2_path (see run_gltf_validator's own
-# docstring). Everything else needs nothing beyond test_export having run
-# before the three glb-content checks and cleanup.
+# separate run_bundle_validator(bundle_dirs) call -- single-file, or
+# batched across many already-exported bundles -- has produced this file's
+# report; that call is not itself in this list because it doesn't take a
+# single m2_path (see run_bundle_validator's own docstring). Everything
+# else needs nothing beyond test_export having run before the three
+# bundle-content checks and cleanup.
 TEST_ORDER = [
     test_header,
     test_export,
