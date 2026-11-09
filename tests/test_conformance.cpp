@@ -1,14 +1,15 @@
 // This is the Conformance tier (see TEST_DESIGN.md#Four-tier-architecture)
-// -- real downstream consumers of a husk-exported .glb, as opposed to
+// -- real downstream consumers of what husk exports, as opposed to
 // tests/test_integration.cpp's "does husk itself run correctly" role:
 //
-//   - The Khronos glTF-Validator: independent spec-conformance check.
-//     tinygltf being able to load a file back doesn't prove the file is
-//     spec-valid -- tinygltf is a fairly permissive reader.
-//   - Blender's own glTF importer, run headlessly: proves a real,
-//     independent glTF implementation agrees with tinygltf's reading of
-//     the same file (see tests/blender_import_check.py for why that
-//     agreement is the actual point).
+//   - The Khronos glTF-Validator over `husk export --glb`'s lean
+//     projection: independent spec-conformance check. tinygltf being able
+//     to load a file back doesn't prove the file is spec-valid -- tinygltf
+//     is a fairly permissive reader.
+//   - Blender, run headlessly: its own glTF importer over the lean
+//     projection (tests/blender_import_check.py), and the native bundle
+//     read straight into Blender with no glTF involved
+//     (tests/bundle_import_check.py).
 //
 // See TEST_DESIGN.md#Conformance-gating for the HUSK_GLTF_VALIDATOR/
 // HUSK_BLENDER build-time gating, and TEST_DESIGN.md#Fixture-resolution-model
@@ -23,15 +24,16 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
-#include <set>
 #include <string>
 #include <tiny_gltf.h>
 #include <vector>
 
-#include "gltf.hpp"
 #include "m2.hpp"
 #include "run_husk.hpp"
+#include "test_bundle_fixtures.hpp"
 #include "test_data_paths.hpp"
+#include "writers/gltf_lean.hpp"
+#include "writers/gltf_math.hpp"
 
 namespace {
 
@@ -42,13 +44,8 @@ using husk::test::testFoxSkin;
 using husk::test::testM2;
 using husk::test::testQuadrupedM2;
 using husk::test::testQuadrupedSkin;
-using husk::test::testSkelM2;
-using husk::test::testSkelSkin;
 using husk::test::testSkin;
 using husk::test::testWeaponParticleB;
-using husk::test::testWeaponParticleStress;
-using husk::test::testWeaponPhys;
-using husk::test::testWeaponPhysSkin;
 
 // Pulls an integer out of a "HUSK_PROBE key=value" line (see
 // tests/blender_import_check.py) -- REQUIREs the key is present so a
@@ -62,26 +59,7 @@ int parseProbeInt(const std::string& output, const std::string& key) {
     return std::stoi(output.substr(pos + marker.size()));
 }
 
-// model.skins[0].joints.size() is realBoneCount + one geoset tag joint per
-// distinct geoset ID, not realBoneCount alone --
-// counted independently here from each primitive's own "geoset_id" extras
-// (gltf_mesh.cpp) rather than assumed, so this is a real cross-check
-// against gltf_skeleton.cpp's separate Skeleton::geosetTags-driven joint
-// count, not a tautology.
-size_t countDistinctGeosetTagJoints(const tinygltf::Model& model) {
-    std::set<int> ids;
-    for (const auto& mesh : model.meshes) {
-        for (const auto& prim : mesh.primitives) {
-            if (prim.extras.IsObject() && prim.extras.Has("geoset_id")) {
-                ids.insert(prim.extras.Get("geoset_id").GetNumberAsInt());
-            }
-        }
-    }
-    return ids.size();
-}
-
-// Pulls a "x,y,z" triple out of a "HUSK_PROBE key=x,y,z" line (see
-// blender_import_check.py's husk_probe_-prefixed bone printing) -- same
+// Pulls a "x,y,z" triple out of a "HUSK_PROBE key=x,y,z" line -- same
 // fail-loudly-if-missing contract as parseProbeInt.
 husk::gltf::Vec3 parseProbeVec3(const std::string& output, const std::string& key) {
     std::string marker = "HUSK_PROBE " + key + "=";
@@ -98,9 +76,7 @@ husk::gltf::Vec3 parseProbeVec3(const std::string& output, const std::string& ke
 
 // Reads an M2 header straight from disk, independent of anything husk
 // export/tinygltf/Blender did with it -- the ground-truth source-file leg
-// of the source-vs-export-vs-readback cross-checks below. Bones/vertices
-// only: this fixture (testM2()) has inline bones, not .skel-sourced ones,
-// so header.bones.count is the real joint count here.
+// of the source-vs-export-vs-readback cross-checks below.
 husk::m2::Header readM2Header(const std::string& path) {
     errno = 0;
     std::ifstream f(path, std::ios::binary);
@@ -109,115 +85,12 @@ husk::m2::Header readM2Header(const std::string& path) {
     return husk::m2::parseHeader(bytes);
 }
 
-// Remaps an M2-space (Z-up) AABB to glTF-space (Y-up) via husk's own
-// gltf::zUpToYUp, transforming all 8 corners rather than just `min`/`max`
-// directly -- the axis permutation negates one component (y_gltf =
-// -z_m2), which flips that axis's min/max, so naively pairing
-// zUpToYUp(min) with zUpToYUp(max) would silently produce an inside-out
-// box on that axis.
-struct Aabb {
-    husk::gltf::Vec3 min, max;
-};
-
-Aabb transformedM2BoundingBox(const husk::m2::BoundingBox& box) {
-    Aabb result;
-    result.min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
-                  std::numeric_limits<float>::max()};
-    result.max = {std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
-                  std::numeric_limits<float>::lowest()};
-    for (float x : {box.min.x, box.max.x}) {
-        for (float y : {box.min.y, box.max.y}) {
-            for (float z : {box.min.z, box.max.z}) {
-                husk::gltf::Vec3 corner = husk::gltf::zUpToYUp({x, y, z});
-                result.min.x = std::min(result.min.x, corner.x);
-                result.min.y = std::min(result.min.y, corner.y);
-                result.min.z = std::min(result.min.z, corner.z);
-                result.max.x = std::max(result.max.x, corner.x);
-                result.max.y = std::max(result.max.y, corner.y);
-                result.max.z = std::max(result.max.z, corner.z);
-            }
-        }
-    }
-    return result;
-}
-
-}  // namespace
-
-TEST_CASE("husk export: exported bind-pose vertex bounds sit fully inside the M2 header's own "
-          "declared bounding box" *
-          doctest::skip(testM2().empty() || testSkin().empty())) {
-    std::string m2Path = testM2();
-    std::string skinPath = testSkin();
-
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-conformance-bbox.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    // mesh 0 is always the render mesh: cmd_export.cpp appends the
-    // (optional) collision mesh strictly after every render/LOD entry, so
-    // it never displaces this fixture's single render mesh from index 0 --
-    // see cmd_export.cpp's "renderMeshCount" comment. mesh count is 1 or 2
-    // depending on whether this fixture happens to carry collision data
-    // (it does, but this check doesn't hardcode that).
-    REQUIRE(!model.meshes.empty());
-    REQUIRE(!model.meshes[0].primitives.empty());
-
-    // The header's bounding_box is NOT a tight fit around the bind-pose
-    // mesh -- it runs roughly 2x-4x wider per axis than the bind-pose
-    // vertices' own extent, consistent with the header accounting for the
-    // model's full animated range, not just its rest pose -- so a
-    // tight-tolerance equality check would fail on real data, not catch a
-    // real bug. What *does* hold, and is a genuine correctness signal: the
-    // bind-pose mesh husk actually parsed and wrote must sit entirely
-    // inside the header's declared box -- if husk's vertex parsing were
-    // subtly wrong (bad offset, wrong scale), the computed accessor bounds
-    // could poke outside it.
-    // TODO: Remove: cites `WIKI_FINDINGS/M2.md`; verification narrative
-    // (bloodelffemale_hd.m2's header z range ~9.6 vs. bind-pose mesh ~2.1).
-    auto posIt = model.meshes[0].primitives[0].attributes.find("POSITION");
-    REQUIRE(posIt != model.meshes[0].primitives[0].attributes.end());
-    const tinygltf::Accessor& posAcc = model.accessors[posIt->second];
-    REQUIRE(posAcc.minValues.size() == 3);
-    REQUIRE(posAcc.maxValues.size() == 3);
-
-    husk::m2::Header header = readM2Header(m2Path);
-    Aabb headerBox = transformedM2BoundingBox(header.boundingBox);
-
-    // A small epsilon, not zero: the header box is itself a float value
-    // Blizzard's own exporter computed, and husk's own axis remap
-    // introduces its own rounding -- this isn't meant to catch that noise,
-    // only a real containment violation.
-    constexpr float kEpsilon = 1e-3f;
-    CHECK(headerBox.min.x <= static_cast<float>(posAcc.minValues[0]) + kEpsilon);
-    CHECK(headerBox.min.y <= static_cast<float>(posAcc.minValues[1]) + kEpsilon);
-    CHECK(headerBox.min.z <= static_cast<float>(posAcc.minValues[2]) + kEpsilon);
-    CHECK(headerBox.max.x >= static_cast<float>(posAcc.maxValues[0]) - kEpsilon);
-    CHECK(headerBox.max.y >= static_cast<float>(posAcc.maxValues[1]) - kEpsilon);
-    CHECK(headerBox.max.z >= static_cast<float>(posAcc.maxValues[2]) - kEpsilon);
-
-    std::filesystem::remove(outPath);
-}
-
 // Counts real M2 bone-array roots (parentBone == -1) by parsing the actual
-// bone array, not just the header's Array descriptor -- the ground-truth
-// check that a chosen fixture really is multi-root, so the tests below fail
-// loudly rather than pass vacuously if a future re-extraction ever swaps in
-// a different file.
+// bone array -- the ground-truth check that a chosen fixture really is
+// multi-root, so a test fails loudly rather than passing vacuously if a
+// re-extraction ever swaps in a different file.
 int countRealRootBones(const std::string& path) {
-    errno = 0;
-    std::ifstream f(path, std::ios::binary);
-    REQUIRE_MESSAGE(static_cast<bool>(f), "couldn't open '", path, "': ", std::strerror(errno));
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::vector<uint8_t> bytes = readFile(path);
     husk::m2::Header header = husk::m2::parseHeader(bytes);
     auto bones = husk::m2::parseBones(bytes, header.bones);
     int roots = 0;
@@ -227,327 +100,302 @@ int countRealRootBones(const std::string& path) {
     return roots;
 }
 
+struct Aabb {
+    husk::gltf::Vec3 min{std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                         std::numeric_limits<float>::max()};
+    husk::gltf::Vec3 max{std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
+                         std::numeric_limits<float>::lowest()};
+    void add(const husk::gltf::Vec3& p) {
+        min = {std::min(min.x, p.x), std::min(min.y, p.y), std::min(min.z, p.z)};
+        max = {std::max(max.x, p.x), std::max(max.y, p.y), std::max(max.z, p.z)};
+    }
+};
+
+// Remaps an M2-space (Z-up) AABB to glTF-space (Y-up) via husk's own
+// gltf::zUpToYUp, transforming all 8 corners rather than just `min`/`max`
+// directly -- the axis permutation negates one component, which flips that
+// axis's min/max, so pairing zUpToYUp(min) with zUpToYUp(max) would
+// produce an inside-out box on that axis.
+Aabb transformedM2BoundingBox(const husk::m2::BoundingBox& box) {
+    Aabb result;
+    for (float x : {box.min.x, box.max.x}) {
+        for (float y : {box.min.y, box.max.y}) {
+            for (float z : {box.min.z, box.max.z}) result.add(husk::gltf::zUpToYUp({x, y, z}));
+        }
+    }
+    return result;
+}
+
+// `inner` sits inside `outer`, up to a small epsilon: the header box is
+// itself a float value Blizzard's own exporter computed, and the axis
+// remap rounds -- this isn't meant to catch that noise, only a real
+// containment violation.
+void checkContained(const Aabb& outer, const Aabb& inner) {
+    constexpr float kEpsilon = 1e-3f;
+    CHECK(outer.min.x <= inner.min.x + kEpsilon);
+    CHECK(outer.min.y <= inner.min.y + kEpsilon);
+    CHECK(outer.min.z <= inner.min.z + kEpsilon);
+    CHECK(outer.max.x >= inner.max.x - kEpsilon);
+    CHECK(outer.max.y >= inner.max.y - kEpsilon);
+    CHECK(outer.max.z >= inner.max.z - kEpsilon);
+}
+
+// `husk export <m2> -o <bundle> [extra] --glb <glb>`, REQUIREd to succeed;
+// any earlier run's outputs are removed first.
+void exportWithGlb(const std::string& m2Path, const std::string& extra, const fs::path& bundleDir,
+                   const fs::path& glbPath) {
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + bundleDir.string() + "\" " + extra + " --glb \"" +
+                          glbPath.string() + "\"");
+    INFO("husk export output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+}
+
+tinygltf::Model loadGlb(const fs::path& path) {
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, path.string());
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    return model;
+}
+
+}  // namespace
+
+TEST_CASE("husk export: bind-pose vertex bounds, in the bundle and in the lean projection, sit fully "
+          "inside the M2 header's own declared bounding box" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-conformance-bbox.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-conformance-bbox.glb";
+    exportWithGlb(m2Path, "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
+
+    // The header's bounding_box is NOT a tight fit around the bind-pose
+    // mesh -- it runs roughly 2x-4x wider per axis, consistent with the
+    // header accounting for the model's full animated range -- so equality
+    // would fail on real data without catching a real bug. What does hold,
+    // and is a genuine correctness signal: the bind-pose mesh husk parsed
+    // and wrote sits entirely inside the declared box. A subtly wrong
+    // vertex parse (bad offset, wrong scale) could poke outside it.
+    husk::m2::Header header = readM2Header(m2Path);
+
+    // The bundle keeps the source's Z-up frame: compare untransformed.
+    nlohmann::json manifest = parseManifest(bundleDir);
+    const auto& positions = manifest["resources"]["geometry"]["mesh"]["positions"];
+    REQUIRE(positions["component_type"] == "f32");
+    REQUIRE(positions["component_count"] == 3);
+    std::vector<uint8_t> meshBin = readFile((bundleDir / positions["file"].get<std::string>()).string());
+    REQUIRE(positions["byte_offset"].get<size_t>() + positions["byte_length"].get<size_t>() <= meshBin.size());
+    std::vector<float> xyz(positions["count"].get<size_t>() * 3);
+    REQUIRE(!xyz.empty());
+    std::memcpy(xyz.data(), meshBin.data() + positions["byte_offset"].get<size_t>(), xyz.size() * sizeof(float));
+    Aabb bundleBounds;
+    for (size_t i = 0; i < xyz.size(); i += 3) bundleBounds.add({xyz[i], xyz[i + 1], xyz[i + 2]});
+    Aabb headerBox;
+    headerBox.add({header.boundingBox.min.x, header.boundingBox.min.y, header.boundingBox.min.z});
+    headerBox.add({header.boundingBox.max.x, header.boundingBox.max.y, header.boundingBox.max.z});
+    checkContained(headerBox, bundleBounds);
+
+    // The lean projection is Y-up: compare against the remapped box.
+    tinygltf::Model model = loadGlb(glbPath);
+    REQUIRE(!model.meshes.empty());
+    REQUIRE(!model.meshes[0].primitives.empty());
+    auto posIt = model.meshes[0].primitives[0].attributes.find("POSITION");
+    REQUIRE(posIt != model.meshes[0].primitives[0].attributes.end());
+    const tinygltf::Accessor& posAcc = model.accessors[static_cast<size_t>(posIt->second)];
+    REQUIRE(posAcc.minValues.size() == 3);
+    REQUIRE(posAcc.maxValues.size() == 3);
+    Aabb glbBounds;
+    glbBounds.add({static_cast<float>(posAcc.minValues[0]), static_cast<float>(posAcc.minValues[1]),
+                   static_cast<float>(posAcc.minValues[2])});
+    glbBounds.add({static_cast<float>(posAcc.maxValues[0]), static_cast<float>(posAcc.maxValues[1]),
+                   static_cast<float>(posAcc.maxValues[2])});
+    checkContained(transformedM2BoundingBox(header.boundingBox), glbBounds);
+
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
+}
+
 #ifdef HUSK_GLTF_VALIDATOR
-TEST_CASE("husk export: a real multi-root-bone-forest weapon "
-          "produces a glb the Khronos glTF-Validator accepts with zero errors and no "
-          "SKIN_NO_COMMON_ROOT" *
+TEST_CASE("husk export --glb: real M2 + .skin produces a lean glb the Khronos glTF-Validator "
+          "accepts with zero errors" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-conformance.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-conformance.glb";
+    exportWithGlb(testM2(), "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
+
+    // -a: print every issue message (not just errors), so a failure shows
+    // exactly what the validator objected to. The validator's own
+    // documented contract (--help): nonzero exit iff at least one error
+    // was found -- warnings/infos/hints don't fail this.
+    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + glbPath.string() + "\"");
+    INFO("gltf_validator output:\n", validation.output);
+    CHECK(validation.exitCode == 0);
+    CHECK(validation.output.find("Errors: 0,") != std::string::npos);
+
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
+}
+#else
+TEST_CASE("husk export --glb: real M2 + .skin produces a lean glb the Khronos glTF-Validator "
+          "accepts with zero errors" *
+          doctest::skip(true)) {
+    // see TEST_DESIGN.md#Conformance-gating
+}
+#endif
+
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
+TEST_CASE("husk export --glb: real M2 + .skin imports into Blender (headless) with bone/vertex/"
+          "animation counts matching tinygltf's reading and the M2 header; the bundle carries the "
+          "header's collision mesh" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-blender.glb";
+    exportWithGlb(m2Path, "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
+    tinygltf::Model model = loadGlb(glbPath);
+    REQUIRE(model.skins.size() == 1);
+
+    // --factory-startup: skip whatever addons/preferences happen to be
+    // installed in the invoking user's own Blender config.
+    // --python-exit-code 1: an unhandled exception in the import script
+    // must actually fail this process -- Blender's own --background
+    // default is to exit 0 regardless.
+    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
+                                    " --background --factory-startup --python-exit-code 1 --python \"" +
+                                    std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + glbPath.string() + "\"");
+    INFO("blender output:\n", blenderResult.output);
+    REQUIRE(blenderResult.exitCode == 0);
+
+    CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
+    CHECK(parseProbeInt(blenderResult.output, "bone_count") == static_cast<int>(model.skins[0].joints.size()));
+    CHECK(parseProbeInt(blenderResult.output, "action_count") == static_cast<int>(model.animations.size()));
+
+    // The M2 source's own header counts, a third leg alongside tinygltf's
+    // and Blender's readings. The lean projection writes the render mesh
+    // alone, built once from the entire vertex array (a .skin's batches
+    // only select a subset for drawing, never re-slice it), and no joint
+    // beyond the M2's own bones.
+    husk::m2::Header header = readM2Header(m2Path);
+    CHECK(parseProbeInt(blenderResult.output, "mesh_object_count") == 1);
+    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) == header.vertices.count);
+    CHECK(model.skins[0].joints.size() == header.bones.count);
+
+    // Collision is bundle-only: its counts match the header exactly (pure
+    // count/topology, carried through unchanged).
+    nlohmann::json manifest = parseManifest(bundleDir);
+    const auto& geometry = manifest["resources"]["geometry"];
+    if (header.collisionPositions.count > 0 && header.collisionIndices.count > 0) {
+        REQUIRE(geometry.contains("collision"));
+        CHECK(geometry["collision"]["positions"]["count"] == header.collisionPositions.count);
+        CHECK(geometry["collision"]["indices"]["count"] == header.collisionIndices.count);
+    } else {
+        CHECK_FALSE(geometry.contains("collision"));
+    }
+
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
+}
+#else
+TEST_CASE("husk export --glb: real M2 + .skin imports into Blender (headless) with bone/vertex/"
+          "animation counts matching tinygltf's reading and the M2 header; the bundle carries the "
+          "header's collision mesh" *
+          doctest::skip(true)) {
+}
+#endif
+
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
+TEST_CASE("husk export --glb: a real multi-root-bone-forest weapon imports into Blender as one "
+          "armature with bone_count matching skin.joints.size() and the M2's bone count exactly" *
           doctest::skip(testWeaponParticleB().empty())) {
     std::string m2Path = testWeaponParticleB();
     // Sanity: this fixture really is multi-root (10 of 15 real bones have
     // parentBone == -1).
     REQUIRE(countRealRootBones(m2Path) > 1);
 
-    auto outPath =
-        (std::filesystem::temp_directory_path() / "husk-test-conformance-multiroot.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
-    INFO("gltf_validator output:\n", validation.output);
-    CHECK(validation.exitCode == 0);
-    CHECK(validation.output.find("SKIN_NO_COMMON_ROOT") == std::string::npos);
-
-    std::filesystem::remove(outPath);
-}
-#else
-TEST_CASE("husk export: a real multi-root-bone-forest weapon "
-          "produces a glb the Khronos glTF-Validator accepts with zero errors and no "
-          "SKIN_NO_COMMON_ROOT" *
-          doctest::skip(true)) {
-    // see TEST_DESIGN.md#Conformance-gating
-}
-#endif
-
-#ifdef HUSK_GLTF_VALIDATOR
-TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-Validator "
-          "errors on a real weapon .m2/.skin/.phys fixture" *
-          doctest::skip(testWeaponPhys().empty() || testWeaponPhysSkin().empty())) {
-    std::string m2Path = testWeaponPhys();
-    std::string skinPath = testWeaponPhysSkin();
-
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-conformance-phys.glb").string();
-    std::filesystem::remove(outPath);
-
-    // --phys unset -> auto-detects the same-basename '.phys' this fixture's
-    // own .m2 sits next to (see cmd_export.cpp's --phys resolution).
-    auto exportResult =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-    REQUIRE(exportResult.output.find("attached 10 physics body") != std::string::npos);
-
-    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
-    INFO("gltf_validator output:\n", validation.output);
-    CHECK(validation.exitCode == 0);
-    CHECK(validation.output.find("Errors: 0") != std::string::npos);
-
-    std::filesystem::remove(outPath);
-}
-#else
-TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-Validator "
-          "errors on a real weapon .m2/.skin/.phys fixture" *
-          doctest::skip(true)) {
-}
-#endif
-
-#ifdef HUSK_GLTF_VALIDATOR
-TEST_CASE("husk export: real attachment/event/light child nodes don't introduce new "
-          "glTF-Validator errors on a real weapon .m2/.skin fixture" *
-          doctest::skip(testWeaponParticleStress().empty())) {
-    std::string m2Path = testWeaponParticleStress();
-
-    auto outPath =
-        (std::filesystem::temp_directory_path() / "husk-test-conformance-anchor-nodes.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-    REQUIRE(exportResult.output.find("attached 5 attachment, 2 event, and 4 light") !=
-             std::string::npos);
-
-    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
-    INFO("gltf_validator output:\n", validation.output);
-    CHECK(validation.exitCode == 0);
-    CHECK(validation.output.find("Errors: 0") != std::string::npos);
-
-    std::filesystem::remove(outPath);
-}
-#else
-TEST_CASE("husk export: real attachment/event/light child nodes don't introduce new "
-          "glTF-Validator errors on a real weapon .m2/.skin fixture" *
-          doctest::skip(true)) {
-}
-#endif
-
-#ifdef HUSK_GLTF_VALIDATOR
-TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validator "
-          "accepts with zero errors" *
-          doctest::skip(testM2().empty() || testSkin().empty())) {
-    std::string m2Path = testM2();
-    std::string skinPath = testSkin();
-
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-conformance.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    // -a: print every issue message (not just errors) to stderr, captured
-    // into .output below, so a failure here shows exactly what the
-    // validator objected to instead of just a bare nonzero exit code.
-    // The validator's own documented contract (--help): nonzero exit iff
-    // at least one error was found -- warnings/infos/hints don't fail this.
-    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
-    INFO("gltf_validator output:\n", validation.output);
-    CHECK(validation.exitCode == 0);
-
-    std::filesystem::remove(outPath);
-}
-#else
-TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validator "
-          "accepts with zero errors" *
-          doctest::skip(true)) {
-}
-#endif
-
-#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
-TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bone/animation "
-          "counts matching tinygltf's own reading of the same file" *
-          doctest::skip(testM2().empty() || testSkin().empty())) {
-    std::string m2Path = testM2();
-    std::string skinPath = testSkin();
-
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender.glb").string();
-    std::filesystem::remove(outPath);
-
-    // --collision: this test's own readback checks below assert on the
-    // collision mesh's presence/counts, which requires actually asking for
-    // it now that it's opt-in (off by default, see cmd_export.cpp's
-    // appendCollisionMesh doc comment).
-    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" +
-                                 skinPath + "\" --collision");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender-multiroot.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-blender-multiroot.glb";
+    exportWithGlb(m2Path, "", bundleDir, glbPath);
+    tinygltf::Model model = loadGlb(glbPath);
     REQUIRE(model.skins.size() == 1);
+    husk::m2::Header header = readM2Header(m2Path);
+    CHECK(model.skins[0].joints.size() == header.bones.count);
 
-    // --factory-startup: skip whatever addons/preferences happen to be
-    // installed in the invoking user's own Blender config -- this test
-    // exercises husk's glb output against Blender's importer, not against
-    // Luna's personal addon set, which shouldn't be able to fail this.
-    // --python-exit-code 1: an unhandled exception in the import script
-    // must actually fail this process -- Blender's own --background
-    // default is to exit 0 regardless.
     auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+                                    " --background --factory-startup --python-exit-code 1 --python \"" +
+                                    std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + glbPath.string() + "\"");
     INFO("blender output:\n", blenderResult.output);
     REQUIRE(blenderResult.exitCode == 0);
 
+    // Several root bones must still import as one armature, not one per
+    // root, and nothing beyond the real bones is counted as a bone.
     CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
-    CHECK(parseProbeInt(blenderResult.output, "bone_count") ==
-          static_cast<int>(model.skins[0].joints.size()));
-    CHECK(parseProbeInt(blenderResult.output, "action_count") ==
-          static_cast<int>(model.animations.size()));
+    CHECK(parseProbeInt(blenderResult.output, "bone_count") == static_cast<int>(model.skins[0].joints.size()));
 
-    // The M2 source's own header counts, a third leg alongside tinygltf's
-    // and Blender's independent readings of the exported .glb. This
-    // export has no --lod, so exactly one skin
-    // (LOD tier) is written -- header.vertices.count carries over exactly,
-    // not multiplied (cmd_export.cpp's baseMesh is built once from the
-    // entire vertex array and reused unsliced; a .skin's batches only
-    // select a *subset* for drawing, never re-slice the accessor).
-    // cmd_export.cpp also attaches an unskinned collision-mesh node
-    // whenever the M2 has collision data (this fixture does), so the
-    // expected mesh/vertex counts below fold that in explicitly rather
-    // than assuming the render mesh is the only node.
-    husk::m2::Header header = readM2Header(m2Path);
-    bool hasCollisionMesh = header.collisionPositions.count > 0 && header.collisionIndices.count > 0;
-    int expectedMeshCount = 1 + (hasCollisionMesh ? 1 : 0);
-    uint32_t expectedVertexCount =
-        header.vertices.count + (hasCollisionMesh ? header.collisionPositions.count : 0);
-
-    CHECK(parseProbeInt(blenderResult.output, "mesh_object_count") == expectedMeshCount);
-    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) ==
-          expectedVertexCount);
-    CHECK(model.skins[0].joints.size() ==
-          header.bones.count + countDistinctGeosetTagJoints(model));
-
-    // Case 5, readback step: the collision mesh Blender actually imported
-    // (found by its "collision" extras tag, not by name -- see
-    // blender_import_check.py) matches the M2 header's own collision
-    // counts exactly (no tolerance needed -- pure count/topology, same
-    // indices/positions the M2 declares, just carried through unchanged).
-    if (hasCollisionMesh) {
-        CHECK(parseProbeInt(blenderResult.output, "collision_mesh_count") == 1);
-        CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "collision_mesh_vertex_count")) ==
-              header.collisionPositions.count);
-        CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "collision_mesh_triangle_count")) ==
-              header.collisionIndices.count / 3);
-    }
-
-    std::filesystem::remove(outPath);
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
 }
 #else
-TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bone/animation "
-          "counts matching tinygltf's own reading of the same file" *
-          doctest::skip(true)) {
-}
-#endif
-
-#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
-TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blender with bone_count "
-          "matching skin.joints.size() exactly -- the synthesized non-joint parent node "
-          "is not counted as a bone" *
-          doctest::skip(testWeaponParticleB().empty())) {
-    std::string m2Path = testWeaponParticleB();
-    REQUIRE(countRealRootBones(m2Path) > 1);
-
-    auto outPath =
-        (std::filesystem::temp_directory_path() / "husk-test-blender-multiroot.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    REQUIRE(model.skins.size() == 1);
-    husk::m2::Header header = readM2Header(m2Path);
-    // The invariant the chosen design (a plain non-joint parent node, see
-    // DESIGN.md#Key-design-decisions) exists to preserve: skin.joints never
-    // grows a bogus extra entry for the synthesized node (unlike the
-    // rejected alternative of appending it as one more real joint) -- it
-    // does legitimately grow by one real entry per distinct geoset ID
-    // (the tag joints, Skeleton::GeosetTag), accounted for explicitly here.
-    CHECK(model.skins[0].joints.size() ==
-          header.bones.count + countDistinctGeosetTagJoints(model));
-
-    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
-    INFO("blender output:\n", blenderResult.output);
-    REQUIRE(blenderResult.exitCode == 0);
-
-    CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
-    // The empirical finding this test exists to confirm: Blender's glTF
-    // importer does NOT count the synthesized non-joint parent node as a
-    // bone -- bone_count matches skin.joints.size() (real bones + geoset
-    // tag joints) exactly, same as the check above.
-    CHECK(parseProbeInt(blenderResult.output, "bone_count") ==
-          static_cast<int>(model.skins[0].joints.size()));
-
-    std::filesystem::remove(outPath);
-}
-#else
-TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blender with bone_count "
-          "matching skin.joints.size() exactly -- the synthesized non-joint parent node "
-          "is not counted as a bone" *
+TEST_CASE("husk export --glb: a real multi-root-bone-forest weapon imports into Blender as one "
+          "armature with bone_count matching skin.joints.size() and the M2's bone count exactly" *
           doctest::skip(true)) {
 }
 #endif
 
 // An asset-agnostic coordinate-frame probe, not a check on any real M2
-// fixture's own semantics -- deliberately NOT built from a real
-// character/weapon/creature, since it doesn't need a body plan or an "up"
+// fixture's own semantics -- deliberately not built from a real
+// character/weapon/creature, since it needs no body plan or "up"
 // convention to assert anything about.
 //
-// The property under test: a root joint at the local origin, with three
-// children offset by one unit along the M2-local +X/+Y/+Z axes
-// respectively, should -- once exported through husk's real Z-up->Y-up
-// conversion and reimported through Blender's real, independent glTF
-// importer -- land at those *exact same* coordinates in Blender's own
-// world space. Not "somewhere plausible," not "consistent with itself" --
-// numerically identical to the original M2-local offset (WoW Z-up ->
-// husk's zUpToYUp -> glTF Y-up -> Blender's own Y-up->Z-up import ->
-// Blender Z-up should net to the identity transform, since it's the same
-// physical up-axis on both ends). Mutation-tested (see
-// TEST_DESIGN.md#Mutation-tested-regressions): reverting zUpToYUp to its
-// historical formula makes this test fail with a net 180-degree flip
-// instead of identity.
-// TODO: Remove: cites TRANSFORM_TRIAGE.md §2/§5c throughout, including "why
-// the original 'anatomically upright' idea doesn't survive a weapon or
-// quadruped."
+// The property under test: a root joint at the M2-local origin, with three
+// children offset by one unit along the M2-local +X/+Y/+Z axes, should --
+// once written through the lean writer's real Z-up->Y-up conversion and
+// reimported through Blender's independent glTF importer -- land at those
+// exact same coordinates in Blender's world space (WoW Z-up -> zUpToYUp ->
+// glTF Y-up -> Blender's own Y-up->Z-up import -> Blender Z-up nets to the
+// identity, the same physical up-axis on both ends). Mutation-tested (see
+// TEST_DESIGN.md#Mutation-tested-regressions): a wrong zUpToYUp shows up
+// here as a net 180-degree flip instead of identity.
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
-TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/+Y/+Z offsets "
-          "survive a real husk-export -> Blender-import round trip as the identical coordinate") {
-    husk::gltf::Skeleton skel;
-    skel.joints.push_back({-1, {0, 0, 0}, {0, 0, 0}, "", "husk_probe_root"});
-    auto addAxisProbe = [&](const husk::m2::Vec3& m2Offset, const std::string& name) {
-        husk::gltf::Vec3 offset = husk::gltf::zUpToYUp({m2Offset.x, m2Offset.y, m2Offset.z});
-        skel.joints.push_back({0, offset, offset, "", name});
+TEST_CASE("writers::writeLeanGlb: a synthetic axis-probe skeleton's M2-local +X/+Y/+Z offsets survive a "
+          "real lean-glb -> Blender-import round trip as the identical coordinate") {
+    canon::Model model;
+    auto probeJoint = [](int parent, canon::Vec3 position, std::string label) {
+        canon::Joint joint;
+        joint.parent = parent;
+        joint.globalPosition = position;
+        joint.structuralLabel = std::move(label);
+        return joint;
     };
-    addAxisProbe({1, 0, 0}, "husk_probe_x");
-    addAxisProbe({0, 1, 0}, "husk_probe_y");
-    addAxisProbe({0, 0, 1}, "husk_probe_z");
+    model.skeleton.joints = {probeJoint(-1, {0, 0, 0}, "husk_probe_root"), probeJoint(0, {1, 0, 0}, "husk_probe_x"),
+                             probeJoint(0, {0, 1, 0}, "husk_probe_y"), probeJoint(0, {0, 0, 1}, "husk_probe_z")};
+    // One triangle skinned to the root: a skin needs a mesh to bind.
+    model.mesh.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+    model.mesh.normals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
+    model.mesh.uvSets[0] = {{0, 0}, {1, 0}, {0, 1}};
+    canon::Mesh::Skinning rootOnly;
+    rootOnly.joints = {0, 0, 0, 0};
+    rootOnly.weights = {1, 0, 0, 0};
+    model.mesh.skinning = {rootOnly, rootOnly, rootOnly};
+    model.mesh.indices = {0, 1, 2};
+    canon::PrimitiveGeoset prim;
+    prim.indexStart = 0;
+    prim.indexCount = 3;
+    model.mesh.primitives = {prim};
+    canon::Material material;
+    material.ref.id = canon::RecordIndex{0};
+    model.materials = {material};
+    model.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
 
-    auto glb = husk::gltf::writeGlbMulti({}, &skel);
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-axis-probe.glb").string();
-    std::ofstream out(outPath, std::ios::binary);
-    REQUIRE(static_cast<bool>(out));
-    out.write(reinterpret_cast<const char*>(glb.data()), static_cast<std::streamsize>(glb.size()));
-    out.close();
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-axis-probe.glb";
+    fs::remove(glbPath);
+    writers::writeLeanGlb(model, glbPath);
 
     auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+                                    " --background --factory-startup --python-exit-code 1 --python \"" +
+                                    std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + glbPath.string() + "\"");
     INFO("blender output:\n", blenderResult.output);
     REQUIRE(blenderResult.exitCode == 0);
     CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
@@ -573,373 +421,220 @@ TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/
     CHECK(pz.y == doctest::Approx(0).epsilon(kEpsilon));
     CHECK(pz.z == doctest::Approx(1).epsilon(kEpsilon));
 
-    std::filesystem::remove(outPath);
+    fs::remove(glbPath);
 }
 #else
-TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/+Y/+Z offsets "
-          "survive a real husk-export -> Blender-import round trip as the identical coordinate" *
+TEST_CASE("writers::writeLeanGlb: a synthetic axis-probe skeleton's M2-local +X/+Y/+Z offsets survive a "
+          "real lean-glb -> Blender-import round trip as the identical coordinate" *
           doctest::skip(true)) {
 }
 #endif
 
-// An optional, non-load-bearing secondary check: a real humanoid fixture's
-// own "_Name" key bone (near the top of the head, keyBoneId 22 -- see
-// m2::keyBoneName) should land above the armature's own origin once
-// imported into Blender, not below it. This is explicitly NOT the primary
-// orientation check (the asset-agnostic synthetic probe above is) -- it
-// only applies to fixtures that happen to have this specific bone tagged
-// (real humanoids; skipped, not failed, otherwise), and exists purely as a
-// second, real-content confirmation on top of the probe's own math-only
-// result.
-// TODO: Remove: cites TRANSFORM_TRIAGE.md §5c (the real-file measurement
-// that originally surfaced the orientation bug).
+// A secondary, real-content check on top of the synthetic probe above: a
+// real humanoid fixture's own "_Name" key bone (near the top of the head,
+// keyBoneId 22 -- see m2::keyBoneName) should land above the armature's
+// origin once imported into Blender, not below it. The lean projection
+// names joints by structural label, so the bundle's skeleton is what maps
+// "_Name" to the joint name Blender sees.
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
-TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
-          "the armature origin in Blender, not below it (optional secondary, humanoid-only "
-          "check)" *
+TEST_CASE("husk export --glb: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
+          "the armature origin in Blender, not below it" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
-    std::string m2Path = testM2();
-    std::string skinPath = testSkin();
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-landmark-probe.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-landmark-probe.glb";
+    exportWithGlb(testM2(), "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
 
-    auto outPath =
-        (std::filesystem::temp_directory_path() / "husk-test-landmark-probe.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
+    // This fixture is expected to have a real "_Name" bone -- if a fixture
+    // swap ever drops it, this REQUIRE fails loudly rather than passing
+    // with zero assertions.
+    nlohmann::json manifest = parseManifest(bundleDir);
+    std::string label;
+    for (const auto& joint : manifest["resources"]["rig"]["skeleton"]["joints"]) {
+        if (joint["ref"]["name"] == "_Name") label = joint["structural_label"].get<std::string>();
+    }
+    REQUIRE(!label.empty());
 
     auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+                                    " --background --factory-startup --python-exit-code 1 --python \"" +
+                                    std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + glbPath.string() +
+                                    "\" \"" + label + "\"");
     INFO("blender output:\n", blenderResult.output);
     REQUIRE(blenderResult.exitCode == 0);
 
-    // This fixture is expected to have a real "_Name" bone -- if a future
-    // fixture swap ever drops it, this REQUIRE fails loudly (a real gap in
-    // this specific check's own applicability) rather than silently
-    // passing with zero assertions.
-    REQUIRE(blenderResult.output.find("HUSK_PROBE landmark_head_bone=") != std::string::npos);
-    husk::gltf::Vec3 landmark = parseProbeVec3(blenderResult.output, "landmark_head_bone");
-    // Blender is natively Z-up, not Y-up -- "above the origin" means a
-    // positive Z component in the raw (x, y, z) triple this parses
-    // directly out of Blender's own printed world position, the same
-    // convention the axis-probe test above uses (its own "z" probe checks
-    // .z, not .y, for exactly this reason).
+    // Blender is natively Z-up: "above the origin" is a positive Z, the
+    // same convention the axis-probe test above uses.
+    husk::gltf::Vec3 landmark = parseProbeVec3(blenderResult.output, "bone:" + label);
     CHECK(landmark.z > 0.0f);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
 }
 #else
-TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
-          "the armature origin in Blender, not below it (optional secondary, humanoid-only "
-          "check)" *
+TEST_CASE("husk export --glb: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
+          "the armature origin in Blender, not below it" *
           doctest::skip(true)) {
 }
 #endif
 
 // Pipeline coverage for a body plan/bone-hierarchy shape bloodelffemale.m2
-// (the fixture behind almost every other conformance test in this file)
-// doesn't represent, not orientation coverage -- the synthetic axis-probe
-// above already covers any asset type by construction. A real quadruped
-// exercises a genuinely different skeleton shape end to end (does the
-// export pipeline still produce a spec-valid, Blender-importable file for a
-// body plan this test suite has never run against before), independent of
-// whether it happens to be right-side up.
-// TODO: Remove: cites TRANSFORM_TRIAGE.md §5e.
+// (the fixture behind most other conformance tests here) doesn't
+// represent, not orientation coverage -- the synthetic axis-probe above
+// already covers any asset type by construction.
 #ifdef HUSK_GLTF_VALIDATOR
-TEST_CASE("husk export: a real quadruped creature (wolf.m2) produces a glb the Khronos "
+TEST_CASE("husk export --glb: a real quadruped creature (wolf.m2) produces a lean glb the Khronos "
           "glTF-Validator accepts with zero errors" *
           doctest::skip(testQuadrupedM2().empty() || testQuadrupedSkin().empty())) {
-    std::string m2Path = testQuadrupedM2();
-    std::string skinPath = testQuadrupedSkin();
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-quadruped.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-quadruped.glb";
+    exportWithGlb(testQuadrupedM2(), "--skin \"" + testQuadrupedSkin() + "\"", bundleDir, glbPath);
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-quadruped.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
+    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + glbPath.string() + "\"");
     INFO("gltf_validator output:\n", validation.output);
     CHECK(validation.exitCode == 0);
+    CHECK(validation.output.find("Errors: 0,") != std::string::npos);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
 }
 #else
-TEST_CASE("husk export: a real quadruped creature (wolf.m2) produces a glb the Khronos "
+TEST_CASE("husk export --glb: a real quadruped creature (wolf.m2) produces a lean glb the Khronos "
           "glTF-Validator accepts with zero errors" *
           doctest::skip(true)) {
 }
 #endif
 
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
-TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender (headless) "
-          "with bone/vertex counts matching tinygltf's own reading of the same file" *
+TEST_CASE("husk export --glb: a real quadruped creature (wolf.m2) imports into Blender (headless) "
+          "with bone/vertex counts matching tinygltf's reading and the M2 header" *
           doctest::skip(testQuadrupedM2().empty() || testQuadrupedSkin().empty())) {
     std::string m2Path = testQuadrupedM2();
-    std::string skinPath = testQuadrupedSkin();
-
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-quadruped-blender.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto exportResult =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-quadruped-blender.bundle";
+    fs::path glbPath = fs::temp_directory_path() / "husk-test-quadruped-blender.glb";
+    exportWithGlb(m2Path, "--skin \"" + testQuadrupedSkin() + "\"", bundleDir, glbPath);
+    tinygltf::Model model = loadGlb(glbPath);
     REQUIRE(model.skins.size() == 1);
 
     auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+                                    " --background --factory-startup --python-exit-code 1 --python \"" +
+                                    std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + glbPath.string() + "\"");
     INFO("blender output:\n", blenderResult.output);
     REQUIRE(blenderResult.exitCode == 0);
-
-    CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
-    CHECK(parseProbeInt(blenderResult.output, "bone_count") ==
-          static_cast<int>(model.skins[0].joints.size()));
 
     husk::m2::Header header = readM2Header(m2Path);
-    CHECK(model.skins[0].joints.size() ==
-          header.bones.count + countDistinctGeosetTagJoints(model));
+    CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
+    CHECK(parseProbeInt(blenderResult.output, "bone_count") == static_cast<int>(model.skins[0].joints.size()));
+    CHECK(model.skins[0].joints.size() == header.bones.count);
+    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) == header.vertices.count);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(bundleDir);
+    fs::remove(glbPath);
 }
 #else
-TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender (headless) "
-          "with bone/vertex counts matching tinygltf's own reading of the same file" *
+TEST_CASE("husk export --glb: a real quadruped creature (wolf.m2) imports into Blender (headless) "
+          "with bone/vertex counts matching tinygltf's reading and the M2 header" *
           doctest::skip(true)) {
 }
 #endif
 
-// --slim-textures' own glTF-Validator conformance check (does a real
-// external-image-only .glb still validate cleanly) lives in tests/
-// test_cli_slim_textures.cpp instead of here, against a small synthetic
-// fixture -- every real local test_data/ fixture with an actually-
-// resolvable local texture file (only bloodelffemale_hd's own directory
-// has real '.blp' files) also happens to trip a real, pre-existing,
-// wholly unrelated glTF-Validator finding (duplicate JOINTS_0 values on a
-// shared vertex -- confirmed present in the plain, non-slim embedded
-// export too, so not something this feature introduced) that would make
-// this check fail for a reason having nothing to do with --slim-textures
-// itself. The Blender pixel-decode check just below still uses that real
-// fixture -- Blender's importer doesn't run glTF-Validator's own spec
-// checks, so it's unaffected by that unrelated finding.
-
-#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
-TEST_CASE("husk export --slim-textures: Blender's own importer resolves and decodes the real "
-          "pixels of every externally-referenced texture from the adjacent 'textures/' "
-          "directory, not just imports without erroring" *
-          doctest::skip(testSkelM2().empty() || testSkelSkin().empty())) {
-    // testM2()/testSkin() (bloodelffemale.m2, the fixture the gltf_validator
-    // check above uses) has no real locally-resolvable texture file under
-    // this suite's own strict config isolation (tests/run_husk.hpp forces
-    // HUSK_CONFIG=/dev/null so a real ~/.config/husk/config.toml's
-    // --listfile-root can't silently widen resolution for a real interactive
-    // run but not this test) -- confirmed directly, not assumed: under that
-    // isolation it slim-exports with zero external images, which would make
-    // every check below vacuously true. testSkelM2()/testSkelSkin()
-    // (bloodelffemale_hd.m2) sits next to real local '.blp' files
-    // (test_data/character/bloodelf/female/) that resolve without any
-    // config/listfile at all -- the real fixture this test actually needs.
-    std::string m2Path = testSkelM2();
-    std::string skinPath = testSkelSkin();
-
-    auto outDir = std::filesystem::temp_directory_path() / "husk-test-blender-slim";
-    std::filesystem::remove_all(outDir);
-    std::filesystem::create_directories(outDir);
-    auto outPath = (outDir / "slim.glb").string();
-
-    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" +
-                                 skinPath + "\" --slim-textures");
-    INFO("husk export output:\n", exportResult.output);
-    REQUIRE(exportResult.exitCode == 0);
-
-    // Ground truth, independent of Blender: tinygltf's own reading of the
-    // same file has at least one image with a real external `uri` (not
-    // `bufferView`) -- confirms the export actually took the slim path
-    // (real texture data resolved to embed) rather than this fixture
-    // happening to have zero resolvable textures at all, which would make
-    // every check below vacuously true.
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    size_t externalImageCount = 0;
-    for (const auto& img : model.images) {
-        if (!img.uri.empty() && img.bufferView < 0) ++externalImageCount;
-    }
-    REQUIRE(externalImageCount > 0);
-
-    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
-    INFO("blender output:\n", blenderResult.output);
-    REQUIRE(blenderResult.exitCode == 0);
-
-    CHECK(parseProbeInt(blenderResult.output, "loaded_image_count") ==
-          static_cast<int>(model.images.size()));
-    // A failed/unresolved external image resolves to a real Blender Image
-    // datablock with size (0, 0) -- these being > 0 is the real proof
-    // Blender's importer found 'textures/<name>.png' next to slim.glb and
-    // decoded real pixels from it, not just that import() didn't throw.
-    CHECK(parseProbeInt(blenderResult.output, "min_image_width") > 0);
-    CHECK(parseProbeInt(blenderResult.output, "min_image_height") > 0);
-
-    std::filesystem::remove_all(outDir);
-}
-#else
-TEST_CASE("husk export --slim-textures: Blender's own importer resolves and decodes the real "
-          "pixels of every externally-referenced texture from the adjacent 'textures/' "
-          "directory, not just imports without erroring" *
-          doctest::skip(true)) {
-}
-#endif
-
-// The canon::/writers::writeBundle counterpart to the very first test in
-// this file, and the concrete point of REFACTOR/BLENDER_ADDON.md's "point
-// at a manifest, nothing else": bundle_import_check.py reads
-// out.canon.bundle/manifest.json + its .bin slices *directly*, with no
-// glTF anywhere in the loop on the canon side, and this test checks the
-// result against the M2 header's own raw counts -- the same ground truth
-// the legacy-pipeline Blender test above cross-checks against, not against
-// the legacy .glb's own inflated joint count (canon::Skeleton has no
-// Skeleton::GeosetTag synthetic joints -- REFACTOR/README.md's "canon::
-// itself is now format-agnostic top to bottom" -- and canon::Mesh carries
-// no collision mesh yet, AUDIT.md's Stage 3 scope), so the two expected
-// counts are deliberately simpler than countDistinctGeosetTagJoints's own
-// legacy-side accounting.
+// The concrete point of REFACTOR/BLENDER_ADDON.md's "point at a manifest,
+// nothing else": bundle_import_check.py reads manifest.json + its .bin
+// slices directly, with no glTF anywhere in the loop, and the result is
+// checked against the M2 header's own raw counts.
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT)
-TEST_CASE("husk export --export-canon: the native bundle's mesh/skeleton import into Blender "
-          "-- with no glTF involved on the canon side at all -- matching the M2 header's own "
-          "vertex/bone counts" *
+TEST_CASE("husk export: the bundle's mesh/skeleton import into Blender -- with no glTF involved at "
+          "all -- matching the M2 header's own vertex/bone counts" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
-    std::string skinPath = testSkin();
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender-bundle.bundle";
+    fs::remove_all(bundleDir);
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender-bundle.glb").string();
-    auto bundleDir = std::filesystem::temp_directory_path() / "husk-test-blender-bundle.canon.bundle";
-    std::filesystem::remove(outPath);
-    std::filesystem::remove_all(bundleDir);
-
-    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
-                                 "\" --export-canon");
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + bundleDir.string() + "\" --skin \"" + testSkin() + "\"");
     INFO("husk export output:\n", exportResult.output);
     REQUIRE(exportResult.exitCode == 0);
-    REQUIRE(std::filesystem::is_directory(bundleDir));
-    REQUIRE(std::filesystem::exists(bundleDir / "manifest.json"));
+    REQUIRE(fs::exists(bundleDir / "manifest.json"));
 
     auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT) + "\" -- \"" +
-                                     bundleDir.string() + "\"");
+                                    " --background --factory-startup --python-exit-code 1 --python \"" +
+                                    std::string(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT) + "\" -- \"" +
+                                    bundleDir.string() + "\"");
     INFO("blender output:\n", blenderResult.output);
     REQUIRE(blenderResult.exitCode == 0);
 
     husk::m2::Header header = readM2Header(m2Path);
-
     CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
     CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "bone_count")) == header.bones.count);
     CHECK(parseProbeInt(blenderResult.output, "mesh_object_count") == 1);
-    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) ==
-          header.vertices.count);
+    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) == header.vertices.count);
 
-    std::filesystem::remove(outPath);
-    std::filesystem::remove_all(bundleDir);
+    fs::remove_all(bundleDir);
 }
 #else
-TEST_CASE("husk export --export-canon: the native bundle's mesh/skeleton import into Blender "
-          "-- with no glTF involved on the canon side at all -- matching the M2 header's own "
-          "vertex/bone counts" *
+TEST_CASE("husk export: the bundle's mesh/skeleton import into Blender -- with no glTF involved at "
+          "all -- matching the M2 header's own vertex/bone counts" *
           doctest::skip(true)) {
 }
 #endif
 
 // Same idea, materials this time: bundle_import_check.py's build_materials
-// reads resources.materials[].layers[].texture's "uri" straight off disk
-// (bundle_writer.cpp's writeTextureRef -- a real 'textures/<name>.<ext>'
-// file, written once per distinct resolved texture) and loads it into a
-// real Blender Image, again with no glTF anywhere in the loop on the canon
-// side.
+// loads each material's first resolved layer's texture file (payload "uri")
+// straight off disk into a real Blender Image.
 //
-// testFoxM2()/testFoxSkin() (test_data/creature/fox/, added for this test):
-// a real, simple, non-character creature with real local-basename-
-// resolvable textures -- kQuadrupedM2/kQuadrupedSkin (creature/wolf/)
-// carries no local texture at all, and testSkelM2()/testSkelSkin()
-// (bloodelffemale_hd.m2) is a real character, which also carries the
-// customization/geoset-selection surface REFACTOR/BLENDER_ADDON.md
-// documents as NOT YET WIRED into canon::Model/bundle_writer.cpp at all (no
-// Definition/Selection/Item resources in the bundle today) -- testing
-// materials against a character fixture would risk implying that whole
-// unbuilt subsystem is covered by this test, when it isn't. See
-// test_data_paths.hpp's kFoxM2/kFoxSkin doc comment for the real numbers.
+// testFoxM2()/testFoxSkin() (test_data/creature/fox/): a real, simple,
+// non-character creature with real local-basename-resolvable textures --
+// the wolf carries no local texture at all, and a character model would
+// imply the customization/geoset surface is covered here, which it isn't.
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT)
-TEST_CASE("husk export --export-canon: the native bundle's materials/textures import into "
-          "Blender -- with no glTF involved on the canon side at all -- matching the legacy "
-          ".glb's own resolved material/image counts" *
+TEST_CASE("husk export: the bundle's materials/textures import into Blender -- with no glTF "
+          "involved at all -- matching the manifest's own material and resolved-texture counts, "
+          "with real decoded pixels" *
           doctest::skip(testFoxM2().empty() || testFoxSkin().empty())) {
-    std::string m2Path = testFoxM2();
-    std::string skinPath = testFoxSkin();
+    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender-bundle-mat.bundle";
+    fs::remove_all(bundleDir);
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender-bundle-mat.glb").string();
-    auto bundleDir = std::filesystem::temp_directory_path() / "husk-test-blender-bundle-mat.canon.bundle";
-    std::filesystem::remove(outPath);
-    std::filesystem::remove_all(bundleDir);
-
-    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
-                                 "\" --export-canon");
+    auto exportResult =
+        runHusk("export \"" + testFoxM2() + "\" -o \"" + bundleDir.string() + "\" --skin \"" + testFoxSkin() + "\"");
     INFO("husk export output:\n", exportResult.output);
     REQUIRE(exportResult.exitCode == 0);
-    REQUIRE(std::filesystem::is_directory(bundleDir));
 
-    // Ground truth: the legacy .glb's own tinygltf-parsed material/image
-    // counts -- REFACTOR/README.md's own claim that canon::Model::materials
-    // is deduped and matches legacy's own count exactly is what this test
-    // actually checks, on the Blender-readback side rather than the
-    // canon_diff.cpp structural side test_cli_export_canon.cpp already
-    // covers.
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model legacyModel;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&legacyModel, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    REQUIRE(!legacyModel.materials.empty());
-    REQUIRE(!legacyModel.images.empty());
+    // Ground truth from the manifest, read independently of Blender: every
+    // material, and the materials whose layers resolved to a written
+    // texture file (the probe loads one image per such material).
+    nlohmann::json manifest = parseManifest(bundleDir);
+    const auto& materials = manifest["resources"]["materials"];
+    int texturedMaterials = 0;
+    for (const auto& material : materials) {
+        for (const auto& layer : material["layers"]) {
+            const auto& texture = textureAt(manifest, layer["texture"]);
+            if (texture["state"] == "resolved" && texture.contains("payload")) {
+                ++texturedMaterials;
+                break;
+            }
+        }
+    }
+    REQUIRE(!materials.empty());
+    REQUIRE(texturedMaterials > 0);
 
     auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
-                                     " --background --factory-startup --python-exit-code 1 --python \"" +
-                                     std::string(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT) + "\" -- \"" +
-                                     bundleDir.string() + "\"");
+                                    " --background --factory-startup --python-exit-code 1 --python \"" +
+                                    std::string(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT) + "\" -- \"" +
+                                    bundleDir.string() + "\"");
     INFO("blender output:\n", blenderResult.output);
     REQUIRE(blenderResult.exitCode == 0);
 
-    CHECK(parseProbeInt(blenderResult.output, "material_count") ==
-          static_cast<int>(legacyModel.materials.size()));
-    CHECK(parseProbeInt(blenderResult.output, "loaded_image_count") ==
-          static_cast<int>(legacyModel.images.size()));
+    CHECK(parseProbeInt(blenderResult.output, "material_count") == static_cast<int>(materials.size()));
+    CHECK(parseProbeInt(blenderResult.output, "loaded_image_count") == texturedMaterials);
+    // A failed/unresolved image loads as a real Blender Image of size
+    // (0, 0) -- > 0 is the proof Blender decoded real pixels.
     CHECK(parseProbeInt(blenderResult.output, "min_image_width") > 0);
     CHECK(parseProbeInt(blenderResult.output, "min_image_height") > 0);
 
-    std::filesystem::remove(outPath);
-    std::filesystem::remove_all(bundleDir);
+    fs::remove_all(bundleDir);
 }
 #else
-TEST_CASE("husk export --export-canon: the native bundle's materials/textures import into "
-          "Blender -- with no glTF involved on the canon side at all -- matching the legacy "
-          ".glb's own resolved material/image counts" *
+TEST_CASE("husk export: the bundle's materials/textures import into Blender -- with no glTF "
+          "involved at all -- matching the manifest's own material and resolved-texture counts, "
+          "with real decoded pixels" *
           doctest::skip(true)) {
 }
 #endif

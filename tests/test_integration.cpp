@@ -7,11 +7,10 @@
 // and tests/test_data_paths.hpp.
 //
 // A mismatched .skin (wrong model/LOD) is a real failure mode, not
-// something to silently tolerate: skin::resolveTriangleIndices/cmd_export's
-// own bounds check throws if the skin references M2 vertices that don't
-// exist, so HUSK_TEST_MISMATCHED_SKIN needs to actually be from a different
-// model (the default, bloodelffemale_hd00.skin, is -- a separate,
-// higher-poly M2's sidecar, not an LOD of the base model).
+// something to silently tolerate: the .skin's indices are checked against
+// the M2 vertex count, so HUSK_TEST_MISMATCHED_SKIN needs to actually be
+// from a different model (the default, bloodelffemale_hd00.skin, is -- a
+// separate, higher-poly M2's sidecar, not an LOD of the base model).
 
 #include <cctype>
 #include <cmath>
@@ -19,7 +18,7 @@
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
-#include <memory>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -28,7 +27,9 @@
 #include "m2.hpp"
 #include "m2_shader_names.hpp"
 #include "run_husk.hpp"
+#include "skel.hpp"
 #include "skin.hpp"
+#include "test_bundle_fixtures.hpp"
 #include "test_data_paths.hpp"
 
 namespace {
@@ -49,143 +50,131 @@ using husk::test::testTextureCoordComboM2;
 using husk::test::testTextureCoordComboSkin;
 using husk::test::testTexturesDir;
 
-// Blender's own glTF importer drops skin.extras entirely -- husk attaches
-// this data to the skin's own root joint's node extras instead (see
-// gltf_skeleton.cpp's emitSkeletonAndSkin). Real M2 files don't guarantee
-// skin.joints[0] is that root joint (arbitrary source bone-array order,
-// unlike the synthetic unit-test fixtures in test_gltf_skeleton.cpp), so
-// this scans every joint node for the one actually carrying extras rather
-// than assuming an index. Specifically the one carrying `joint_names`
-// (always present on the real carrier, unlike e.g. `billboard`, which can
-// legitimately land on a different, non-carrier joint) -- checking for
-// that exact key, not just any extras object, so a billboard-tagged joint
-// ordered earlier in `skin.joints` can't be mistaken for the carrier.
-const tinygltf::Value& rootJointExtras(const tinygltf::Model& model) {
-    static const tinygltf::Value kEmpty;
-    for (int nodeIdx : model.skins[0].joints) {
-        if (model.nodes[nodeIdx].extras.Has("joint_names")) return model.nodes[nodeIdx].extras;
-    }
-    return kEmpty;
+// A fresh bundle directory under the temp dir; any previous run's output
+// is removed so a stale manifest can't satisfy a check.
+fs::path freshBundleDir(const std::string& name) {
+    fs::path dir = fs::temp_directory_path() / (name + ".bundle");
+    fs::remove_all(dir);
+    return dir;
+}
+
+// A BufferSlice's f32 values, flat, out of an already-read payload file.
+std::vector<float> f32Slice(const std::vector<uint8_t>& fileBytes, const nlohmann::json& slice) {
+    REQUIRE(slice["component_type"] == "f32");
+    auto offset = slice["byte_offset"].get<size_t>();
+    auto length = slice["byte_length"].get<size_t>();
+    REQUIRE(offset + length <= fileBytes.size());
+    std::vector<float> values(length / sizeof(float));
+    if (length > 0) std::memcpy(values.data(), fileBytes.data() + offset, length);
+    return values;
 }
 
 // Shape-only check (see TEST_DESIGN.md#Shape-only-vs-exact-checks): a real
-// character model has bones, so this must have produced a glTF skin, not
-// silently dropped it.
-void checkSkinnedGlb(const std::string& outPath) {
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    REQUIRE(model.skins.size() == 1);
-    CHECK(model.skins[0].joints.size() > 0);
-    CHECK(model.skins[0].inverseBindMatrices >= 0);
-    REQUIRE(model.nodes[0].mesh == 0);
-    CHECK(model.nodes[0].skin == 0);
-    const auto& prim = model.meshes[0].primitives[0];
-    CHECK(prim.attributes.count("JOINTS_0") == 1);
-    CHECK(prim.attributes.count("WEIGHTS_0") == 1);
+// character model has bones, so the bundle must carry a skeleton and
+// per-vertex skinning for every vertex the M2 declares, not silently drop
+// either.
+void checkSkinnedBundle(const nlohmann::json& manifest, uint32_t expectedVertexCount, size_t expectedJointCount) {
+    const auto& mesh = manifest["resources"]["geometry"]["mesh"];
+    CHECK(mesh["positions"]["count"] == expectedVertexCount);
+    REQUIRE(mesh.contains("joints0"));
+    REQUIRE(mesh.contains("weights0"));
+    CHECK(mesh["joints0"]["count"] == expectedVertexCount);
+    CHECK(mesh["weights0"]["count"] == expectedVertexCount);
+    CHECK(expectedJointCount > 0);
+    CHECK(manifest["resources"]["rig"]["skeleton"]["joint_count"] == expectedJointCount);
 }
 
 // Full per-keyframe sanity coverage (every rotation component finite and
-// unit-norm, every translation component finite) for one real animation
-// clip, aggregated into a single pass/fail verdict instead of one CHECK
+// unit-norm, every translation component finite) for every clip in a
+// bundle, aggregated into a single pass/fail verdict instead of one CHECK
 // per scalar -- see TEST_DESIGN.md#Shape-only-vs-exact-checks. Nothing is
-// skipped: every keyframe of the clip is still walked and checked here,
-// just reported as one assertion per clip so a failure names the clip and
-// the specific bad keyframe directly, instead of the coverage depth alone
-// determining how many lines of "x works" output a passing run produces.
+// skipped: every keyframe of every clip is walked; on failure the message
+// names the first offending clip and up to 5 concrete bad keyframes in it.
+// Returns the totals so callers can assert real keyframes were exercised.
 struct AnimationSanityResult {
     size_t rotationKeyframesChecked = 0;
     size_t translationKeyframesChecked = 0;
-    std::vector<std::string> problems;
 };
 
-AnimationSanityResult checkAnimationKeyframesSane(const tinygltf::Model& model,
-                                                   const tinygltf::Animation& anim) {
-    AnimationSanityResult result;
-    for (const auto& ch : anim.channels) {
-        const auto& samp = anim.samplers[ch.sampler];
-        const auto& acc = model.accessors[samp.output];
-        const auto& view = model.bufferViews[acc.bufferView];
-        const auto& buf = model.buffers[view.buffer];
-        if (ch.target_path == "rotation") {
-            std::vector<float> vals(acc.count * 4);
-            std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
-                        vals.size() * sizeof(float));
-            for (size_t i = 0; i < vals.size(); i += 4) {
-                float x = vals[i], y = vals[i + 1], z = vals[i + 2], w = vals[i + 3];
-                size_t keyframe = i / 4;
-                if (!(std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && std::isfinite(w))) {
-                    result.problems.push_back(
-                        "rotation keyframe " + std::to_string(keyframe) +
-                        ": expected a finite quaternion, got (" + std::to_string(x) + ", " +
-                        std::to_string(y) + ", " + std::to_string(z) + ", " + std::to_string(w) + ")");
-                } else {
-                    float norm = std::sqrt(x * x + y * y + z * z + w * w);
-                    if (std::abs(norm - 1.0f) > 0.05f) {
-                        result.problems.push_back("rotation keyframe " + std::to_string(keyframe) +
-                                                   ": expected unit norm (1.0 +/- 0.05), got " +
-                                                   std::to_string(norm));
-                    }
-                }
-                ++result.rotationKeyframesChecked;
-            }
-        } else if (ch.target_path == "translation") {
-            std::vector<float> vals(acc.count * 3);
-            std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
-                        vals.size() * sizeof(float));
-            for (size_t i = 0; i < vals.size(); ++i) {
-                if (!std::isfinite(vals[i])) {
-                    result.problems.push_back("translation keyframe " + std::to_string(i / 3) +
-                                               " component " + std::to_string(i % 3) +
-                                               ": expected a finite value, got " +
-                                               std::to_string(vals[i]));
-                }
-            }
-            result.translationKeyframesChecked += acc.count;
-        }
-    }
-    return result;
-}
+AnimationSanityResult checkAllClipsSane(const fs::path& bundleDir, const nlohmann::json& manifest) {
+    std::map<std::string, std::vector<uint8_t>> payloads;
+    auto payload = [&](const nlohmann::json& slice) -> const std::vector<uint8_t>& {
+        auto file = slice["file"].get<std::string>();
+        auto it = payloads.find(file);
+        if (it == payloads.end()) it = payloads.emplace(file, readFile((bundleDir / file).string())).first;
+        return it->second;
+    };
 
-// Runs checkAnimationKeyframesSane over every clip in `model`, aggregated
-// into one CHECK for the whole model rather than one per clip -- a real
-// model runs to hundreds of clips, and a CHECK per clip multiplies this
-// test's assertion count by that corpus size for no added coverage (every
-// clip is still walked and checked here; only the assertion *count*
-// changes). Same aggregate-then-diagnose discipline
-// test_canon_skeleton_convergence.cpp's per-joint loop establishes: on
-// failure, the message names the *first* offending clip and up to 5
-// concrete bad keyframes in it (with a remaining-count if there are more),
-// a direct trace straight to the offending data instead of a wall of
-// individual pass/fail lines. Returns the total keyframe counts so callers
-// can still assert "at least one real clip/keyframe was actually
-// exercised."
-AnimationSanityResult checkAllAnimationsSane(const tinygltf::Model& model) {
     AnimationSanityResult totals;
     std::optional<std::string> firstFailure;
-    for (const auto& anim : model.animations) {
-        auto result = checkAnimationKeyframesSane(model, anim);
-        totals.rotationKeyframesChecked += result.rotationKeyframesChecked;
-        totals.translationKeyframesChecked += result.translationKeyframesChecked;
-        if (result.problems.empty() || firstFailure) continue;
-
-        std::string detail = "clip '" + anim.name + "' had " + std::to_string(result.problems.size()) +
-                              " sanity problem(s)";
-        constexpr size_t kMaxShown = 5;
-        for (size_t i = 0; i < result.problems.size() && i < kMaxShown; ++i) {
-            detail += "\n  " + result.problems[i];
+    const auto& clips = manifest["resources"]["rig"]["animation"];
+    for (size_t ci = 0; ci < clips.size(); ++ci) {
+        std::vector<std::string> problems;
+        for (const auto& joint : clips[ci]["joints"]) {
+            if (joint.contains("rotation")) {
+                std::vector<float> q = f32Slice(payload(joint["rotation"]["values"]), joint["rotation"]["values"]);
+                for (size_t i = 0; i + 3 < q.size(); i += 4) {
+                    float x = q[i], y = q[i + 1], z = q[i + 2], w = q[i + 3];
+                    std::string where = "joint " + std::to_string(joint["joint_index"].get<int>()) +
+                                        " rotation keyframe " + std::to_string(i / 4);
+                    if (!(std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && std::isfinite(w))) {
+                        problems.push_back(where + ": expected a finite quaternion, got (" + std::to_string(x) +
+                                           ", " + std::to_string(y) + ", " + std::to_string(z) + ", " +
+                                           std::to_string(w) + ")");
+                    } else if (float norm = std::sqrt(x * x + y * y + z * z + w * w); std::abs(norm - 1.0f) > 0.05f) {
+                        problems.push_back(where + ": expected unit norm (1.0 +/- 0.05), got " + std::to_string(norm));
+                    }
+                    ++totals.rotationKeyframesChecked;
+                }
+            }
+            if (joint.contains("translation")) {
+                std::vector<float> t =
+                    f32Slice(payload(joint["translation"]["values"]), joint["translation"]["values"]);
+                for (size_t i = 0; i < t.size(); ++i) {
+                    if (!std::isfinite(t[i])) {
+                        problems.push_back("joint " + std::to_string(joint["joint_index"].get<int>()) +
+                                           " translation keyframe " + std::to_string(i / 3) + " component " +
+                                           std::to_string(i % 3) + ": expected a finite value, got " +
+                                           std::to_string(t[i]));
+                    }
+                }
+                totals.translationKeyframesChecked += t.size() / 3;
+            }
         }
-        if (result.problems.size() > kMaxShown) {
-            detail += "\n  ... and " + std::to_string(result.problems.size() - kMaxShown) + " more";
+        if (problems.empty() || firstFailure) continue;
+        std::string detail = "clip " + std::to_string(ci) + " (" + clips[ci]["sequence_kind"].get<std::string>() +
+                             " " + std::to_string(clips[ci]["sequence_index"].get<int>()) + ") had " +
+                             std::to_string(problems.size()) + " sanity problem(s)";
+        constexpr size_t kMaxShown = 5;
+        for (size_t i = 0; i < problems.size() && i < kMaxShown; ++i) detail += "\n  " + problems[i];
+        if (problems.size() > kMaxShown) {
+            detail += "\n  ... and " + std::to_string(problems.size() - kMaxShown) + " more";
         }
         firstFailure = detail;
     }
     INFO("first clip with a sanity problem (if any): ", firstFailure.value_or("none"));
     CHECK(!firstFailure.has_value());
     return totals;
+}
+
+// The sequence indices (into the model's own or its .skel's sequence
+// array) that the bundle carries a clip for.
+std::set<int> clipSequenceIndices(const nlohmann::json& manifest) {
+    std::set<int> indices;
+    for (const auto& clip : manifest["resources"]["rig"]["animation"]) {
+        if (clip["sequence_kind"] == "sequence") indices.insert(clip["sequence_index"].get<int>());
+    }
+    return indices;
+}
+
+// The index of the sequence with this AnimationData id and variation, or
+// -1 -- clips are keyed by sequence index, so a test naming an animation
+// by id resolves it against an independent parse of the sequence array.
+int sequenceIndexFor(const std::vector<m2::Sequence>& sequences, uint16_t id, uint16_t variation) {
+    for (size_t i = 0; i < sequences.size(); ++i) {
+        if (sequences[i].id == id && sequences[i].variationIndex == variation) return static_cast<int>(i);
+    }
+    return -1;
 }
 
 }  // namespace
@@ -218,261 +207,170 @@ TEST_CASE("husk info: real Legion+ M2 surfaces skin_file_data_ids (SFID) and ani
     CHECK(result.output.find("anim_file_ids:") != std::string::npos);
 }
 
-TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-formed glb" *
+TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a schema-valid, skinned bundle, "
+          "and --glb a skinned lean projection" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
-    std::string skinPath = testSkin();
+    fs::path dir = freshBundleDir("husk-test-export");
+    auto glbPath = (fs::temp_directory_path() / "husk-test-export-lean.glb").string();
+    fs::remove(glbPath);
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
-    INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
-
-    std::ifstream glb(outPath, std::ios::binary | std::ios::ate);
-    REQUIRE(glb.is_open());
-    // A real character model always has substantial geometry; a tiny or
-    // empty file would mean something silently produced garbage instead of
-    // failing loudly.
-    CHECK(glb.tellg() > 10000);
-
-    glb.seekg(0);
-    char magic[4] = {};
-    glb.read(magic, 4);
-    CHECK(std::string(magic, 4) == "glTF");
-
-    checkSkinnedGlb(outPath);
-
-    std::filesystem::remove(outPath);
-}
-
-TEST_CASE("husk export: the render mesh's own glTF node is named after the model's basename, not "
-          "left blank -- an explicit --skin path is the common case that used to have no node "
-          "name at all (unlike its own bones, which already get real names)" *
-          doctest::skip(testM2().empty() || testSkin().empty())) {
-    std::string m2Path = testM2();
-    std::string skinPath = testSkin();
-
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-mesh-node-name.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() +
+                          "\" --glb \"" + glbPath + "\"");
     INFO("output:\n", result.output);
     REQUIRE(result.exitCode == 0);
 
+    husk::m2::Header header = husk::m2::loadFile(m2Path);
+    nlohmann::json manifest = parseManifest(dir);
+    CHECK(manifest["kind"] == "model");
+    checkSkinnedBundle(manifest, header.vertices.count, header.bones.count);
+    CHECK(fs::file_size(dir / "mesh.bin") > 10000);
+
     tinygltf::TinyGLTF loader;
     tinygltf::Model model;
     std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, glbPath);
     INFO("tinygltf error: ", gltfErr);
     REQUIRE(loaded);
-    REQUIRE(!model.nodes.empty());
-    CHECK(model.nodes[0].name == std::filesystem::path(m2Path).stem().string());
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.skins[0].joints.size() == header.bones.count);
+    CHECK(model.skins[0].inverseBindMatrices >= 0);
+    REQUIRE(model.nodes[0].mesh == 0);
+    CHECK(model.nodes[0].skin == 0);
+    const auto& prim = model.meshes[0].primitives[0];
+    CHECK(prim.attributes.count("JOINTS_0") == 1);
+    CHECK(prim.attributes.count("WEIGHTS_0") == 1);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
+    fs::remove(glbPath);
 }
 
-TEST_CASE("husk export: real M2 + .skin produces real glTF animation clips with sane (unit-norm, "
+TEST_CASE("husk export: the bundle's subject is named after the model's basename, not left blank -- "
+          "an explicit --skin path included" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    fs::path dir = freshBundleDir("husk-test-subject-name");
+
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() + "\"");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    nlohmann::json manifest = parseManifest(dir);
+    CHECK(manifest["subject"]["name"] == fs::path(m2Path).stem().string());
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: real M2 + .skin produces real animation clips with sane (unit-norm, "
           "finite) rotation keyframes" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
-    // Codifies a manual check performed while building roadmap stage 6
-    // (animation): the M2Sequence stride bug (see husk::m2::Sequence's doc
-    // comment -- 64 bytes, not the 36 a naive wiki reading suggests) was
-    // caught by exactly this kind of real-data check, not by any synthetic
-    // fixture (a hand-built fixture would have just as easily encoded the
-    // same wrong assumption test_m2.cpp's *own* spec transcription made).
-    // This test exists so that class of bug -- structurally plausible
-    // output that's still quietly wrong -- can't silently regress.
+    // Structurally plausible but quietly wrong animation output (e.g. a
+    // wrong M2Sequence stride) was caught by exactly this kind of real-data
+    // check, not by any synthetic fixture -- a hand-built fixture can
+    // encode the same wrong assumption the parser makes.
     std::string m2Path = testM2();
-    std::string skinPath = testSkin();
+    fs::path dir = freshBundleDir("husk-test-anim");
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-anim.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
+    REQUIRE(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
+    nlohmann::json manifest = parseManifest(dir);
+    // A real character model with inline bones should produce at least one
+    // usable animation clip -- 0 against a real file means something
+    // upstream broke silently.
+    CHECK(manifest["resources"]["rig"]["animation"].size() > 0);
 
-    // A real character model with inline bones (the common case) should
-    // produce at least one usable animation clip -- if this is ever 0
-    // against a real file, either the model genuinely has none (rare for a
-    // playable character) or something upstream broke silently.
-    CHECK(model.animations.size() > 0);
-
-    AnimationSanityResult totals = checkAllAnimationsSane(model);
+    AnimationSanityResult totals = checkAllClipsSane(dir, manifest);
     CHECK(totals.rotationKeyframesChecked > 0);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
-TEST_CASE(
-    "husk export: a .skel-sourced model's external AFSB-shaped .anim files resolve real, "
-    "sane (unit-norm, finite) animation clips, end to end" *
-    doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
-                  testAnimDir().empty())) {
-    // Every real bloodelffemale_hd_*.anim file carries AFSB, not AFM2. This
-    // test mirrors the inline-animation sanity check above rather than
-    // asserting on one specific clip's exact values (those belong in
-    // test_cli.cpp's synthetic fixtures).
-    // TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`; historical framing ("the
-    // single biggest unresolved animation gap... essentially 0% coverage").
-    std::string m2Path = testSkelM2();
-    std::string skinPath = testSkelSkin();
-    std::string skelPath = testSkel();
-    std::string animDir = testAnimDir();
+TEST_CASE("husk export: a .skel-sourced model's external AFSB-shaped .anim files resolve real, "
+          "sane (unit-norm, finite) animation clips, end to end" *
+          doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
+                        testAnimDir().empty())) {
+    // Every real bloodelffemale_hd_*.anim file carries AFSB, not AFM2.
+    fs::path dir = freshBundleDir("husk-test-export-afsb");
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-afsb.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
-                           "\" --skel \"" + skelPath + "\" --anim \"" + animDir + "\"");
+    auto result = runHusk("export \"" + testSkelM2() + "\" -o \"" + dir.string() + "\" --skin \"" + testSkelSkin() +
+                          "\" --skel \"" + testSkel() + "\" --anim \"" + testAnimDir() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
+    REQUIRE(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-
+    nlohmann::json manifest = parseManifest(dir);
     // Real bloodelffemale_hd.m2/.skel/.anim data resolves 300+ real clips
-    // (336, checked by hand against this exact fixture) -- asserting a
-    // conservative lower bound here, not the precise count, so this test
-    // doesn't become a silent tripwire if the fixture's own AFID/anim-file
-    // set ever changes slightly.
-    CHECK(model.animations.size() > 100);
+    // -- a conservative lower bound, so this doesn't become a tripwire if
+    // the fixture's own AFID/anim-file set changes slightly.
+    CHECK(manifest["resources"]["rig"]["animation"].size() > 100);
 
-    // The count check above passes on inline + global-sequence clips alone
-    // and doesn't prove the external-.anim-file path ran -- this .skel has
-    // no AFID entries mapping to the committed
-    // bloodelffemale_hd0069-00.anim/-01.anim fixtures, so they only resolve
-    // via findAnimFileByBasename's same-basename fallback (see
-    // DESIGN.md#Key-design-decisions' AFSB design note). anim_69_0/
-    // anim_69_1 are exact, known-in-advance clip names (animId=69,
-    // variationIndex={0,1}, buildAnimations in cmd_export.cpp) --
-    // mutation-tested (see TEST_DESIGN.md#Mutation-tested-regressions):
-    // both names are absent without the basename-fallback fix, present
-    // with it.
-    // TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`.
-    bool foundAnim69_0 = false;
-    bool foundAnim69_1 = false;
-    for (const auto& anim : model.animations) {
-        if (anim.name == "anim_69_0") foundAnim69_0 = true;
-        if (anim.name == "anim_69_1") foundAnim69_1 = true;
-    }
-    CHECK(foundAnim69_0);
-    CHECK(foundAnim69_1);
+    // The count check passes on inline + global-sequence clips alone and
+    // doesn't prove the external-.anim path ran: this .skel has no AFID
+    // entries mapping to the committed bloodelffemale_hd0069-00.anim/-01.anim
+    // fixtures, so animation 69's two variations only resolve through the
+    // same-basename fallback. Mutation-tested (see
+    // TEST_DESIGN.md#Mutation-tested-regressions): both are absent without
+    // that fallback.
+    std::vector<m2::Sequence> sequences = skel::parseSequences(readFile(testSkel()));
+    int anim69v0 = sequenceIndexFor(sequences, 69, 0);
+    int anim69v1 = sequenceIndexFor(sequences, 69, 1);
+    REQUIRE(anim69v0 >= 0);
+    REQUIRE(anim69v1 >= 0);
+    std::set<int> clipped = clipSequenceIndices(manifest);
+    CHECK(clipped.count(anim69v0) == 1);
+    CHECK(clipped.count(anim69v1) == 1);
 
-    AnimationSanityResult totals = checkAllAnimationsSane(model);
+    AnimationSanityResult totals = checkAllClipsSane(dir, manifest);
     CHECK(totals.rotationKeyframesChecked > 0);
     CHECK(totals.translationKeyframesChecked > 0);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
-TEST_CASE(
-    "husk export: bloodelffemale_hd's real M2Sequence fields (movespeed/aliasNext/isAlias) come "
-    "through as per-clip sequence_metadata extras, and real alias sequences don't regress the "
-    "clip count" *
-    doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
-                  testAnimDir().empty())) {
+TEST_CASE("husk export: bloodelffemale_hd's real alias sequences don't change the clip count, and "
+          "inline, alias+inline and locomotion sequences all get clips" *
+          doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
+                        testAnimDir().empty())) {
     // This .skel has 38 real alias sequences (flags & 0x40); 31 also carry
-    // flags & 0x20 (inline) and are unaffected by alias resolution. Of the
-    // remaining 7 "pure" aliases, none of their resolved terminal .anim
-    // files are among the ~104 committed to this repo's test_data/ subset --
-    // so for this exact fixture set, the measured effect of alias
-    // resolution is zero net new clips. This test's job is to prove that
-    // path doesn't crash and doesn't change the clip count, not to prove
-    // growth that isn't there for this specific data.
-    // TODO: Remove: full investigation narrative cited `WIKI_FINDINGS/M2.md`
-    // (38 alias sequences, corpus cross-check against
-    // /media/luna/data/wow_export, M2_GAPS_TODO.md's original open question).
-    std::string m2Path = testSkelM2();
-    std::string skinPath = testSkelSkin();
-    std::string skelPath = testSkel();
-    std::string animDir = testAnimDir();
+    // flags & 0x20 (inline) and are unaffected by alias resolution. None of
+    // the 7 "pure" aliases' terminal .anim files are among those committed
+    // to test_data/, so for this fixture set alias resolution adds zero
+    // clips: this proves that path doesn't crash or change the count.
+    fs::path dir = freshBundleDir("husk-test-export-seqmeta");
 
-    auto outPath =
-        (std::filesystem::temp_directory_path() / "husk-test-export-seqmeta.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
-                           "\" --skel \"" + skelPath + "\" --anim \"" + animDir + "\"");
+    auto result = runHusk("export \"" + testSkelM2() + "\" -o \"" + dir.string() + "\" --skin \"" + testSkelSkin() +
+                          "\" --skel \"" + testSkel() + "\" --anim \"" + testAnimDir() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
+    REQUIRE(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
+    nlohmann::json manifest = parseManifest(dir);
+    // The exact, previously-measured clip count for this fixture set,
+    // pinned deliberately: the point is that alias handling doesn't move it.
+    CHECK(manifest["resources"]["rig"]["animation"].size() == 338);
 
-    // The exact, previously-measured clip count for this fixture set --
-    // pinned deliberately, unlike the AFSB test's own conservative ">100"
-    // bound above, since this test's whole point is confirming the
-    // aliasNext fix doesn't change it for this specific data (see the
-    // comment above).
-    // TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`'s follow-up.
-    CHECK(model.animations.size() == 338);
+    std::vector<m2::Sequence> sequences = skel::parseSequences(readFile(testSkel()));
+    std::set<int> clipped = clipSequenceIndices(manifest);
 
-    auto findAnim = [&](const std::string& name) -> const tinygltf::Animation* {
-        for (const auto& a : model.animations) {
-            if (a.name == name) return &a;
-        }
-        return nullptr;
-    };
+    // anim 804 variation 0: flags 0x60 (both inline AND alias) -- its
+    // keyframes come from its own inline tracks (0x20 wins).
+    int bothFlags = sequenceIndexFor(sequences, 804, 0);
+    REQUIRE(bothFlags >= 0);
+    CHECK((sequences[static_cast<size_t>(bothFlags)].flags & 0x60) == 0x60);
+    CHECK(clipped.count(bothFlags) == 1);
 
-    // anim_804_0: a real sequence with flags 0x60 (both inline AND alias) --
-    // one of the 31 "both flags" real sequences. Its own
-    // sequence_metadata.is_alias should read true (raw flags exposed
-    // verbatim), even though its keyframe data comes from its own inline
-    // tracks, not a resolved alias chain (0x20 wins priority -- see
-    // cmd_export.cpp's buildAnimations doc comment).
-    const auto* bothFlags = findAnim("anim_804_0");
-    REQUIRE(bothFlags != nullptr);
-    REQUIRE(bothFlags->extras.IsObject());
-    {
-        const auto& meta = bothFlags->extras.Get("sequence_metadata");
-        CHECK(meta.Get("is_alias").Get<bool>() == true);
-    }
+    // anim 0 ("Stand") and anim 5 (locomotion): plain, non-alias inline
+    // sequences with real movespeeds 0.0 and 7.0.
+    int stand = sequenceIndexFor(sequences, 0, 0);
+    int locomotion = sequenceIndexFor(sequences, 5, 0);
+    REQUIRE(stand >= 0);
+    REQUIRE(locomotion >= 0);
+    CHECK((sequences[static_cast<size_t>(stand)].flags & 0x40) == 0);
+    CHECK(sequences[static_cast<size_t>(locomotion)].movespeed == doctest::Approx(7.0));
+    CHECK(clipped.count(stand) == 1);
+    CHECK(clipped.count(locomotion) == 1);
 
-    // anim_0_0 ("Stand", AnimationData.dbc id 0 -- WoW's own universal
-    // convention) and anim_5_0 (a locomotion sequence) are both real, plain
-    // (non-alias) inline sequences -- real movespeed values: 0.0 and 7.0
-    // respectively.
-    // TODO: Remove: cites M2_GAPS_TODO.md's (deleted) test-plan prediction.
-    const auto* stand = findAnim("anim_0_0");
-    REQUIRE(stand != nullptr);
-    REQUIRE(stand->extras.IsObject());
-    {
-        const auto& meta = stand->extras.Get("sequence_metadata");
-        CHECK(meta.Get("movespeed").GetNumberAsDouble() == doctest::Approx(0.0));
-        CHECK(meta.Get("is_alias").Get<bool>() == false);
-    }
-
-    const auto* locomotion = findAnim("anim_5_0");
-    REQUIRE(locomotion != nullptr);
-    REQUIRE(locomotion->extras.IsObject());
-    {
-        const auto& meta = locomotion->extras.Get("sequence_metadata");
-        CHECK(meta.Get("movespeed").GetNumberAsDouble() == doctest::Approx(7.0));
-        CHECK(meta.Get("is_alias").Get<bool>() == false);
-    }
-
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
 TEST_CASE("husk info: real game-extracted M2 has no chunk tags outside husk's known M2 chunk "
@@ -480,10 +378,9 @@ TEST_CASE("husk info: real game-extracted M2 has no chunk tags outside husk's kn
           doctest::skip(testM2().empty())) {
     // The actual canary: cmd_info.cpp's documentedM2ChunkTags is a
     // snapshot of wowdev.wiki/M2#Chunks from one fetch date, and this
-    // format adds new top-level chunks fairly often (see README.md's
-    // Design notes). If this starts failing against a freshly re-extracted
-    // real file, that's the live signal a client update shipped a chunk
-    // tag nobody's taught husk about yet -- go update
+    // format adds new top-level chunks fairly often. If this starts failing
+    // against a freshly re-extracted real file, a client update shipped a
+    // chunk tag nobody's taught husk about yet -- update
     // documentedM2ChunkTags (and decide whether the new chunk needs real
     // support) rather than silently ignoring it.
     std::string path = testM2();
@@ -494,88 +391,63 @@ TEST_CASE("husk info: real game-extracted M2 has no chunk tags outside husk's kn
     CHECK(result.output.find("not in husk's known M2 chunk list") == std::string::npos);
 }
 
-TEST_CASE("husk export: real M2 + .skin resolves per-batch materials with a plausible alphaMode "
-          "spread" *
+TEST_CASE("husk export: real M2 + .skin resolves per-batch materials with a plausible framebuffer "
+          "blend spread" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
-    std::string m2Path = testM2();
-    std::string skinPath = testSkin();
+    fs::path dir = freshBundleDir("husk-test-export-mats");
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-mats.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    auto result = runHusk("export \"" + testM2() + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
-    // cmd_export.cpp only prints a material count when it actually built
-    // some -- confirms the .skin's batches array wasn't silently empty.
-    CHECK(result.output.find(" materials (") != std::string::npos);
+    REQUIRE(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-
+    nlohmann::json manifest = parseManifest(dir);
     // A real character model has multiple submesh/batch groups (skin,
     // hair, tabard, ...) that don't all share one blend mode -- if every
-    // primitive ended up OPAQUE, the batch->material resolution chain
-    // silently fell back to defaults instead of actually reading the
-    // .skin's batches (see TEST_DESIGN.md#Shape-only-vs-exact-checks).
-    REQUIRE(model.meshes[0].primitives.size() > 1);
-    REQUIRE(model.materials.size() > 1);
-    std::set<std::string> alphaModes;
-    for (const auto& m : model.materials) {
-        alphaModes.insert(m.alphaMode);
+    // material ended up opaque, the batch->material chain silently fell
+    // back to defaults instead of reading the .skin's batches.
+    REQUIRE(manifest["resources"]["geometry"]["mesh"]["primitives"].size() > 1);
+    const auto& materials = manifest["resources"]["materials"];
+    REQUIRE(materials.size() > 1);
+    std::set<std::string> blends;
+    for (const auto& m : materials) blends.insert(m["framebuffer_blend"].get<std::string>());
+    CHECK(blends.size() > 1);
+
+    // M2Vertex always carries tex_coords[1], so a real model's export
+    // always carries the second UV set too.
+    std::set<std::string> uvSemantics;
+    for (const auto& uv : manifest["resources"]["geometry"]["mesh"]["uv_sets"]) {
+        uvSemantics.insert(uv["semantic"].get<std::string>());
     }
-    CHECK(alphaModes.size() > 1);
+    CHECK(uvSemantics.count("TEXCOORD_1") == 1);
 
-    // Second UV set: M2Vertex always carries tex_coords[1], so a real
-    // model's export should always include TEXCOORD_1 now, not just
-    // TEXCOORD_0.
-    CHECK(model.meshes[0].primitives[0].attributes.count("TEXCOORD_1") == 1);
-
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: --textures embeds a real baseColorTexture image when one resolves" *
+TEST_CASE("husk export: --textures writes a real texture payload into the bundle when one resolves" *
           doctest::skip(testM2().empty() || testSkin().empty() || testTexturesDir().empty())) {
     // No default fixture for this one: test_data/ has no husk-blp-converted
-    // PNGs committed (BLP->PNG conversion is a separate Python toolchain,
-    // see blp/), so HUSK_TEST_TEXTURES_DIR still needs to be set by hand,
-    // pointing at a directory of '<FileDataID>.png' files, to run this for
-    // real -- see test_main.cpp's banner for whether it resolved.
-    std::string m2Path = testM2();
-    std::string skinPath = testSkin();
-    std::string texturesDir = testTexturesDir();
+    // PNGs committed, so HUSK_TEST_TEXTURES_DIR needs to be set by hand,
+    // pointing at a directory of '<FileDataID>.png' files -- see
+    // test_main.cpp's banner for whether it resolved.
+    fs::path dir = freshBundleDir("husk-test-export-tex");
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-tex.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
-                           "\" --textures \"" + texturesDir + "\"");
+    auto result = runHusk("export \"" + testM2() + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() +
+                          "\" --textures \"" + testTexturesDir() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
-    CHECK(result.output.find(" with an embedded texture)") != std::string::npos);
-    // The whole point of this test: at least one texture actually got
-    // embedded, not just "materials exist but all imageless" (that's
-    // already covered by the no-textures-dir test above).
-    CHECK(result.output.find("(0 with an embedded texture)") == std::string::npos);
+    REQUIRE(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    REQUIRE(model.images.size() > 0);
-    // tinygltf decoded it -- a real image, not just bytes that happen to
-    // sit in a bufferView.
-    CHECK(model.images[0].width > 0);
-    CHECK(model.images[0].height > 0);
+    nlohmann::json manifest = parseManifest(dir);
+    size_t written = 0;
+    for (const auto& texture : manifest["resources"]["textures"]) {
+        if (!texture.contains("payload")) continue;
+        fs::path file = dir / texture["payload"]["uri"].get<std::string>();
+        REQUIRE(fs::exists(file));
+        CHECK(fs::file_size(file) > 0);
+        ++written;
+    }
+    CHECK(written > 0);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
 TEST_CASE("husk export: 'auto' + --skin-dir resolves a real model's LOD0 .skin via SFID" *
@@ -584,405 +456,245 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves a real model's LOD0 .skin v
     // autoSkinDir) by copying testSkin() to a scratch dir under the real
     // FileDataID read from testM2()'s own SFID chunk -- HUSK_TEST_SKIN_DIR
     // still overrides it entirely if set.
-    std::string m2Path = testM2();
-    std::string skinDir = testSkinDir();
+    fs::path dir = freshBundleDir("husk-test-export-auto");
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-auto.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin-dir \"" +
-                           skinDir + "\"");
+    auto result = runHusk("export \"" + testM2() + "\" -o \"" + dir.string() + "\" --skin-dir \"" + testSkinDir() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
-    // resolveSkin's own phrasing (cmd_export.cpp), not exportBundle's separate
-    // --lod-path message ("resolved 'auto' -> ...") -- the two currently
-    // read slightly differently depending on whether --lod was given.
+    REQUIRE(result.exitCode == 0);
     CHECK(result.output.find("'auto' resolved") != std::string::npos);
 
-    std::ifstream glb(outPath, std::ios::binary | std::ios::ate);
-    REQUIRE(glb.is_open());
-    CHECK(glb.tellg() > 10000);
+    nlohmann::json manifest = parseManifest(dir);
+    CHECK(manifest["resources"]["geometry"]["mesh"]["indices"]["count"].get<size_t>() > 0);
+    CHECK(manifest["resources"]["geometry"]["mesh"]["primitives"].size() > 0);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
-TEST_CASE(
-    "husk export: M2 with an external .skel (SKID-linked) skeleton produces a well-formed, "
-    "skinned glb" *
-    doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty())) {
-    std::string m2Path = testSkelM2();
-    std::string skinPath = testSkelSkin();
-    std::string skelPath = testSkel();
+TEST_CASE("husk export: M2 with an external .skel (SKID-linked) skeleton produces a skinned bundle "
+          "with the .skel's bones" *
+          doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty())) {
+    fs::path dir = freshBundleDir("husk-test-export-skel");
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-skel.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
-                           "\" --skel \"" + skelPath + "\"");
+    auto result = runHusk("export \"" + testSkelM2() + "\" -o \"" + dir.string() + "\" --skin \"" + testSkelSkin() +
+                          "\" --skel \"" + testSkel() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
-    // Confirms the .skel path was actually used, not silently ignored --
-    // cmd_export.cpp only prints a bone count when it resolved some bones
-    // from *somewhere* (inline or external). Not asserting on "animation(s)"
-    // vs. "bind pose only" here -- whether a .skel's own SKS1 sequences
-    // resolve to any real clips is real-data-dependent (inline ones do;
-    // external ones need --anim, not exercised by this test).
-    CHECK(result.output.find(" bones") != std::string::npos);
+    REQUIRE(result.exitCode == 0);
 
-    checkSkinnedGlb(outPath);
+    husk::m2::Header header = husk::m2::loadFile(testSkelM2());
+    // The model's own bones are empty; every joint comes from the .skel.
+    CHECK(header.bones.count == 0);
+    size_t skelBones = skel::parseBones(readFile(testSkel())).size();
+    checkSkinnedBundle(parseManifest(dir), header.vertices.count, skelBones);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
-TEST_CASE(
-    "husk export: --bones-dir attaches real .bone correction data as inert skin extras, end to "
-    "end" *
-    doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
-                  testBonesDir().empty())) {
-    std::string m2Path = testSkelM2();
-    std::string skinPath = testSkelSkin();
-    std::string skelPath = testSkel();
-    std::string bonesDir = testBonesDir();
+TEST_CASE("husk export: --bones-dir writes real .bone correction sets into the rig, end to end" *
+          doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
+                        testBonesDir().empty())) {
+    fs::path dir = freshBundleDir("husk-test-export-bones");
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-bones.glb").string();
-    std::filesystem::remove(outPath);
-
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
-                           "\" --skel \"" + skelPath + "\" --bones-dir \"" + bonesDir + "\"");
+    auto result = runHusk("export \"" + testSkelM2() + "\" -o \"" + dir.string() + "\" --skin \"" + testSkelSkin() +
+                          "\" --skel \"" + testSkel() + "\" --bones-dir \"" + testBonesDir() + "\"");
     INFO("output:\n", result.output);
-    CHECK(result.exitCode == 0);
-    CHECK(result.output.find("correction set(s)") != std::string::npos);
+    REQUIRE(result.exitCode == 0);
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    REQUIRE(model.skins.size() == 1);
-    const auto& extras = rootJointExtras(model);
-    REQUIRE(extras.IsObject());
-    const auto& sets = extras.Get("bone_correction_sets");
-    REQUIRE(sets.IsArray());
-    CHECK(sets.ArrayLen() > 0);
-    const auto& set0 = sets.Get(0);
-    CHECK(set0.Get("file_data_id").GetNumberAsInt() > 0);
-    const auto& corrections = set0.Get("corrections");
-    REQUIRE(corrections.IsArray());
-    REQUIRE(corrections.ArrayLen() > 0);
-    const auto& c0 = corrections.Get(0);
-    CHECK(c0.Get("joint").GetNumberAsInt() >= 0);
-    CHECK(c0.Get("matrix").ArrayLen() == 16);
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& rig = manifest["resources"]["rig"];
+    REQUIRE(rig.contains("correction_sets"));
+    const auto& sets = rig["correction_sets"];
+    REQUIRE(sets.size() > 0);
+    CHECK(sets[0]["ref"]["id"]["kind"] == "file_data_id");
+    CHECK(sets[0]["ref"]["id"]["value"].get<int64_t>() > 0);
+    const auto& corrections = sets[0]["corrections"];
+    REQUIRE(corrections.size() > 0);
+    CHECK(corrections[0]["joint"].get<int64_t>() >= 0);
+    CHECK(corrections[0]["joint"].get<int64_t>() < rig["skeleton"]["joint_count"].get<int64_t>());
+    CHECK(corrections[0]["matrix"].size() == 16);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
-// a real material's "texture_type" extras key, cross-
-// checked against an independent parse of the M2's own textures array
-// (husk::m2::parseTextures, not cmd_export.cpp's internal state) --
-// `bloodelffemale.m2` is known (via `husk info`'s own type= printout,
-// confirmed by hand before writing this test) to carry both a mix of
-// hardcoded slots (nonzero type -- skin/hair/etc.) and at least one real,
-// filename/FileDataID-based texture (type 0), so this exercises both the
-// present-when-nonzero and absent-when-zero halves of the convention on
-// real data, not just the synthetic fixtures in test_gltf.cpp. The
-// material's own `diagnostic_name` extras (the full verbose chain, kept
-// for exactly this kind of cross-referencing now that the display `name`
-// itself prefers a cleaner identity) encodes its own textureIndex
-// (`..._tex<N>...`, see
-// cmd_export.cpp's buildMaterialsAndPrimitives) -- parsed directly rather
-// than assuming batch index == material index, since a batch with
-// indexCount == 0 is skipped and would desync that assumption.
-std::optional<int> textureIndexFromMaterialName(const std::string& name) {
-    size_t pos = name.find("_tex");
-    if (pos == std::string::npos) {
-        return std::nullopt;
-    }
-    pos += 4;
-    size_t end = pos;
-    while (end < name.size() && std::isdigit(static_cast<unsigned char>(name[end]))) {
-        ++end;
-    }
-    if (end == pos) {
-        return std::nullopt;
-    }
-    return std::stoi(name.substr(pos, end - pos));
-}
-
-TEST_CASE("husk export: a real character model's per-material 'texture_type' extras match an "
-          "independent parse of M2Texture::type, present only when nonzero" *
+TEST_CASE("husk export: each real material layer reads a texture slot exactly when its M2Texture::type "
+          "is nonzero, and the slot carries that type" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
-    std::ifstream mf(testM2(), std::ios::binary);
-    REQUIRE(mf.good());
-    std::vector<uint8_t> fileBytes((std::istreambuf_iterator<char>(mf)),
-                                    std::istreambuf_iterator<char>());
+    // bloodelffemale.m2 carries both hardcoded slots (nonzero type --
+    // skin/hair/etc.) and at least one FileDataID-based texture (type 0),
+    // so both halves of the convention are exercised on real data. A
+    // layer's identity is the M2 texture index it draws (m2_material_input's
+    // layerIdentity), cross-checked here against an independent parse of
+    // the M2's own textures array.
+    std::vector<uint8_t> fileBytes = readFile(testM2());
     auto header = husk::m2::parseHeader(fileBytes);
     auto blob = husk::m2::extractBlob(fileBytes);
     auto textures = husk::m2::parseTextures(blob, header.textures);
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-texture-type.glb").string();
-    std::filesystem::remove(outPath);
-    auto result =
-        runHusk("export \"" + testM2() + "\" -o \"" + outPath + "\" --skin \"" + testSkin() + "\"");
+    fs::path dir = freshBundleDir("husk-test-texture-type");
+    auto result = runHusk("export \"" + testM2() + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() + "\"");
     INFO("output:\n", result.output);
     REQUIRE(result.exitCode == 0);
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& slots = manifest["definition"]["texture_slots"];
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-
-    // One CHECK per kind of fact, not one per material -- a real fixture
-    // can carry many materials, and asserting per-material multiplies this
-    // test's assertion count by that corpus size for no added coverage
-    // (every material is still examined; only the assertion *count*
-    // changes). Same aggregate-then-diagnose discipline
-    // test_canon_skeleton_convergence.cpp's per-joint loop already
-    // establishes.
+    // One CHECK per kind of fact, not one per layer: every layer is still
+    // examined, only the assertion count stops scaling with the fixture.
     bool foundNonzero = false;
     bool foundZero = false;
-    std::optional<size_t> extrasKindMismatch, diagnosticNameMissing, nonzeroTypeMismatch, zeroTypeMismatch;
-    for (size_t mi = 0; mi < model.materials.size(); ++mi) {
-        const auto& mat = model.materials[mi];
-        if (!mat.extras.IsObject()) {
-            if (!extrasKindMismatch) extrasKindMismatch = mi;
-            continue;
-        }
-        if (!mat.extras.Has("diagnostic_name")) {
-            if (!diagnosticNameMissing) diagnosticNameMissing = mi;
-            continue;
-        }
-        std::string diagnosticName = mat.extras.Get("diagnostic_name").Get<std::string>();
-        auto texIdx = textureIndexFromMaterialName(diagnosticName);
-        if (!texIdx || static_cast<size_t>(*texIdx) >= textures.size()) {
-            continue;
-        }
-        uint32_t expectedType = textures[*texIdx].type;
-        if (expectedType != 0) {
-            foundNonzero = true;
-            if (mat.extras.Get("texture_type").GetNumberAsInt() != static_cast<int>(expectedType) &&
-                !nonzeroTypeMismatch) {
-                nonzeroTypeMismatch = mi;
+    std::optional<std::string> identityMismatch, nonzeroTypeMismatch, zeroTypeMismatch;
+    for (size_t mi = 0; mi < manifest["resources"]["materials"].size(); ++mi) {
+        const auto& layers = manifest["resources"]["materials"][mi]["layers"];
+        for (size_t li = 0; li < layers.size(); ++li) {
+            std::string where = "material " + std::to_string(mi) + " layer " + std::to_string(li);
+            const auto& id = layers[li]["identity"]["id"];
+            if (id["kind"] != "record_index" || id["value"].get<size_t>() >= textures.size()) {
+                if (!identityMismatch) identityMismatch = where + ": identity " + id.dump();
+                continue;
             }
-        } else {
-            foundZero = true;
-            if (mat.extras.Get("texture_type").IsInt() && !zeroTypeMismatch) zeroTypeMismatch = mi;
+            uint32_t expectedType = textures[id["value"].get<size_t>()].type;
+            bool hasSlot = layers[li].contains("slot");
+            if (expectedType != 0) {
+                foundNonzero = true;
+                if (!hasSlot || slots[layers[li]["slot"].get<size_t>()]["source"]["texture_type"] != expectedType) {
+                    if (!nonzeroTypeMismatch) {
+                        nonzeroTypeMismatch = where + ": expected a slot of type " + std::to_string(expectedType) +
+                                              ", got " + (hasSlot ? slots[layers[li]["slot"].get<size_t>()].dump()
+                                                                  : std::string("no slot"));
+                    }
+                }
+            } else {
+                foundZero = true;
+                if (hasSlot && !zeroTypeMismatch) zeroTypeMismatch = where + ": type 0 but reads a slot";
+            }
         }
     }
-    INFO("first material whose extras isn't an object (if any): ", extrasKindMismatch.value_or(-1));
-    CHECK(!extrasKindMismatch.has_value());
-    INFO("first material missing diagnostic_name (if any): ", diagnosticNameMissing.value_or(-1));
-    CHECK(!diagnosticNameMissing.has_value());
-    INFO("first material with a mismatched nonzero texture_type (if any): ",
-         nonzeroTypeMismatch.value_or(-1));
+    INFO("first layer whose identity isn't an M2 texture index (if any): ", identityMismatch.value_or("none"));
+    CHECK(!identityMismatch.has_value());
+    INFO("first layer with a mismatched nonzero texture type (if any): ", nonzeroTypeMismatch.value_or("none"));
     CHECK(!nonzeroTypeMismatch.has_value());
-    INFO("first material with an unexpectedly-present texture_type for type 0 (if any): ",
-         zeroTypeMismatch.value_or(-1));
+    INFO("first type-0 layer reading a slot (if any): ", zeroTypeMismatch.value_or("none"));
     CHECK(!zeroTypeMismatch.has_value());
-    // Both halves of the present-only-when-nonzero convention are actually
-    // exercised by this real fixture, not just theoretically possible.
     CHECK(foundNonzero);
     CHECK(foundZero);
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
-// Cross-checks cmd_export.cpp's textureComboIndex+layer /
-// textureCoordComboIndex+layer arithmetic (see its own doc comment,
-// "Additional texture layers") against an independent resolution computed
-// straight from husk::m2::parseHeader/husk::m2::extractBlob/
-// husk::m2::parseUint16Array and husk::skin::parseHeader/parseBatches --
-// the same public, already unit-tested parsing primitives
-// test_m2.cpp/test_skin.cpp exercise, not cmd_export.cpp's own internal
-// buildMaterialsAndPrimitives (not exposed outside that translation unit).
-// Deliberately model-agnostic: doesn't hardcode any fixture's specific
-// FileDataIDs or batch layout, so it stays meaningful if
-// HUSK_TEST_MULTITEX_*/HUSK_TEST_COORDCOMBO_* ever point at a different
-// real file. Requires at least one real textureCount > 1 batch to actually
-// exercise the arithmetic, not just skip it.
-// TODO: Remove: cites a since-deleted TODO_correctness.md item; corpus-scan narrative (287k-
-// file .skin scan, 130k-file .m2 scan of Luna's own real WoW extraction).
+// Cross-checks the textureComboIndex+layer / textureCoordComboIndex+layer
+// arithmetic (wowdev.wiki M2/.skin#Texture_units) against an independent
+// resolution computed straight from the public m2::/skin:: parsing
+// primitives, not husk's own material assembly. Deliberately
+// model-agnostic: no fixture's FileDataIDs or batch layout are hardcoded,
+// so it stays meaningful if HUSK_TEST_MULTITEX_*/HUSK_TEST_COORDCOMBO_*
+// point at a different real file. Requires at least one real
+// textureCount > 1 batch, not just a skip of the arithmetic.
 void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::string& skinPath) {
-    std::ifstream mf(m2Path, std::ios::binary);
-    REQUIRE(mf.good());
-    std::vector<uint8_t> fileBytes((std::istreambuf_iterator<char>(mf)),
-                                    std::istreambuf_iterator<char>());
+    std::vector<uint8_t> fileBytes = readFile(m2Path);
     auto header = husk::m2::parseHeader(fileBytes);
     auto blob = husk::m2::extractBlob(fileBytes);
     auto textureCombos = husk::m2::parseUint16Array(blob, header.textureCombos);
     auto textureCoordCombos = husk::m2::parseUint16Array(blob, header.textureCoordCombos);
 
-    std::ifstream sf(skinPath, std::ios::binary);
-    REQUIRE(sf.good());
-    std::vector<uint8_t> skinBytes((std::istreambuf_iterator<char>(sf)),
-                                    std::istreambuf_iterator<char>());
+    std::vector<uint8_t> skinBytes = readFile(skinPath);
     auto skinHeader = husk::skin::parseHeader(skinBytes);
     auto batches = husk::skin::parseBatches(skinBytes, skinHeader.batches);
+    auto submeshes = husk::skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
 
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-multitex.glb").string();
-    std::filesystem::remove(outPath);
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath +
-                           "\" --textures none --anim none --bones-dir none");
+    fs::path dir = freshBundleDir("husk-test-multitex");
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + dir.string() + "\" --skin \"" + skinPath +
+                          "\" --textures none --anim none --bones-dir none");
     INFO("output:\n", result.output);
     REQUIRE(result.exitCode == 0);
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& primitives = manifest["resources"]["geometry"]["mesh"]["primitives"];
+    const auto& materials = manifest["resources"]["materials"];
+    const auto& uvMaps = manifest["resources"]["uv_maps"];
 
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-
-    // One CHECK per kind of fact verified, not one per batch/layer -- a
-    // real fixture's `.skin` can carry many multi-layer batches, each with
-    // several layers, and asserting per-batch-per-layer multiplies this
-    // function's assertion count by that corpus size for no added coverage
-    // (every batch and every layer is still examined; only the assertion
-    // *count* changes). Same aggregate-then-diagnose discipline
-    // test_canon_skeleton_convergence.cpp's per-joint loop already
-    // establishes. A structural precondition that would crash on indexing/
-    // `.Get()` if false is guarded with `continue` instead of `REQUIRE`, so
-    // one bad batch doesn't abort inspection of the rest.
+    // One CHECK per kind of fact, not one per batch/layer (see the
+    // texture-type test above). A structural precondition that would crash
+    // on indexing if false is recorded and `continue`d past instead of
+    // REQUIREd, so one bad batch doesn't abort inspection of the rest.
     bool foundMultiLayerBatch = false;
-    std::optional<size_t> meshesEmptyMismatch, primitiveIndexOOR, materialIndexMismatch, extrasKindMismatch,
-        additionalKindMismatch, additionalCountMismatch, pixelShaderKindMismatch, vertexShaderKindMismatch,
-        pixelShaderValueMismatch, vertexShaderValueMismatch;
-    std::optional<std::pair<size_t, uint16_t>> entryIndexOOR, fdidMismatch, texCoordMismatch;
+    std::optional<std::string> primitiveIndexOOR, materialIndexMismatch, layerCountMismatch, textureIndexMismatch,
+        uvSetMismatch, pixelShaderMismatch, vertexShaderMismatch;
+    size_t primitiveIndex = 0;
     for (size_t bi = 0; bi < batches.size(); ++bi) {
         const auto& b = batches[bi];
-        if (b.textureCount <= 1) {
-            continue;
-        }
+        // A batch whose submesh has no indices gets no primitive, so the
+        // primitive cursor advances only past batches that draw.
+        if (submeshes.at(b.skinSectionIndex).indexCount == 0) continue;
+        size_t pi = primitiveIndex++;
+        if (b.textureCount <= 1) continue;
         foundMultiLayerBatch = true;
-        // Batch index bi still lines up with the *primitive* at the same
-        // position (dedup, export_materials.cpp's buildMaterialsAndPrimitives,
-        // never skips or reorders primitives, only which material a
-        // primitive's own `.material` points at) -- but bi no longer
-        // reliably indexes `model.materials` directly, since two batches
-        // producing content-identical materials now share one entry
-        // instead of getting one each.
-        if (model.meshes.empty()) {
-            if (!meshesEmptyMismatch) meshesEmptyMismatch = bi;
+        std::string where = "batch " + std::to_string(bi);
+
+        if (pi >= primitives.size()) {
+            if (!primitiveIndexOOR) primitiveIndexOOR = where;
             continue;
         }
-        if (bi >= model.meshes[0].primitives.size()) {
-            if (!primitiveIndexOOR) primitiveIndexOOR = bi;
+        if (!primitives[pi].contains("material_index") ||
+            primitives[pi]["material_index"].get<size_t>() >= materials.size()) {
+            if (!materialIndexMismatch) materialIndexMismatch = where + ": " + primitives[pi].dump();
             continue;
         }
-        int matIdx = model.meshes[0].primitives[bi].material;
-        if (matIdx < 0 || static_cast<size_t>(matIdx) >= model.materials.size()) {
-            if (!materialIndexMismatch) materialIndexMismatch = bi;
+        const auto& material = materials[primitives[pi]["material_index"].get<size_t>()];
+        const auto& layers = material["layers"];
+        if (layers.size() != b.textureCount) {
+            if (!layerCountMismatch) {
+                layerCountMismatch = where + ": expected " + std::to_string(b.textureCount) + " layers, got " +
+                                     std::to_string(layers.size());
+            }
             continue;
-        }
-        const auto& extras = model.materials[matIdx].extras;
-        if (!extras.IsObject()) {
-            if (!extrasKindMismatch) extrasKindMismatch = bi;
-            continue;
-        }
-        const auto& additional = extras.Get("additional_textures");
-        if (!additional.IsArray()) {
-            if (!additionalKindMismatch) additionalKindMismatch = bi;
-            continue;
-        }
-        if (static_cast<size_t>(additional.ArrayLen()) != static_cast<size_t>(b.textureCount - 1) &&
-            !additionalCountMismatch) {
-            additionalCountMismatch = bi;
         }
 
-        for (uint16_t layer = 1; layer < b.textureCount; ++layer) {
+        for (uint16_t layer = 0; layer < b.textureCount; ++layer) {
+            const auto& l = layers[layer];
             size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
-            uint32_t expectedFdid = 0;
-            if (comboIdx < textureCombos.size()) {
-                uint16_t texIdx = textureCombos[comboIdx];
-                if (header.textureFileDataIds && texIdx < header.textureFileDataIds->size()) {
-                    expectedFdid = (*header.textureFileDataIds)[texIdx];
-                }
+            if (comboIdx < textureCombos.size() && l["identity"]["id"]["value"] != textureCombos[comboIdx] &&
+                !textureIndexMismatch) {
+                textureIndexMismatch = where + " layer " + std::to_string(layer) + ": expected M2 texture " +
+                                       std::to_string(textureCombos[comboIdx]) + ", got " + l["identity"].dump();
             }
-            int expectedTexCoord = 0;
+            int expectedSet = 0;
             size_t coordIdx = static_cast<size_t>(b.textureCoordComboIndex) + layer;
-            if (!textureCoordCombos.empty() && coordIdx < textureCoordCombos.size() &&
-                textureCoordCombos[coordIdx] == 1) {
-                expectedTexCoord = 1;
+            if (coordIdx < textureCoordCombos.size() && textureCoordCombos[coordIdx] == 1) expectedSet = 1;
+            int actualSet = uvMaps[l["uv_map"].get<size_t>()]["set"].get<int>();
+            if (actualSet != expectedSet && !uvSetMismatch) {
+                uvSetMismatch = where + " layer " + std::to_string(layer) + ": expected UV set " +
+                                std::to_string(expectedSet) + ", got " + std::to_string(actualSet);
             }
-
-            if (static_cast<size_t>(layer - 1) >= additional.ArrayLen()) {
-                if (!entryIndexOOR) entryIndexOOR = {bi, layer};
-                continue;
-            }
-            const auto& entry = additional.Get(static_cast<int>(layer - 1));
-            auto actualFdid = static_cast<uint32_t>(entry.Get("file_data_id").GetNumberAsInt());
-            int actualTexCoord = entry.Get("tex_coord").GetNumberAsInt();
-            if (actualFdid != expectedFdid && !fdidMismatch) fdidMismatch = {bi, layer};
-            if (actualTexCoord != expectedTexCoord && !texCoordMismatch) texCoordMismatch = {bi, layer};
         }
 
-        // Same independent-resolution cross-check as above, for
-        // shaderId -> {pixel, vertex} shader name extras
-        // (src/m2_shader_names.hpp). Fixture-agnostic on purpose (see this
-        // function's own doc comment) -- the real guild-pennant fixture
-        // this exercises happens to resolve to the literal "Guild" pixel
-        // shader, a striking real-data confirmation the table transcription
-        // is right (not asserted here by name, to keep this check meaningful
-        // if the fixture ever changes).
+        // shaderId -> {pixel, vertex} names (src/m2_shader_names.hpp),
+        // resolved independently. The real guild-pennant fixture resolves
+        // to the literal "Guild" pixel shader; not asserted by name, so the
+        // check stays meaningful for another fixture.
         auto expectedNames = husk::m2::resolveShaderNames(b.shaderId, b.textureCount);
-        if (expectedNames.resolved) {
-            if (!extras.Get("pixel_shader").IsString()) {
-                if (!pixelShaderKindMismatch) pixelShaderKindMismatch = bi;
-            } else if (extras.Get("pixel_shader").Get<std::string>() != expectedNames.pixel &&
-                       !pixelShaderValueMismatch) {
-                pixelShaderValueMismatch = bi;
-            }
-            if (!extras.Get("vertex_shader").IsString()) {
-                if (!vertexShaderKindMismatch) vertexShaderKindMismatch = bi;
-            } else if (extras.Get("vertex_shader").Get<std::string>() != expectedNames.vertex &&
-                       !vertexShaderValueMismatch) {
-                vertexShaderValueMismatch = bi;
-            }
+        if (!expectedNames.resolved) continue;
+        if (material.value("pixel_shader", "") != expectedNames.pixel && !pixelShaderMismatch) {
+            pixelShaderMismatch = where + ": expected " + expectedNames.pixel + ", got " + material.dump();
+        }
+        if (material.value("vertex_shader", "") != expectedNames.vertex && !vertexShaderMismatch) {
+            vertexShaderMismatch = where + ": expected " + expectedNames.vertex + ", got " + material.dump();
         }
     }
     REQUIRE(foundMultiLayerBatch);
 
-    auto pairOrNone = [](const std::optional<std::pair<size_t, uint16_t>>& p) {
-        return p.has_value() ? ("(" + std::to_string(p->first) + ", " + std::to_string(p->second) + ")")
-                              : std::string("none");
-    };
-    INFO("first batch with empty model.meshes (if any): ", meshesEmptyMismatch.value_or(-1));
-    CHECK(!meshesEmptyMismatch.has_value());
-    INFO("first batch with an out-of-range primitive index (if any): ", primitiveIndexOOR.value_or(-1));
+    INFO("first batch with an out-of-range primitive index (if any): ", primitiveIndexOOR.value_or("none"));
     CHECK(!primitiveIndexOOR.has_value());
-    INFO("first batch with an out-of-range/invalid material index (if any): ",
-         materialIndexMismatch.value_or(-1));
+    INFO("first batch with an out-of-range/missing material index (if any): ", materialIndexMismatch.value_or("none"));
     CHECK(!materialIndexMismatch.has_value());
-    INFO("first batch whose material extras isn't an object (if any): ", extrasKindMismatch.value_or(-1));
-    CHECK(!extrasKindMismatch.has_value());
-    INFO("first batch whose additional_textures isn't an array (if any): ",
-         additionalKindMismatch.value_or(-1));
-    CHECK(!additionalKindMismatch.has_value());
-    INFO("first batch with a mismatched additional_textures count (if any): ",
-         additionalCountMismatch.value_or(-1));
-    CHECK(!additionalCountMismatch.has_value());
-    INFO("first (batch, layer) where additional_textures ran out of entries (if any): ",
-         pairOrNone(entryIndexOOR));
-    CHECK(!entryIndexOOR.has_value());
-    INFO("first (batch, layer) with a mismatched file_data_id (if any): ", pairOrNone(fdidMismatch));
-    CHECK(!fdidMismatch.has_value());
-    INFO("first (batch, layer) with a mismatched tex_coord (if any): ", pairOrNone(texCoordMismatch));
-    CHECK(!texCoordMismatch.has_value());
-    INFO("first batch whose pixel_shader extras isn't a string (if any): ",
-         pixelShaderKindMismatch.value_or(-1));
-    CHECK(!pixelShaderKindMismatch.has_value());
-    INFO("first batch whose vertex_shader extras isn't a string (if any): ",
-         vertexShaderKindMismatch.value_or(-1));
-    CHECK(!vertexShaderKindMismatch.has_value());
-    INFO("first batch with a mismatched pixel_shader name (if any): ", pixelShaderValueMismatch.value_or(-1));
-    CHECK(!pixelShaderValueMismatch.has_value());
-    INFO("first batch with a mismatched vertex_shader name (if any): ",
-         vertexShaderValueMismatch.value_or(-1));
-    CHECK(!vertexShaderValueMismatch.has_value());
+    INFO("first batch with a mismatched layer count (if any): ", layerCountMismatch.value_or("none"));
+    CHECK(!layerCountMismatch.has_value());
+    INFO("first (batch, layer) with a mismatched M2 texture index (if any): ", textureIndexMismatch.value_or("none"));
+    CHECK(!textureIndexMismatch.has_value());
+    INFO("first (batch, layer) with a mismatched UV set (if any): ", uvSetMismatch.value_or("none"));
+    CHECK(!uvSetMismatch.has_value());
+    INFO("first batch with a mismatched pixel shader (if any): ", pixelShaderMismatch.value_or("none"));
+    CHECK(!pixelShaderMismatch.has_value());
+    INFO("first batch with a mismatched vertex shader (if any): ", vertexShaderMismatch.value_or("none"));
+    CHECK(!vertexShaderMismatch.has_value());
 
-    std::filesystem::remove(outPath);
+    fs::remove_all(dir);
 }
 
 TEST_CASE("husk export: real multi-texture-layer batch resolves textureComboIndex+layer exactly" *
@@ -996,32 +708,23 @@ TEST_CASE("husk export: real file with a nonzero textureCoordCombos table still 
     checkMultiTextureLayerArithmetic(testTextureCoordComboM2(), testTextureCoordComboSkin());
 }
 
-// M2TextureTransform / KHR_texture_transform integration tests moved to
-// tests/test_integration_texture_transform.cpp (FILE_SIZE.md's 1000-line
-// ceiling).
-
 TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails cleanly" *
           doctest::skip(testM2().empty() || testMismatchedSkin().empty())) {
-    std::string m2Path = testM2();
-    std::string mismatchedSkinPath = testMismatchedSkin();
-
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-bad.glb").string();
-    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" +
-                           mismatchedSkinPath + "\"");
+    fs::path dir = freshBundleDir("husk-test-export-bad");
+    auto result = runHusk("export \"" + testM2() + "\" -o \"" + dir.string() + "\" --skin \"" +
+                          testMismatchedSkin() + "\"");
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("mismatch") != std::string::npos);
 }
 
-// Locks in husk's already-correct "throw, don't misread" behavior on real
-// non-M2 content, rather than trusting it stays correct across future
-// chunk-walker refactors. blp2_7507381.m2 is a real FileDataID/listfile
-// mismatch pulled from live CASC: its actual stored content is a genuine
-// BLP2 texture, not an M2 -- husk correctly refuses it with a
-// ParseError-derived "chunk '..." message (the malformed/non-ASCII chunk
-// tag) rather than silently misreading texture bytes as M2 structure.
-// Checked across all three top-level commands, since each has its own read
-// path into the same chunk walker.
-// TODO: Remove: cites `WIKI_FINDINGS/M2.md`.
+// Locks in husk's "throw, don't misread" behavior on real non-M2 content,
+// rather than trusting it stays correct across future chunk-walker
+// refactors. blp2_7507381.m2 is a real FileDataID/listfile mismatch pulled
+// from live CASC: its stored content is a genuine BLP2 texture, not an M2
+// -- husk refuses it with a ParseError-derived "chunk '..." message (the
+// malformed/non-ASCII chunk tag) rather than misreading texture bytes as M2
+// structure. Checked across all three top-level commands, since each has
+// its own read path into the same chunk walker.
 TEST_CASE("husk info: real non-M2 content (a BLP2 texture under a mismatched .m2 FileDataID) "
           "fails cleanly, not a crash or a silent misread" *
           doctest::skip(husk::test::testBlp2AnomalyM2().empty())) {
@@ -1033,12 +736,11 @@ TEST_CASE("husk info: real non-M2 content (a BLP2 texture under a mismatched .m2
 TEST_CASE("husk export: real non-M2 content (a BLP2 texture under a mismatched .m2 FileDataID) "
           "fails cleanly, not a crash or a silent misread" *
           doctest::skip(husk::test::testBlp2AnomalyM2().empty())) {
-    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blp2-anomaly.glb").string();
-    auto result =
-        runHusk("export " + husk::test::testBlp2AnomalyM2() + " -o \"" + outPath + "\"");
+    fs::path dir = freshBundleDir("husk-test-blp2-anomaly");
+    auto result = runHusk("export " + husk::test::testBlp2AnomalyM2() + " -o \"" + dir.string() + "\"");
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("chunk") != std::string::npos);
-    CHECK(!std::filesystem::exists(outPath));
+    CHECK(!fs::exists(dir / "manifest.json"));
 }
 
 TEST_CASE("husk dump-chunks: real non-M2 content (a BLP2 texture under a mismatched .m2 "
