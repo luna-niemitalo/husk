@@ -121,11 +121,9 @@ sys.modules.setdefault("corpus_scan_framework", sys.modules[__name__])
 # a dev shell gives you the tools to build husk, not the built product,
 # by design, so CLI_AND_TOOLING.md §4's original "the flake dev shell
 # already puts husk on PATH" claim was wrong for that specific
-# environment. Falls back to the known-good local build path -- same
-# shutil.which-first idiom this module already uses for gltf_validator in
-# corpus_checks.py's GLTF_VALIDATOR_BIN. The single place this is computed;
-# task modules read `corpus_scan_framework.HUSK_BIN` instead of each
-# hardcoding their own copy (REFACTOR/CLI_AND_TOOLING.md §4).
+# environment. Falls back to the known-good local build path. The single
+# place this is computed; task modules read `corpus_scan_framework.HUSK_BIN`
+# instead of each hardcoding their own copy (REFACTOR/CLI_AND_TOOLING.md §4).
 HUSK_BIN: str = shutil.which("husk") or str(REPO_ROOT / "build" / "husk")
 
 
