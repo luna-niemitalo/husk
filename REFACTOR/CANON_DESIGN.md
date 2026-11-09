@@ -15,8 +15,7 @@ so and names the file that now holds the answer.
 
 Built: `src/canon_bone_naming.*`, `src/canon_bone_stem.*`,
 `canon::Joint::structuralLabel` (`src/canon_skeleton.hpp`). Replaces the
-legacy fallback `"bone_<index>"` (`gltf_skeleton.cpp`), unique but
-unreadable.
+retired glTF pipeline's fallback `"bone_<index>"`, unique but unreadable.
 
 **Three tiers, all stored, preference in this order:**
 
@@ -157,9 +156,6 @@ read only as evidence of what M2 can express.
 
 **Review flags recorded at assembly (2026-09-07):**
 
-- `MaterialLayer` has no slot for a *constant* tint/alpha/UV transform —
-  only animated curves — so the common case the legacy writer folds into
-  `baseColorFactor` is unrepresentable. Still open.
 - A batch can animate `M2Color::alpha` *and* `M2TextureWeight::weight`
   (multiplied together); `MaterialLayer` has one `alphaFade`, and the
   assembler takes colour's. Still open (`m2_material_input.cpp`).
@@ -211,11 +207,9 @@ I5's "what exists and is valid," scoped to one `ChrModelID`.
 `chrcustomization::namedChoicesForModel`'s flat list into that shape,
 reusing its DB2 join instead of re-deriving it.
 
-- **Sorted, deliberately unlike the legacy extras**: options by
-  `optionOrderIndex` (tie: `optionId`), choices by `choiceOrderIndex` (tie:
-  `choiceId`) — deterministic and the character-creation UI's order. The
-  legacy `export_extras.cpp` keeps table load order because extras order
-  carries no meaning.
+- **Sorted**: options by `optionOrderIndex` (tie: `optionId`), choices by
+  `choiceOrderIndex` (tie: `choiceId`) — deterministic and the
+  character-creation UI's order, not table load order.
 - **Excluded**: `Material`/`fileDataId`/`boneSetId` and anything else that
   realizes a choice — that's Resources; mixing it in is what I5 forbids.
 - `NameSource::None` covers both nameless cases met (swatch-only choice,
@@ -234,8 +228,8 @@ I5's "what did this instance choose."
   included. Test is synthetic-only (no real
   `creaturedisplayinfogeosetdata.db2` fixture in `test_data/db2`).
 - `assembleCharacterSelection` is thin: each choice id becomes
-  `Ref{Db2Row{"ChrCustomizationChoice", id}}`, no name, no sort (the legacy
-  `attachCustomizationChoices` uses the list as given). Each `canon::Item`
+  `Ref{Db2Row{"ChrCustomizationChoice", id}}`, no name, no sort (the list
+  as given). Each `canon::Item`
   reduces to `EquippedItem{identity, slots}`; `components` are dropped
   (Resources data; a consumer re-joins on `identity`). Order preserved.
 
@@ -249,17 +243,16 @@ I5's "what did this instance choose."
 
 - **The I7 payoff**: entries sharing one `itemModifiedAppearanceId`
   (`gear=MAINHAND:15,OFFHAND:15`) collapse into **one** `Item` with several
-  `slots`, resolved once. The legacy `attachGearAppearance` emits one
-  unlinked duplicate per entry.
-- Otherwise mirrors `attachGearAppearance`: a `GeometryComponent` only when
+  `slots`, resolved once. The retired glTF pipeline's `attachGearAppearance`
+  emitted one unlinked duplicate per entry.
+- Otherwise mirrors that function: a `GeometryComponent` only when
   `ModelResourcesID` is nonzero or materials exist (zero means "no
   standalone geometry", not unresolved); a missing optional table leaves
   that FileDataID unresolved, never fails; an entry with no real
   `ItemDisplayInfoID` is skipped, not fabricated.
 - Test: `tests/test_canon_item_convergence.cpp`, synthetic only, with a
   `doctest::skip`-gated real-data case waiting for a fixture set.
-- **Open**: migrating `attachGearAppearance` onto `assembleEquippedItems`
-  (the legacy export still calls the old path, `cmd_export.cpp`).
+- `export --appearance` builds its gear with it (`cmd_export.cpp`).
 
 ## `canon::Mesh`/`canon::Model` — geometry and the composition root
 
@@ -317,30 +310,30 @@ I5's "what did this instance choose."
 
 ## `husk::writers::gltf_lean` — the lean, extras-free glTF projection
 
-`src/writers/gltf_lean.*`; written by `export --export-canon` as
-`<name>.canon.glb`. A second, independent glTF writer over `canon::Model`,
-not a refactor of `gltf.cpp`. Reuses only generic pieces: `gltf_math.hpp`
-(axis conversion, `enforceHemisphereContinuity`), `gltf_buffer_utils.hpp`
-(`appendBufferView`/`padTo4`), `writer_common`.
+`src/writers/gltf_lean.*`; written by `export --glb <path>`. husk's only
+glTF writer, over `canon::Model`. Reuses only generic pieces:
+`writers/gltf_math.hpp` (axis conversion, `enforceHemisphereContinuity`),
+`writers/gltf_buffer_utils.hpp` (`appendBufferView`/`padTo4`),
+`writer_common`.
 
 - **Never emits `extras`**, by construction. Data without a core glTF field
-  goes to the bundle instead. Measured on `bloodelffemale.m2`: legacy
-  `.glb` 374 `"extras"`, lean 0.
+  is in the bundle instead. Measured on `bloodelffemale.m2`: the retired
+  legacy `.glb` had 374 `"extras"`, lean 0.
 - **Validator: 0 errors** (`tests/test_writers_gltf_lean.cpp`,
   `HUSK_GLTF_VALIDATOR`-gated). `TEXCOORD_n` "may be unused" warnings were
   expected while no material referenced a real texture.
 - **Blender structural convergence**: headless import
   (`tests/blender_import_check.py`) gives 1 armature with
   `skeleton.joints.size()` bones and 1 mesh with `mesh.positions.size()`
-  vertices. Not byte-compared with the legacy `.glb` (different node
-  layout, no extras, no geoset-tag joints).
+  vertices.
+- **Multi-root skeletons** get one non-joint parent node named `skeleton`
+  (`DESIGN.md` "Lean glTF projection").
 - **`alphaMode`**: from `Material::framebufferBlend` when set (Opaque →
   `OPAQUE`, AlphaKey → `MASK`, else `BLEND`); otherwise a reasoned fallback
   from the last layer's `blendIntoPrevious` (Replace/Modulate/Modulate2x →
   `OPAQUE`, Decal → `MASK`, Add/Fade → `BLEND`).
 - **Inverse bind matrices** from `canon::Joint::globalPosition` directly
-  (`-worldPos` translation), re-derived rather than calling
-  `gltf_skeleton.cpp`.
+  (`-worldPos` translation).
 - **One shared index buffer**, each primitive an accessor `byteOffset` into
   it — `canon::Mesh`'s own shape.
 - **Animation names** synthesized from `(kind, index)`: `sequence_<n>`/

@@ -358,10 +358,7 @@ session's own finding immediately if it existed before implementation).
   `findChunk`, directly reusable unmodified — see this file's own opening
   callout), `src/phys.hpp`/`phys.cpp` (the chunk-tag-dispatch/bounds-
   checked-reader idiom to mirror, and the precedent for reversed on-disk
-  tags), `src/gltf.hpp`'s `Skeleton::EmitterAnchor`/`CorrectionSet` (the
-  "minimal anchor in extras, full data in `dump-chunks`" pattern, relevant
-  once `_lgt`'s lights or `.wdl`'s silhouette placement get a glTF-side
-  home).
+  tags).
 - **Real corpus evidence**: `/media/luna/data/wow_export/world/maps/**`
   — 959 root `.wdt`, 959 `_occ.wdt`, 959 `_lgt.wdt`, 753 `_fogs.wdt`, 753
   `_mpv.wdt`, 959 `.wdl` (full-corpus scans, not samples, for every count

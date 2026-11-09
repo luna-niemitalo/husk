@@ -310,10 +310,9 @@ FileDataID. A real WMO importer needs **both** paths supported (a user might
 have either a FileDataID-named extraction or a `wow.export`-style one,
 exactly like husk already treats `.skin` files' "same-basename fallback,"
 see `../../CLAUDE.md`'s own `ANIM_TODO.md` history for the M2 precedent) -- which
-one is primary, and whether `GFID`'s row-major LOD indexing should surface
-as its own `--wmo-lod` flag mirroring `husk export --lod` are both real,
-undecided questions a future implementation session needs to settle before
-writing `resolveGroupFile`, not something this document should guess at.
+one is primary was a real question for `resolveGroupFile`. (`GFID`'s
+row-major LOD indexing is settled: every row is a bundle LOD level,
+`REFACTOR/BUNDLE_FORMAT.md` "Levels of detail".)
 
 ## Mesh geometry (`MOVT`/`MOVI`/`MOBA`, `MORI`/`MORB` variant)
 
@@ -486,19 +485,11 @@ re-derived.
 
 **C++ data-model sketch**: `std::vector<std::vector<Vec2>> texCoordSets;`
 on `GroupMesh` (0, 1, or up to 3 entries depending on the `TVERTS2`/
-`TVERTS3` flags) -- mirrors `gltf::Mesh::texCoords`/`texCoords2`'s existing
-two-slot shape, but needs a third slot (`texCoords3`?) if `TVERTS3` content
-is ever confirmed real, an open extension `gltf.hpp` doesn't have yet.
+`TVERTS3` flags). Settled by the bundle: the mesh carries every `MOTV` as
+its own UV set (`README.md` format matrix), so a third set needs no new
+slot.
 
-**Recommendation**: `full` / `native` / `native-possible, not done` -- direct
-`TEXCOORD_0`(/`_1`/`_2`) accessors, same shape M2's own dual-UV-set handling
-already established (`gltf::Mesh::texCoords`/`texCoords2`).
-
-**Open design question**: does `gltf.hpp` need a `texCoords3` slot, or is
-`TVERTS3` rare enough (only cited for `MOM3`/shader-18 WMOs, a narrow real
-case) to defer until a real 3-UV-set file is found? Flagged, not decided --
-depends on how common shader 18 (`TwoLayerDiffuseMod2x`) turns out to be in
-practice.
+(`TVERTS3` is cited only for `MOM3`/shader-18 WMOs, a narrow real case.)
 
 ## Tangents (`MOTA`)
 
@@ -895,9 +886,7 @@ sequence; `sargerassword`'s exact 9-of-22 nonzero `MOUV` entries.
   reversed-tag-literal convention this document's sketches mirror directly),
   `src/chunk.hpp`/`chunk.cpp` (`readChunks`/`findChunk`, directly reusable
   for both the root file's top-level chunks and the group file's nested
-  `MOGP`-payload walk), `src/gltf.hpp` (`NamedMesh`/`Material`/`Primitive`/
-  `extras` construction pattern), `src/cmd_export.cpp`'s collision-mesh
-  block (closest existing precedent for an unskinned `NamedMesh`).
+  `MOGP`-payload walk), `src/wmo_canon_input.cpp` (WMO → `canon::Model`).
 - **Real corpus** (`/media/luna/data/wow_export`, read-only): exact paths
   and counts cited inline per claim above. Community listfile used for
   FileDataID→path cross-checks: `/media/luna/work/tinker/dev/wow_modding/

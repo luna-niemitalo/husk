@@ -16,7 +16,7 @@ is the record, not this document.
 
 ## 1. Duplicated resolution
 
-### 1.1 "Which real bytes does a texture slot resolve to" — three implementations
+### 1.1 "Which real bytes does a texture slot resolve to" — the catalog and its remaining mirrors
 
 (Was four; `missing_texture_task.py`, the 1-tier outlier, is deleted — see
 `REFACTOR_LOG.md`'s "AUDIT.md §11 closed" entry, since §11 itself is gone
@@ -24,10 +24,9 @@ now that it's fixed.)
 
 | Where | Tiers implemented | Notes |
 |---|---|---|
-| `src/sources/catalog.cpp` (`Catalog::texture()`) | 3 (literal → listfile → fuzzy same-basename pool, incl. claim-and-remove + ambiguity) | The real one, now a single object owning the tier order — `export_materials.cpp`'s own three-way branch is gone, replaced by one `catalog.texture(...)` call. Built on `src/export_texture_resolution.cpp`'s primitives (scan/filter/order/read), which stay the shared implementation detail, not a second policy. |
+| `src/sources/catalog.cpp` (`Catalog::texture()`) | 3 (literal → listfile → fuzzy same-basename pool, incl. claim-and-remove + ambiguity) | The real one, a single object owning the tier order. Built on `src/sources/texture_resolution.cpp`'s primitives (scan/filter/order/read), the shared implementation detail, not a second policy. |
 | `tools/corpus_scan_tasks/unfillable_texture_task.py` | **Fixed 2026-08-29** — 0, consumes `husk resolve` | Was 3, hand-mirrored (its own docstring named the mirroring as deliberate). This task needs only resolution *metadata* (did the slot resolve, via which tier), which is exactly what the ledger carries — see `REFACTOR_LOG.md`'s newest entry for the measured delta table. Cost traded: `husk resolve --listfile` re-parses the full 148MB listfile per invocation (~0.5s of a ~0.7s call, isolated by varying only listfile size), against the removed mirror's near-zero marginal cost — see the since-deleted `TODO/CLEANUP_TODO.md` / `REFACTOR/RESOURCE_CATALOG.md`'s own measured-cost section. |
 | `tools/corpus_scan_tasks/texture_dedup_collision_task.py`, `black_additive_task.py` | still 1-2, **not converted** | Both need resolved *bytes*, not metadata. A conversion was written and **reverted the same session**: it drove them from `husk resolve --textures-out`, which is not a per-slot byte export but a best-effort convenience copy of whatever husk happened to decode (`writeTextureOutCopy`, its own comment: "not the thing the export itself depends on"). Measured on `creature/bearice/bearice.m2`: 4 slots resolved, 2 files written, one of the two not a resolved slot at all. Under it the dedup task found 0 collisions where it previously found 3, and `black_additive` would silently skip any already-`.png` texture. Blocked until husk can hand back the bytes for a resolved slot — see below. |
-| `tools/husk_blender_geoset_mask.py` (`_resolve_customization_texture_path`) | 1 (PNG-only filesystem search, textures dir + parent) | **Fixed 2026-08-29** — was 2 tiers + parent-dir glob + a `husk blp-export` subprocess (PATH/`../build/husk` lookup); now a single, honestly-scoped fallback for real customization-choice textures husk's own export doesn't embed (see below), with the subprocess and PATH lookup removed outright. |
 
 **The tier order is not the deepest problem here — the candidate set is.**
 Measured 2026-08-29 against ground truth (the 415 DB2-named textures on disk
@@ -73,12 +72,11 @@ fdid, find bytes"), but its one real catalog-shaped duty — the sideways
 this pass; porting it changes real resolution outcomes and needs its own
 ledger run. Verified via a resolution-ledger diff (byte-identical output,
 zero delta) on `bloodelffemale_hd`, `nightelffemale_hd` (a real
-218-candidate ambiguous pool), `wolf.m2` (incl. `--lod all`), and
+218-candidate ambiguous pool), `wolf.m2` (all LODs), and
 `sword_1h_artifactskywall_d_06.m2` (13 real fuzzy/ambiguous matches), plus a
 `--knowledge-db`-driven item exercising `registerPathOverride`. This closes
-the real C++ side of this section; it does not yet touch the Python/Blender
-mirrors named in the table above, so this section stays open until those are
-addressed too (`CLI_AND_TOOLING.md` §3).
+the real C++ side of this section; the Python mirrors named in the table
+above keep it open (`CLI_AND_TOOLING.md` §3).
 
 A later pass converted five other `tools/corpus_scan_tasks/*.py` modules
 (`particle_only_task.py`, `detect_billboards.py`, `expansion_task.py`,
@@ -100,7 +98,6 @@ blp-export` shell-out is gone too, not just its tier logic: `husk resolve
 --textures-out` already hands back real decoded PNG bytes regardless of
 source format, so there is nothing left to convert separately. Full delta
 table and per-file cost measurements: `REFACTOR_LOG.md`'s newest entry.
-`tools/husk_blender_geoset_mask.py`'s mirror closed the same day, above.
 `texture_type_collisions_task.py` (`tools/find_texture_type_collisions.py`)
 was scoped for this same conversion pass and found **not to fit it**:
 despite this section's own table implying otherwise, that task does no
@@ -115,198 +112,38 @@ already document elsewhere in this project. Left unconverted, not
 silently skipped; not re-added to this section's own table since it was
 never a texture-*resolution* duplication in the first place.
 
-**`tools/husk_blender_geoset_mask.py` closed 2026-08-29**: commit `a86b07f`
-had already made husk's own same-basename ambiguity-pool candidates embed
-directly in the `.glb` (`export_texture_resolution.cpp`), which
-`_find_embedded_customization_image` reads via
-`import_unused_materials=True` — measured as the primary path on a real
-`nightelffemale_hd` export (81/559 customization-choice textures
-considered, 5 materials switched) before this fix, leaving
-`_resolve_customization_texture_path`'s filesystem mirror (2 tiers +
-parent-dir glob + `husk blp-export` subprocess) as an unmeasured
-fallback whose real firing rate this section already flagged as open.
-Measured it directly (instrumented, real headless Blender runs, both
-real fixtures, `--textures` given and omitted): the fallback fires for a
-real, narrow, identifiable class — **7 of 559 (1.25%) on
-`nightelffemale_hd`, 0 of 826 on `bloodelffemale_hd`**, every hit a real
-eye-color customization choice (e.g. `eyes00_00_3509222.blp`) that husk's
-export never embeds, because it carries a real, distinct FileDataID and
-so never enters the same-basename ambiguity pool
-`_find_embedded_customization_image` reads from (that pool only exists
-for hardcoded slots with *no* FileDataID to disambiguate by). This is a
-real gap in husk's own export, not a reason to keep a private resolver —
-closing it for good belongs in `src/` (embed every real per-choice
-texture, not only same-basename-ambiguous ones), out of this session's
-scope (`src/` was off-limits, peer agents working there).
-
-**This gap already has a name, established independently while verifying
-the above**: those files sit one directory *up* from the model, under a
-different naming convention — `character/nightelf/eyes00_00_3509222.blp`,
-not `character/nightelf/female/nightelffemale_hd_*.blp`. That is exactly
-`RESOURCE_CATALOG.md`'s **tier 4** (parent-directory same-basename), the
-tier that document already says "is a real corpus fact, so it belongs in
-the catalog — as a named tier, not as one consumer's private extension,"
-and that `Catalog::texture()` still carries as a marked, deliberate gap.
-So the `src/` fix is not open-ended: **port tier 4 into the catalog, and
-embed what it resolves.** husk already knows these FileDataIDs — they
-travel today in `chr_customization_options` extras (`materials[].
-file_data_id`), which is how the Blender script knows to look for them at
-all; only their *bytes* are missing from the `.glb`. Doing that makes the
-Blender fallback genuinely dead code rather than a documented-narrow one,
-and closes the regression noted below in the same move.
-
-**Regression to close, stated as one rather than folded into the design
-win**: auto-conversion of a `.blp`-only match was not incidental — it was
-added specifically in response to Luna's pushback on workflow ceremony,
-and `CLAUDE.md`'s Resume records the result as "no manual conversion step
-at all anymore." Removing the subprocess is right (I3), but the honest
-accounting is that it traded a user-facing capability for an invariant,
-and the trade is only temporary if tier 4 lands. Until then a real
-nightelf export switches 4 of 5 materials instead of 5 unless the caller
-runs `husk blp-export --dir` first.
-
-Per I3, the `husk blp-export` subprocess and its `PATH`/`../build/husk`
-binary lookup are removed outright regardless — a `.glb` is not
-guaranteed to travel with a `husk` binary (the same portability argument
-that already moved `.phys` data into the export itself, see `CLAUDE.md`'s
-Resume). The filesystem fallback itself is kept (documented, narrow,
-still fires for the real class above) but reduced to PNG-only lookup; a
-`.blp`-only match is now reported and skipped, not auto-converted — the
-caller runs `husk blp-export --dir <dir> <out-dir>` once, ahead of time
-(output filenames mirror each input's own basename, so the same
-suffix-glob still finds them). Verified end to end: with the real
-eye-color `.blp`s left unconverted, 4/5 materials switch (the 5th needs
-those choices, loudly reported by name — no silent drop); with them
-pre-converted via `husk blp-export --dir`, 5/5 materials switch again,
-identical to before this fix, all 7 fallback-loaded images confirmed to
-carry distinct real pixel content (not placeholders) via a headless
-pixel-hash check. Confirmed via code inspection and a real headless run
-that no `husk` binary is reachable or invoked anywhere in the script
-anymore (`subprocess`/`shutil`/`tempfile` imports removed, zero call
-sites remain).
-
+**Tier 4 (parent-directory same-basename) is still outside the catalog.**
+Real customization-choice textures can sit one directory *up* from the
+model under another naming convention (`character/nightelf/
+eyes00_00_3509222.blp`, not `character/nightelf/female/
+nightelffemale_hd_*.blp`; 7 of 559 choice textures on `nightelffemale_hd`,
+0 of 826 on `bloodelffemale_hd`, measured 2026-08-29). The only consumer
+that searched there (a Blender script) is deleted; whether the catalog's
+FileDataID tiers (listfile, store `_by_fdid/`) now reach every such file
+is unmeasured.
 ---
 
 ## 2. Missing internal representation
 
 ### 2.2 `M2MaterialInputs` is a bag with a back-pointer
 
-`src/export_materials.hpp:123-145` gathers ten parsed arrays plus
-`const std::vector<uint8_t>* blob` — a raw pointer to the parse layer's own
-bytes, held so the material layer can resolve M2Track offsets itself. A
-parse-layer detail reaching two stages forward.
-
-### 2.3 `gltf::Skeleton` is the canonical model wearing a consumer's name
-
-633 lines (`src/gltf_skeleton.hpp`) holding `customizationOptions`,
-`charTextureLayout`, `enabledMaterials`, `physicsBodies`, `physicsJoints`,
-`gearItems`, `gearSectionOverlays`, `creatureEnabledGeosets`, `correctionSets`,
-`attachments`, `events`, `lights` — none of which are glTF concepts.
-
-Mixed in with them, transport-only fields that exist purely to get semantics
-through glTF: `GearItem::auxGlbPath` (`:496`) and `geosetTags` (`:541`).
-
-### 2.4 Population order is a hidden contract
-
-`src/export_extras.hpp:70-80` documents, in prose, that
-`attachCustomizationChoices` **must** run after `attachBoneCorrections` because
-it mutates entries the latter attached. That ordering constraint exists only
-because there is no model in which to state the relationship declaratively —
-`exportOneModel` (`cmd_export.cpp:1038-1054`) is a hand-sequenced list of nine
-`attach*` calls whose order is load-bearing but unenforced.
-
----
-
-## 3. glTF impedance the bundle removes
-
-- **Geosets shipped as fake bones.** `Skeleton::GeosetTag`
-  (`gltf_skeleton.hpp:538`) mints one inert joint per distinct geoset ID purely
-  so Blender's importer materializes it as a vertex group. Canonical Data Model §13
-  names this exact pattern as the thing a canonical model exists to stop doing.
-  It also inflates `skin.joints` well past real-time skinning budgets, which the
-  Blender script then has to undo (`delete_geoset_tag_bones`).
-- **Extras carried on a heuristically-located bone.** Blender drops
-  `skin.extras` entirely, so all 13 skin-level keys are merged onto the skin's
-  root joint node (`gltf_skeleton.cpp:530-539`). The Blender side then finds
-  that carrier by *scanning bones for known husk key names*
-  (`_root_joint_extras`), because post-import bone order does not match glTF
-  joint order (242/358 mismatches measured on a real 245-bone character).
----
-
-## 4. Blender-side coupling
-
-**`render_glb.py` renders a pipeline that isn't the pipeline** — tracked in
-full at `TODO/RENDER_PIPELINE_DRIFT_TODO.md` item 1, not duplicated here.
-
----
-
-## 5. Slot-as-identity (I7)
-
-Gear is keyed by equipment slot at every layer:
-`GearSectionOverlay::slot` (`gltf_skeleton.hpp:448`), `GearItem::slot` (`:474`),
-the `gear_items` / `gear_section_overlays` extras arrays, and the on-disk
-naming `aux_models/<slot>_<fdid>.glb` (`cmd_export.cpp:766`).
-
-Two consequences:
-
-- A garment spanning two slots — a tunic whose hem is a leg-slot piece — has no
-  representation at all. A consumer can only ever be handed "the chest part".
-- Standalone-geometry items and texture-overlay items are two *parallel
-  top-level lists* rather than two component kinds of one item, so nothing can
-  describe an item that is both.
-
----
-
-## 6. Untraceable naming (I6)
-
-- Material display names resolve through a priority chain — customization
-  choice name → texture type name → diagnostic chain
-  (`export_materials.cpp:712-728`) — and `--slim-textures` filenames through a
-  *different* chain ending in the community listfile
-  (`gltf_mesh.cpp:191-200`). Both emit a **bare string**. Downstream, a
-  listfile guess and a DB2 fact are indistinguishable.
-- Bone names are contextual or synthesized (`applyContextualBoneNames`; the
-  `"bone_" + index` fallback at `gltf_skeleton.cpp:136`) yet travel as plain
-  strings that read as authoritative — including into `joint_names` and every
-  `bone_name` field on physics, emitter, correction and gear entries.
+`src/m2_material_input.hpp:59-87` (`M2MaterialInputs`) gathers the parsed
+arrays plus `const std::vector<uint8_t>* blob` — a raw pointer to the parse
+layer's own bytes, held so the material layer can resolve M2Track offsets
+itself. A parse-layer detail reaching two stages forward.
 
 ---
 
 
-## 7. Stage 3's own coverage gaps vs. legacy feature parity
+## 7. Stage 3's own coverage gaps
 
-Sections 1-6 above are about the legacy pipeline's problems, the ones Stage 3
-exists to fix. This section is different in kind: real gaps in Stage 3
-*itself* relative to what legacy already ships today, found 2026-09-15/16
-while building `husk export --export-canon`'s runtime convergence checker
-(`src/canon_diff.*`).
+The legacy pipeline it was measured against (via the
+since-deleted `--export-canon` convergence checker, `canon_diff.*`) is
+deleted; the gaps it found are closed (`REFACTOR_LOG.md`, 2026-09-15/16).
 
-**All concretely-named gaps found are now closed** — full narrative,
-evidence, and verification detail for each lives in `REFACTOR_LOG.md`
-(search for "2026-09-15"/"2026-09-16"; this section used to carry that
-narrative inline and has since been trimmed per this file's own "removed
-when fixed" convention, same as every other section above). Closed:
-`canon::Material`'s real texture resolution (API shape, orchestrator
-wiring, material dedup — `canon::Model::materials` now genuinely deduped
-and matches legacy's own count exactly); `compareMaterialBlendModes`'s
-texture-identity, curve (tint/alphaFade/uvAnimation), state
-(`KnownUnresolved`/`Ambiguous`), and additional-texture-layer
-(`layers[1..]`) checks; canon animation's global-sequence/alias resolution
-and external-`.anim` API shape + orchestrator wiring; `.skel`-sourced
-coverage (Stage 3's former biggest blocker — the majority real
-player-character case); `canon::assembleModel`'s I1 violation (took
-`m2::`/`skin::` types directly — moved to `husk::m2input`, sub-assemblers
-moved with it, `canon::Vec2`/`Vec3`/`Quat` given their own real types); the
-automated render-diff tool (`tools/render_lean_glb.py` +
-`tools/compare_canon_render.py`) and the real texture-embedding gap it
-found (`canon::TextureRef::payload`, both writers wired); real
-raw-BLP-block extraction + DDS housing (`blp::extractRawPayload`/
-`encodeDds`) and its wiring into a real export (`canon::TextureRef::
-rawPayload`, `bundle_writer.cpp` now writes real `.dds` files).
-
-**Scene records (2026-10-09)**: attachments, events, lights and ribbon/
-particle emitters are now in `canon::Model::scene` and the bundle, with
-every field and curve (legacy only ever carried anchors). Open within it:
+**Scene records**: attachments, events, lights and ribbon/particle
+emitters are in `canon::Model::scene` and the bundle, with every field and
+curve. Open within it:
 
 - `.skel` attachment tracks resolve inline only: their per-sequence
   external data lives in `.anim` `AFSA` chunks, which husk does not read.
@@ -316,26 +153,15 @@ every field and curve (legacy only ever carried anchors). Open within it:
   are placement only.
 - `EXP2` extended particle data is not in `m2::Model`; the local corpus has
   no EXP2 files to test against.
-- `canon_diff` (`--export-canon`) does not compare the scene against
-  legacy's anchors yet.
 
-**Two things remain genuinely open, not closed by any of the above:**
+**Also open:**
 
 - `assembleMaterial`'s `sequenceIndex` for a `.skel`-sourced model's
   material tint/alpha-fade/UV-animation curves is used as-is, on a
   documented assumption (inline material M2Track arrays are sized to match
   whichever sequence source is in effect) — not independently verified
   against real data for the material-track case specifically.
-- A real visual/pixel check across more of the real fixture set (the
-  render-diff tool exists and has caught one real bug already, but has
-  only been run against a handful of real fixtures so far, not the whole
-  corpus) and the formal whole-corpus structural gate `REFACTOR/README.md`'s
-  own Migration order names as Stage 3's actual completion gate.
-
-Also worth naming (not a gap, a permanent scope limit, documented so it
-isn't re-discovered as a bug): `compareMaterialBlendModes` only checks
-blend op and tint/alphaFade/uvAnimation curves on a material's *primary*
-layer — canon itself never populates those three fields on `layers[1..]`,
-and legacy's own secondary-layer shape (`AdditionalTextureLayer`) has no
-field for any of them either, so there's nothing real to compare on either
-side for additional layers beyond texture identity/state.
+- No visual/pixel check of the bundle across the real fixture set, and no
+  whole-corpus structural gate (`REFACTOR/README.md` Migration order). The
+  render-diff tool (`compare_canon_render.py`) is deleted;
+  `tools/render_lean_glb.py` renders one `--glb`.

@@ -72,43 +72,22 @@ need retuning for a differently-shaped task.
 A/B-testing a new task against a plain single-threaded baseline before
 trusting the framework's speedup on a real multi-hour corpus run.
 
-## Full-corpus visual render pipeline
+## Rendering
 
-A separate track from the parsing-correctness scanners above: these
-actually run `husk export` + headless Blender over real corpus files and
-produce something a human looks at, not a CSV.
+- `render_lean_glb.py` — headless Blender: imports one `husk export --glb`
+  file with no husk-specific post-processing and renders one bind-pose
+  PNG (EEVEE). A geometry/skin/base-material preview, not the in-game
+  look. A GPU run (`~/.claude/rules/gpu-lock.md`). `blender --background
+  --factory-startup --python tools/render_lean_glb.py -- <in.glb>
+  <out.png>`.
+- `corpus_scan_tasks/build_render_sample.py` — a stratified
+  (proportional-by-sqrt-per-category) sample of `.m2` paths plus every
+  file with a co-located `.phys`, one path per line
+  (`corpus_reports/render_sample.txt`). No batch renderer consumes it
+  any more.
 
-- `corpus_scan_tasks/build_render_sample.py` — builds a stratified
-  (proportional-by-sqrt-per-category) sample of `.m2` paths for a quick
-  visual spot-check, plus a forced-include of every file with a co-located
-  `.phys` sidecar. Writes a plain one-path-per-line file
-  (`corpus_reports/render_sample.txt` by convention).
-- `corpus_scan_tasks/render_glb.py` — the actual headless-Blender worker:
-  imports one `.glb`, rebuilds a real additive shader (Transparent BSDF +
-  Emission via Add Shader) for any material carrying a `blend_mode` extras
-  value of 3/4 (WoW's additive blend modes -- no core-glTF equivalent, see
-  `README.md`'s Materials section; handles both the plain-Principled and
-  `KHR_materials_unlit`-imported node shapes, which Blender's importer
-  builds completely differently), frames the camera to its bounding box,
-  renders one WebP image (quality 80, lossy — these are flat-shaded QA
-  thumbnails, not archival output). Prints a `SKIPPED` sentinel (not a
-  crash) for a real 0-vertex camera/track-only model. Invoked as `blender
-  --background --factory-startup --python render_glb.py -- <in.glb>
-  <out.webp>`, never run standalone.
-- `corpus_scan_tasks/render_sample_driver.py` — drives the two steps above
-  (real `husk export` with full sidecar auto-discovery, then
-  `render_glb.py`) in parallel across a file list, either the sample above
-  or a full corpus file list. Resume-safe by design (checks for an
-  existing output image — either extension, `.webp` current or `.png`
-  legacy — before doing any work, so a crash mid-run costs nothing but
-  wall-clock time on restart) — this is the tool that was actually resumed
-  after a real machine crash mid-130k-file run (see `CLAUDE_HISTORY.md`'s
-  2026-08-09 entries for the full incident). Passes `--listfile`/
-  `--listfile-root` to `husk export` automatically whenever a real
-  `community-listfile.csv` is present locally (path hardcoded to this
-  machine's own download location, gitignored, never fetched by this
-  script). Every result (pass/fail/skip) is appended to a live-tailable log
-  the instant it's known, not batched to the end.
+## More scan tasks
+
 - `corpus_scan_tasks/casc_size_mismatch_task.py` — checks every real file's
   on-disk byte count against CASC's own reported size for that FileDataID
   (one `casc-tool list` dump loaded into memory, then a cheap per-file dict
@@ -160,10 +139,10 @@ produce something a human looks at, not a CSV.
   counts and hierarchy position of billboarded bones.
 - `corpus_scan_tasks/m2_full_validation_task.py` — the heaviest per-file
   check: independent header parse cross-check, a rich `husk export`
-  (textures deliberately off, kept disk/speed-bounded), `dump-chunks`, and
-  fidelity/finite/mesh-completeness glb-content checks. Deliberately skips
-  `gltf_validator` (Dart VM per-invocation cost across 130k+ files) — that
-  runs against the smaller Blender-sample set instead.
+  (textures deliberately off, kept disk/speed-bounded), `dump-chunks`,
+  fidelity/finite/mesh-completeness bundle-content checks, and `husk
+  validate-bundle` on the bundle (deleted after its checks, so scratch
+  holds one bundle per worker).
 - `corpus_scan_tasks/expansion_task.py` — a `corpus_scan_framework`
   `ScanTask` tagging every `.m2` with its real M2 version, wowdev.wiki
   expansion label, and a coarse support tier (unsupported/sketchy/
@@ -173,34 +152,7 @@ produce something a human looks at, not a CSV.
   since the client re-saves every M2 in the current format regardless of
   the content's original expansion. Kept as a real, correct tool (and a
   second-opinion cross-check of `src/m2_primitives.cpp`'s own
-  `expansionForVersion` table) but deliberately not wired into
-  `live_gallery/server.py` given that null result -- see this task's own
-  module docstring.
-- `live_gallery/server.py` — a small stdlib-only HTTP server (not a
-  corpus-scan task) that live-rescans a render output directory and serves
-  a filterable, infinite-scroll gallery page, updating in real time via
-  Server-Sent Events as new images land. Generic (works on any growing
-  image directory, not husk-specific) but built for exactly this render
-  pipeline's output shape — see its own module docstring for the full
-  design and `--log`/`--listfile`-adjacent flags. Also filters by
-  `world/expansionNN` era (a real WoW corpus folder convention, confirmed
-  against actual zone content per folder -- covers `world/` doodad content
-  only, not creature/character/item/spells, see `expansion_task.py`'s own
-  entry above for why a file-version-based filter didn't work instead).
-  Live updates diff and prepend newly-landed images instead of rebuilding
-  the whole grid, so an active multi-hour render job doesn't stutter the
-  page. Also serves `/review`, a fast keyboard-driven ("captcha style")
-  triage page for blasting through the whole corpus flagging bad renders —
-  numpad-mapped 3x3 grid, one Enter per page, decisions appended to a
-  resumable JSONL log — reachable via the "tag review" link in the main
-  page's header (opens in its own tab). Formerly a separate standalone
-  server (`tag_review_server.py`); merged into `live_gallery/server.py`
-  2026-08-14 so tagging and live-browsing share one process/one `--root`
-  instead of two servers that could drift out of sync. `--review-out`
-  controls the decision log path (defaults to `<root>_review.jsonl`, same
-  convention the standalone server used); `categorize_flagged_renders.py`/
-  `auto_flag_detected_failures.py` read/write that same JSONL log,
-  unchanged.
+  `expansionForVersion` table) — see this task's own module docstring.
 
 ## Client shader export: `export_shaders.py`
 
@@ -250,8 +202,8 @@ docstring — read the script for the real detail, not this list:
   resolution (see `TODO/WORLD/TEXTURE_TYPE_COLLISIONS_REPORT.md` for the full-corpus
   result).
 - `find_texture_transform_files.py` — real files with a constant,
-  texture-center-pivoted `M2TextureTransform` (the `KHR_texture_transform`
-  math's source fixtures).
+  texture-center-pivoted `M2TextureTransform` (fixtures for the constant
+  UV-transform case).
 - `find_multiroot_skeletons.py` — real files with more than one root bone
   (the multi-root synthesized-parent-node feature's source fixtures).
 - `find_m2_unknown_chunks.py` — chunk tags present in real files with no
@@ -267,40 +219,15 @@ docstring — read the script for the real detail, not this list:
   reference for its own now-abandoned threading/tqdm/batching approach.
 - `corpus_summarizer.py` — aggregates `corpus_checks.py`'s per-file status
   JSONs into a report.
-- `husk_blender_geoset_mask.py` — not a corpus scanner: a `bpy` script
-  building the geoset-selection Geometry Nodes graph in Blender itself,
-  plus the `chr_texture_layout` overlay (see its own module docstring for
-  the full mechanism).
-- `husk_blender_options_panel.py` + `test_husk_blender_options_panel.py` —
-  a live, persistent Blender N-panel (deliberately separate from
-  `husk_blender_geoset_mask.py`, which runs once at import time and is
-  done) for browsing/editing a character's real customization-choice menu
-  after import: one row per `ChrCustomizationOption`, a dropdown of its
-  real `Choice`s, driving the texture-switch node graphs
-  `apply_customization_texture_switch` built. Meant to travel with the
-  `.blend` file itself as a registered embedded `Text` datablock — see
-  `BLENDER_OPTIONS_PANEL.md` for the design writeup and
-  `test_husk_blender_options_panel.py` for its own headless verification
-  (`blender --background --factory-startup --python
-  tools/test_husk_blender_options_panel.py`).
 - `derive_texture_tag_vocabulary.py` — a pure filename walk (no husk
   subprocess, no `corpus_scan_framework`) deriving a texture-tag vocabulary
   and its co-occurrence structure off the real `.blp` corpus, for
   `TODO/TEXTURE_POOL_RECALL_TODO.md` step 1.
-- `full_render.py` — runs the full `husk export` → Blender render pipeline
-  over the whole corpus via fresh directory discovery (not a stale
-  pre-generated file list), honoring a `.renderignore` file (gitignore-style
-  subset) at the repo root. Resume-safe, same convention as
-  `corpus_scan_tasks/render_sample_driver.py`. Replaced subtracting a
-  scan's flagged-file CSV from a static file list: a scan bug or stale
-  snapshot silently produced a wrong exclusion list, while `.renderignore`
-  states category-level exclusions a human chose (e.g. `character/`,
-  structurally DB2-dependent). Fresh `rglob` discovery costs ~1-2 s for
-  130k files. Both entry points share `run_render_pipeline(paths,
-  render_dir)`, one copy of the concurrency/resume/logging logic.
-- `export_hd_characters.nu` — batch-exports every real `*_hd.m2` player
-  character model to `.glb` via a loop over `husk export` (husk itself has
-  no batch mode built in yet for this shape).
+- `export_hd_characters.nu` — exports every `*_hd.m2` player character
+  model to a model bundle, DB2 data from husk's config.
+- `export_terrain_scene.nu` — hand-picked ADT tiles → one terrain bundle
+  each plus a shared directory of the model bundles they reference (for a
+  whole map, `husk export-world --map` does this in-process).
 - `playwright_mcp_launch.nu` — launch shim registered with `claude mcp add`
   that resolves `PLAYWRIGHT_BROWSERS_PATH` via `direnv exec` at launch time
   instead of a hardcoded `/nix/store/<hash>-...` path, so a nixpkgs bump

@@ -97,7 +97,7 @@ reader can tell a considered exception from an unconverted leftover
 the full test and a worked table of verdicts).
 
 **`PARALLEL_MODE`**: `"process"` for anything that shells out (`husk`,
-`gltf_validator`, `blender`) or does real CPU work (struct-unpack over
+`blender`) or does real CPU work (struct-unpack over
 big buffers) — real parallelism, no GIL contention. `"thread"` only for
 genuinely lightweight tasks (a few field reads) where per-file process
 pickling/IPC would cost more than the work itself.
@@ -163,9 +163,8 @@ different per-file cost shape once it also did directory-listing work.
 | Task | What it checks |
 |---|---|
 | `unfillable_texture_task.py` | Actually-used texture slots (via `texture_lookup`) with no literal *and* no fuzzy-same-basename local file — nothing husk's real resolution could find |
-| `m2_full_validation_task.py` | Full per-file structural validation: header parse, rich export, dump-chunks, fidelity/finite/mesh-completeness checks |
+| `m2_full_validation_task.py` | Full per-file structural validation: header parse, rich export, dump-chunks, fidelity/finite/mesh-completeness bundle checks, `husk validate-bundle` |
 | `shader_names_task.py` / `shader_id_task.py` | Pixel/vertex shader usage frequency across real batches |
 | `texture_type_collisions_task.py` | Files where more than one texture type maps to the same texture index |
 | `particle_only_task.py` | Blank-render candidates explained by particle-driven-only geometry |
 | `dangling_references_task.py` | Per-reference-kind corpus-wide rate of internal cross-references that don't resolve (`bone_lookup`/`sequence_lookup`/`attachment_lookup`/`camera_lookup`/`texture_lookup`, plus `.skin`-batch-driven `material_index`/`color_index`/`texture_combo`/`texture_weight_combo`/`texture_transform_combo`) — the counterweight to presence-only completeness metrics |
-| `render_sample_driver.py` + `render_glb.py` | The actual Blender render pipeline (not a `ScanTask` — a two-stage subprocess pipeline: `husk export` then `blender --background`) |

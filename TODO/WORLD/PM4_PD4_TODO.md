@@ -399,13 +399,12 @@ Luna's own framing — "100% included but hidden by default" — needs an
 honest look at what husk can actually promise, not a silent assumption
 either way.
 
-**The only precedent husk has** is the M2 collision mesh: a real
-`gltf::NamedMesh`, unskinned, tagged `{"collision": true}` in that node's
-`extras`. It is **present, not hidden** — `writeGlbMulti`'s own doc comment
-says so directly ("doesn't skip rendering it... only marks it for a custom
-renderer or Blender script to filter out"). Applying that same pattern to
-PM4/PD4 (`{"pathing": true}`) would satisfy "100% included" cleanly, but
-it would **not** satisfy "hidden by default" in any renderer that hasn't
+**The precedent** is the M2 collision mesh, now its own bundle resource
+(`resources.geometry.collision`), separate from the render mesh, so a
+consumer draws it only if it chooses to. (The deleted glTF pipeline instead
+tagged it `{"collision": true}` in node `extras` — present, not hidden.)
+The glTF-era analysis below: a tag would satisfy "100% included" cleanly,
+but would **not** satisfy "hidden by default" in any renderer that hasn't
 been specifically taught to look for the tag — Blender's own stock
 importer, husk's explicitly stated sole target (`../../DESIGN.md`'s Goal: "a
 `.glb` file Blender's stock importer can open is the entire deliverable"),
@@ -552,11 +551,10 @@ in case it changes this ordering.
   shape)
 - `src/skel.cpp` — the "share the parser, don't reimplement" precedent
   this file's `pathmesh.hpp` split leans on
-- `src/m2.hpp` (`parseVec3Array`/`parseCollisionMesh`), `src/cmd_export.cpp`
-  (collision-mesh block, ~lines 2109-2196), `src/gltf.hpp`
-  (`NamedMesh::isCollision` doc comment) — the direct precedent for "real,
-  non-render-primary geometry as a tagged glTF mesh," and the source of
-  this file's own "hidden by default" open question
+- `src/m2.hpp` (`parseVec3Array`/`parseCollisionMesh`),
+  `src/m2_canon_input.cpp` (`buildCollision`), `src/canon_collision.hpp` —
+  the direct precedent for "real, non-render-primary geometry as its own
+  resource"
 - `src/chunk.hpp` — chunk-tag reversal convention (M2 vs. WMO/ADT-family),
   `findChunk`'s single-match limitation relevant to `MDBH`/`MDBI`/`MDBF`
 - `../../DESIGN.md`'s Non-goals section (PM4/PD4 in-scope declaration,

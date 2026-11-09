@@ -11,8 +11,8 @@ the way.
 
 ## Built pure, not promoted
 
-There is a cheaper path available: rename `gltf::Skeleton` to `canon::Skeleton`,
-strip `auxGlbPath` and `geosetTags`, and call it done. **That path is rejected**,
+There was a cheaper path: rename the glTF pipeline's `gltf::Skeleton` to
+`canon::Skeleton`, strip its transport-only fields, and call it done. **That path was rejected**,
 and the reason is recorded here so a later session doesn't quietly re-argue it:
 
 > An interim shape becomes load-bearing faster than it gets replaced.
@@ -23,31 +23,33 @@ job is to be free of them: geosets as fake joints, extras on a heuristically
 located carrier bone, a physics joint view deliberately reduced because extras
 were the transport, gear keyed by slot because that's what one exporter needed.
 
-`canon::` is designed from the semantics. Today's structs migrate *onto* it.
+`canon::` is designed from the semantics. The glTF pipeline's structs were
+migrated onto it, and that pipeline is deleted.
 
 ## The three layers
 
 The Canonical Data Model doc's model, mapped onto data husk already parses —
 so this reads as a migration target, not a greenfield design.
 
-| Layer | Question | Real WoW data | Where it lives today |
+| Layer | Question | Real WoW data | Where it lives in the bundle |
 |---|---|---|---|
-| **Definition** | What exists and what is valid? | `ChrCustomizationOption`/`Choice`/`Category`, per-race valid option sets, `CharComponentTextureLayouts`, geoset group semantics, the animation catalogue | the `chr_customization_options` extras blob |
-| **Selection** | What did *this* instance choose? | race/sex, chosen choice IDs, equipped items, creature display | `--appearance`, `enabled_geosets`, `creature_enabled_geosets`, `gear_*` |
-| **Resources** | What things realize those choices? | mesh, skeleton, animation, material, physics, emitters, corrections, collision | `gltf::Skeleton` + `gltf::Mesh` + `gltf::Material` |
+| **Definition** | What exists and what is valid? | `ChrCustomizationOption`/`Choice`/`Category`, per-race valid option sets, `CharComponentTextureLayouts`, geoset group semantics, the animation catalogue | `definition` (customization, texture slots, items, ...) |
+| **Selection** | What did *this* instance choose? | race/sex, chosen choice IDs, equipped items, creature display | `selection.presets` |
+| **Resources** | What things realize those choices? | mesh, skeleton, animation, material, physics, emitters, corrections, collision | `resources` |
 
 The distinction is not cosmetic (Canonical Data Model §4): `NightElf.face[12]` and
 `Dwarf.face[12]` are different resources reached by the same index. A selection
-is only meaningful against the definition that scopes it. Today both live as
-sibling extras keys with nothing marking which is which (I5).
+is only meaningful against the definition that scopes it (I5); the glTF
+pipeline had both as sibling extras keys with nothing marking which was which.
 
 Definition is also not character-only. A creature's
 `CreatureDisplayInfoGeosetData` is the same definition+selection pair wearing
 different table names — one model, two sources.
 
-## What distinguishes this from today's shape
+## What distinguishes this from the glTF pipeline's shape
 
-Each item below is something the current tree structurally cannot express.
+Each item below is something the retired glTF pipeline structurally could
+not express.
 
 ### `canon::Ref` — the I6 carrier
 
@@ -59,13 +61,13 @@ struct Ref {
 };
 ```
 
-Every place husk emits a bare string name today emits a `Ref` instead —
+Every place husk would emit a bare string name emits a `Ref` instead —
 textures, materials, bones, animations, geosets, gear, customization choices.
 
 This matters because most naming in this project is *unreliable by
 construction*: it comes from the community listfile, or husk synthesizes it
-(`"bone_" + index`, `gltf_skeleton.cpp:136`). Right now a listfile guess and a
-DB2 fact arrive downstream as identical plain strings. A `Ref` makes the
+(`"bone_" + index`). As bare strings, a listfile guess and a DB2 fact would
+arrive downstream identical. A `Ref` makes the
 difference machine-readable, and keeps the real identity next to the pretty name
 so a consumer can always fall back to the ID it can trust.
 
@@ -75,45 +77,41 @@ kind of thing*.
 
 ### Geosets are first-class
 
-`canon::Mesh` submeshes carry their real geoset id/group/variant. This retires
-both current encodings at once: the fake tag joints
-(`Skeleton::GeosetTag`) and the per-primitive extras. Canonical Data Model §13 names
+`canon::Mesh` submeshes carry their real geoset id/group/variant. This retired
+both encodings the glTF pipeline used: fake tag joints and per-primitive
+extras. Canonical Data Model §13 names
 the fake-joint trick specifically as the thing a canonical model exists to
 eliminate.
 
 ### One curve representation
 
-Today TRS animation (`gltf::JointAnimation`) and material tint/fade/UV animation
-(`gltf::Material::AnimatedColorCurve` / `AnimatedScalarCurve` /
-`AnimatedQuatCurve`) are the same concept — sampled keyframes over a sequence or
-a global sequence — in incompatible shapes, because one became a glTF animation
-channel and the other became extras. Canon has one.
+TRS animation and material tint/fade/UV animation are the same concept —
+sampled keyframes over a sequence or a global sequence. The glTF pipeline had
+them in incompatible shapes (one a glTF animation channel, the other extras).
+Canon has one.
 
 ### Version-collapsed physics
 
 `PHYS v1..v5` decoders converge on one `canon::Physics` (Eventual Goals, "Treat
 WoW File Formats as Serialization Formats" / "Build Version-Agnostic Semantic
-Compilers"), carrying the **full** joint graph. `gltf::Skeleton::PhysicsJoint`
-deliberately drops frame matrices and shape geometry because glTF extras
-were the transport; that reduction is a writer decision and belongs in the
-writer.
+Compilers"), carrying the **full** joint graph. Any reduction (the glTF
+pipeline dropped frame matrices and shape geometry to fit extras) is a writer
+decision and belongs in the writer.
 
 ### Declarative population
 
-`export_extras.hpp:70-80` documents in prose that `attachCustomizationChoices`
-must run after `attachBoneCorrections`, because the former mutates entries the
-latter created. `exportOneModel` (`cmd_export.cpp:1038-1054`) is nine
-hand-sequenced `attach*` calls whose order is load-bearing and unenforced.
-
-That constraint exists only because there is no model in which to state the
-relationship. Canon states it — a correction set is *selected by* a choice —
+The glTF pipeline documented in prose that customization choices had to be
+attached after bone corrections, because the former mutated entries the latter
+created: nine hand-sequenced `attach*` calls whose order was load-bearing and
+unenforced. That constraint existed only because there was no model in which
+to state the relationship. Canon states it — a correction set is *selected by* a choice —
 and the ordering requirement disappears rather than being documented.
 
 ### Items by identity, not slot (I7)
 
-Today gear is slot-keyed everywhere: `GearSectionOverlay::slot`,
-`GearItem::slot`, and even the on-disk `aux_models/<slot>_<fdid>.glb` naming.
-A tunic whose hem is a leg-slot piece therefore has no representation at all.
+The glTF pipeline keyed gear by slot everywhere, down to its on-disk
+`aux_models/<slot>_<fdid>.glb` naming, so a tunic whose hem is a leg-slot
+piece had no representation at all.
 
 Canon inverts it:
 
@@ -123,9 +121,9 @@ Component = Geometry{...} | SectionOverlay{...}
 ```
 
 An item has an identity, occupies one *or more* slots, and contributes one or
-more components. The current `gearItems` (standalone geometry) versus
-`gearSectionOverlays` (texture overlay) split stops being two parallel top-level
-lists and becomes two component *kinds* of one item — which also means an item
+more components. The glTF pipeline's `gearItems` (standalone geometry) versus
+`gearSectionOverlays` (texture overlay) split stopped being two parallel
+top-level lists and became two component *kinds* of one item — which also means an item
 that is both is expressible.
 
 **Scope discipline**: implementing outfit-level loading is explicitly *not* part
@@ -190,7 +188,7 @@ M2-consuming neighbor (`M2MaterialInputs`, `TextureResolutions`,
 `assembleMaterial`) moving out. `canon_skeleton_builder.hpp` had no struct
 of its own to extract (`canon::Skeleton`/`Joint` already lived in
 `canon_skeleton.hpp`), so it was a straight namespace move. Every
-consumer (`m2_canon_input.cpp`, `cmd_export_canon.cpp`, `canon_diff.cpp`,
+consumer (`m2_canon_input.cpp`, `cmd_export_canon.cpp`,
 `writers/writer_common.hpp`, 5 convergence test files) updated; full
 suite green, 975/975, before and after. `canon_bone_naming.hpp`/`.cpp`
 stays in `husk::canon` unmoved -- confirmed it takes only `canon::Skeleton`
@@ -207,7 +205,7 @@ M2-specific behavior riding along, so the real severity was closer to
 `canon::Skeleton::Joint::globalPosition` (`m2::Vec3`) and
 `canon::VecCurve`/`QuatCurve` (`Curve<m2::Vec3>`/`Curve<m2::Quat>`,
 `canon_curve.hpp`) -- found while fixing `canon::Mesh`, since
-`writers::composeJointCurves`/`canon_diff.cpp` thread the same m2:: types
+`writers::composeJointCurves` threads the same m2:: types
 through every curve/position comparison downstream of those three structs.
 
 **Fixed**: new `canon_primitives.hpp` gives canon:: its own `Vec2`/`Vec3`/
@@ -221,32 +219,12 @@ input-module boundary: `m2_mesh_input.cpp` (a small `toCanon(m2::Vec3)`/
 `globalPosition` assignment), `m2_material_input.cpp`/
 `m2_animation_input.cpp` (their shared `toVecCurve`/`toQuatCurve` helpers,
 which already built the curve one field at a time). `canon_bone_naming.cpp`'s
-`positionsMirror` retyped to `canon::Vec3`. `canon_diff.cpp` and
+`positionsMirror` retyped to `canon::Vec3`.
 `writers/{writer_common,gltf_lean,bundle_writer}.cpp` all consume
-canon::'s own types now; `canon_diff.cpp` and `writers/gltf_lean.cpp` each
-already had (or gained) a small private `toGltf`/`toGltfScale`/`toGltfQuat`
-wrapping the same real, already-shared `gltf_math.hpp` axis-conversion
-functions `commands::toGltf` (export_transform.hpp, m2::-typed overloads
-only) itself wraps -- never a new overload added to that legacy file,
-consistent with this project's "never touch the legacy pipeline to share
-code with the canon-comparison path" rule. Full suite green, 975/975,
-before and after.
+canon::'s own types; `writers/gltf_lean.cpp` has a small private
+`toGltfPoint`/`toGltfScale`/`toGltfQuat` over `writers/gltf_math.hpp`'s
+axis conversion. Full suite green, 975/975, before and after.
 
-## Cost, measured rather than asserted
-
-"It touches all 680 tests" is the kind of number that gets a correct decision
-reversed, so here is the real one. Of 54 test files:
-
-- **39 never mention `gltf::` at all** — the entire `test_m2_*`, `test_db2*`,
-  `test_skin`, `test_skel`, `test_phys`, `test_bone`, `test_dbd`, `test_dump*`
-  parse tier. Untouched by this migration. If any of them *does* need editing,
-  that is the signal that stages 1 and 3 have leaked into each other.
-- **15 mention `gltf::`**, and most are `test_cli_*` asserting on process output,
-  which survives a writer swap.
-- The genuine writer-tier rewrite is **~8 files**: `test_gltf.cpp`,
-  `test_gltf_mesh.cpp`, `test_gltf_skeleton.cpp`, `test_gltf_math.cpp`,
-  `test_export_skeleton.cpp`, `test_conformance.cpp`,
-  `test_integration.cpp`, `test_integration_weapons.cpp`.
 
 ## Settled
 

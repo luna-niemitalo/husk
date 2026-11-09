@@ -195,11 +195,8 @@ examples, not just "doesn't crash."
   unverified-floor pattern); `src/chunk.hpp` (`readChunks`/`findChunk`,
   reused unmodified — WMO/ADT's byte-reversed chunk tags need only
   reversed-literal tag constants, no core-chunk-reader change, same as
-  `src/phys.cpp`'s own approach); `src/cmd_export.cpp` (collision-mesh
-  `NamedMesh`/`isCollision` block — the direct precedent for both `MLIQ`'s
-  and `MH2O`'s consumption plan above); `src/gltf.hpp`'s `NamedMesh`
-  struct (`isCollision` bool → the same shape a new `isLiquid` bool, or a
-  more general `extras`-only string-keyed tag, would take).
+  `src/phys.cpp`'s own approach). Liquids are written as bundle data
+  (`resources.geometry.liquids`, `resources.terrain`; `src/liquid_canon_input.*`).
 - **Real corpus counts, this session** (`/media/luna/data/wow_export`,
   read-only, scratch scripts in `/media/luna/work/cache/tmp/.../scratchpad/`,
   not committed): `MLIQ` 41/2,000 real WMO group files (2.1%); `MH2O`

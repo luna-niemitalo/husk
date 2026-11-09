@@ -11,15 +11,15 @@ still open. Where this file's own schema sketches would just repeat
 
 ## Why a native format at all
 
-glTF has been husk's only output, and paying its impedance has cost real
-structure: geosets shipped as fake skeleton joints, semantic data smuggled
-through `extras` onto a heuristically located carrier bone, a physics joint
-graph deliberately truncated to fit, and no schema version anywhere
-(`AUDIT.md` §3).
+glTF was husk's first output, and paying its impedance cost real structure:
+geosets shipped as fake skeleton joints, semantic data smuggled through
+`extras` onto a heuristically located carrier bone, a physics joint graph
+deliberately truncated to fit, and no schema version anywhere (`AUDIT.md`
+§3). That pipeline is deleted.
 
 Per Canonical Data Model §13, glTF is a *projection* of the recovered semantics, not
-the semantics. The bundle is what the canonical model actually writes; glTF stays
-as an optional exporter that may omit what it cannot express.
+the semantics. The bundle is what the canonical model actually writes; glTF is
+`export --glb`'s optional lean projection, which omits what it cannot express.
 
 ## Shape
 
@@ -64,9 +64,9 @@ anywhere else. Every path in it is relative to the manifest. There is no
 "textures directory" parameter, no environment variable, no sibling-directory
 convention to know, and no reason to invoke husk.
 
-The existing `GearItem::auxGlbPath` (`cmd_export.cpp:695-705`) already works
-exactly this way and is the precedent being generalized — husk resolves once, at
-write time, and bakes in a relative path.
+An `--appearance` item's model bundle (`items/<fdid>.bundle/`, in
+`references`) works exactly this way — husk resolves once, at write time, and
+bakes in a relative path.
 
 ## Physical storage shape — settled 2026-09-03
 
@@ -155,9 +155,8 @@ reading `"scalpupperhair00_08"` must be able to tell whether that came from the
 model's own bytes, a DB2 row, or a community guess that may simply be wrong.
 
 This applies uniformly: textures, aux item bundles, animations, customization
-choices, materials, geosets — **and bone names**. Physics bodies, emitter
-anchors, correction sets and gear entries all carry bone names today
-(`gltf_skeleton.cpp:266,309,331`), and every one of those names is
+choices, materials, geosets — **and bone names**. Physics bodies, emitters,
+correction sets and attachments name joints, and every joint name is
 husk-synthesized or contextual, never authoritative. The raw joint index stays
 alongside for exactly that reason.
 
@@ -423,8 +422,8 @@ Values the source names but husk can't place in an option go in the
 preset's `unresolved`.
 
 M2 creatures fill both from `CreatureModelData` → `CreatureDisplayInfo`
-(`src/creature_options_input.cpp`, `export --bundle-only` and
-`export-world` with `--db2-dir`/`--dbd-dir`). A humanoid NPC (a display
+(`src/creature_options_input.cpp`, `export` and `export-world` with
+`--db2-dir`/`--dbd-dir`). A humanoid NPC (a display
 of a character model) is a preset too: its baked skin is an option of
 the lowest-type slot (`skin`). A character model's
 `definition.customization` lists its options and choices (with each
@@ -479,8 +478,6 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
 
 ### Items, physics and bone corrections (2026-11-09, schema 0.3.0)
 
-Moved here from the legacy glTF extras, same data:
-
 - **Items.** `definition.items[]` is `{ref, models?, textures?, overlays?}`.
   `export --appearance` adds one preset: its customization choices and
   its gear, each gear entry an `ItemModifiedAppearance` item that carries
@@ -505,29 +502,46 @@ Moved here from the legacy glTF extras, same data:
   choice names its set as `correction_set`. How a correction applies is
   unknown (TODO/BONE_CORRECTION_APPLICATION_TODO.md).
 
+### Clips, material tracks, texture identity (schema 0.3.0)
+
+- **Clips.** A sequence clip carries `animation` (its AnimationData row,
+  named when the table has a `Name` column; current clients don't),
+  `variation`, `duration`, `move_speed`, `frequency`, `blend_in`/
+  `blend_out`, and the raw `source{flags, variation_next}`
+  (`variation_next` −1 = last variation). `M2Sequence` bounds and replay
+  range are not written.
+- **Material tracks.** Layer `tint`/`alpha_fade` and `uv_maps[].transform`:
+  a constant tint, alpha, texture weight or UV transform is a one-key
+  `step` curve; identity values stay absent; a constant weight of 0 is
+  kept (the batch never draws). A track a global sequence drives is that
+  global loop (`sequence_kind: global_sequence`).
+- **Texture identity.** A `known_unresolved` entry keeps the FileDataID it
+  was looked for under (what a consumer would fetch). A resolved entry's
+  FileDataID is the file the bytes are (the DB2 character tier answers a
+  slot with no FileDataID of its own with the file the DB2 names); a file
+  found by its FileDataID-named file takes the listfile's name
+  (`name_source: listfile`) when the listfile knows it.
+- **Option category.** `definition.customization` options' `category` is
+  optional: absent when the option has none (`CategoryID` 0), never a
+  reference to row 0.
+
 ## Embed or reference — one rule
 
 A payload is either external (`uri`, a relative path) or inline. Either way the
 consumer only reads the manifest, so it never has to care which.
 
-This generalizes two features that are currently separate special cases:
-`--slim-textures` (write textures beside the `.glb` instead of embedding) and
-`aux_models/` (write gear item models beside it). Same rule, stated once.
+Texture payloads beside the manifest and item model bundles under `items/`
+are both this rule; nothing else special-cases it.
 
 ## glTF's demoted role
 
-`husk export --format glb` stays, and stays valuable:
-
-- the Khronos validator and `tests/test_conformance.cpp` are real regression
-  value that a new format does not have on day one;
-- `tools/live_gallery`'s three.js viewer consumes it;
-- it remains the interchange format for anyone outside this project.
-
-What changes is its authority. It is explicitly **not** the schema of record. It
-may omit what it cannot express, encode things in `extras`, or refuse a feature
-outright — and the canonical model does not bend to accommodate it. In
-particular, the fake geoset joints exist to serve glTF and should not survive
-into the bundle.
+`husk export --glb <path>` writes a lean glTF projection of the model
+(`src/writers/gltf_lean.*`): mesh, skin, animation, base-colour materials.
+It stays because the Khronos validator and Blender's importer check it in
+`tests/test_conformance.cpp`, and it is the interchange format for anyone
+outside this project. It is **not** the schema of record: it omits what it
+cannot express (options, presets, effects, physics, correction sets), never
+encodes it in `extras`, and the canonical model does not bend to it.
 
 ## Bundles reference other bundles
 
@@ -543,7 +557,7 @@ reference is an ordinary `Ref` whose `uri` points at another manifest:
   "id":   { "kind": "file_data_id", "value": 370361 },
   "name": "sword_1h_artifactfelomelorn_d_01",
   "name_source": "listfile",
-  "uri":  "aux/mainhand_370361/manifest.json" }
+  "uri":  "items/370361.bundle/manifest.json" }
 ```
 
 **This isn't specific to whole models.** "Embed or reference — one rule" above
@@ -576,8 +590,7 @@ restated for the referencing case:
 Two consequences worth writing into the schema:
 
 - **A reference may be unresolved.** husk cannot always find an item's real
-  model (no listfile, file not extracted locally) — today that surfaces as an
-  empty `auxGlbPath` and a `note:` on stderr. Keep that: a reference with an
+  model (no listfile, file not extracted locally). A reference with an
   `id` but no `uri` is a real, readable state meaning *"this exists, husk knows
   what it is, husk could not produce it"*. That is strictly more useful than
   omitting the entry, and it is I6 doing its job.
@@ -587,7 +600,7 @@ Two consequences worth writing into the schema:
 
 ## Left to implementation judgment
 
-Whether `aux/` nests fully self-contained bundles or shares the parent's
+Whether `items/` nests fully self-contained bundles or shares the parent's
 `textures/` is a call to make while building, not to pre-decide here. The
 tradeoff, recorded so it is not re-derived from scratch: nesting is simpler to
 reason about and makes each referenced bundle independently openable; sharing
@@ -698,7 +711,7 @@ The blocks are the actual artifact; a PNG is an interpretation of them.
   reads that off the manifest and never guesses from a file extension.
 - **The Blender addon needs no BLP decoder, and I3 stays intact.** husk writes
   the PNG variant at export time *because the target was Blender*, which is the
-  same "resolve once, bake the answer in" move `GearItem::auxGlbPath` already
+  same "resolve once, bake the answer in" move an item model bundle's `uri`
   makes. The addon does not shell out to husk and does not go looking; it opens
   what the manifest names. (It could open the DDS directly — Blender reads DDS —
   but being *told* which payload to use is the point, not being able to guess.)

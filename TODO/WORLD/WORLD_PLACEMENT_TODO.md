@@ -264,10 +264,10 @@ not done` -- same placement-node shape as `MDDF`, one level down in scope
 `MWDR`/`MWDS` indirection and the "always-include-set-0" rule are both real,
 non-optional pieces of correct resolution, not edge cases to defer.
 
-**Decision, confirmed by Luna 2026-08-01**: export every doodad set as
-separate, individually-toggleable glTF nodes (mirroring `--lod all`'s own
-"every tier as its own node" precedent, `gltf::writeGlbMulti`'s existing
-doc comment) rather than baking in one fixed selection -- the same
+**Decision, confirmed by Luna 2026-08-01** (built as placement sets,
+`REFACTOR/PLACEMENT_SETS.md`; the glTF-node form is moot): export every
+doodad set as separately toggleable rather than baking in one fixed
+selection -- the same
 "which variant" answer M2's own geoset selection already uses
 (`../../M2_COMPLETENESS.md`'s Core geometry row, `skinSectionId` extras): no
 external DB2/customization data to ground a "correct" choice in, so export
@@ -405,7 +405,7 @@ unresolved questions, none decided here:
    and just wire up node references? The former is more convenient but a
    much bigger scope increase (world assembly becomes a superset of every
    other husk feature, always in scope); the latter is more composable
-   with `export`'s own existing per-model flags (`--lod`, `--bones-dir`,
+   with `export`'s own existing per-model flags (`--bones-dir`,
    etc.) but pushes a real burden onto the user to pre-export everything
    correctly.
 3. **What granularity is "a scene"?** One ADT tile? A full 64x64 map (up to
@@ -415,11 +415,9 @@ unresolved questions, none decided here:
    tiles exist to even consider" -- this document's own placement-
    resolution logic is agnostic to that question, but the CLI surface
    built on top of it is not.
-4. **Instancing**: does one glTF scene get one node per placement (the
-   straightforward, `gltf::writeGlbMulti`-precedented shape -- many nodes,
-   each referencing a shared mesh/skin via glTF's own instancing-by-
-   reference, which is already how `writeGlbMulti` structures multiple LOD
-   tiers of one M2 sharing one skeleton) or does real-world placement
+4. **Instancing**: does one glTF scene get one node per placement (many
+   nodes, each referencing a shared mesh/skin via glTF's own
+   instancing-by-reference) or does real-world placement
    density (a torghast-style WMO alone has 181 internal doodad instances;
    a single ADT tile can have 739+ `MDDF` placements per this session's own
    real sample) call for `EXT_mesh_gpu_instancing` or a similar batching
@@ -493,9 +491,7 @@ cleanly this session):
   WMOExporter.js` (`doodadSetMask` handling, lines 49, 360-400, 520-545).
 - **husk `src/`**: `src/phys.hpp`/`phys.cpp` (data-model idiom), `src/
   chunk.hpp`/`chunk.cpp` (reused directly, same reversed-tag convention as
-  `WMO_GEOMETRY_TODO.md`), `src/gltf.hpp`'s `writeGlbMulti` (existing
-  multi-node/shared-skeleton scene-assembly precedent, directly relevant to
-  the CLI-surface design question above).
+  `WMO_GEOMETRY_TODO.md`).
 - **Real corpus** (`/media/luna/data/wow_export`, read-only): exact paths/
   counts cited inline. Community listfile
   (`/media/luna/work/tinker/dev/wow_modding/m2mod/mappings/listfile.csv`,

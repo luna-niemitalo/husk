@@ -637,10 +637,9 @@ flagged for a real follow-up rather than guessed at.
   `MCAL`'s shared alpha-map-fixup framing). No `HUSK_AMENDMENTS.md` entry
   for any WMO/ADT page exists yet (expected — nothing WMO/ADT-side
   implemented before this session's sibling investigations).
-- **husk `src/`**: `src/m2.hpp`/`gltf.hpp` (`EmitterAnchor`, the
-  id/bone/position minimal-anchor pattern `MCSE`'s own recommendation
-  mirrors directly); no ADT/WMO parsing code exists yet to reuse beyond
-  this pattern.
+- **husk `src/`**: the M2 emitters' bone-anchored placeholder effects
+  (`src/m2_scene_input.cpp`, `REFACTOR/EFFECTS.md`), the precedent
+  `MCSE`'s own recommendation mirrors.
 - **`../../M2_COMPLETENESS.md`**: Interaction points & effects section (the
   ribbon/particle `extras` precedent `MCSE` reuses).
 - **`COLLISION_CULLING_TODO.md`** (sibling document, same session): the

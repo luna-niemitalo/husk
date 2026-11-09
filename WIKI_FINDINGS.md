@@ -47,20 +47,20 @@ touched and why. The files below remain the tracked, canonical record.
 | Finding | Code | Tests |
 |---|---|---|
 | `M2Sequence` = 0x40 bytes | `src/m2.hpp`/`m2.cpp` (`Sequence`, `parseSequences`) | `tests/test_m2.cpp` |
-| `AFSB` real resolution | `src/cmd_export.cpp` (`buildAnimations`'s external-file branch), `src/m2.cpp` (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`/`trackSequenceInnerArrays`) | `tests/test_cli.cpp`, `tests/test_integration.cpp` |
+| `AFSB` real resolution | `src/cmd_export_canon.cpp` (`resolveExternalAnimBlobForCanon`), `src/m2.cpp` (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`/`trackSequenceInnerArrays`) | `tests/test_cli.cpp`, `tests/test_integration.cpp` |
 | `.skel` `SKS1` indexing + own `AFID` | `src/skel.hpp`/`skel.cpp` (`parseSequences`, `boneTrackBlob`, `findAnimFileIds`) | `tests/test_skel.cpp`, `tests/test_cli.cpp` |
 | `.bone` format | `src/bone.hpp`/`bone.cpp` | `tests/test_bone.cpp` |
 | `bounding_box` containment | `src/cmd_export.cpp`, `tests/test_conformance.cpp` (`transformedM2BoundingBox`) | `tests/test_conformance.cpp` |
-| `M2Particle` offsets + `FBlock` timestamps | `src/m2.hpp`/`m2.cpp` (`ParticleEmitter`, `parseParticles`, resolvers), `src/cmd_dump.cpp`, `src/cmd_export.cpp`/`gltf.hpp`/`gltf.cpp` (`EmitterAnchor`) | `tests/test_m2.cpp`, `tests/test_dump.cpp`, `tests/test_gltf.cpp`, `tests/test_integration.cpp` |
-| Multi-texture-layer arithmetic | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`) |
+| `M2Particle` offsets + `FBlock` timestamps | `src/m2.hpp`/`m2.cpp` (`ParticleEmitter`, `parseParticles`, resolvers), `src/cmd_dump.cpp`, `src/m2_scene_input.cpp` (bundle effects) | `tests/test_m2.cpp`, `tests/test_dump.cpp`, `tests/test_m2_scene_input.cpp`, `tests/test_integration.cpp` |
+| Multi-texture-layer arithmetic | `src/m2_material_input.cpp` (`assembleMaterial`) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`) |
 | `WFV3` 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
-| `.phys` full parser | `src/phys.hpp`/`phys.cpp`, `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` |
+| `.phys` full parser | `src/phys.hpp`/`phys.cpp`, `src/m2_sidecar_input.cpp` (`loadPhysics`), `src/writers/bundle_physics.cpp`, `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` | `tests/test_phys.cpp`, `tests/test_cli_phys.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` |
 | `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` | `src/cmd_dump.cpp` (`dumpWfv1`/`dumpWfv2`/`dumpDpiv`/`dumpAfra`/`dumpPcol`) | `tools/find_m2_unknown_chunks.py`, `tests/test_dump.cpp` |
 | `DETL` stride + padding; `flags` is the one live field, rest are dead constants | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`, doc comment only for the `flags` finding) | `tools/check_detl_stride.py`, `tests/test_dump.cpp` |
-| `aliasNext` chain resolution | `src/m2.hpp`/`m2.cpp` (`Sequence`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`SequenceMetadata`) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
+| `aliasNext` chain resolution | `src/m2.hpp`/`m2.cpp` (`Sequence`), `src/m2_canon_input.cpp` (`resolveAliasChain`) | `tests/test_m2.cpp`, `tests/test_m2_canon_input.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | `EXP2`/`PFDC`/`BLP2` | `src/m2.hpp` (`ExtendedParticle`), `src/cmd_dump.cpp`, `DESIGN.md` Non-goals | `tests/test_dump.cpp`, `tests/test_integration.cpp` |
-| Client-shader formulas (combiners, WMO, terrain, screen effects) | read from `tools/export_shaders.py`'s export; partial consumer `tools/corpus_scan_tasks/render_glb.py` (`_pixel_shader_formula_table`) | none (bytecode-read; history §19, §20) |
-| `global_flags`/`textureCombinerCombos`/`resolveSkin` | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp`, `src/cmd_export.cpp` (`resolveSkin`) | `tests/test_cli.cpp`, `blp/tests/test_decode.py` |
+| Client-shader formulas (combiners, WMO, terrain, screen effects) | read from `tools/export_shaders.py`'s export; carried as technique documents (`techniques/m2_pixel_shader/`) | none (bytecode-read; history §19, §20) |
+| `global_flags`/`textureCombinerCombos`/`resolveSkin` | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp`, `src/skin_resolution.cpp` (`resolveSkin`) | `tests/test_cli.cpp`, `blp/tests/test_decode.py` |
 | BLS/GFAT container layout | `tools/export_shaders.py` (not husk itself) | the tool's own boundary checks, run over the full corpus |
 | ADT layout corrections and conventions (`MCNR` order, hole maps, `MDDF` transform, `MH2O` layouts, alpha maps, `MTEX`/name tables) | `src/adt.hpp`/`adt.cpp`, `src/adt_canon_input.cpp` | `tests/test_adt.cpp`, `tests/test_adt_canon_input.cpp`, `tests/test_cli_export_terrain.cpp` |
 | WMO/WDT/WDL/PM4/PD4 investigation | none yet — planning-stage only | none yet — see the `*_TODO.md` files named in `WIKI_FINDINGS/WORLD.md` |

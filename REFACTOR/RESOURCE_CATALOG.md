@@ -85,8 +85,8 @@ work — not part of this pass, which was scoped to the texture half only.
 
 Verified via a resolution-ledger diff on real fixtures rather than by reading
 `describe()`'s own output: `bloodelffemale_hd`, `nightelffemale_hd` (a real
-218-candidate ambiguous pool), a creature (`wolf.m2`, incl. `--lod all`'s
-2-tier case), an item (`sword_1h_artifactskywall_d_06.m2`, 13 real fuzzy/
+218-candidate ambiguous pool), a creature (`wolf.m2`, both LOD
+tiers), an item (`sword_1h_artifactskywall_d_06.m2`, 13 real fuzzy/
 ambiguous matches), and a `--knowledge-db`-driven item exercising
 `registerPathOverride` end to end — every export byte-identical before vs.
 after this object existed. Zero delta, honestly: the four tiers already
@@ -104,7 +104,7 @@ failure; today that requirement is met unevenly, per call site.
 ## Normative tier order
 
 This document is the source of truth for the texture tiers.
-`export_texture_resolution.cpp` becomes an *implementation* of what is written
+`src/sources/texture_resolution.cpp` is an *implementation* of what is written
 here, rather than the place the rules are discovered by reading code.
 
 1. **Literal** — `<texturesDir>/<FileDataID>.png`, then `.blp`. PNG wins when
@@ -123,9 +123,9 @@ here, rather than the place the rules are discovered by reading code.
 Two things the current implementations disagree about, to be settled explicitly
 rather than inherited:
 
-- **Parent-directory search.** Only the Blender script does it
-  (`husk_blender_geoset_mask.py:1575-1596`), because real per-race customization
-  assets live one level above the per-sex model folder. This is a real corpus
+- **Parent-directory search.** Nothing does it now (the deleted Blender
+  script did), though real per-race customization assets live one level
+  above the per-sex model folder. This is a real corpus
   fact, so it belongs in the catalog — as a named tier, not as one consumer's
   private extension.
 - **Ordering among ambiguous candidates.** `orderCandidatesForDefault` uses four
@@ -229,7 +229,7 @@ Applied to all 18 modules under `tools/corpus_scan_tasks/` (15 scan tasks plus
 | `texture_dedup_collision_task.py` | **Done, 2026-08-29.** Candidate FileDataIDs and resolved bytes both come from `husk resolve --textures-out` now. Its per-batch `textureCount > 1` gate and same-basename `.skin` sidecar lookup stay raw, deliberately (see its own docstring) — neither is texture *resolution*, and the ledger has no per-batch field for the former. **Real, deliberate narrowing found along the way**: the pre-conversion version sourced candidate FileDataIDs from every M2Texture record `husk info` showed a FileDataID for, regardless of whether any batch actually references it; `husk resolve`'s ledger only reports slots a real batch uses — *more* correct for this task's own motivating bug (an unreferenced texture can't be embedded, so it can't hit the Blender-Image-merge collision this task exists to quantify). See `REFACTOR_LOG.md`'s delta table for the real corpus numbers this changed. |
 | `texture_type_collisions_task.py` | **Re-checked, does not fit this verdict.** Read closely rather than assumed: `find_texture_type_collisions.py` (this task's own backing implementation) does no texture-*file* resolution at all — it compares two purely M2/`.skin`-internal facts (the raw `textureLookup` reverse-pick array vs. a batch's own `textureCombos`-resolved texture index), neither of which `husk resolve`'s ledger carries. Its own docstring already frames it as a deliberate, husk-independent "second opinion" on husk's own M2 parsing — the same considered-exception shape `shader_id_task.py`/`shader_names_task.py` already have below. Left unconverted; not a texture-resolution duplication to begin with, so this was a wrong verdict, not an unclosed one. |
 | `m2_full_validation_task.py` | **Catalog.** Drives a real export already. |
-| `animated_texture_effects_task.py` | **Re-checked, still raw for now.** This verdict presupposed a structured field that doesn't exist: `husk info --json`'s schema has no `colors`/`textureWeights` arrays at all, and `texture_transforms` is count/offset only, no per-record animated-vs-constant determination — husk resolves this internally (`resolveAnimatedColorCurve`/`resolveAnimatedFixed16Curve`, `src/export_materials.cpp`) but exposes none of it. Same considered-exception shape as `shader_id_task.py` below; its own docstring now says so explicitly. Not converted — blocked on new C++ work, out of scope for a tools/-only pass. |
+| `animated_texture_effects_task.py` | **Re-checked, still raw for now.** This verdict presupposed a structured field that doesn't exist: `husk info --json`'s schema has no `colors`/`textureWeights` arrays at all, and `texture_transforms` is count/offset only, no per-record animated-vs-constant determination — husk resolves this internally (`src/m2_material_input.cpp`, into the bundle's material curves) but `husk info --json` exposes none of it. Same considered-exception shape as `shader_id_task.py` below; its own docstring now says so explicitly. Not converted — blocked on new C++ work, out of scope for a tools/-only pass. |
 | `expansion_task.py` | **Done.** Converted to `husk info --json`'s `format`/`version`/`expansion`/`record_stride_version_verified` fields — no longer a hand-transcribed second copy of `expansionForVersion`'s table. |
 | `particle_only_task.py` | **Done.** Converted to `husk info --json`'s `vertices.count`/`materials[].blend_mode`/`particle_emitters.count`. |
 | `detect_billboards.py` | **Done.** Converted to `husk info --json`'s `bones.count`/`bones.billboard_bones[]`; also picked up `corpus_scan_framework.HUSK_BIN` for free (was hardcoding an absolute build path). |
@@ -239,8 +239,7 @@ Applied to all 18 modules under `tools/corpus_scan_tasks/` (15 scan tasks plus
 | `shader_id_task.py` | **Re-checked, still raw for now.** Its stale docstring (said husk parses no `shader_id`) is fixed. Reclassifying to structured output turned out premature: husk parses `shaderId`/resolves its name internally (`skin.hpp`/`m2_shader_names.hpp`) but neither `husk info` nor `dump-chunks` exposes either anywhere yet — no structured output exists to consume. Docstring now states this explicitly (the excavation-escape-hatch rule this section itself sets), so the raw read is a considered exception, not an unconverted leftover; revisit once `CLI_AND_TOOLING.md` §3's `husk info --json`/`husk resolve` lands. |
 | `shader_names_task.py` | Same underlying fact (`m2_shader_names.hpp` resolves these internally, nothing structured to consume yet) — but its own docstring already said so before this pass; no fix needed. |
 | `missing_texture_task.py` | **Done.** Deleted — was superseded by `unfillable_texture_task.py` by its own admission; every reference to it elsewhere (`CORPUS_SCANS.md`, `TOOLS.md`, sibling task comments) repointed or historicized. |
-| `build_render_sample.py` / `render_sample_driver.py` | Drivers, not scan tasks — their `CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE` copies are `CLI_AND_TOOLING.md` §4's problem, not this file's. |
-| `render_glb.py` | Neither — a headless Blender render script. Becomes an addon-driven preview, see `BLENDER_ADDON.md`. |
+| `build_render_sample.py` | A sample builder, not a scan task — its `CORPUS_ROOT` copy is `CLI_AND_TOOLING.md` §4's problem, not this file's. |
 
 **The "Catalog" verdicts' own prerequisite is now built**, and three of the
 four tasks it named are now actually converted onto it (the fourth,
@@ -334,12 +333,12 @@ The resolved path travels as **provenance on `Resolved<T>`**, not as a second
 `texturePath()` surface. A parallel locating API would immediately need its own
 tier order to answer "which path", and two tier orders for one question is the
 original I2 violation reappearing under a new name. A caller that needs the path
-(`--slim-textures` writing a file, a diagnostic naming what it read) reads it off
+(writing a texture file beside the manifest, a diagnostic naming what it read) reads it off
 the same answer that produced the bytes.
 
 `modelPath(fdid)` stays a separate surface, and is not an exception to that: a
 model path is handed onward to another pipeline as a *baked relative reference*
-(`GearItem::auxGlbPath`, I3's precedent), never opened by the catalog itself.
+(an item model bundle's `uri`, I3's precedent), never opened by the catalog itself.
 
 ### `--listfile-root` keeps defaulting to `--textures`
 
@@ -382,7 +381,7 @@ Ambiguity *is* provenance, which is what I4 already says `Resolved<T>` carries �
 "2+ type-compatible candidates matched, `orderCandidatesForDefault` picked this
 one" is the same kind of statement as "tier 2 fired from this root". The
 ambiguous branch already produces a single chosen default
-(`alternateTextureCandidates.front()`, `export_materials.cpp`), so it is not a
+(`orderCandidatesForDefault`'s first), so it is not a
 disjoint success shape: it is a hit that knows it was a coin toss.
 `std::variant<T, AmbiguousCandidates>` would instead force every caller of every
 catalog surface to handle a case exactly one tier can ever produce — a generic
@@ -399,9 +398,9 @@ behavior change), and the exactly-one/zero/2-or-more split becomes one
 The narrow wrap (`resolveClaimedFuzzyPoolTextureBytes`, read step only) that
 was the correct interim before this landed is now absorbed — its own
 Resolved<T>-reporting logic lives inline in `Catalog::resolveFuzzyTier`
-instead, and `export_materials.cpp` no longer calls it or
+instead, and nothing outside the catalog calls
 `claimSoleFuzzyTextureCandidate`/`filterCandidatesForType`/
-`orderCandidatesForDefault` directly at all.
+`orderCandidatesForDefault` directly.
 
 ## Where the two unordered tiers sit
 
@@ -411,8 +410,8 @@ migration is not the place that discovers it has to decide:
 
 4. **Parent-directory same-basename** — after tier 3, because it searches a
    strictly broader pool than the model's own directory, and a more specific
-   match must never lose to a less specific one. A real corpus fact today living
-   as one consumer's private extension (`husk_blender_geoset_mask.py`).
+   match must never lose to a less specific one. A real corpus fact; no
+   consumer implements it since the Blender script that did was deleted.
 5. **Knowledge base** — last, and only when `--knowledge-db` is given. It is
    documented known-wrong (`TODO/TEXTURE_POOL_RECALL_TODO.md`), so nothing able to
    answer from real data should ever lose to it.

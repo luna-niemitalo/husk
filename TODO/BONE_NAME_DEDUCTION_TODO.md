@@ -10,19 +10,22 @@ pipeline ships.
 
 ## Background
 
-`husk export`'s glTF joint names come from a priority chain
-(`src/export_skeleton.cpp`, `buildSkeleton` + `applyContextualBoneNames`):
+Bundle joint names today: `m2::keyBoneName` where the bone has a key-bone
+id, plus a structural label for every bone (`src/canon_bone_naming.*`,
+`REFACTOR/CANON_DESIGN.md` "bone naming"). The retired glTF pipeline had a
+longer chain; its attachment, event and tier-1 tiers below were deleted
+with it and are **not** in canon's naming (re-adding them is open):
 
-- **Tier 0** (implemented): `m2::Bone::keyBoneId` → a real Blizzard name via
+- **Tier 0** (in canon): `m2::Bone::keyBoneId` → a real Blizzard name via
   `m2::keyBoneName` (wowdev.wiki's 193-row Key Bone Lookup table). Real data,
   used as-is.
-- **Attachment tier** (implemented): a bone with an `M2Attachment` pointing
+- **Attachment tier** (retired with the glTF pipeline): a bone with an `M2Attachment` pointing
   at it gets named via `m2::attachmentTypeName` (wowdev.wiki's 61-entry
   Attachment Lookup table — Shield, HandRight, Helm, Head, Chest, Breath,
   etc.) — same authority level as tier 0, just a different real per-file
   source. Verified against the real `bloodelffemale.m2` fixture: attachment
   IDs there map to bones 51-90, all previously bare `bone_<index>`.
-- **Event tier** (implemented, weaker signal): a bone with an `M2Event`
+- **Event tier** (retired with the glTF pipeline; weaker signal): a bone with an `M2Event`
   pointing at it and no attachment name gets named via `m2::eventName`
   (wowdev.wiki's "Possible Events" table, ~65 documented codes). Weaker
   than the attachment tier because the source table itself has real
@@ -30,7 +33,7 @@ pipeline ships.
   `DEST`/`POIN`/`WHEE`/`BOTT`/`TOP` oddities — the wiki's own "purpose
   unknown"), left unnamed rather than guessed at. Verified against the real
   `bloodelffemale.m2` fixture: event codes there map to bones 91-118.
-- **Tier 1** (implemented, `deduceBoneNamesByTopology`): for a bone with no
+- **Tier 1** (retired with the glTF pipeline, was `deduceBoneNamesByTopology`): for a bone with no
   name from any tier above, borrow one only in the narrow, unambiguous case
   of a simple (non-branching) run of unnamed bones directly between one
   already-named ancestor and one already-named descendant — e.g. an unnamed
@@ -42,7 +45,7 @@ pipeline ships.
   derived names as landmarks too, not just tier-0 ones.
 - **Tier 2** (this file, not started): a bone none of the above reached —
   no attachment, no event, and either a branch point or no named landmark
-  nearby for tier 1 — falls through to a plain `bone_<index>` today. Real
+  nearby for tier 1 — has only its structural label. Real
   anatomical names (elbow, knee, spine segments, finger bones, ...) are
   only reachable at all by comparing this model's skeleton against a
   *reference* skeleton that has them.

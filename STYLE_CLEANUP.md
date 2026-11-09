@@ -30,10 +30,8 @@ once it was down to one item), causing real confusion about which file a
 3. **Finish the `// TODO: Remove` sweep.** Each marker is history
    narrative: delete it, keep any why/hazard, move a fact found nowhere
    else into WIKI_FINDINGS/DESIGN.md (`git grep -n "TODO: Remove" -- src
-   tests`). Remaining only in the legacy glTF path, which is being deleted:
-   `cmd_dump.cpp`, `cmd_info.cpp`, `gltf*`, `test_conformance.cpp`,
-   `test_gltf_math.cpp`, `test_integration.cpp`; dated narrative in
-   `canon_diff.hpp`. Whatever survives the deletion gets swept.
+   tests`). Remaining: `cmd_dump.cpp` (1), `cmd_info.cpp` (3),
+   `tests/test_gltf_math.cpp` (3).
 
 4. **Foreign-data boundary gaps (FOREIGN_DATA.md), found in the 2026-11
    contract pass, each larger than a local fix:**

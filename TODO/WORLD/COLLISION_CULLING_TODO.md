@@ -40,16 +40,12 @@ near-identical once you get past the file-format skin:
   (`src/m2.hpp`/`m2.cpp`) from three header `Array` descriptors —
   `collisionPositions` (a flat `C3Vector` array), `collisionIndices` (a flat
   `uint16_t` array, 3 per triangle), `collisionFaceNormals` (one `C3Vector`
-  per triangle, not per vertex). `src/cmd_export.cpp`'s export-time block
-  (see "Where this lives in husk today" below) then: validates every index
-  is in range for the position array: validates `indices.size() % 3 == 0`;
-  averages adjacent face normals into approximate per-vertex normals (since
-  the source is per-triangle, not per-vertex); builds one more
-  `gltf::NamedMesh`, **unskinned** (a collision mesh doesn't deform with the
-  armature), tagged `isCollision` so `writeGlbMulti` marks the resulting
-  node `{"collision": true}` in glTF `extras` — present in the file as real,
-  native geometry, but a renderer/Blender script has to specifically look
-  for the tag to know not to draw it as a regular mesh.
+  per triangle, not per vertex). `buildCollision` (`src/m2_canon_input.cpp`,
+  see "Where this lives in husk today" below) then validates every index
+  is in range for the position array, `indices.size() % 3 == 0` and one
+  normal per triangle, and writes it as the bundle's
+  `resources.geometry.collision` (own positions, indices, per-triangle
+  normals; static, no skinning).
 - WMO's collision mesh is **the same shape, one indirection further removed**:
   `MOBN` is an array of `CAaBspNode` (a BSP tree, 16 bytes/node: `flags`
   encoding axis-or-leaf, `negChild`/`posChild` indices into the same `MOBN`
@@ -65,22 +61,14 @@ near-identical once you get past the file-format skin:
 
   Once that one extra hop through `MOVI` is added, the actual "gather a
   triangle-soup mesh from BSP leaf faces" logic is functionally the same
-  problem `parseCollisionMesh`/the `cmd_export.cpp` collision block already
-  solved: dereference a flat index array, validate every derived vertex
-  index is in range, build one unskinned `gltf::NamedMesh` tagged
-  `isCollision`. A future implementer should structure this as
-  `wmo::parseBspCollisionMesh(groupFile) -> CollisionMesh` returning the
-  exact same `{positions, indices, faceNormals}` shape `m2::CollisionMesh`
-  already uses (faceNormals can be synthesized the same "average adjacent
-  face normals" way `cmd_export.cpp` already does for M2, since MOBN/MOBR
-  carries no separate normal data at all — there isn't even a face-normal
-  field to skip, unlike M2), then hand it to the **same**
-  `gltf::NamedMesh`/`isCollision`/`writeGlbMulti` machinery that already
-  exists, completely unmodified. No new glTF-side code, no new `extras`
-  key, no new validator/Blender-probe pattern — only a new WMO-side
-  `parseBspCollisionMesh` function and a new call site in whatever
-  `cmd_export.cpp`-equivalent WMO export path exists by the time this is
-  implemented.
+  problem `parseCollisionMesh`/`buildCollision` already solved:
+  dereference a flat index array, validate every derived vertex index is
+  in range. Today a WMO's collision is selected by its face-flag channel
+  (`canon_collision.hpp`: "A WMO has none: its faces carry their collision
+  flags as a Mesh attribute"); the BSP itself is not read. If the BSP is
+  ever wanted, `wmo::parseBspCollisionMesh(groupFile)` returning the same
+  `{positions, indices}` shape (MOBN/MOBR carries no normal data) is the
+  natural form, written through the existing `canon::CollisionMesh`.
 
 - **The bounds-checking discipline transfers directly from `.phys`, not
   just M2.** `src/phys.hpp`'s own doc comment states the invariant
@@ -107,28 +95,11 @@ near-identical once you get past the file-format skin:
   indices against `positions.size()` there (that's left to the export-time
   consumer, per its own doc comment: "cross-array validation lives at the
   point of use").
-- `src/cmd_export.cpp` (the block right after the geoset/multi-texture
-  `extras` handling, before `writeGlbMulti` is called): validates
-  `indices.size() % 3 == 0`, validates every index against
-  `positions.size()`, validates `faceNormals.size() == indices.size()/3`
-  when face normals are present, builds the averaged-per-vertex-normal
-  `gltf::Mesh`, wraps it in a `gltf::NamedMesh{name="collision",
-  isCollision=true}`, appends it to `namedMeshes` **after** every real
-  render/LOD entry (captured via `renderMeshCount` before appending, so the
-  "N LOD tier(s)" summary print doesn't miscount it as another tier — see
-  `../../CLAUDE.md`'s own Hazards note on this exact trap), prints a one-line
-  `husk: note:` summary.
-- `src/gltf.hpp`/`gltf.cpp`: `gltf::NamedMesh::isCollision` (bool),
-  serialized as `{"collision": true}` in that mesh's node `extras` by
-  `writeGlbMulti`; `writeGlbMulti` was relaxed in an earlier session so a
-  `NamedMesh` entry can opt out of skinning independently (empty
-  `mesh.skinning`) rather than requiring every entry share the same
-  skinned-or-not status when any skeleton is in scope — exactly what an
-  unskinned WMO/M2-mixed collision mesh needs if it ever has to share a
-  skeleton with a skinned render mesh (WMO itself has no skeleton at all,
-  so in practice a WMO collision mesh export would call `writeGlbMulti`
-  with `skeleton = nullptr`, the simpler of the two paths already
-  supported).
+- `src/m2_canon_input.cpp` (`buildCollision`): validates
+  `indices.size() % 3 == 0`, every index against `positions.size()`, and
+  `faceNormals.size() == indices.size()/3` when face normals are present;
+  produces `canon::CollisionMesh` (`src/canon_collision.hpp`), which the
+  bundle writer emits as `resources.geometry.collision`.
 
 ---
 
@@ -422,11 +393,8 @@ that's a one-line addition at that time, not a separate investigation.
   metadata alongside the mesh, never as geometry).
 - **husk `src/`**: `src/m2.hpp`/`m2.cpp` (`CollisionMesh`,
   `parseVec3Array`, `parseCollisionMesh` — the direct M2-side precedent for
-  item 1); `src/cmd_export.cpp` (the collision-mesh-as-`NamedMesh`-with-
-  `isCollision`-extras block, and the `renderMeshCount`-before-appending
-  trap noted in `../../CLAUDE.md`'s own Hazards section); `src/gltf.hpp`/`gltf.cpp`
-  (`NamedMesh::isCollision`, `writeGlbMulti`'s per-entry skinning-opt-out
-  relaxation); `src/phys.hpp`/`phys.cpp` (the bounds-checked-reference-chain
+  item 1); `src/m2_canon_input.cpp` (`buildCollision`) and
+  `src/canon_collision.hpp`; `src/phys.hpp`/`phys.cpp` (the bounds-checked-reference-chain
   precedent, and the reused-`readChunks`-with-reversed-tag-constants
   pattern this file's own `wmo.cpp` sketch follows); `src/chunk.hpp`
   (`readChunks`/`findChunk`, format-agnostic, reused verbatim by `.phys`

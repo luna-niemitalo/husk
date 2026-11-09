@@ -37,14 +37,14 @@ Every rule below is tagged with the strongest evidence behind it:
 | 4 | Geosets | `ChrCustomizationGeoset` (Type·100+ID) (**data**); base visibility rule (**ref**) | yes; only the last geoset element per choice; `Modifier` unread | `choices[].geoset_id`, no base rule | lowest variant per group, or the first preset |
 | 5 | Skin composite | `ChrModelMaterial` (canvases), `CharComponentTextureSections` (rects), `ChrModelTextureLayer` (layers), `ChrCustomizationMaterial` → `TextureFileData` (**data**); compositor cases 0–13 (**client**) | yes; `BitMask2`, `OverlapSectionMask`, `TargetID[1]` unread | `materials/<n>.json` composites, `blend_mapping: unverified` | CPU compose, live upload (`skin_lab.cpp`) |
 | 6 | Surface shading | M2 batch: shader ID, blend, flags, color/weight/UV tracks (**data**); combiner math (**client**) | yes | material + technique documents; with the gaps in §5 | 77% baked by technique; the rest use their first texture |
-| 7 | Items: models | `ItemModifiedAppearance` → `ItemAppearance` → `ItemDisplayInfo.ModelResourcesID[0..1]` → `ModelFileData` → `ComponentModelFileData` race/sex/class/side (**data**) | `[0]` only; `.front()` pick, no ComponentModelFileData | bare `ItemDisplayInfo` refs | nothing |
-| 8 | Items: body textures | `ItemDisplayInfoMaterialRes` (section 0–8) → `ComponentTextureFileData` race/sex/class (**data**) | MaterialRes yes; ComponentTextureFileData **no** | `SectionOverlayComponent` exists in `canon::Item`, never written | nothing |
+| 7 | Items: models | `ItemModifiedAppearance` → `ItemAppearance` → `ItemDisplayInfo.ModelResourcesID[0..1]` → `ModelFileData` → `ComponentModelFileData` race/sex/class/side (**data**) | `[0]` only; `.front()` pick, no ComponentModelFileData | NPC equipment: bare `ItemDisplayInfo` refs; `--appearance` gear: `definition.items[].models`, each an item bundle under `items/` | nothing |
+| 8 | Items: body textures | `ItemDisplayInfoMaterialRes` (section 0–8) → `ComponentTextureFileData` race/sex/class (**data**) | MaterialRes yes; ComponentTextureFileData **no** | `--appearance` gear: `definition.items[].overlays` by `component_section` | nothing |
 | 9 | Items: geosets / helm hiding | `ItemDisplayInfo.GeosetGroup[6]`, `AttachmentGeosetGroup[6]`, `HelmetGeosetVis[2]` → `HelmetGeosetData` (**data**); slot→group table and priorities (**ref**) | **no** | no | no |
-| 10 | Items: attachment | attachment ids per slot (**ref**, WMV table); points from M2 / `.skel` `SKA1` (**data**) | points yes | `resources.attachments` | points unused |
+| 10 | Items: attachment | attachment ids per slot (**ref**, WMV table); points from M2 / `.skel` `SKA1` (**data**) | points yes | `resources.scene.attachments` | points unused |
 | 11 | Collection items (armor that skins to the body) | bone match by name CRC + pivot (**ref**) | no | no | no |
-| 12 | Bone corrections | Choice → `ChrCustomizationBoneSet` → `.bone` (**data**); how to apply (**none**) | parsed; selection resolved in legacy extras | **no** (`canon_definition.hpp:42` excludes on purpose) | no |
+| 12 | Bone corrections | Choice → `ChrCustomizationBoneSet` → `.bone` (**data**); how to apply (**none**) | parsed; choice → set resolved | `resources.rig.correction_sets`; a choice names its `correction_set` | no |
 | 13 | Skinned / conditional / display-info elements | `ChrCustomizationSkinnedModel`, `CondModel`, `DisplayInfo`, `ChrCustItemGeoModify`, `GeoComponentLink` (**data**) | **no** | no | no |
-| 14 | Animation | sequences, `.anim`/`.skel` (**data**) | yes | clips as bare indices | CPU pose, GPU skin |
+| 14 | Animation | sequences, `.anim`/`.skel` (**data**) | yes | clips with AnimationData row, variation, duration, move speed, frequency, blend times, source flags | CPU pose, GPU skin |
 | 15 | Lighting / scene | lighting math (**client**); char-create / viewer light rig (**none**) | zone `light_params` only | no character scene | hand-set |
 
 ## 2. Body selection: old and HD models
@@ -77,10 +77,9 @@ ReqChoice in WoWDBDefs). What exists:
 
 | Source | Rule | Status |
 |---|---|---|
-| husk `defaultChoiceIdsForModel` (`chrcustomization_db2.hpp:218-229`) | lowest `OrderIndex` per option, ties to the lowest id; every option | **husk**; legacy path only, canon has no default preset |
+| husk `defaultChoiceIdsForModel` (`chrcustomization_db2.hpp:218-229`) | lowest `OrderIndex` per option, ties to the lowest id; every option | **husk**; picks the character texture tier's choices when none are given |
 | wow.export (`DBCharacterCustomization.js:161-162`, `tab_characters.js:871-876`) | only options **without `Option.Flags & 0x20`** get a default: the first choice in row order | **ref**; the 0x20 bit is a real data signal worth checking |
 | MantleCore `DefaultSkinSelection` (`skin.cpp:166-174`) | choice 0 of each option of the first option's ChrModel | positional, inherits husk's sort |
-| Blender script | `CURATED_DEFAULT_VARIANTS` (bloodelffemale_hd only), `{32: 2}` (Luna, 2 models), lowest variant | **husk**, not portable |
 
 Missing pieces, in the order they matter:
 
@@ -185,19 +184,15 @@ Character usage (`SHADER_FINDINGS/scan/shader_inventory.csv`):
   `SHADER_FINDINGS/README.md` §5 and `notes/model_effects.md`.
 
 **Bundle bugs, husk-side, data we already have:**
-1. Constant `M2Color` rgb/alpha and constant texture weight are dropped
-   (`m2_material_input.cpp:214-240` return nothing unless animated). Static
-   tints and half-alpha are lost; the 525 weight-zero batches would draw.
-   The legacy glTF path keeps them (`export_materials.cpp:268-321`).
-2. Env-mapped layers never flagged for 12.1 content (`textureCoordCombos` is
+1. Env-mapped layers never flagged for 12.1 content (`textureCoordCombos` is
    empty in 132,860 of 132,863 files); armour shine falls to UV0
    (`MATERIALS_TODO.md` §8).
-3. Material curves from one sequence only (§7).
-4. Colour alpha and weight both animated: only colour alpha kept
-   (`:343-368`).
-5. `priorityPlane`/`materialLayer` unparsed (`skin.cpp:178`), so there is no
+2. Material curves from one sequence only (§7).
+3. Colour alpha and weight both animated: only colour alpha kept
+   (`m2_material_input.cpp`).
+4. `priorityPlane`/`materialLayer` unparsed (`skin.cpp:178`), so there is no
    draw order for coplanar transparent batches (eye glow over face).
-6. Flags 0x8/0x10 (no depth test/write) only in raw `source.flags`.
+5. Flags 0x8/0x10 (no depth test/write) only in raw `source.flags`.
 
 **Unknown (client CPU side):** M2 blend 0–7 → internal blend class; per-draw
 constants (`cb0[6].z`, `cb0[8]`, `cb0[22]`, guild colours `cb0[10..12]`, dye
@@ -291,8 +286,8 @@ colours), the dye data source, and the character-create light rig.
 
 Each step is checkable against §10 sources before the next.
 
-1. Fix the §5 material drops (constant color/weight, env flag, dual
-   alpha, draw priority). Data in hand, no unknowns.
+1. Fix the §5 material drops (env flag, dual alpha, draw priority). Data
+   in hand, no unknowns.
 2. Req/flag-aware customization: read `ChrCustomizationReq`/`ReqChoice`/
    `VisReq`, `Option.Flags`, `OptionType`, `UiOrderIndex`; state per-option
    requirements. Defaults come from the NPC presets (§3); where a model has
@@ -303,13 +298,10 @@ Each step is checkable against §10 sources before the next.
 5. Item documents: models via ComponentModelFileData (L/R), textures via
    ComponentTextureFileData, geoset groups, helm hiding, attachment ids,
    collection skinning info. Presets reference them.
-6. Bone sets and their choice selection carried (application rule marked
-   unknown until §7 resolves).
-7. Old bodies: `ChrModelAltVariant*` from Forever (later live), an explicit
+6. Old bodies: `ChrModelAltVariant*` from Forever (later live), an explicit
    HD↔old mapping, removing the `_hd`-strip fallback's silent reuse.
-8. Clip metadata for MantleCore.
-9. Skinned/conditional model elements.
-10. If Luna wants it, an appearance list that presets index (§3 "Open on
+7. Skinned/conditional model elements.
+8. If Luna wants it, an appearance list that presets index (§3 "Open on
     presets").
 
 ## 12. Stale docs found while compiling this
@@ -317,23 +309,22 @@ Each step is checkable against §10 sources before the next.
 Not fixed here, listed for a cleanup pass:
 - `CLAUDE.md` "Creature options", `README.md:156`, `TODO/CREATURE_OPTIONS_TODO.md` §2:
   "no choice textures yet" — e587735 binds them (1,197 on humanmale_hd).
-- `REFACTOR/BLENDER_ADDON.md:5-36`, CLAUDE.md Resume "Next step":
-  `Definition` is now assembled and written; `Selection`/`Item` still aren't.
 - `REFACTOR/MATERIALS.md:97-113`: wow.export blend names, "pseudo-verified"
   formulas, "proposal" header.
 - `TODO/PIXEL_SHADER_FORMULAS_TODO.md`: lists formulas the bytecode settled.
 - `REFACTOR/BUNDLE_FORMAT.md:166`: "four kinds", table lacks `material`.
 - `reports/CHARACTER_PIPELINE_TEST_FINDINGS.md` Finding 4: HD models do have
-  attachments (`.skel` `SKA1`); only the legacy path misses them.
+  attachments (`.skel` `SKA1`), and the bundle carries them.
 - `CLAUDE_HISTORY.md` 2026-08-21 gear "verified end to end" predates the
   2026-08-23 pallet fix (706c8b6); its model was likely wrong.
 - `modelfiledata_db2.hpp:16`, `canon_item.hpp:24`: multiple FDIDs are
   race/sex variants, not LODs.
-- `WIKI_FINDINGS/BONE.md`, `bone.hpp`, `export_extras.cpp:89-93`: Option/
+- `WIKI_FINDINGS/BONE.md`, `bone.hpp`: Option/
   Choice "0 bytes" / "data husk doesn't have" — both present and read.
 - `development/REFERENCES.md`, CLAUDE.md corpus hazard: `live` is now
   12.1.5.70783 with the 2026-11-07 listfile.
 - `SHADER_FINDINGS/README.md` §3.3 calls texture types 19/20 unknown;
   `m2_header.cpp:430-431` names them (source unstated).
-- `export_texture_resolution.cpp` ~62-70, `appearance_string.hpp:16-20`:
+- `sources/texture_resolution.cpp` (category table comment),
+  `appearance_string.hpp:16-20`:
   claim data husk now reads.

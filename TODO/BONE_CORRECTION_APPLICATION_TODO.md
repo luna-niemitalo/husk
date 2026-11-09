@@ -1,4 +1,4 @@
-# TODO: verify and apply `.bone` correction-matrix semantics (Blender-side)
+# TODO: verify `.bone` correction-matrix semantics
 
 **Status: an open punch list, not a historical record.** Fixed items get
 removed outright once closed — git history is the record of what was fixed
@@ -11,30 +11,15 @@ quirk — the human-gated verification work here carries over.
 
 ## Background
 
-A now-closed, deleted TODO (the geoset-selection work, see git history and
-`TODO/ENGINE_TODO.md`'s own detail) closed the *selection* half of
-`.bone` corrections: `husk export --db2-dir/--dbd-dir/
---customization-choice-ids` (`src/chrcustomization_db2.hpp`) now resolves
-a real `ChrCustomizationChoiceID` all the way to a real `.bone`
-`BoneFileDataID` and marks the matching `--bones-dir`-resolved
-`CorrectionSet` with `selected_by_choice_ids` extras. Given a real
-character's customization choices, a consumer can now know *which* of a
-model's several `.bone` files is the correct one with no external data
-missing anymore.
+The *selection* half is done: the model bundle carries every `.bone` file
+as `resources.rig.correction_sets`, and each customization choice that
+uses one names it as `correction_set` (`REFACTOR/BUNDLE_FORMAT.md` "Items,
+physics and bone corrections"). Given a character's choices, a consumer
+knows which set applies.
 
-**What's still missing is not architectural.** An earlier draft of that
-now-deleted TODO wrongly framed this as blocked by "husk never applies
-`.bone` corrections to the render" — that boundary is real for the
-`husk export` C++ binary (`DESIGN.md`'s Key design decisions: husk reads
-formats and writes glTF, it doesn't render), but `tools/
-husk_blender_geoset_mask.py` is not bound by it — it already applies
-husk-exported extras to real Blender rendering for billboard alignment,
-texture-transform animation, tint/fade curves, and geoset switching. It is
-exactly "a downstream renderer or Blender script that does have the
-slot-selection mapping to apply on top," per `DESIGN.md`'s own original
-phrasing for what `bone_correction_sets` was waiting for. There is no
-remaining reason not to build a consumer, once the actual application
-math is trustworthy.
+**What's still missing is not architectural.** husk itself never applies
+corrections (it writes data); a consumer (MantleCore, the future Blender
+addon) applies them, once the application math is trustworthy.
 
 ## The real, narrower blocker: application semantics were never verified
 
@@ -71,9 +56,8 @@ re-reading the code more carefully.
    is whichever real `bloodelffemale_hd` `.bone` slot produces the
    *largest* such scale (more visually obvious than a subtle one), cross-
    referenced against a real `ChrCustomizationChoiceID` that selects it
-   (now directly checkable via this session's own `--customization-choice-ids`
-   work — resolve a choice, confirm it selects a `.bone` file with a
-   large correction, before building anything).
+   (checkable in a bundle: a choice's `correction_set` names the set —
+   confirm it carries a large correction before building anything).
 2. **Get a real ground-truth reference.** Same method the billboard-
    alignment work eventually needed: a real client screenshot (or WMV/
    `reference/wow.export` render) of that exact character/customization
@@ -87,13 +71,10 @@ re-reading the code more carefully.
    each candidate's resulting joint position/orientation against the
    reference from step 2 — not "does it look plausible," a real numeric or
    visual match against known-correct output.
-4. **Once one composition is confirmed correct**, wire it into
-   `tools/husk_blender_geoset_mask.py` as a real, permanent consumer of
-   `selected_by_choice_ids`: for each marked `CorrectionSet`, apply its
-   `(bone_index, matrix)` pairs to the matching bone using the now-verified
-   composition, gated behind the same kind of stage wrapper
-   (`_run_stage`) every other stage in this script's `main()` already
-   uses.
+4. **Once one composition is confirmed correct**, record it in
+   `REFACTOR/BUNDLE_FORMAT.md` (the correction-set semantics) so every
+   consumer applies the same math: for the set a chosen choice names,
+   apply its per-joint matrices to the matching joints.
 5. **Verify the wired version headlessly** against the same repro from
    step 1, confirming it reproduces step 2's reference — not just that it
    runs without crashing.

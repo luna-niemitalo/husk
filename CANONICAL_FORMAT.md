@@ -204,20 +204,18 @@ reusable wholesale in any of those domains. Nothing about them is WoW-shaped.
 
 ## 4. Current implementation status
 
-**This is a migration in progress, not a finished system.** The pure
-semantic types exist and are independently tested; the old, format-specific
-export pipeline they are replacing is still what runs in production. Nothing
-below should be read as "how husk currently produces its output" — that is
-still the pre-existing `gltf_*` pipeline. This section is what actually
-exists in `src/canon_*` and `src/writers/` as of this writing.
+The canonical layer is what husk exports from: every export command
+assembles `canon::` values and writes bundles; the old format-specific
+`gltf_*` pipeline is deleted. This section is what exists in `src/canon_*`
+and `src/writers/`.
 
 ### 4.1 What's built (`namespace husk::canon`)
 
 All of the following are **pure value types plus pure assembly functions** —
 no filesystem access, no output-format library, no authoring-tool
-dependency. Each has been checked for *structural convergence* against the
-existing production pipeline (same real WoW fixture files, same expected
-values) without yet being wired in as the thing that pipeline actually uses:
+dependency. Each was checked for *structural convergence* against the
+since-deleted glTF pipeline (same real WoW fixture files, same expected
+values) before replacing it:
 
 - **`canon::Ref` / `canon::Identity` / `canon::NameSource`** (§2.2 above,
   implemented exactly as described) — a four-way tagged union for identity
@@ -288,24 +286,19 @@ values) without yet being wired in as the thing that pipeline actually uses:
 
 ### 4.2 What consumes it today
 
-Two writers exist over `canon::Model`, both new and both intentionally
-independent of the legacy pipeline (no shared code, so neither can silently
-inherit the legacy pipeline's own compromises):
+Two writers exist over `canon::Model`, both written independently of the
+deleted legacy pipeline (no shared code, so neither inherited its
+compromises):
 
 - **The native bundle writer** (`src/writers/bundle_writer.*`) — see §5.
 - **A "lean" glTF projection** (`src/writers/gltf_lean.*`) — deliberately
   writes *only* what maps onto a real core glTF field (mesh, skin, material,
-  animation) and nothing else: no vendor extras of any kind. This exists
-  partly as a proof that a canonical-model-driven writer is possible at all,
-  and partly as a real-world demonstration that the legacy writer's
+  animation) and nothing else: no vendor extras of any kind. Written on
+  request (`export --glb`); a demonstration that the legacy writer's
   extras-heavy, fake-joint-laden output was leaking implementation
   compromises that a spec-clean glTF file never needed in the first place.
 
-Neither writer is the default output yet; both currently coexist alongside
-the pre-existing, non-canonical export pipeline while the migration proceeds
-piece by piece (see `REFACTOR/README.md`'s staged migration order — the
-project's explicit policy is that a large semantic-layer migration like this
-one gets steered live rather than attempted in one pass).
+The bundle is `husk export`'s output; the lean glTF is optional.
 
 ### 4.3 Deliberate, recorded simplifications (things the original proposal did not settle)
 
@@ -416,12 +409,12 @@ of it, is the source of truth.
 | Piece | State |
 |---|---|
 | Definition/Selection/Resources split, `Ref`/`Identity`/`NameSource` | Designed and implemented as pure types; used throughout `canon::` |
-| `canon::Skeleton`, `Mesh`/`Geoset`, `Material`, `Curve`, `Physics`, `Definition`, `Selection` (`CharacterSelection`), `Item` | Implemented as pure value types + assembly functions; convergence-tested against the legacy pipeline on real fixtures; not yet the pipeline's actual source of truth |
+| `canon::Skeleton`, `Mesh`/`Geoset`, `Material`, `Curve`, `Physics`, `Definition`, `Selection` (`CharacterSelection`), `Item` | Implemented as pure value types + assembly functions; what `export` assembles and writes (`assembleCharacterSelection` itself has no export caller) |
 | `canon::Model` composition root | Implemented; wires the above together for one real model |
 | Bundle format (`manifest.json` + `BufferSlice` + raw `.bin` payloads) | Format settled and documented at byte-level precision; a real writer exists (`src/writers/bundle_writer.*`) |
-| Lean glTF projection | A real, independent writer exists (`src/writers/gltf_lean.*`), proving canon can feed a genuinely separate output format |
-| Legacy `gltf_*` pipeline | Still the pipeline actually shipping output; migration onto `canon::` is deliberately staged, not yet complete |
-| `m2::Model` unification (one parsed-model aggregate feeding all consumers) | In progress — prerequisite for retiring the legacy pipeline's own duplicated parsing |
+| Lean glTF projection | `src/writers/gltf_lean.*`, written by `export --glb` |
+| Legacy `gltf_*` pipeline | Deleted (bdec5ce..1e4b766) |
+| `m2::Model` unification (one parsed-model aggregate feeding all consumers) | Built (`REFACTOR/README.md` stages 1–2) |
 
 The project's own stated policy on this migration: it is being run as a
 live, steered, incremental replacement rather than a wholesale rewrite,

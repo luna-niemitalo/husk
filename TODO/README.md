@@ -11,8 +11,8 @@ interactive/real-client judgment (billboard-style ground-truthing, a
 design decision only she can make) or is independently solvable (data
 work, corpus scans, well-scoped implementation, investigation).
 
-**Scope** column: legacy-only (wired to the legacy `gltf_*`/`cmd_export.cpp`
-pipeline, due for a redo under `canon::` regardless), dual-use/infra
+**Scope** column: legacy-only (written against the legacy glTF pipeline
+and its Blender/render tools, all deleted in bdec5ce..1e4b766), dual-use/infra
 (shared code or a semantic question `canon::` will hit too), or
 investigative (corpus/data analysis, independent of which pipeline
 ships) — each file also carries this tag near its own top.
@@ -23,32 +23,26 @@ ships) — each file also carries this tag near its own top.
 | `MATERIALS_TODO.md` | dual-use/infra | Material documents (`REFACTOR/MATERIALS.md`): character skin composites built; open: blend mode mapping (mode 15 has no compositor case), layer order, texel sizes, M2/WMO materials as documents | Independent (client-side mapping research, then implementation) |
 | `CORPUS_EXPORT_TODO.md` | dual-use/infra | Whole-corpus canonical export (`REFACTOR/CORPUS_EXPORT.md`): the content-addressed store (`store-add`), its FUSE mount, input tracking, `export-corpus` and `index-tree` are built; open: more index tables, unnamed M2s, shared effects/materials/rig, view, prune | Independent; the full run is human-gated |
 | `CREATURE_OPTIONS_TODO.md` | dual-use/infra | Creature options (slot texture options, particle colour options) and presets (CreatureDisplayInfo combinations) are exported; open: creatures that alternate between models, humanoid NPC displays, viewer-conditional displays, the fourth texture variation, emitter slots, default texture | Item 1 is a design call (Luna); the rest independent |
-| `PIXEL_SHADER_FORMULAS_TODO.md` | investigative | Every combiner formula read from client shader bytecode (`WIKI_FINDINGS/M2/rendering.md`); open: three inferred constant bindings, no client-render comparison, legacy `render_glb.py` subset | Client-render comparison: human-gated |
-| `RENDER_QUALITY_TODO.md` | legacy-only | Corpus-review render-quality findings (rotation, textures, alpha, billboards). Rotation shear, V-scroll direction, `alphaCutoff`, and Mod/Mod2x compositing all fixed and verified; billboard ground-truth and several unconfirmed render-artifact repros (black silhouette, disco/flicker, white silhouette) still open, see `INVESTIGATIONS_TODO.md` items 5-10 | Billboard ground-truth is human-gated; the rest are independent investigations |
-| `CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` | legacy-only | Blender-side live customization-choice texture switch. Implemented and structurally verified against real DB2-resolved data. Two open items: a real interactive GUI pass with real per-choice texture bytes; a `husk_blender_options_panel.py` socket-name gap for dependent options | Independent to keep implementing; final visual pass is human-gated |
-| `EQUIPPED_GEAR_RENDER_TODO.md` | legacy-only | Blender-side rendering of the DB2-resolved equipped-gear appearance. Case 1 (standalone-geometry attachment) is done and verified. Open: case 2 (object-skin texture-overlay compositing, not started), a real interactive GUI pass, and a weapon sheath-state-toggle stretch goal | Independent to scope/implement; final visual pass is human-gated |
-| `BONE_CORRECTION_APPLICATION_TODO.md` | dual-use/infra | Applying `.bone` correction matrices in Blender, now that selection is resolved. Application semantics (multiply order, space) never verified against real client behavior | **Human-gated** — needs a real side-by-side comparison, same as billboard alignment did |
+| `PIXEL_SHADER_FORMULAS_TODO.md` | investigative | Every combiner formula read from client shader bytecode (`WIKI_FINDINGS/M2/rendering.md`); open: three inferred constant bindings, no client-render comparison | Client-render comparison: human-gated |
+| `RENDER_QUALITY_TODO.md` | legacy-only | Render-quality findings from the deleted legacy render pipeline (billboard ground-truth, black/white silhouette, disco/flicker repros; `INVESTIGATIONS_TODO.md` items 5-10). Its tools are gone; deletion candidate | — |
+| `CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` | legacy-only | The deleted Blender customization texture switch's open items. Subject gone; deletion candidate | — |
+| `EQUIPPED_GEAR_RENDER_TODO.md` | legacy-only | Blender-side rendering of gear from the legacy glTF extras. Subject gone (gear is now bundle items, `REFACTOR/BUNDLE_FORMAT.md`); deletion candidate | — |
+| `BONE_CORRECTION_APPLICATION_TODO.md` | dual-use/infra | Verifying how `.bone` correction matrices apply, now that the bundle carries them and their selection. Application semantics (multiply order, space) never verified against real client behavior | **Human-gated** — needs a real side-by-side comparison, same as billboard alignment did |
 | `ENGINE_TODO.md` | dual-use/infra | External-data gaps. #1 (`aliasNext` names) and #4 (LOD thresholds) are both settled dead-ends (condensed, full investigation in `CLAUDE_HISTORY.md`); #2 (`blendTimeOperation`, no data, needs a heuristic) and #3 (sound linking, split real/blocked) remain open | #2/#3: independent investigation/heuristic-authoring. #1/#4: closed, not actionable |
 | `BONE_NAME_DEDUCTION_TODO.md` | investigative | Tier-2 bone naming (reference-skeleton matching). Not started; cosmetic only, zero visual/render impact | Independent |
 | `DPIV_TODO.md` | investigative | Cracking the `DPIV` mystery chunk's real field semantics. Structural shape and fields 0/1 characterized (bbox-center coordinates); field2 (ground-contact anchor) and field3 (small integer tag) still open, corpus-statistics levers exhausted — next step is a human visual grid render | Human-gated (the visual grid read is Luna's own pattern-spotting); assembling the renders is independent |
 | `WORLD/` | — | WMO/ADT/world-geometry scope (13 files). ADT terrain is implemented (`husk export-terrain`/`export-world`); its open items are in `ADT_TERRAIN_TODO.md`/`WORLD_PLACEMENT_TODO.md`/`LIQUID_TODO.md`. Own entry point `../WORLD_COMPLETENESS.md` | Not covered by this index — see `WORLD_COMPLETENESS.md` |
 | `INVESTIGATIONS_TODO.md` | investigative | Meta-list of every open investigation-shaped item scattered across the files above — 14 catalogued (including `CLEANUP_TODO.md`'s former sole item, merged in 2026-09-16), 7 done, 7 still open (mostly `RENDER_QUALITY_TODO.md`-adjacent render-artifact repros, plus the `m2_full_validation_task.py` corpus-scan hang) | Independent (that's the whole point of the list); a human-gated section is kept for completeness only |
-| `RENDER_PIPELINE_DRIFT_TODO.md` | legacy-only | `render_glb.py`'s previews never run `husk_blender_geoset_mask.py`'s customization/geoset-switch logic, so they don't represent the real two-step Blender pipeline. Still undecided: opt-in switch step vs. documenting the raw-geometry-only limitation. Flagged for absorption into `../REFACTOR/BLENDER_ADDON.md` once the canon:: addon replaces both tools | Independent to scope/decide; the drift itself is a design decision |
-| `../REFACTOR/` | — | Target four-stage pipeline (`parse -> resolve -> canonical -> write`), the single resolution boundary, the native bundle format + Blender addon, and the full duplicated/divergent-path audit. Stage 3 deep in progress; `../CANONICAL_FORMAT.md` (repo root) is now the canonical `canon::`/bundle explainer for a reader outside this project | Own index and gate table at `../REFACTOR/README.md`; supersedes nothing in this table except `RENDER_PIPELINE_DRIFT_TODO.md` above |
+| `RENDER_PIPELINE_DRIFT_TODO.md` | legacy-only | Drift between two deleted tools (`render_glb.py`, `husk_blender_geoset_mask.py`); the lesson is in `../REFACTOR/BLENDER_ADDON.md`. Deletion candidate | — |
+| `../REFACTOR/` | — | Target four-stage pipeline (`parse -> resolve -> canonical -> write`), the single resolution boundary, the native bundle format + Blender addon, and the full duplicated/divergent-path audit. Stages 1-4 built, the legacy glTF pipeline deleted; `../CANONICAL_FORMAT.md` (repo root) is the canonical `canon::`/bundle explainer for a reader outside this project | Own index and gate table at `../REFACTOR/README.md` |
 
 ## Suggested order, independent tasks only
 
-Real DB2-driven character texture compositing, the live Blender-side
-customization-choice switch, and equipped-gear appearance resolution
-(case 1) are all done and verified end to end (the Blender switch's own
-real-texture interactive pass is human-gated, see
-`CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`). `DPIV_TODO.md`'s corpus-statistics
-work is exhausted; its remaining step is a human visual read.
-`TEXTURE_POOL_RECALL_TODO.md`'s ranking retune is the single biggest
-independent lever left.
+`DPIV_TODO.md`'s corpus-statistics work is exhausted; its remaining step
+is a human visual read. `TEXTURE_POOL_RECALL_TODO.md`'s ranking retune is
+the single biggest independent lever left.
 
 Everything else needs Luna's own interactive/client-side verification
-(`BONE_CORRECTION_APPLICATION_TODO.md`, `RENDER_QUALITY_TODO.md`'s
-billboard ground-truth pass, `PIXEL_SHADER_FORMULAS_TODO.md` item 2,
+(`BONE_CORRECTION_APPLICATION_TODO.md`, `PIXEL_SHADER_FORMULAS_TODO.md` item 2,
 `TEXTURE_POOL_RECALL_TODO.md`'s full-corpus render item — this one bit a
 previous session twice, see its own gate note there).

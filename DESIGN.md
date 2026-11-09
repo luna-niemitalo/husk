@@ -18,30 +18,18 @@ Where things live:
 | The bundle format | `REFACTOR/BUNDLE_FORMAT.md`, `schema/`, `CANONICAL_FORMAT.md` |
 | Real-file corrections to wowdev.wiki | `WIKI_FINDINGS.md` |
 | Per-M2-feature depth; WMO/ADT depth | `M2_COMPLETENESS.md`, `WORLD_COMPLETENESS.md` |
-| glTF `extras` keys | `EXTRAS_SCHEMA.md` |
 | Tests | `TEST_DESIGN.md` |
 | Python tooling under `tools/` | `TOOLS.md` |
 | Open work | `TODO/README.md` |
 | Session narrative | `CLAUDE_HISTORY.md` |
-
-Most decisions below were made for the legacy M2 → glTF pipeline
-(`gltf_*.cpp`, `cmd_export.cpp`, `export_*.cpp`), which is still `husk
-export`'s default output. Parsing and resolution decisions apply to both
-pipelines.
 
 ## Goal
 
 Read World of Warcraft's game files from a local extraction and write them
 as open data. The **canonical husk bundle** is the export target;
 MantleCore is its consumer. glTF and Blender are tertiary (Luna,
-2026-10-09); retiring the glTF pipeline is decided, not built
-(`REFACTOR/README.md`).
-
-The original goal, still the legacy pipeline's: a real Blender import path
-for modern (Legion+, chunked) WoW M2 models — mesh, skeleton, textures,
-materials, animation — via a correct glTF 2.0 export (`.glb`, core PBR
-metallic-roughness) that Blender's built-in importer opens unmodified;
-husk's job there is "read WoW formats, write correct glTF."
+2026-10-09): the only glTF husk writes is `export --glb`'s lean projection
+of a model bundle.
 
 ### Non-goals
 
@@ -113,16 +101,19 @@ file bytes
   ├─ src/db2.* dbd.* db2table.* *_db2.*   WDC5, WoWDBDefs naming, typed readers
   └─ src/listfile*.*        listfile parse, cache, mmap index
         │
-  src/sources/              resolution: where the bytes live (catalog)
+  src/sources/              resolution: where the bytes live (catalog, texture
+        │                   and skin resolution tiers, directory listing)
+  character_texture_context.*  the catalog's DB2 character-texture tier input
         │
   *_canon_input.*, m2_*_input.*   input modules: format → canon:: values
   src/canon_*.*             canon:: model (REFACTOR/CANON_DESIGN.md)
         │
-  src/writers/              bundle (primary), lean glTF, materials, textures
+  src/writers/              bundle (primary), lean glTF, materials, textures,
+                            physics; glTF axis math (gltf_math.*)
   src/bundle_schema.*       validate-bundle; schema/ embedded
 
-legacy M2 → glTF:  cmd_export.cpp → export_*.cpp → gltf*.cpp (tinygltf)
-commands:          cmd_*.cpp, main.cpp
+commands:          cmd_*.cpp, main.cpp (export: cmd_export.cpp flags and
+                   sidecars → cmd_export_canon.cpp canon assembly and write)
 blp/               Python reference decoder (husk-blp), test oracle only
 ```
 
@@ -131,28 +122,27 @@ point: both resolve to "one MD20-shaped blob, offsets relative to its
 start" before `m2::parseHeader` runs. The branch is where the blob starts,
 not how it is read.
 
-## Data flow (`husk export`, legacy glTF)
+## Data flow (`husk export`)
 
 1. Read the model; flat vs. chunked → MD20 blob.
 2. Parse header (fixed offsets) and arrays: vertices, bones, sequences,
    materials, textures, combos, attachments/events/lights, ribbons,
    particles, sidecar FileDataID chunks (`SFID`/`AFID`/`BFID`/`PFID`/
    `SKID`/`TXID`).
-3. Triangles and submesh/batch structure from the resolved `.skin`.
+3. Triangles and submesh/batch structure from every resolved `.skin`
+   (one per `SFID` LOD entry).
 4. If inline `bones` is empty and an `SKID`/`.skel` is available, bones and
    sequences come from the `.skel` (same structs, other blob).
-5. glTF skin from bone pivots (M2's bind pose has no rotation/scale, so no
-   matrix-chain composition); unskinned mesh if no bones.
-6. Per batch: submesh → material → textureCombo → texture → glTF material;
-   texture bytes through the resolution tiers ("Resolution" below).
-7. Per sequence: per-bone tracks, inline (`flags & 0x20`) or external
+5. Textures through the catalog's resolution tiers ("Resolution" below),
+   plus the DB2 character tier when `--db2-dir` is given.
+6. Per sequence: per-bone tracks, inline (`flags & 0x20`) or external
    `.anim` (via the model's or `.skel`'s `AFID`); alias (`0x40`) sequences
-   resolve through their `aliasNext` chain. Axis conversion on every
-   keyframe.
-8. One glTF animation per sequence with real keyframes; one per used
-   global sequence.
-9. `--lod all`: steps 3/6 per `SFID` entry, sharing one skeleton/skin/
-   animation set (`gltf::writeGlbMulti`).
+   resolve through their `aliasNext` chain.
+7. `.phys`, `.bone` correction sets, DB2 customization/creature options,
+   `--appearance` gear (each item model exported as its own bundle).
+8. `m2input::buildCanonModel` assembles `canon::Model`;
+   `writers::writeBundle` writes it; `--glb` also runs
+   `writers::writeLeanGlb` over the same model.
 
 ## Boundaries (where foreign data enters)
 
@@ -296,16 +286,82 @@ months this way; it is now `skin::Batch::shaderId`/
   consumer. Identifier/data/bone/position are parsed and exported.
 - Pre-Cata `M2ParticleOld` shapes — see the version floor above.
 
-### Legacy glTF projection
+### M2 → model bundle
 
-**glTF output is never hand-rolled.** `gltf.cpp` builds a `tinygltf::Model`
-and `WriteGltfSceneToStream` frames it. Never define
-`TINYGLTF_IMPLEMENTATION` (it is in `libtinygltf.a`). husk pads its own
-buffer: `appendBufferView`'s `padTo4()` after every append, because
-accessors need component-aligned offsets and embedded PNG lengths are
-rarely multiples of 4 (a real misalignment bug, fixed).
+**One material per `.skin` batch, not per M2 material.** A batch pins blend
+mode *and* texture; two batches sharing a `materialIndex` needn't share a
+texture. No PBR authoring: WoW's shading doesn't map onto
+metallic-roughness and invented values would be guesses.
 
-**Axis conversion is one matrix.** `kWowToGltf` (`gltf_math.*`), `(x, y,
+**Everything the source carries is written as data, never applied.**
+Geosets all export (selection is the consumer's, from options and
+presets); extra texture layers, tint/alpha/weight/UV-transform tracks,
+billboard flags, `.bone` correction sets and DB2-resolved choices are
+fields in the bundle (`REFACTOR/BUNDLE_FORMAT.md`). `.bone` application
+(multiply order, space) is unverified against the client
+(`TODO/BONE_CORRECTION_APPLICATION_TODO.md`); LOD- and weapon-type
+hypotheses for slot selection were ruled out (`WIKI_FINDINGS/BONE.md`).
+Animated `M2Color`/`M2TextureWeight` are `fixed16`, resolved with
+`resolveRawIntTrackSequence`, not the float resolver.
+
+**Global-sequence tracks keep their own loop.** Such a track loops on its
+own timeline against `Header::globalLoops`, whatever sequence plays, so
+folding it into per-sequence clips would misstate when it plays. Per the
+wiki such tracks have exactly one sub-array;
+`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack` read it.
+
+**Alias sequences resolve through `aliasNext`, inline data wins.**
+`aliasNext` is a local `sequences` index (`WIKI_FINDINGS/M2.md`).
+`resolveAliasChain` (bounded to `sequences.size()` hops, throws on a cycle)
+finds the terminal non-alias sequence, whose data is registered under the
+alias's own id. Only a *pure* alias (`0x40` without `0x20`) is resolved:
+31 of `bloodelffemale_hd.skel`'s 38 aliases also carry `0x20` and have
+their own data. The other `M2Sequence` fields are each clip's own facts
+(`REFACTOR/BUNDLE_FORMAT.md` "Clips"). The `AnimationData`
+name is attached when the DB2 has a `Name` column; current clients don't
+(`LAYOUT BBF66A3C`, absent since 7.3.5).
+
+**Volume decides the destination: emitters get a placeholder in the
+bundle, the full record in `dump-chunks`.** A model can have dozens of
+emitters with ~15 resolved curves each. `M2Ribbon`/`M2Particle` are
+bone-anchored placeholder effects (`REFACTOR/EFFECTS.md`); full records
+with every curve are in `dump-chunks` (FBlock curves are flat; `M2Track`
+curves are per sequence or global). `.phys` is the bundle's
+`resources.physics`; `dump-chunks` also takes a `.phys` directly and
+prints its `PHYV` records. `.phys` is documented on the wiki and
+implemented from it, verified on 103 files (`WIKI_FINDINGS/PHYS.md`);
+chunk types never seen in the corpus are parsed but unverified
+(`phys.hpp`).
+
+**`husk dump-chunks` emits every chunk, never drops one.** Parent-sequence
+overrides, waterfall constants, edge fade and side data are printed as
+records; undocumented chunks are decoded or printed as hex with a reason.
+
+**The collision mesh is always in the bundle**
+(`resources.geometry.collision`, `m2::parseCollisionMesh` →
+`buildCollision`): its own positions, indices and the source's
+per-triangle normals as they are. Indices out of range, a non-multiple of
+3, or a normal count other than one per triangle fail the export.
+
+**A geometry-less model exports with no triangles, keeping its skeleton.**
+3,807 of 130k files (pure VFX, e.g. `particles/lootglow_boss.m2`) have no
+vertices; such a model is its skeleton and effects. A model with neither
+vertices nor bones is an error.
+
+### Lean glTF projection (`--glb`)
+
+`writers::writeLeanGlb` projects a `canon::Model` to `.glb`: mesh, skin,
+animation, base-colour materials. What has no core glTF slot is left out,
+never smuggled into `extras` (options, presets, effects, physics,
+correction sets).
+
+**glTF output is never hand-rolled.** tinygltf builds and frames it. Never
+define `TINYGLTF_IMPLEMENTATION` (it is in `libtinygltf.a`). husk pads its
+own buffer (`gltf::padTo4`, `writers/gltf_buffer_utils.hpp`) after every
+append, because accessors need component-aligned offsets and embedded PNG
+lengths are rarely multiples of 4 (a real misalignment bug, fixed).
+
+**Axis conversion is one matrix.** `kWowToGltf` (`writers/gltf_math.*`), `(x, y,
 z) → (x, z, -y)`; positions/normals apply it, rotations conjugate by it
 (quat → matrix → quat), scales take its permutation without signs. A
 `static_assert` on the determinant forbids a reflection. Rejected: three
@@ -319,204 +375,24 @@ ground truth). Bones are assumed plain parent-relative TRS around
 `M2CompBone.pivot`; Luna confirmed animation in Blender's GUI
 (2026-08-08). History: `CLAUDE_HISTORY.md`.
 
-**One material per `.skin` batch, not per M2 material.** A batch pins blend
-mode *and* texture; two batches sharing a `materialIndex` needn't share a
-texture. Blend mode → `alphaMode`: `0` → `OPAQUE`, `1` → `MASK`, else
-`BLEND`; the raw value rides as `blend_mode` extras when `> 2`. `MASK`'s
-`alphaCutoff` is the client's 128/255 (`gltf_mesh.cpp`); render flag
-`0x04` → `doubleSided`. No PBR authoring: WoW's shading doesn't map onto
-metallic-roughness and invented values would be guesses.
-
-**"Tag it, don't guess at semantics."** Where glTF has no honest slot, the
-real data goes to inert `extras` (keys: `EXTRAS_SCHEMA.md`) and is never
-filtered, faked or applied:
-
-- **Geosets**: every primitive carries `skinSectionId` (+ `geoset_group`/
-  `geoset_variant`); all geosets export. DB2-resolved selections
-  (`--customization-choice-ids`, `--creature-display-id`) are attached as
-  `enabled_geosets`/`creature_enabled_geosets`, not applied.
-- **Extra texture layers** (`textureCount > 1`) feed WoW's fixed-function
-  combiners, which have no glTF equivalent: layer FileDataID/UV set (+ an
-  embedded, unused image) as extras; the first layer renders. No faked
-  `KHR_materials_*`.
-- **Billboarding** is camera-relative, decided by the renderer: tagged.
-- **`M2Texture::type != 0`** (a runtime-replaceable slot) is serialized as
-  `texture_type`, only when nonzero, so a missing image there reads as
-  "needs DB2-driven data," not "file missing." Placement geometry
-  (`--char-layout-id`) and per-choice materials (`chr_enabled_materials`)
-  resolve from DB2; compositing pixels is Blender's job
-  (`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`).
-- **Animated `M2Color`/`M2TextureWeight`**: core glTF has no animation
-  target for material properties at all, so the curves
-  (`fixed16`, resolved with `resolveRawIntTrackSequence`, not the float
-  resolver) go to `tint_animation`/`fade_animation`, one entry per sequence
-  plus `sequenceIndex == -1` for a global sequence.
-- **`.bone` corrections**: every `BFID` file found under `--bones-dir` is
-  attached as `bone_correction_sets`; `--customization-choice-ids` marks
-  the selected one (`selected_by_choice_ids`). Application (multiply order,
-  space) is unverified against the client
-  (`TODO/BONE_CORRECTION_APPLICATION_TODO.md`); left to a consumer that has
-  the slot-selection mapping to apply on top. LOD- and weapon-type
-  hypotheses for slot selection were ruled out (`WIKI_FINDINGS/BONE.md`).
-
-**A batch's `M2TextureTransform`: `KHR_texture_transform` for the
-constant case, extras for animated.** The extension is static, so animated scrolling stays
-`extras` only (`texture_transform_animation`). The constant case
-(`textureTransformToKhr`, `gltf_mesh.cpp`) folds M2's (0.5, 0.5) rotation
-pivot into the extension's `offset`: `offset = R·S·translation + R·t_S +
-t_R` (`t_S`/`t_R` = the pivot's displacement under scale/rotation).
-Verified on `bloodknightcharger.m2` by hand, by 20,000 random trials
-against `reference/wow.export`'s matrix composition, and by Blender's
-importer producing the same Mapping node. Applied only when every track is
-empty or a true single value (`brewfestmount.m2` has per-sequence tracks
-that happen to be identity — correctly not "constant"), the rotation is
-planar (Z only, the case the wiki's pivot note covers), and a
-`baseColorTexture` exists. Raw values always go to `texture_transform`
-extras too.
-
-**Global-sequence tracks get their own clips** (`global_seq_<n>`). Such a
-track loops on its own timeline against `Header::globalLoops`, whatever
-sequence plays, so folding it into per-sequence clips would misstate when
-it plays. Per the wiki such tracks have exactly one sub-array;
-`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack` read it,
-and `buildJointAnimation` is shared with the per-sequence path.
-
-**Alias sequences resolve through `aliasNext`, inline data wins.**
-`aliasNext` is a local `sequences` index (`WIKI_FINDINGS/M2.md`).
-`resolveAliasChain` (bounded to `sequences.size()` hops, throws on a cycle)
-finds the terminal non-alias sequence, whose data is registered under the
-alias's own id. Only a *pure* alias (`0x40` without `0x20`) is resolved:
-31 of `bloodelffemale_hd.skel`'s 38 aliases also carry `0x20` and have
-their own data. On the committed fixtures this adds zero clips (all 7 pure
-aliases need `.anim` files not in the repo; `tests/test_integration.cpp`
-pins that, `tests/test_cli.cpp` covers multi-hop, priority, cycle and
-out-of-range chains synthetically). The other `M2Sequence` fields
-(movespeed, frequency, replay, blend times, bounds, variationNext,
-aliasNext) go to per-clip `sequence_metadata` extras, the alias's own
-values even when data is borrowed.
-
-**Volume decides the destination: emitters and physics get a minimal anchor
-in the `.glb`, the full record in `dump-chunks`.** A model can have dozens
-of emitters with ~15 resolved curves each, or 40+ `.phys` bodies; most
-`.glb` consumers can use none of it.
-
-- `M2Ribbon`/`M2Particle`: `id`/`boneIndex`/`position` anchors
-  (`ribbon_emitters`/`particle_emitters`); full records with every curve in
-  `dump-chunks` (FBlock curves are flat; `M2Track` curves are per sequence
-  or global).
-- `.phys` (`--phys`, three-state like `--skel`): `id`/`joint`/`position`/
-  `bodyType` anchors (`physics_bodies`); full body/shape/joint/`PHYV`
-  records in `dump-chunks`, which also takes a `.phys` directly. `.phys` is
-  documented on the wiki and implemented from it, verified on 103 files
-  (`WIKI_FINDINGS/PHYS.md`); chunk types never seen in the corpus are
-  parsed but unverified (`phys.hpp`).
-
-**`husk dump-chunks` is a separate JSON output, not a step toward richer
-glTF.** Parent-sequence overrides, waterfall constants, edge fade and side
-data have no glTF slot; forcing them in would invent semantics. Undocumented
-chunks are still emitted, decoded or as hex with a reason, never dropped.
-
-**Attachments, events and lights are plain child nodes**, not anchors in
-extras: a bone-relative position is all their static data. Translation
-only, named `attachment_<id>`/`event_<identifier>`/`light_<index>`
-(duplicate event names are legal; one weapon has six `$CSD`), parented to their joint, appended after
-the joint range, **never in `skin.joints`**. `bone == -1` throws (no
-unparented-node concept yet, no fixture). Light type and animated fields
-are out of scope. Verified: Blender reports the real bone count (78) and
-the validator reports no errors.
-
-**The collision mesh is real geometry, opt-in.** A plain triangle mesh has
-an obvious translation, so it exports natively (`m2::parseCollisionMesh`),
-unskinned (static), tagged `{"collision": true}`; normals are averaged face
-normals (one per triangle in the source). `writeGlbMulti` lets each mesh
-opt in or out of skinning. **Off by default** (`--collision`): shipped on
-by default first, then a headless render of `bloodelffemale_hd.m2` was a
-white slab — the hull occluded the character, and a tag only helps
-scripts. A companion Blender-side script that hides extras-tagged-but-
-visible geometry post-import was deferred until real interactive use
-(Luna, 2026-08-01); `tools/husk_blender_geoset_mask.py` grew from that
-slot.
-
-**LOD tiers share one skeleton and animation set**: every `.skin` selects a
-subset of the same vertices/bones. `writeGlb` is `writeGlbMulti` with one
-entry.
-
-**A genuinely geometry-less model gets zero meshes, not one empty mesh.** 3,807 of
-130k files (pure VFX, e.g. `particles/lootglow_boss.m2`) have no vertices;
-an empty-`indices` primitive is invalid glTF. A LOD tier with zero
-primitives adds no mesh; `writeGlbMulti` accepts no meshes when a skeleton
-exists (anchors still export) and errors when both are empty.
+**Blend mode → `alphaMode`**: the material's framebuffer blend when the
+source has one (opaque → `OPAQUE`, alpha key → `MASK`, else `BLEND`),
+otherwise from its last layer's combine op.
 
 **A multi-root bone forest gets one synthesized non-joint parent node.**
-35% of 130k files (45,804) have several roots — intentional data. When
-`rootJointNodeIndices.size() > 1`, one identity node outside `skin.joints`
-(no IBM) parents every root and is `skin.skeleton` and the sole scene
-root — the shape glTF tooling expects for multi-rooted skeletons
-(KhronosGroup/glTF issue 1270). **Invariant: `Skeleton::joints` is never
-touched** — every vertex/
-anchor/correction/animation joint index stays a raw M2 bone index
-(`gltf.hpp`). Single-root output is byte-identical. Blender counts the real
-bones only (15-bone/10-root fixture). Rejected: an extra identity joint
-(grows `skin.joints` past the bone count for nothing) and dropping
-non-hierarchical bones (`wow.export`'s apparent approach; loses real
-bones). The validator's `SKIN_NO_COMMON_ROOT` flags only some multi-root
-files; why is open (`TODO/INVESTIGATIONS_TODO.md` #16).
+35% of 130k files (45,804) have several roots — intentional data. One
+node named `skeleton`, outside `skin.joints` (no IBM), parents every
+root and is `skin.skeleton` — the shape glTF tooling expects for multi-rooted
+skeletons (KhronosGroup/glTF issue 1270). Joint indices stay raw M2 bone
+indices. Rejected: an extra identity joint (grows `skin.joints` past the
+bone count for nothing) and dropping non-hierarchical bones
+(`wow.export`'s apparent approach; loses real bones). The validator's
+`SKIN_NO_COMMON_ROOT` flags only some multi-root files; why is open
+(`TODO/INVESTIGATIONS_TODO.md` #16).
 
-**Nodes carry real names.** Joints: `m2::keyBoneName` (the wiki's key-bone
-table), else `bone_<index>`. Materials: `m2::textureTypeName` suffixes
-(`_skin`, `_char_hair`). The render mesh node falls back to the model's
-basename.
-
-**Ambiguous texture candidates are all embedded.** When a slot has 2+
-same-basename candidates and no in-file tiebreak, every candidate is
-embedded (`alternate_textures`), and one deterministic pick (alphabetical)
-is wired as `baseColorTexture` so the model renders. Enumerating needs no
-in-file data (it comes from the `--textures` scan), only *picking* does.
-`texture_file_data_id` records the resolved FileDataID whichever file won.
-
-### Blender-facing glTF
-
-**Blender-survivable extras live on the skin's root joint, not the skin.**
-Every per-model key (`chr_*`, `enabled_geosets`, `bone_correction_sets`,
-emitter/physics anchors, ...) belongs on `skin.extras` by glTF semantics,
-but Blender's importer drops skin, animation and `asset` extras, while node
-extras survive as custom properties (verified headless, deeply nested
-structures included). So they merge onto the first real root joint
-(`emitSkeletonAndSkin`'s `rootJointNodeIndices.front()`, never the
-synthesized parent, which is no bone). Rejected: a new fake carrier joint
-like the geoset tags — the joint offset arithmetic is threaded through ~10
-places, risking a silent off-by-one. Accepted cost: the data stays on that
-bone.
-
-- Raw joint indices also carry `bone_name`: Blender's bone order differs
-  from glTF joint order (242/358 mismatches on a 245-bone character).
-  `joint_names` stays as the carrier's always-present marker.
-- `animation_data_names` is mirrored onto the carrier and kept in each
-  clip's `sequence_metadata` — the one deliberate duplicate, because the
-  glTF-natural place and the place Blender keeps differ.
-- The geoset-tag trick (`Skeleton::geosetTags`, `JOINTS_1`/`WEIGHTS_1`) is
-  the inverse: data encoded as weights, which Blender turns into vertex
-  groups.
-- Blender-side hazard: custom-property groups are live views; deleting any
-  bone afterwards invalidates them and touching one segfaults Blender.
-  `_root_joint_extras` deep-copies.
-
-**`extras` schema version**: `kExtrasSchemaVersion` (`gltf.hpp`) is written
-to `asset.extras.schema_version` (always present, spec-correct) and
-mirrored on the root joint (survives Blender). It versions the extras
-*shape*, not the binary: bumped only when a key's meaning changes. The
-Blender script prints match/older/newer/missing and never rejects: old
-exports have no version and every key is optional anyway.
-
-**Human-readable names**: geoset dropdowns are labelled with real
-customization option/choice names where `chr_customization_options` has
-them (a `NodeEnumItem` name is both identifier and label, so defaults
-resolve through a variant → label map). `AnimationData.db2`'s name is
-attached as `animation_data_name`, never renaming the clip (tools key on
-`anim_<id>_<variationIndex>`); current clients have no `Name` column
-(`LAYOUT BBF66A3C`, absent since 7.3.5), so nothing resolves today
-(`CLAUDE_HISTORY.md`). Clips are marked as Blender assets
-(`action.asset_mark()`), the one place the script renames.
+**Names**: the mesh node is the model's name; joints take the skeleton's
+structural label, else `joint_<index>`; clips are
+`sequence_<index>`/`global_sequence_<index>`.
 
 ### Resolution
 
@@ -525,8 +401,9 @@ attached as `animation_data_name`, never renaming the clip (tools key on
 `--listfile-root`, then the one unclaimed same-basename file (ambiguity
 reported). Deterministic tiers run before the shared fuzzy pool: a fuzzy
 claim once stole a file belonging to a later FileDataID-resolvable slot
-(now a `tests/test_cli.cpp` case). Owner: `export_texture_resolution.*` /
-`sources::Catalog`.
+(now a `tests/test_cli.cpp` case). Owner: `sources/texture_resolution.*` /
+`sources::Catalog`. With `--db2-dir`, the catalog also has a DB2 character
+tier for runtime-replaceable slots (`character_texture_context.*`).
 
 **A reimplementation of a resolution chain must mirror every tier.** A
 Python scan (`unfillable_texture_task.py`) dropped the listfile tier; after
@@ -587,11 +464,11 @@ reference". Grounded in `~/docs/CLI.md`.
   `--help` needed a pre-parse hack.
 - **Only `-i`/`-o` keep a positional fallback**: `tool in out` is universal
   muscle memory; `.skin`/`.skel`/directories have no such convention.
-  `--output`'s default (`<model-basename>.glb`) is a computed literal, not
-  an `auto` state.
+  `--output`'s default (`<model-basename>.bundle` beside the model) is a
+  computed literal, not an `auto` state.
 - **Shorthands for per-invocation flags** (§2.8): `-s`/`-t`/`-a`.
   `--skin-dir` has none because `-s` is `--skin` (a different axis, not a
-  rarer spelling); `--skel`/`--lod` are occasional (§2.6).
+  rarer spelling); `--skel`/`--glb` are occasional (§2.6).
 - **`--skin none` is rejected at parse time.** A `.skin` is the sole source
   of triangles, submeshes and batches; a skin-less export would be new
   scope with its own design, not a quiet `none`.
@@ -600,7 +477,7 @@ reference". Grounded in `~/docs/CLI.md`.
   Rejected: a Python wrapper — blurs the single-binary boundary for nothing
   CLI11 doesn't give in C++.
 - **Hazard**: `App::parse(std::vector<std::string>&)` consumes from the
-  *back*. `exportGlb` reverses `args` first; forward order silently binds
+  *back*. `cli_args.cpp` reverses `args` first; forward order silently binds
   flags to the wrong tokens.
 - **Flag tables and completions are generated, never hand-written**
   (`--print-flag-docs`, `--print-completion`); `tests/
@@ -614,7 +491,7 @@ points at (`--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`,
 
 - **Unset → `auto`**: derive from the input's self-description,
   best-effort. *What* to look for comes from the model's bytes (`SFID`
-  entry `--lod` picks); *where* to search is a directory whose default is
+  entries); *where* to search is a directory whose default is
   the model's own. That default is a value, not the definition of `auto`,
   so a second "where" signal wouldn't change the flag's meaning.
 - **Explicit value → override.**
@@ -622,11 +499,13 @@ points at (`--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`,
 
 Per flag:
 
-- `--textures none`: never embed an image; blend mode/tint still apply.
+- `--textures none`: no textures from a directory; blend mode/tint are
+  still written.
 - `--skel none`: never look for a same-basename `.skel`; unskinned mesh.
 - `--skin-dir none`: skip the `SFID` stage, go straight to the basename
   scan.
-- `--bones-dir none`: no `.bone` files, no `bone_correction_sets`.
+- `--bones-dir none`: `.bone` files only through the listfile and store.
+- `--phys none`: no `.phys`, no `resources.physics`.
 
 **`--db2-dir`/`--dbd-dir` are required together.** `--char-layout-id` is
 derived from the resolved `--chr-model-id` (`ChrModel.
@@ -657,9 +536,9 @@ invocation, as if unset (CLI11's precedence: explicit beats config; verified
 with a real config). Before it, tests had to blank the whole config
 (`HUSK_CONFIG=/dev/null`) to disable one flag.
 
-- `--db2-dir none`/`--dbd-dir none`: no DB2-driven enrichment
-  (`--char-layout-id`, `--customization-choice-ids`, `--chr-model-id`,
-  `--creature-display-id`, `--appearance`'s gear).
+- `--db2-dir none`/`--dbd-dir none`: no DB2-driven data (character
+  customization and textures, creature options and presets,
+  `--appearance`'s gear).
 - `--listfile none`: no listfile tier. `--listfile-root none`: clears a
   configured root.
 
@@ -683,9 +562,8 @@ both. The rest, checked:
   real counterexample.
 - **`--textures` fails (1)**: M2 never embeds pixels; `inline` would be
   `none`.
-- **`--lod`** is a selector, not a resolution source.
-- **Extras read unconditionally** (geoset ids, extra layers, transforms,
-  emitter anchors) have no flag at all.
+- **Data read unconditionally** (geosets, extra layers, transforms,
+  emitters, collision, every LOD level) has no flag at all.
 
 ### Config-file defaults for `export`
 

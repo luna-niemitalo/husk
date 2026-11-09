@@ -72,7 +72,7 @@ reference: its `weapon_blade` (M2 texture type 3) decorative element should
 read as a subtle green glow but exports as a solid brown/tan panel using the
 helmet's own metal-shell texture.
 
-Root cause: `candidateAllowedForType()` (`export_texture_resolution.cpp`)
+Root cause: `candidateAllowedForType()` (`src/sources/texture_resolution.cpp`)
 only restricts a fuzzy candidate when its filename category is *recognized*
 (`candidateCategoryTypes()`'s fixed character-customization vocabulary —
 `skin_color`, `hair_color`, etc.). Quality-tint tokens like `blue`/`green`/
@@ -101,14 +101,16 @@ object-skin-resolution fix, a local race/gender-suffix-stripping fallback
 tier in this same fuzzy matcher, landed 2026-08-16 and is not itself open;
 this is its direct, still-outstanding follow-up.)
 
-`render_sample_driver.py`/`tools/full_render.py` need a real run to
-completion (`direnv exec . tools/venv/bin/python tools/full_render.py`),
-then a real visual check of the output, before this can be called verified
-at corpus scale. **Marked human-gated per Luna's explicit correction** — this
-exact spot cost a previous session real self-inflicted damage twice (an
-unauthorized `rm`, an inline/foreground full-corpus render blocking the
-session). Get Luna's go-ahead before starting the render, run it backgrounded,
-and hand the visual review to her rather than self-certifying it.
+Needs a corpus-scale render and a real visual check before this can be
+called verified at corpus scale. The batch render pipeline
+(`full_render.py`, `render_sample_driver.py`) is deleted; only
+`tools/render_lean_glb.py` (one `--glb`, base-colour materials only)
+exists, so a render path that shows resolved textures has to be built
+first. **Human-gated per Luna's explicit correction** — a previous
+corpus render here cost a session real self-inflicted damage twice (an
+unauthorized `rm`, an inline/foreground render blocking the session). Get
+Luna's go-ahead before starting, run it backgrounded, and hand the visual
+review to her rather than self-certifying it.
 
 ## Open item: cross-validate DB2 object-skin candidates against the fuzzy pool (not started)
 

@@ -20,12 +20,13 @@ compositing".
 5. **Mesh colour alpha**: a batch whose colour alpha and texture weight
    both animate keeps only the colour's in `alpha_fade`; the shaders
    multiply by both.
-6. **`canon::BlendOp`**: no longer written; only the legacy comparison
-   (`canon_diff`) and the glTF writer read it. Remove with the glTF path.
+6. **`canon::BlendOp`**: not written to the bundle; only the lean glTF
+   writer reads it (its `alphaMode` fallback). Remove it or the fallback.
 7. **UV animation coverage**: a layer's transform is resolved for
-   sequence 0 only, so transforms animated in other sequences or on a
-   global sequence never reach `uv_maps` (the spell fixture
-   `7037014.m2` has one transform and exports none).
+   sequence 0 (or its global loop) only, so transforms animated in other
+   sequences never reach `uv_maps`. Recheck the spell fixture
+   `7037014.m2` (one transform; exported none before global loops were
+   read).
 8. **Environment mapping source**: the fox's vertex shader is
    `Diffuse_T1_Env` while its texture-coordinate combo gives set 0 for
    unit 1. Which one the client honours is inferred only

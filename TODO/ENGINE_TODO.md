@@ -40,22 +40,13 @@ own framing.
 selection), and hardcoded/replaceable texture resolution are now resolved
 outright, not just reframed — removed per this file's own convention.**
 All three were genuinely external-data-acquisition problems (this file's
-own scope), and all three are now closed: `husk export
---db2-dir/--dbd-dir/--customization-choice-ids` (2026-08-14) resolves a
-real `ChrCustomizationChoiceID` to its real geoset selection (attached as
-`enabled_geosets` skin extras) and/or its real `.bone` `BoneFileDataID`
-(marking the matching `--bones-dir`-resolved correction set) —
-`TODO/BONE_CORRECTION_APPLICATION_TODO.md` has the bone-correction-set
-half's own detail.
-`tools/husk_blender_geoset_mask.py` also now consumes `enabled_geosets`
-directly, pre-selecting each geoset group's dropdown from real resolved
-data instead of a human clicking blind. Hardcoded/replaceable texture
-resolution (the real `ChrCustomizationOption -> Choice -> Element ->
-Material -> TextureFileData` chain, `chr_enabled_materials`/
-`chr_customization_options` skin extras) landed across several later
-sessions — full narrative in `CLAUDE_HISTORY.md`. What's left for `.bone`
+own scope), and all three are now closed: with `--db2-dir/--dbd-dir`,
+the model bundle's customization choices carry their geosets, their
+`.bone` `correction_set` and their textures (the `ChrCustomizationOption
+-> Choice -> Element -> Material -> TextureFileData` chain) — full
+narrative in `CLAUDE_HISTORY.md`. What's left for `.bone`
 corrections specifically — whether/how to actually *apply* the resolved
-correction matrix in Blender — is a different kind of question (unverified
+correction matrix — is a different kind of question (unverified
 composition math, gated on a real human ground-truth comparison against
 the client, not a data-acquisition gap) and is tracked on its own in
 `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, out of this file's scope.
@@ -153,8 +144,8 @@ further. Full investigation: `CLAUDE_HISTORY.md`.
     `SpellCastDirectedSoundID`, `SubmergeSoundID`, `SoundWingFlapID`,
     ...), each an `int<SoundEntries::ID>` pointing into the real, also-
     readable `SoundKit`/`SoundKitEntry.db2` (308,197/1,295,501 rows).
-    Reachable today via husk's own existing `--creature-display-id` flag:
-    `CreatureDisplayInfo.SoundID -> CreatureSoundData.ID` (confirmed via
+    Reachable through the CreatureDisplayInfo rows husk already reads for
+    creature presets: `CreatureDisplayInfo.SoundID -> CreatureSoundData.ID` (confirmed via
     the DBD: `CreatureDisplayInfo` has a real
     `int<CreatureSoundData::ID> SoundID` column). **Real, direct name
     correlation confirmed against husk's own already-parsed `M2Event`
@@ -165,15 +156,15 @@ further. Full investigation: `CLAUDE_HISTORY.md`.
     `SoundWingFlapID`. Not every documented `M2Event` code has a role
     match (most are player-character/spell-effect codes with no
     creature-sound-role equivalent) — this only ever closes a subset,
-    and only for creatures with a `--creature-display-id` given, not
+    and only for creatures with a CreatureDisplayInfo row, not
     player characters or generic doodads/effects.
 - **resolution path**: the general, identifier-driven `ModelSound*` chain
   stays genuinely blocked (encrypted locally, undocumented upstream) —
   not husk's to fix without a re-extraction *and* WoWDBDefs coverage
   neither of which exist yet. The creature-role subset above is real,
   concrete, and already has every piece husk needs on the DB2 side
-  (`--creature-display-id` derivation already exists,
-  `creature_geoset_db2.hpp` is the precedent for this exact "given a
+  (creature presets already walk CreatureModelData ->
+  CreatureDisplayInfo, `creature_geoset_db2.hpp` is the precedent for this exact "given a
   `CreatureDisplayID`, resolve real per-creature data" shape) — a real,
   scoped follow-up if audio parity for creatures specifically becomes a
   priority, but still low priority overall (audio, not visual fidelity),
@@ -182,7 +173,7 @@ further. Full investigation: `CLAUDE_HISTORY.md`.
 
 ## 4. LOD distance thresholds — a decision, not a task
 
-`husk export --lod all` already exports every `.skin` tier; there's no
+`husk export` already writes every `.skin` tier; there's no
 missing *data* here. The actual switch distance is a client CVar
 (`entityLodDist`/`doodadLodDist`) — a user setting, not asset data, so
 there's no table to recover it from even in principle. Whoever renders
@@ -206,8 +197,8 @@ a hypothetical engine's:
    a gap.
 3. **Sound linking** (#3) — checked 2026-08-21: the general `ModelSound*`
    chain is genuinely blocked (100% TACT-encrypted locally, undocumented
-   upstream); a narrower creature-only path via `CreatureSoundData`/
-   `--creature-display-id` is real and open, confirmed by direct name
+   upstream); a narrower creature-only path via `CreatureSoundData`
+   (from CreatureDisplayInfo) is real and open, confirmed by direct name
    correlation against husk's own `M2Event` table, but low priority and
    partial-coverage regardless.
 4. **LOD thresholds** (#4) — not a missing-data problem, just a design

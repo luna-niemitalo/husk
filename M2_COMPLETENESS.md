@@ -3,11 +3,8 @@
 A granular, M2-only breakdown of "how done is this feature," one row per
 concrete M2 data element. This is **not** a replacement for `README.md`'s
 format matrix (M2 vs M3 vs WMO vs BLP) — that table answers "does husk
-handle this concept at all, in which formats." This file answers a
-different question for M2 specifically: for each concept husk *does* touch,
-how far does it actually go, and — critically — is the remaining distance
-something husk can still close, or a permanent wall built into glTF/Blender
-itself.
+handle this concept at all, in which formats." This file answers, for M2
+specifically: for each concept husk *does* touch, how far does it go.
 
 Like `README.md`/`DESIGN.md`, **this file describes current state and is
 kept in sync as things change** — it is not a punch list (open items live
@@ -15,118 +12,101 @@ across the individual `TODO/*.md` files, see `TODO/README.md`'s index) and
 not a historical record (that's git history).
 When a row's status changes, edit the row; don't append a note.
 
-## The three axes
+## The two axes
 
 **Parse depth** — how much of the M2/`.skin`/`.skel`/`.anim`/`.bone` byte
 layout husk actually decodes for this feature:
 
 | Value | Meaning |
 |---|---|
-| `none` | Not read at all, or detected-and-skipped (e.g. the `0x40` "alias" sequence flag) |
+| `none` | Not read at all, or detected-and-skipped |
 | `descriptor` | Only the `M2Array` count+offset pair is read — no real records |
 | `deref` | Real records dereferenced, but only their static (non-`M2Track`) fields |
 | `full` | Every field husk needs for the feature, including animated tracks |
 
-**Consumption** — where the parsed data actually goes:
+**Consumption** — where the parsed data goes:
 
 | Value | Meaning |
 |---|---|
-| `none` | Parsed into memory, then dropped — invisible anywhere, including `husk info` |
-| `diagnostic` | Visible via `husk info`/`dump-chunks`; never reaches the exported `.glb` |
-| `extras` | Written into the `.glb` as glTF `extras` — present in the file, inert to any renderer that doesn't specifically look for it |
-| `native` | A real core-glTF construct (accessor, skin, animation channel, material field) — renders in Blender with zero extra tooling |
-
-**glTF ceiling** — the honest answer to "why isn't this `native`, and can it
-ever be":
-
-| Value | Meaning |
-|---|---|
-| `native — 100%` | Already there for the data currently available |
-| `native — gap remains` | `native` is the right target and is reachable; a specific known gap blocks it today |
-| `native-possible, not done` | Nothing about glTF/Blender blocks a real translation; husk just hasn't built it yet |
-| `node-possible, unclaimed` | Could become a plain glTF node (empty transform, no core semantic) rather than a first-class construct; nobody's built even that |
-| `extras-capped, permanent` | No core-glTF or common-Blender-importer slot exists for this concept, full stop — more husk effort cannot close this gap, only extras-tagging can |
-| `n/a` | Out of scope by deliberate project decision, an infrastructure concern with no renderable shape, or a genuine upstream-spec unknown (not a husk gap) |
-
-Only `native — 100%` means "done." Everything else is a real, specific
-reason it isn't — read the ceiling column before assuming any `⬜`-style row
-elsewhere is just unattempted work.
+| `none` | Parsed into memory, then dropped |
+| `diagnostic` | `husk info`/`dump-chunks` only |
+| `bundle` | Written into the model bundle (`husk export`, `REFACTOR/BUNDLE_FORMAT.md`) as data; never applied |
+| `bundle + glb` | Also in `export --glb`'s lean glTF projection (mesh, skin, animation, base-colour materials — nothing without a core glTF slot) |
 
 ---
 
 ## Core geometry & skeleton
 
-| Feature | Parse | Consumption | glTF ceiling | Note |
-|---|---|---|---|---|
-| Mesh geometry (positions, indices) | full | native | native — 100% | `src/m2.cpp`/`src/skin.cpp`; a genuinely geometry-less model (0 vertices, real corpus shape for particle/ribbon-only VFX — 3,807 files in a 130k-file corpus sweep) exports skeleton + emitter anchors with zero mesh nodes instead of failing — see `DESIGN.md`'s Key design decisions |
-| Normals | full | native | native — 100% | part of `M2Vertex` |
-| UV / texture coordinates (both sets) | full | native | native — 100% | `TEXCOORD_0`/`TEXCOORD_1` |
-| Tangents | n/a | n/a | n/a | not in the documented base header at all — nothing to parse |
-| Vertex skinning (bone weights/indices) | full | native | native — 100% | `JOINTS_0`/`WEIGHTS_0` |
-| Skeleton / bone hierarchy | full | native | native — 100% | inline or `.skel`-sourced, same joint hierarchy either way; a multi-root bone forest (35% of a real 130k-file corpus, `tools/find_multiroot_skeletons.py`) gets one synthesized non-joint glTF parent node, never a fake extra joint or a dropped bone — see `DESIGN.md`'s Key design decisions |
-| LOD tiers (`.skin` selection, `--lod`) | full | native | native — 100% | `--lod all` exports every tier as its own node sharing one skeleton |
-| Per-vertex color (batch tint/fade, constant case) | full | native | native — 100% | not truly per-vertex — per-batch material tint, see Materials section for the animated case |
+| Feature | Parse | Consumption | Note |
+|---|---|---|---|
+| Mesh geometry (positions, indices) | full | bundle + glb | `src/m2.cpp`/`src/skin.cpp`; a geometry-less model (particle/ribbon-only VFX, 3,807 files in a 130k-file sweep) exports its skeleton and effects with no triangles (`DESIGN.md`) |
+| Normals | full | bundle + glb | part of `M2Vertex` |
+| UV / texture coordinates (both sets) | full | bundle + glb | |
+| Tangents | n/a | n/a | not in the documented base header at all — nothing to parse |
+| Vertex skinning (bone weights/indices) | full | bundle + glb | |
+| Skeleton / bone hierarchy | full | bundle + glb | inline or `.skel`-sourced; a multi-root forest (35% of the corpus, `tools/find_multiroot_skeletons.py`) gets one non-joint parent node in the glb (`DESIGN.md`) |
+| LOD tiers (`.skin` per `SFID` entry) | full | bundle | every level in `resources.geometry.lod` |
+| Per-batch tint/fade, constant case | full | bundle | one-key step curves on the material layer |
 
 ## Animation
 
-| Feature | Parse | Consumption | glTF ceiling | Note |
-|---|---|---|---|---|
-| Animation sequences + per-bone tracks (inline or `.skel`-sourced) | full | native | native — 100% | `resolveVec3TrackSequence`/`resolveQuatTrackSequence`; a real, exact-duplicate keyframe timestamp (an authored "hard cut" pose, 5 real corpus files) is repaired via a 1ms forward nudge rather than rejected — see `DESIGN.md`'s Key design decisions |
-| `M2Sequence`'s own metadata (`movespeed`/`frequency`/`replay`/`blendTimeIn`/`blendTimeOut`/`bounds`/`variationNext`/`aliasNext`) | full | extras | extras-capped, permanent | no core-glTF clip field for playback speed/blend timing/replay count/bounding volume exists — attached as `sequence_metadata` extras on each clip (`gltf::Animation::SequenceMetadata`), same "tag it, don't guess at semantics" treatment as `bone_correction_sets`/`ribbon_emitters` |
-| External `.anim` sequences (`AFM2`) | full | native | native — 100% | via `--anim <dir>` + `AFID`/`.skel`'s own `AFID` |
-| External `.anim` sequences (`AFSB`, `.skel`-linked) | full | native | native — 100% | byte layout was undocumented anywhere, cracked this session — `SKB1`'s own descriptors point directly into `AFSB`'s payload, no new parser needed (`WIKI_FINDINGS/M2/anim.md`'s follow-up) |
-| Global-sequence bone tracks (independent continuous loops) | full | native | native — 100% | `buildGlobalSequenceAnimations`, one clip per global-sequence index |
-| Alias sequences (`flags & 0x40`) | full | native | native — 100% | `aliasNext` resolved (`WIKI_FINDINGS/M2.md`): a local `sequences` array index, chain-walked to its terminal non-alias sequence, whose keyframe data (inline or external, whichever it uses) is reused for the alias's own clip — a sequence carrying *both* `0x20` (inline) and `0x40` (alias) uses its own inline data, `0x20` winning priority exactly as it did before this existed (real data: 31 of 38 real alias sequences in `bloodelffemale_hd.skel` carry both bits) |
-| Animated material tint/fade (`M2Color`/`M2TextureWeight`, per-sequence or global-sequence-driven) | full | extras + Blender playback | extras-capped, permanent | no core-glTF animation-channel target for a material property exists — `resolveAnimatedColorCurve`/`resolveAnimatedFixed16Curve` (`src/cmd_export.cpp`, reusing `resolveVec3TrackSequence`/`resolveRawIntTrackSequence`) resolve the full curve and attach it as `tint_animation`/`fade_animation` material extras (`gltf::Material`); `tools/husk_blender_geoset_mask.py`'s `apply_tint_fade_animation` turns it into real playback post-import (frame-driven, looping on the curve's own real duration) — structurally consistent but **not verified against a real corpus fixture with actual tint/fade data**, see that function's own doc comment |
+| Feature | Parse | Consumption | Note |
+|---|---|---|---|
+| Animation sequences + per-bone tracks (inline or `.skel`-sourced) | full | bundle + glb | `resolveVec3TrackSequence`/`resolveQuatTrackSequence`; an exact-duplicate keyframe timestamp (a "hard cut", 5 corpus files) is repaired by a 1 ms nudge (`DESIGN.md`) |
+| `M2Sequence` metadata | full | bundle | each clip's `animation` (AnimationData row, named when the DB2 has `Name`), `variation`, `duration`, `move_speed`, `frequency`, `blend_in`/`blend_out`, `source{flags, variation_next}`. `bounds`/`replay` are not written |
+| External `.anim` (`AFM2`) | full | bundle + glb | via `--anim <dir>` + the model's or `.skel`'s `AFID` |
+| External `.anim` (`AFSB`, `.skel`-linked) | full | bundle + glb | `SKB1`'s descriptors point straight into `AFSB`'s payload (`WIKI_FINDINGS/M2/anim.md`) |
+| Global-sequence bone tracks | full | bundle + glb | their own global loop, not folded into sequence clips |
+| Alias sequences (`flags & 0x40`) | full | bundle + glb | chain-walked through `aliasNext` to the terminal sequence; `0x20` (inline) wins over `0x40` (31 of 38 aliases in `bloodelffemale_hd.skel` carry both) |
+| Animated material tint/fade (`M2Color`/`M2TextureWeight`, per-sequence or global) | full | bundle | material layer `tint`/`alpha_fade` curves |
 
 ## Materials & textures
 
-| Feature | Parse | Consumption | glTF ceiling | Note |
-|---|---|---|---|---|
-| Base material (blend mode, alpha mode, doubleSided) | full | native | native — 100% | `alphaMode`/`doubleSided` |
-| Texture references (names/FileDataIDs, `TXID`) | full | native | native — 100% | real embedded `baseColorTexture` via `--textures <dir>` |
-| Hardcoded/replaceable texture slot marker (`M2Texture::type != 0`) | full | extras | extras-capped, permanent | no core-glTF concept for "this slot is resolved by client-side DB2/character-customization data at runtime" — a nonzero `type` (skin/hair/item-tint/...) is attached as `texture_type` material extras (present only when nonzero, matching every other "absence means ordinary" extras convention here) so a missing `baseColorImagePng` reads as "husk can't resolve this locally," not "the `--textures` directory just didn't have the file" Bundle: every replaceable type is a `definition.texture_slots` entry and each layer names its `slot`; creature models also get each slot's texture options, particle colour options and `selection.presets` from CreatureDisplayInfo (`TODO/CREATURE_OPTIONS_TODO.md`) |
-| Multi-texture-layer (`textureCount > 1`, 2nd+ layer) | full | extras | extras-capped, permanent | core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map); index arithmetic confirmed exact against real data, `WIKI_FINDINGS/M2/skin.md` |
-| Texture transform (UV scroll/rotate/scale, animated case) | full | extras + Blender playback | extras-capped, permanent | `KHR_texture_transform` has no animation-channel target, so the common case has no *native* glTF representation regardless of effort — but the real translation/rotation/scaling keyframe curve (whichever track is genuinely animated) is now resolved (`resolveAnimatedColorCurve`/`resolveAnimatedRawQuatCurve`, `src/export_texture_resolution.cpp`, the latter via new `resolveRawQuatTrackSequence`/`resolveRawQuatGlobalSequenceTrack`) and attached as `texture_transform_animation` material extras; `tools/husk_blender_geoset_mask.py`'s `apply_texture_transform_animation` turns it into real Mapping-node playback post-import — verified against the real `unk_exp11_7037014.m2` fixture (`tests/test_data_paths.hpp`'s `kTextureTransformTranslationM2`) |
-| Texture transform (UV scroll/rotate/scale, constant case) | full | native + extras | native — 100% | real `KHR_texture_transform` on `baseColorTexture` (`gltf_mesh.cpp`'s `textureTransformToKhr`) whenever the record is genuinely constant (every track either empty or a true single value, not just "every per-sequence value happens to be identity" — see the real `brewfestmount.m2` counterexample this session found) and the rotation is planar (Z-axis only); pivot-correction math (texture-center vs. the extension's origin) hand-derived and verified against real `bloodknightcharger.m2` data three independent ways (hand computation, 20,000 randomized trials against the client's own matrix composition, and Blender's own glTF importer producing an exactly-matching Mapping node) — now closed, full narrative in `WIKI_FINDINGS/HISTORY.md`. Raw values still always attached as `texture_transform` extras too, for the non-planar/non-real-constant fallback case |
+| Feature | Parse | Consumption | Note |
+|---|---|---|---|
+| Base material (blend mode, render flags) | full | bundle + glb | `framebuffer_blend`, `unlit`, `unfogged`, ...; the glb maps blend to `alphaMode` |
+| Texture references (FileDataIDs, `TXID`) | full | bundle + glb | an unresolved texture keeps its FileDataID; a literal hit takes the listfile name |
+| Replaceable texture slot (`M2Texture::type != 0`) | full | bundle | `definition.texture_slots`; each layer names its `slot`. Creature models also get slot texture options, particle colour options and `selection.presets` from CreatureDisplayInfo (`TODO/CREATURE_OPTIONS_TODO.md`); characters resolve slot textures through the DB2 character tier |
+| Multi-texture layers (`textureCount > 1`) | full | bundle | `layers[]`; index arithmetic confirmed against real data (`WIKI_FINDINGS/M2/skin.md`) |
+| Texture transform (UV scroll/rotate/scale), animated or constant | full | bundle | layer curves; a constant transform is a one-key step curve. Fixture: `unk_exp11_7037014.m2` (`kTextureTransformTranslationM2`) |
 
 ## Collision & physics
 
-| Feature | Parse | Consumption | glTF ceiling | Note |
-|---|---|---|---|---|
-| Collision box / sphere radius (scalars) | full | diagnostic | n/a — verification-signal only | not an export target; cross-checked against husk's own bind-pose vertex parsing (containment, not tight fit — see `WIKI_FINDINGS/M2.md`) by `tests/test_conformance.cpp` |
-| Collision mesh (positions/indices/face normals) | full | native | native — 100% | a plain unskinned triangle mesh, one more `gltf::NamedMesh` tagged `{"collision": true}` in node `extras` for a renderer/Blender script to filter — per-vertex normals approximated (averaged adjacent face normals) since the source data is per-triangle, not per-vertex |
-| `.phys` sidecar content | full | extras + diagnostic | extras-capped, permanent | documented on wowdev.wiki (`documentation/wowdev-wiki/md/PHYS.md`), verified against 103 real files (`WIKI_FINDINGS/PHYS.md`) — every body/shape/joint/`PHYV` record parsed (`src/phys.hpp`/`phys.cpp`); `husk export --phys` attaches a minimal per-body placement anchor (`physics_bodies` skin extras, same pattern as ribbon/particle emitters), full records via `husk dump-chunks <file.phys>` — no core-glTF concept for physics simulation input exists, so this is permanently `extras`/diagnostic, not a renderable gap |
-| Inline physics (`PFDC`, M2-embedded) | full | diagnostic (`dump-chunks` JSON) | n/a, by design | wowdev.wiki M2#PFDC: byte-for-byte the same `.phys` chunk container (plus up to 6 bytes trailing zero padding) — reuses husk's own `phys::parse`/`writePhysFile` directly, no new parser; husk's own local extraction corpus has zero `PFDC`-bearing files, but that was a local-extraction gap, not a real absence — a live-CASC full-corpus scan found 2,430 real `PFDC` files, and one pulled directly (FileDataID 1003471) decodes cleanly, same shape `WIKI_FINDINGS/PHYS.md` already verified for standalone `.phys`; now covered by a real-data regression test, `tests/test_dump.cpp` |
-| Player-housing collision (`PCOL`, War Within 11.1.7+) | full | diagnostic (`dump-chunks` JSON) | n/a, by design | wowdev.wiki M2#PCOL: four independent `(count, offset)` regions (`vertexPositions`/`faceNormals`/`indices`/`flags`), each read via its own offset since the wiki warns regions aren't necessarily contiguous — confirmed on a real file (an 8-byte gap between `faceNormals` and `indices`); verified against all 2,354 real `PCOL`-bearing files in the local corpus (corrected from an earlier scanner bug's false "zero real files," `WIKI_FINDINGS/M2.md`), every region in-bounds and every index in range for that file's own vertex count on all 2,354, `indexCount == faceNormCount * 3` on all 2,354 (triangle triples, one normal per triangle — the same shape M2's own core collision mesh above already has); `flags`' per-record meaning is undocumented on the wiki, exposed raw, but a full-corpus value scan confirmed it's structurally a real per-triangle bitmask, not an enum (98.4% of files use only bit 0; every value above 5 is a singleton confined to one specific doodad) — bit semantics unconfirmed, needing DB2/client data (`WIKI_FINDINGS/M2.md`); also found `flagsCount` isn't always equal to `faceNormCount` (3/2,354 real files differ), already handled correctly since `dumpPcol` reads it from its own header field; same `dump-chunks`-only, no-glTF-slot treatment as `EXP2`/`PFDC`/`DETL` (sidecar-shaped collision data, not core render geometry) |
+| Feature | Parse | Consumption | Note |
+|---|---|---|---|
+| Collision box / sphere radius (scalars) | full | diagnostic | cross-checked against bind-pose vertices (containment, `WIKI_FINDINGS/M2.md`) by `tests/test_conformance.cpp` |
+| Collision mesh (positions/indices/face normals) | full | bundle | `resources.geometry.collision`, always written; normals per triangle, as in the source |
+| `.phys` sidecar | full | bundle + diagnostic | `resources.physics` (bodies, shapes, joints); full records via `dump-chunks <file.phys>`. Verified against 103 files (`WIKI_FINDINGS/PHYS.md`) |
+| Inline physics (`PFDC`) | full | diagnostic | the `.phys` container inline (+ up to 6 bytes zero padding); reuses `phys::parse`. 2,430 live files; FileDataID 1003471 regression-tested (`tests/test_dump.cpp`) |
+| Player-housing collision (`PCOL`, 11.1.7+) | full | diagnostic | four independent `(count, offset)` regions; verified on all 2,354 local `PCOL` files; `flags` is a per-triangle bitmask, bit meanings unknown (`WIKI_FINDINGS/M2.md`) |
 
 ## Interaction points & effects
 
-| Feature | Parse | Consumption | glTF ceiling | Note |
-|---|---|---|---|---|
-| Attachments | full | native (position/joint) + extras (`animate_attached`); bundle (`resources.attachments`, incl. `.skel` `SKA1`) | native — 100% (placement); extras-capped, permanent (animated field) | real, translation-only child glTF node per entry (`attachment_<id>`), parented under its owning joint, never added to `skin.joints` — see `DESIGN.md`'s Key design decisions. `animate_attached` (M2Track<uint8_t>, "whether the attached model animates with this one, default true") is now resolved (reuses the same `resolveRawByteTrackCurve` Light's `visibility` uses) and attached as `animate_attached` node extras when non-default data exists — checked against 3 real fixtures (`wolf.m2`, `sword_2h_ashbringer_a_01.m2`, `mace_1h_warfrontsforsaken_d_01.m2`, 23 real attachments total) and found genuinely empty on all of them, a real negative result matching the wiki's own "only a bool is used, default is true" note, not a bug |
-| Events | deref (static fields only) | native (`husk export`); bundle (`resources.events`) | native — 100% | same treatment as attachments, node named `event_<identifier>` (not deduplicated — a real M2 can repeat one, e.g. multiple "$CSD" events); the raw `M2Event::data` field (wowdev.wiki: "passed when the event is fired," no per-event meaning documented) is attached as a `data` extras key on that same node |
-| Lights | full | native (position/joint) + extras (`type` + animated curves); bundle (`resources.lights`) | native — 100% (placement); extras-capped, permanent (animated fields) | position/joint node named `light_<index>`, same as before; `type` and all 7 M2Track fields (ambient/diffuse color+intensity, attenuation start/end, visibility) are now resolved (`resolveLightColorCurve`/`resolveLightFloatCurve`/`resolveLightVisibilityCurve`, `cmd_export.cpp`) and attached as `type`/`light_animation` extras on the light's own node (`gltf_skeleton.cpp`) — same "no core-glTF animation-channel target for a light property exists" reasoning as the material tint/fade curves, reusing `gltf::Material::AnimatedColorCurve`/`AnimatedScalarCurve` rather than duplicating the shape. Verified against a real login-screen glue model (`ui_mainmenu_pandaria.m2`, `test_data/interface/glues/models/`) with 2 real animated lights — plausible in-range color/intensity/attenuation values, not garbage |
-| Per-light shadow-RT scale / diffuse multiplier (`DETL`) | full | diagnostic (`dump-chunks` JSON) | n/a, by design | real 12-byte stride + 16-byte chunk alignment padding, both confirmed against 1,043 real corpus files (`WIKI_FINDINGS/M2.md`) — no core-glTF slot for shadow-render-target scale/diffuse-multiplier data |
-| `WFV1`/`WFV2`/`DPIV`/`AFRA` (no wowdev.wiki struct at all) | full — byte-decoded from real files, no wiki basis (`AFRA`/`WFV1`: 1 float + reserved; `DPIV`: real `chunk.size/32` record array, 8 floats each; `WFV2`: flat 16x float array) | diagnostic (`dump-chunks` JSON) | n/a, by design | `WFV1`/`WFV2` are a genuinely thin 2-file, byte-identical sample — flagged tentative, field names deliberately generic; verified against all real corpus hits (`WIKI_FINDINGS/M2.md`'s follow-up) |
-| Cameras (`M2Camera`) | descriptor (count only) | diagnostic (count only) | n/a, deprioritized by design | a custom renderer supplies its own camera regardless — WoW's own baked cinematic camera paths aren't needed by normal model rendering, unlike billboarding |
-| Ribbons (`M2Ribbon`) | full — all static fields + 6 `M2Track`s resolved (curves) + 2 lookup tables | `husk info` (summary) + `dump-chunks` JSON (full, every resolved curve) + inert `extras` (`husk export`, minimal id/bone/position anchor) + bundle (placeholder effect instances on their bones in the model's inline `effects` set, every field and curve as style, textures resolved; `REFACTOR/EFFECTS.md`) | extras-only, by design — no native glTF emitter/trail primitive exists | real-data-verified against Ashbringer's 3 ribbons — see `WIKI_FINDINGS.md` |
-| Particles (`M2Particle`) | full for version ≥ `kMinVerifiedParticleVersion` (272, Cataclysm) — all static fields + FBlock curves (flat) + `M2Track<float>` curves (per-sequence/global-sequence) resolved; count-only + loud warning below that version | `husk info` (summary) + `dump-chunks` JSON (full, every resolved curve) + inert `extras` (`husk export`, minimal id/bone/position anchor) + bundle (placeholder effect instances on their bones in the model's inline `effects` set, every field and curve as style, textures resolved; `REFACTOR/EFFECTS.md`) | extras-only, by design — no native glTF emitter/particle-system primitive exists | real-data-verified against a real weapon's 64 particle emitters (decoded colors form a real fire/ember gradient, alpha/scale curves are clean envelopes) — see `WIKI_FINDINGS.md`; pre-Cata shapes real but unverified, not implemented |
-| Particle/ribbon side-chunks (`TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1`/`EXP2`) | full | diagnostic (`dump-chunks` JSON) | n/a, by design | distinct from the `M2Ribbon`/`M2Particle` records themselves (above) — `dump-chunks` is a deliberately separate JSON output, never a step toward richer glTF (see `DESIGN.md`). `EXP2` (M2ExtendedParticle: `zSource`/`colorMult`/`alphaMult` — the same three fields `EXPT` carries — plus a new `alphaCutoff` `M2PartTrack<fixed16>` curve; per the wiki, the client reconstructs `EXP2` from `EXPT` when only the latter exists, so `EXP2` is `EXPT`'s superset, not an unrelated record) — husk's own local extraction corpus has zero `EXP2`-bearing files, but that was a local-extraction gap, not a real absence: a live-CASC full-corpus scan found 17,065 real `EXP2` files, and two pulled directly (FileDataIDs 126382/1003471) decode cleanly with no changes needed, one showing a real monotonic 3-keyframe `alphaCutoff` curve; now covered by real-data regression tests, `tests/test_dump.cpp` |
+| Feature | Parse | Consumption | Note |
+|---|---|---|---|
+| Attachments | full | bundle | `resources.scene.attachments`, incl. `.skel` `SKA1`. `animate_attached` empty on all 3 fixtures checked (23 attachments) — matches the wiki's "default true" note |
+| Events | deref (static fields) | bundle | `resources.scene.events`; identifiers repeat legally (one weapon has six `$CSD`) |
+| Lights | full | bundle | `resources.scene.lights`: type and all 7 `M2Track` fields; checked on `ui_mainmenu_pandaria.m2` (2 animated lights) |
+| Per-light shadow-RT scale / diffuse multiplier (`DETL`) | full | diagnostic | 12-byte stride + 16-byte alignment, confirmed on 1,043 files (`WIKI_FINDINGS/M2.md`) |
+| `WFV1`/`WFV2`/`DPIV`/`AFRA` (no wiki struct) | full — byte-decoded from real files | diagnostic | `WFV1`/`WFV2` rest on 2 byte-identical files: tentative, generic field names |
+| Cameras (`M2Camera`) | descriptor (count only) | diagnostic | deprioritized: a renderer supplies its own camera |
+| Ribbons (`M2Ribbon`) | full — static fields, 6 `M2Track`s, 2 lookup tables | bundle + diagnostic | bone-anchored placeholder effects in the model's inline `effects` set, every field and curve as style, textures resolved (`REFACTOR/EFFECTS.md`); full records in `dump-chunks`. Verified on Ashbringer's 3 ribbons |
+| Particles (`M2Particle`) | full for version ≥ 272 (`kMinVerifiedParticleVersion`); count-only + warning below | bundle + diagnostic | as ribbons. Verified on a weapon's 64 emitters; pre-Cata shapes unimplemented |
+| Particle/ribbon side-chunks (`TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1`/`EXP2`) | full | diagnostic | `EXP2` is `EXPT`'s superset plus an `alphaCutoff` curve; 17,065 live files, FileDataIDs 126382/1003471 regression-tested (`tests/test_dump.cpp`) |
 
 ## Sidecars & lookup tables
 
-| Feature | Parse | Consumption | glTF ceiling | Note |
-|---|---|---|---|---|
-| Sidecar FileDataIDs actually resolved to a local file (`SFID`/`TXID`/`AFID`/`BFID`) | full | native (`SFID`/`TXID`/`AFID`) or extras-only (`BFID`, see the `.bone` row below) | native — 100% (`SFID`/`TXID`/`AFID`); extras-only, by design (`BFID`) | `--skin-dir`/`--textures`/`--anim`/`--bones-dir`, local-directory convention only, never CASC |
-| Sidecar FileDataIDs surfaced but not resolved (`SKID`/`PFID`) | full (raw ID only) | diagnostic (`husk info`) | n/a — CASC resolution is a hard non-goal | no local-directory convention exists for these two |
-| `.bone` correction matrices (`BIDA`/`BOMT`) | full | diagnostic (`dump-chunks`) + inert `extras` (`husk export --bones-dir`/`--customization-choice-ids`) | extras-only, by design — never applied to the render | LOD ruled out as the selector by real data; slot selection is a real local `ChrCustomizationChoiceID` → `ChrCustomizationBoneSet.BoneFileDataID` DB2 chain, resolved via `husk export --db2-dir/--dbd-dir/--customization-choice-ids` (`src/chrcustomization_db2.hpp`/`.cpp`); applying the resolved matrix to real Blender rendering is the remaining open question, `TODO/BONE_CORRECTION_APPLICATION_TODO.md` |
-| Lookup tables (`boneLookup`/`attachmentLookup`/`cameraLookup`/`textureLookup`/`sequenceLookup`) | deref | diagnostic | n/a — pure indirection metadata, no independent renderable shape | `husk info` now dereferences and prints all five, resolving names via the existing `keyBoneName`/`textureTypeName`/`attachmentTypeName` tables where the id has one, skipping 0xFFFF ("-1"/"unused") entries; `sequence_lookup` is printed as its real hash-bucket shape (wowdev.wiki M2#Animation_Lookup), not a direct id-index map. Verified against real `wolf.m2`/`bloodelffemale_hd.m2` data (key-bone entries resolve to the expected Head/Jaw/Root joints, texture-type entries match each model's own hardcoded texture slots). None of these feed `husk export` — they're pure indirection tables the renderer doesn't need (husk already exports full per-vertex global joint indices/real embedded textures instead of the batching schemes these tables exist for) |
+| Feature | Parse | Consumption | Note |
+|---|---|---|---|
+| Sidecar FileDataIDs resolved (`SFID`/`TXID`/`AFID`/`BFID`/`SKID`) | full | bundle | found by FileDataID under the given directories, then listfile and store `_by_fdid/`; `.skel` also by same basename (`DESIGN.md` "Three-state resolution") |
+| `PFID` | full (raw ID) | diagnostic | not resolved: the `.phys` is `--phys` or the same-basename file |
+| `.bone` correction matrices (`BIDA`/`BOMT`) | full | bundle + diagnostic | `resources.rig.correction_sets`; a customization choice names its set. Never applied: semantics unverified (`TODO/BONE_CORRECTION_APPLICATION_TODO.md`); LOD ruled out as the selector |
+| Lookup tables (`boneLookup`/`attachmentLookup`/`cameraLookup`/`textureLookup`/`sequenceLookup`) | deref | diagnostic | `husk info` prints all five with names where the id has one; `sequence_lookup` as its hash-bucket shape. Not needed for export: full per-vertex joint indices and resolved textures replace them |
 
 ## Infrastructure (not independently renderable)
 
-| Feature | Parse | Consumption | glTF ceiling | Note |
-|---|---|---|---|---|
-| Chunk container / magic detection (`MD20`/`MD21`, tag tracking) | full | diagnostic (`husk info`) | n/a, infrastructure | drives parsing itself; no renderable shape of its own |
-| Header / global metadata (name/flags/bounding box/counts) | full — every field the wowdev.wiki header struct documents, including `global_flags` decoded into named bits (`m2::globalFlagNames`) and the conditional `textureCombinerCombos` array | diagnostic (`husk info`) | n/a, infrastructure | same reasoning; `textureCombinerCombos` has zero real corpus hits (130,576-file scan), so its own layout is unverified against real bytes even though the parse itself is a plain, unambiguous `M2Array<uint16_t>` |
-| Submesh/batch hardware bone-limit metadata (culling/sort fields) | descriptor | none | n/a, deliberately bypassed | husk exports full per-vertex global joint indices instead of the engine's per-drawcall bone-limit mechanism this metadata exists for — an intentional substitute, not a gap |
+| Feature | Parse | Consumption | Note |
+|---|---|---|---|
+| Chunk container / magic detection (`MD20`/`MD21`, tag tracking) | full | diagnostic | drives parsing itself |
+| Header / global metadata | full — every documented field, `global_flags` named bits, conditional `textureCombinerCombos` | diagnostic | `textureCombinerCombos` has zero corpus hits (130,576 files): layout unverified |
+| Submesh/batch hardware bone-limit metadata | descriptor | none | deliberately bypassed: full per-vertex global joint indices instead |

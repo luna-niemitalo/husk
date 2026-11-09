@@ -114,8 +114,9 @@ covers 67% of real ADT tiles); (6) `TODO/WORLD/LIGHTING_TODO.md`; (7) the remain
 
 ## The three axes
 
-Identical definitions to `M2_COMPLETENESS.md`, reworded for a
-multi-format, not-yet-started scope:
+Parse depth as in `M2_COMPLETENESS.md`. World formats are written only as
+bundles, never glTF; the "glTF ceiling" column is the design-time glTF
+analysis, kept as a scope note (it limits nothing, see above).
 
 **Parse depth** — how much of a chunk's byte layout husk actually decodes:
 
@@ -131,10 +132,8 @@ multi-format, not-yet-started scope:
 | Value | Meaning |
 |---|---|
 | `none` | Parsed into memory, then dropped |
-| `diagnostic` | Visible via `husk info`/`dump-chunks`-equivalent; never reaches the exported `.glb` |
-| `extras` | Written into the `.glb` as glTF `extras` — present in the file, inert to any renderer that doesn't specifically look for it |
-| `native` | A real core-glTF construct (accessor, node, mesh, material field) — renders in Blender with zero extra tooling |
-| `bundle` | Written into husk's native bundle (`REFACTOR/BUNDLE_FORMAT.md`) as first-class data, with no glTF projection yet — the terrain path's output |
+| `diagnostic` | Visible via `husk info`/`dump-chunks`-equivalent only |
+| `bundle` | Written into husk's native bundle (`REFACTOR/BUNDLE_FORMAT.md`) as first-class data |
 
 **glTF ceiling** — the honest answer to "what's the best this concept can
 become, and why":
@@ -196,7 +195,7 @@ breakdown would mean anything:
 
 | Feature | Chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| Legion+ terrain LOD (heightmap, doodad, and lighting variants) | `MLHD`/`MLVH`/`MLVI`/`MLLL`/`MLND`/`MLSI`/`MLLD`/`MLLN`/`MLLV`/`MLLI`/`MLMD`/`MLMX`/`MLDD`/`MLDX`/`MLDL`/`MLFD`/`MBMB`/`MLMB`/`MLDB`, plus Shadowlands+ `MWDR`/`MWDS` doodad refs | full (`MLVH`/`MLVI`/`MLLL`/`MLSI`, `MLDD`/`MLDX`/`MLMD`/`MLMX`/`MLFD`); none for the liquid, blend-mesh and opaque chunks | native (bundle) | n/a, bundle | terrain levels 1–4 per tile and each placement's `distant` listing (`REFACTOR/BUNDLE_FORMAT.md` "Levels of detail"); `MLLL`'s band set is `{4,8,16,32}` (2,000 real `_lod.adt` files), not `2.0` as `ADTLodImplementation.md`'s prose could be misread to imply; what's left in `TODO/WORLD/ADT_LOD_TODO.md` |
+| Legion+ terrain LOD (heightmap, doodad, and lighting variants) | `MLHD`/`MLVH`/`MLVI`/`MLLL`/`MLND`/`MLSI`/`MLLD`/`MLLN`/`MLLV`/`MLLI`/`MLMD`/`MLMX`/`MLDD`/`MLDX`/`MLDL`/`MLFD`/`MBMB`/`MLMB`/`MLDB`, plus Shadowlands+ `MWDR`/`MWDS` doodad refs | full (`MLVH`/`MLVI`/`MLLL`/`MLSI`, `MLDD`/`MLDX`/`MLMD`/`MLMX`/`MLFD`); none for the liquid, blend-mesh and opaque chunks | bundle | n/a, bundle | terrain levels 1–4 per tile and each placement's `distant` listing (`REFACTOR/BUNDLE_FORMAT.md` "Levels of detail"); `MLLL`'s band set is `{4,8,16,32}` (2,000 real `_lod.adt` files), not `2.0` as `ADTLodImplementation.md`'s prose could be misread to imply; what's left in `TODO/WORLD/ADT_LOD_TODO.md` |
 
 ## WMO static geometry & materials
 

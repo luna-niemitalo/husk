@@ -12,7 +12,7 @@ canonical bundle (`CANONICAL_FORMAT.md`) for MantleCore.
 
 - **Current**: per-feature state is `README.md` "Implementation" (the source
   of truth; not restated here). In short:
-  - Canonical bundle export: M2 models (`export --bundle-only`), WMOs
+  - Canonical bundle export: M2 models (`export`), WMOs
     (`export-wmo`), ADT tiles and whole maps (`export-terrain`,
     `export-map`, `export-world`). Six document kinds, defined and
     validated by `schema/` (`validate-bundle`), schema 0.3.0.
@@ -20,9 +20,8 @@ canonical bundle (`CANONICAL_FORMAT.md`) for MantleCore.
   - DB2 tools: `db2-info`, `db2-export`, `db2-build`; `info`,
     `dump-chunks`, `resolve` for inspection.
   - Blender world authoring addon (`blender/addons/husk_addon`, MVP).
-  - Legacy glTF export (`export` without `--bundle-only`): deprecated, being
-    pruned (2026-11-09, another session owns src/tests/tools for it). No
-    new work on it.
+  - glTF: only `export --glb`, a lean projection of the model bundle
+    (mesh, skin, animation, base-colour materials; `src/writers/gltf_lean.*`).
 - **Target**: the bundle as MantleCore's input (`CANONICAL_FORMAT.md`,
   `REFACTOR/BUNDLE_FORMAT.md`). World completeness in order: WMO + world
   animations → attachments/lights/emitters/fog and particle volumes →
@@ -87,14 +86,14 @@ verbatim).
   - Docs consolidated: README design/implementation split, DESIGN.md
     trimmed (canon designs in `REFACTOR/CANON_DESIGN.md`), root cleanup,
     stale claims fixed.
-  - `~/docs` conformance pass done (outside the legacy glTF path): flake
-    named sets and ccache path, this file in the template's shape, five
-    files split under 1000 lines, history/`TODO: Remove` comments swept,
-    IN/OUT contract annotations in every parser. Larger boundary gaps it
-    found are `STYLE_CLEANUP.md` item 4.
-  - Legacy glTF pruning: another session (husk-01) deletes the code
-    (stage 1 bdec5ce, bundle ports 0b24a19, stage 2 in progress); the docs
-    side comes here once it sends the removal list.
+  - `~/docs` conformance pass done: flake named sets and ccache path, this
+    file in the template's shape, five files split under 1000 lines,
+    history/`TODO: Remove` comments swept (remainder: `STYLE_CLEANUP.md`
+    item 3), IN/OUT contract annotations in every parser. Larger boundary
+    gaps it found are `STYLE_CLEANUP.md` item 4.
+  - Legacy glTF pipeline deleted (bdec5ce..1e4b766): `export` writes the
+    model bundle; its glTF extras moved into the bundle (schema 0.3.0);
+    `--glb` is the only glTF; docs updated to match.
 - **Next step** (pick one; each names where its detail lives):
   - MantleCore migration to the current format:
     `REFACTOR/MANTLECORE_MIGRATION.md` (placement sets, tile-local frames,
@@ -123,8 +122,6 @@ verbatim).
     --render`, `tools/render_lean_glb.py`) are GPU runs and follow
     `~/.claude/rules/gpu-lock.md`; the test suite's Blender step only
     imports (`--background`, no render) and needs no lock.
-  - **Legacy glTF path is deprecated (Luna, 2026-11-09)**: don't refactor,
-    extend or polish it; conformance work skips it.
   - **A stored build needs a clean producer**: a `-dirty` husk version
     (uncommitted changes) makes `store-add` refuse it.
   - Effect documents are written per bundle (`<bundle>/effects/`), not
@@ -153,17 +150,14 @@ verbatim).
     listfile tier, models/WMO groups/terrain textures after the listfile
     path.
   - `tools/corpus_scan_tasks/unfillable_texture_task.py` is the one true
-    source for "does this file's texture actually resolve" —
-    `missing_texture_task.py` is an older, simpler check that over-flags;
-    don't treat its output as authoritative for exclusion decisions. Any
+    source for "does this file's texture actually resolve". Any
     reimplementation of husk's texture resolution must mirror all three
     real tiers (literal → `--listfile` → fuzzy same-basename,
-    `export_texture_resolution.cpp`) — dropping one is a real, previously-
-    hit bug class, not a safe simplification.
-  - `export_texture_resolution.hpp`/`.cpp` owns every texture-candidate-
-    resolution helper in the real (legacy) C++ pipeline — check there
-    first, not `export_materials.cpp`, for texture-resolution doc/comment
-    citations.
+    `src/sources/texture_resolution.cpp`) — dropping one is a real,
+    previously-hit bug class, not a safe simplification.
+  - `src/sources/texture_resolution.hpp`/`.cpp` (`husk::sources`) owns every
+    texture-candidate-resolution helper — check there first for
+    texture-resolution doc/comment citations.
   - DB2 output built before cbd6e38 (2026-10-11) is stale wherever a
     column is narrower than 32 bits and packed (pallet/common data): husk
     kept the cell's junk high bits (`LiquidObject.LiquidTypeID` 5 read as
@@ -181,10 +175,6 @@ verbatim).
     export` for real output; see `STYLE_CLEANUP.md` item 2 and
     `TODO/TEXTURE_POOL_RECALL_TODO.md` for the disabled subsystem's own
     status and the disambiguation design that would need to land first.
-  - `tools/full_render.py`'s `.renderignore` is the real render-exclusion
-    mechanism; older scan-result-subtraction file lists are superseded.
-  - The full-corpus render step is human-gated by policy — never run it
-    without Luna's explicit go-ahead, never foreground/blocking.
   - `/media/luna/data/wow_export/buildinfo.json` (`clientBuild: 61621`, an
     11.x build) is stale: the mount's `live` is 12.1.5.70783 (`builds/`;
     its `.listfile` names community-listfile-2026-11-07.csv). Date the

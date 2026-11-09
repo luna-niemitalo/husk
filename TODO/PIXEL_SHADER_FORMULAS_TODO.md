@@ -18,7 +18,3 @@ them as technique documents (`techniques/m2_pixel_shader/`).
    its M2 field.
 2. **No comparison against the running client**: the formulas come from
    shader bytecode only. A rendered side-by-side is human-gated.
-3. **Legacy renderer** (`tools/corpus_scan_tasks/render_glb.py`'s
-   `fix_multi_texture_layers`) still implements only the wiki-sourced
-   subset; its exclusion list predates the bytecode formulas. Legacy-only,
-   low priority.

@@ -5,15 +5,15 @@ remains the authority on why today's code is shaped the way it is; this is
 where the shape it's moving toward lives, kept separate on purpose
 (`READABILITY.md` §3.10 — current and target never blurred).
 
-**Status (2026-10-12).** The canonical bundle is the export target
-(MantleCore consumes it); glTF is being deprecated (Luna, 2026-10-12:
-decided, not built).
+**Status (2026-11-10).** The canonical bundle is the export target
+(MantleCore consumes it). The legacy glTF pipeline is deleted; the only
+glTF is `export --glb`, a lean projection of the bundle.
 
 | Stage | State | Open |
 |---|---|---|
-| 1–2. parsing, resolution | Built: `m2::Model`, `sources::Catalog`, `husk resolve` | The attributed before/after diff on the four fixtures is not recorded |
-| 3. `canon::` | Built and format-free in its assembly (`m2input::`, `m2_*_input.*` hold the M2 side) | `canon_diff.*` and `canon_policy.*` still sit in `husk::canon` taking `m2::`/`skin::` types; the whole-corpus structural gate against the legacy pipeline never ran |
-| 4. writers | The bundle writer is the output of `export --bundle-only`, `export-terrain`, `export-wmo`, `export-map`, `export-world` and `export-corpus`; five document kinds defined by `schema/` and checked by `validate-bundle`; textures DDS in a shared store | `husk export` still writes the legacy `.glb` by default: making the bundle the default and retiring the glTF pipeline is the next structural step |
+| 1–2. parsing, resolution | Built: `m2::Model`, `sources::Catalog` (texture and skin resolution under `src/sources/`), `husk resolve` | The attributed before/after diff on the four fixtures is not recorded |
+| 3. `canon::` | Built and format-free in its assembly (`m2input::`, `m2_*_input.*` hold the M2 side) | `canon_policy.*` still sits in `husk::canon` taking `m2::` types. The whole-corpus structural gate against the legacy pipeline never ran, and can't now: that pipeline is deleted |
+| 4. writers | The bundle writer is the output of `export`, `export-terrain`, `export-wmo`, `export-map`, `export-world` and `export-corpus`; six document kinds defined by `schema/` and checked by `validate-bundle`; textures DDS in a shared store. `--glb` writes the lean projection. Retiring the glTF pipeline: done (bdec5ce..1e4b766) | — |
 | 5. Blender addon | `tests/bundle_import_check.py` reads mesh, skeleton and base-colour materials | The packaged addon; options, presets, material documents, animation, geosets |
 | 6. CLI, structured output, corpus tasks | Grouped options and generated completions/flag tables for the newer commands; one argument parser and one `--config` for all | Most `tools/corpus_scan_tasks/` still parse text; the input/output module registry stays deferred until a second format exists |
 
@@ -22,8 +22,7 @@ sets (`PLACEMENT_SETS.md`), effects (`EFFECTS.md`, Phases 2–4; classification
 open), creature options and presets and character customization
 (`BUNDLE_FORMAT.md` "Options and presets"), material documents
 (`MATERIALS.md`), and the corpus store with its mount (`CORPUS_EXPORT.md`).
-The format is at schema_version 0.2.0 (0.1.0 was the format before the
-v0.2 changes listed in MANTLECORE_MIGRATION.md) until effects are classified.
+The format is at schema_version 0.3.0 (`schema/*.schema.json`).
 
 `src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
 (as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never
@@ -169,9 +168,9 @@ directory searching, no "extra data dir" parameter, no shelling out to husk.
 Following a reference the manifest itself declares — including one pointing at
 another bundle's manifest, see `BUNDLE_FORMAT.md` — is not an exception to this;
 it is the rule working. The distinction is between being *told* where something
-is and going *looking* for it. `GearItem::auxGlbPath`
-(`src/cmd_export.cpp:695-705`) is the existing good precedent: husk resolves
-once and bakes a relative path in. Generalize it; don't reinvent it per feature.
+is and going *looking* for it. An `--appearance` item's model bundle
+(`items/<fdid>.bundle/`, listed in the manifest's `references`) is the
+precedent: husk resolves once and bakes a relative path in.
 
 **I4 — resolution is self-announcing.** Which tier fired, from which directory,
 via which fallback, is a *read operation* (`CLI.md` §2.4/§2.11), not something
@@ -179,9 +178,8 @@ inferred from an export summary after the fact. This is also what makes the
 migration gates below affordable to run.
 
 **I5 — definition ≠ selection.** Canonical Data Model §4: "NightElf.face[12]" (what
-option 12 *is*) and "this character chose 12" are different kinds of fact. Today
-`chr_customization_options` (definition) and `enabled_geosets` (selection) are
-sibling extras keys with no structural distinction between them.
+option 12 *is*) and "this character chose 12" are different kinds of fact: the
+bundle's `definition` and `selection` (presets) are separate trees.
 
 **I6 — identity is an ID; a name is decoration with a stated source.** Most
 human-readable naming here comes from the community listfile (unreliable at
@@ -285,12 +283,6 @@ directory had open are now resolved or explicitly deferred:
   `knowledge.sqlite`'s resolution-answer cache. Doesn't gate Stage 1-4; safe
   to leave open and revisit later.
 
-The actual next bottleneck is Stage 3 itself: `CANONICAL_MODEL.md`'s own
-words, "the migration itself is the expensive stage" — a large, invasive
-rewrite (`gltf_*.cpp` rebuilt as a writer over `canon::`) that per this
-project's own feedback pattern (wide refactors started mid-design get thrown
-away) should be driven with you steering it live, not delegated wholesale.
-
 ## Migration order
 
 Each stage lands independently. Ordered so the highest-drift-risk duplication
@@ -312,23 +304,20 @@ omitting.
 
 **3. `canon::`, built pure** — the three-layer model with `Ref`-typed
 references, first-class geosets, unified curves, version-collapsed physics,
-declarative population. `gltf_*.cpp` is then rewritten as a writer over it. The
-expensive stage, and the one that must not be shortcut.
-*Gate*: the 39 parse-tier test files must need no edits at all — if they do,
-stages 1 and 3 have leaked into each other. Full suite green. Structural (not
-byte-level) pre/post glTF comparison on the fixture set: same primitive / joint
-/ clip / material inventory, every difference attributed.
+declarative population. The expensive stage, and the one that must not be
+shortcut.
+*Gate*: the parse-tier test files must need no edits at all — if they do,
+stages 1 and 3 have leaked into each other. Full suite green.
 
-**4. Bundle writer + manifest schema v1.**
-*Gate*: new round-trip tests; the existing glTF conformance suite still green
-(the projection must not regress).
+**4. Bundle writer + manifest schema; glTF pipeline retired** (done).
+*Gate*: round-trip tests; the conformance suite green over `--glb` and the
+bundle.
 
 **5. Blender addon** reading the manifest; delete every discovery mechanism I3
 forbids.
 *Gate*: a headless import test (`tests/blender_import_check.py`'s pattern)
 proving zero arguments and zero husk dependency. The real interactive pass is
-Luna's own — the same human gate `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`
-already carries.
+Luna's own.
 
 **6. CLI regroup + structured output + corpus-task conversion.**
 *Gate*: completions regenerated via `--print-completion` (never hand-edited);

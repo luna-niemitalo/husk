@@ -7,8 +7,8 @@ aliases:
 husk reads World of Warcraft's game files from a local extraction (M2
 models and their sidecars, WMO buildings, ADT/WDT terrain and maps, DB2
 tables, BLP textures) and writes them as open data: the **canonical husk
-bundle**, which MantleCore consumes, and, for M2 models, a legacy glTF 2.0
-`.glb`.
+bundle**, which MantleCore consumes. For an M2 model, `export --glb` also
+writes a lean glTF 2.0 projection of the bundle.
 
 husk only reads files already on disk. It never talks to CASC or the
 network (`DESIGN.md` "Goal", non-goals). Extract files first, e.g. with
@@ -38,9 +38,9 @@ are the same text.
 |---|---|
 | **Models** | |
 | `info <file.m2> [--json]` | header, record counts, chunk tags, sidecar FileDataIDs, emitter summary |
-| `export -i <file.m2> [-o out.glb]` | M2 → legacy `.glb`; `--bundle-only` writes the canonical bundle instead |
+| `export -i <file.m2> [-o out.bundle] [--glb out.glb]` | M2 → model bundle (default `<model>.bundle/` beside the model); `--glb` also writes the lean glTF projection |
 | `resolve -i <file.m2>` | texture-resolution ledger as JSON: which tier answered each slot |
-| `dump-chunks <file.m2\|.bone\|.phys>` | JSON for data with no glTF slot: Legion+ side chunks, full emitter records, `.bone`, `.phys` |
+| `dump-chunks <file.m2\|.bone\|.phys>` | raw-record JSON: Legion+ side chunks, full emitter records, `.bone`, `.phys` |
 | **World** | |
 | `export-terrain <tile.adt> <out>` | one ADT tile → terrain bundle |
 | `export-wmo <root.wmo> <out>` | one WMO → object bundle, doodad sets as placement sets |
@@ -74,10 +74,12 @@ are the same text.
   `<FileDataID>.png|.blp`, the `--listfile` path under `--listfile-root`,
   then the one unclaimed same-basename file (ambiguity is reported, never
   guessed). BLP decodes in memory.
-- **DB2-driven data** (`--db2-dir` + `--dbd-dir`) is resolved and attached,
-  never applied: customization choices, geosets, `.bone` sets, creature
-  defaults, character texture layout. Keys: `EXTRAS_SCHEMA.md` (glTF),
-  `REFACTOR/BUNDLE_FORMAT.md` (bundle).
+- **DB2-driven data** (`--db2-dir` + `--dbd-dir`) is written into the
+  bundle as data, never applied: character customization, creature options
+  and presets, character textures, `--appearance` gear
+  (`REFACTOR/BUNDLE_FORMAT.md`). `--customization-choice-ids`,
+  `--chr-model-id` and `--char-layout-id` only steer which character
+  textures the texture slots resolve to.
 
 ### Config file
 
@@ -109,12 +111,11 @@ overrides): `listfile.sorted.bin` and `listfile.tag`, safe to delete
 
 - **Canonical bundles**: the world-authoring addon in
   `blender/addons/husk_addon` (`REFACTOR/BLENDER_WORLD_AUTHORING.md`).
-- **Legacy `.glb`**: import with *File > Import > glTF 2.0* at default
-  settings — the only path verified end to end (drag-and-drop and "import
-  with custom settings" both failed in testing). `tools/
-  husk_blender_geoset_mask.py` and `tools/husk_blender_options_panel.py`
-  turn the extras into geoset switches, texture switches, animation assets
-  and jiggle bones (`TOOLS.md`).
+- **Model bundles**: no addon yet (Implementation table, "Blender model
+  addon").
+- **`--glb`**: Blender's stock glTF importer reads it (mesh, skin,
+  animation, base-colour materials; no options, presets, geoset switching
+  or effects). `tools/render_lean_glb.py` renders a preview.
 
 ## Design (the target)
 
@@ -123,8 +124,8 @@ What husk should be. Each line points at the document that defines it.
 - **Pipeline**: `parse → resolve → canonical → write`, one resolution
   boundary, writers that never re-resolve (`REFACTOR/README.md`).
 - **The canonical bundle is the export target**; MantleCore is its
-  consumer. glTF and Blender are tertiary; the glTF pipeline is to be
-  retired (decided, not built). Concept: `CANONICAL_FORMAT.md`; format
+  consumer. glTF and Blender are tertiary: the only glTF is `export
+  --glb`'s lean projection of the bundle. Concept: `CANONICAL_FORMAT.md`; format
   record: `REFACTOR/BUNDLE_FORMAT.md`.
 - **Six document kinds** — `model`, `placement_set`, `world`, `effect`,
   `material`, `technique` — under one contract header. `schema/*.schema.json`
@@ -156,11 +157,11 @@ Open items live in the linked TODO files (index: `TODO/README.md`).
 | Feature | Design | Implementation state |
 |---|---|---|
 | M2 parsing (header, geometry, skeleton, `.skel`, animation incl. `.anim` `AFM2`/`AFSB`, aliases, global sequences, materials, emitters, collision, `.bone`, `.phys`) | `M2_COMPLETENESS.md`, `DESIGN.md` | Built. Open: `M2Camera` count only (deprioritized) |
-| M2 → canonical bundle (`export --bundle-only`) | `REFACTOR/CANONICAL_MODEL.md`, `REFACTOR/BUNDLE_FORMAT.md` | Mesh, rig + animation, materials, UV maps, LOD levels, attachments/events/lights/emitters, collision. Open: `REFACTOR/AUDIT.md` |
-| M2 → legacy glTF (`export`) | `DESIGN.md`, `EXTRAS_SCHEMA.md` | Feature-complete; validator- and Blender-checked (`tests/test_conformance.cpp`). Still the default output of `export`; retirement not started |
-| Creature options and presets | `REFACTOR/BUNDLE_FORMAT.md` "Options and presets" | Built from CreatureModelData → CreatureDisplayInfo. Open: `TODO/CREATURE_OPTIONS_TODO.md` |
-| Character customization and humanoid NPCs | `REFACTOR/BUNDLE_FORMAT.md`, `REFACTOR/MATERIALS.md` | Bundle: options and geosets, skin composites as material documents (slice 1), choice textures bound to their image inputs; no bone sets, items are refs only. glTF extras: full chain. Open: `TODO/MATERIALS_TODO.md`, `TODO/EQUIPPED_GEAR_RENDER_TODO.md` |
-| `.bone` correction application | `TODO/BONE_CORRECTION_APPLICATION_TODO.md` | Parsed and selected by customization choice; never applied (semantics unverified against the client) |
+| M2 → model bundle (`export`) | `REFACTOR/CANONICAL_MODEL.md`, `REFACTOR/BUNDLE_FORMAT.md` | Mesh, rig + animation clips with their AnimationData facts, materials and material tracks, UV maps, every LOD level, attachments/events/lights/emitters, collision, `.phys` physics, `.bone` correction sets. Open: `REFACTOR/AUDIT.md` |
+| M2 → lean glTF (`export --glb`) | `src/writers/gltf_lean.hpp` | Mesh, skin, animation, base-colour materials; nothing without a core glTF slot. Validator- and Blender-checked (`tests/test_conformance.cpp`) |
+| Creature options and presets | `REFACTOR/BUNDLE_FORMAT.md` "Options and presets" | Built from CreatureModelData → CreatureDisplayInfo whenever `--db2-dir` is given. Open: `TODO/CREATURE_OPTIONS_TODO.md` |
+| Character customization and humanoid NPCs | `REFACTOR/BUNDLE_FORMAT.md`, `REFACTOR/MATERIALS.md` | Options and geosets, skin composites as material documents (slice 1), choice textures bound to their image inputs, correction sets named by choice, `--appearance` gear as items with their own model bundles. Open: `TODO/MATERIALS_TODO.md`, `REFACTOR/CHARACTER_RENDERING.md` §11 |
+| `.bone` correction application | `TODO/BONE_CORRECTION_APPLICATION_TODO.md` | Written as `resources.rig.correction_sets`, named by customization choice; never applied (semantics unverified against the client) |
 | ADT terrain | `REFACTOR/BUNDLE_FORMAT.md` "Terrain tile bundles" | Heightfield, 0–8 splat layers, ground-cover rules, `MH2O`, placements as two sets, `_lod` levels, `_obj1` distant sets. Open: `TODO/WORLD/ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`, `WORLD_PLACEMENT_TODO.md` |
 | WMO | `REFACTOR/PLACEMENT_SETS.md`, `TODO/WORLD/WMO_GEOMETRY_TODO.md` | Root + groups → object bundle: geometry, materials, doodad sets, lights, `MLIQ`, portals, face-flag channels (collision), GFID levels, fog/volumes as effects. Open: skybox parsed not written, UV set per shader assumed, `MOC2`/`MOM3`, `MOBS` |
 | Maps and worlds | `REFACTOR/BUNDLE_FORMAT.md`, `TODO/WORLD/WDT_TODO.md` | WDT `MAIN`/`MAID`/`MPHD`, world document (grid, `_fogs.wdt`/`_mpv.wdt` volumes, off-grid WMO, zones). Open: `.wdl`, `.pvdata` |
@@ -177,10 +178,11 @@ Open items live in the linked TODO files (index: `TODO/README.md`).
 | BLP | `DESIGN.md` | Palettized, DXT1/3/5, BC5, BGRA. Not: JPEG (none in the corpus), palette alpha depth 4 |
 | M3, PM4/PD4 | `DESIGN.md` non-goals, `TODO/WORLD/PM4_PD4_TODO.md` | Not started |
 
-### Legacy glTF roadmap
+### Original roadmap
 
-The original M2 → Blender plan. All eight stages are done; `src/` comments
-cite them by number.
+The first M2 → Blender plan, all eight stages done; `src/` comments cite
+them by number. The glTF pipeline it was built on is retired; each stage's
+data now lands in the model bundle.
 
 1. Static mesh (Z-up → Y-up is `(X, Y, Z)` → `(X, Z, -Y)`, `DESIGN.md`).
 2. Skeleton and skinning.
@@ -189,8 +191,8 @@ cite them by number.
 5. Materials: one per `.skin` batch (`DESIGN.md`).
 6. Animation: inline, global-sequence, external `.anim`; plus `.bone`,
    emitters and `dump-chunks`.
-7. Output hardening: `gltf_validator` and headless Blender in the tests.
-8. Multi-LOD export (`--lod <n>|all`).
+7. Output hardening: glTF-Validator and headless Blender in the tests.
+8. Every LOD level.
 
 ### Format support matrix (M2 / M3 / WMO / ADT / BLP)
 
@@ -214,10 +216,10 @@ started in any row (8 `.m3` files exist in the corpus; chunk survey:
 | Materials | ✅ blend mode, flags, static and animated tint/fade, texture transforms, extra layers, shader names | ✅ `MOMT`, `MOTX`; ⬜ `MOM3` | ✅ `MCLY`, `MCAL` (all three forms), `MTXP`; ⬜ `MTXF` | ⬛ |
 | Texture references | ✅ `TXID`, `textures`, `textureCombos` | ✅ | ✅ `MDID`/`MHID`, `MTEX` via listfile | ⬛ |
 | Texture pixels | ⬛ | ⬛ | ⬛ | ✅ palette, DXT1/3/5, BC5, BGRA; ⬜ JPEG |
-| Collision / physics | ✅ collision mesh (`--collision`), `.phys` anchors; 📖 full `.phys`, `PCOL` | ✅ face flags select collision; ⬜ `MOBN`/`MOBR` BSP | ⬛ | ⬛ |
+| Collision / physics | ✅ collision mesh, `.phys` bodies/shapes/joints; 📖 `PCOL` | ✅ face flags select collision; ⬜ `MOBN`/`MOBR` BSP | ⬛ | ⬛ |
 | Attachments, events, cameras | ✅ attachments, events; 🚧 `M2Camera` count only | ⬛ | ⬛ | ⬛ |
 | Lights | ✅ | ✅ `MOLT`, `MNLD`, group `MOLS`/`MOLP` light sets | ✅ map `Light` zones (DB2) | ⬛ |
-| Particles / ribbons | ✅ placement anchors; 📖 full records; 📖 `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` | ✅ `MPVD` as effects | ⬛ `MCSE` is sound, not particles | ⬛ |
+| Particles / ribbons | ✅ bone-anchored placeholder effects; 📖 full records; 📖 `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` | ✅ `MPVD` as effects | ⬛ `MCSE` is sound, not particles | ⬛ |
 | Fog / volumes | ⬛ | ✅ `MFOG`/`MFED`, `MAVG`/`MAVD`/`MBVD` as effects | ✅ `_fogs.wdt`, `_mpv.wdt`; ⬜ `.pvdata` | ⬛ |
 | Liquid | ⬛ | ✅ `MLIQ` | ✅ `MH2O`; ⬜ `MCLQ` (pre-Cata) | ⬛ |
 | Portals / culling | ⬛ | ✅ `MOPV`/`MOPT`/`MOPR`/`MOPE`; ⬜ `MOVV`/`MOVB` | ⬛ | ⬛ |
@@ -241,9 +243,6 @@ forever builds; details in `WIKI_FINDINGS/FOREVER.md`.
 
 Unverified claims, open as TODOs:
 
-- **Legacy glTF attachment nodes may sit at twice their offset**: written
-  as the model-space position under their bone, never compared against the
-  M2's real position (`TODO/RENDER_QUALITY_TODO.md` §6 has the check).
 - **Two gear-resolution results predate the DB2 pallet fix** (706c8b6):
   the 2026-08-21 "verified end to end" gear export and the
   "ModelMaterialResourcesID resolves to unrelated textures" finding both
@@ -255,9 +254,8 @@ arrays): `corpus_reports/REPORT.md`.
 
 ## Tooling
 
-- `tools/` — corpus scans, the headless render pipeline, Blender scripts,
-  shader export: `TOOLS.md`, `tools/CORPUS_SCANS.md`. The full-corpus
-  render is human-gated: never run it without Luna's go-ahead.
+- `tools/` — corpus scans, the `--glb` preview renderer, export runners,
+  shader export: `TOOLS.md`, `tools/CORPUS_SCANS.md`.
 - `blp/` — the Python reference BLP decoder `tests/test_blp.cpp` checks
   against (`TEST_DESIGN.md`).
 

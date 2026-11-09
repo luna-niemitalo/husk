@@ -68,14 +68,13 @@ statistics alone can supply — item 1 below is exactly that.
      files where it sits **at or above the base** (the remaining 84.1%,
      spanning the near-base cluster out through the long tail). Pick a
      representative sample per side (e.g. 12-20 files each, not the full
-     2,632) and render each via the existing `husk export` + Blender
-     render pipeline (`tools/corpus_scan_tasks/render_glb.py` + its
-     `render_glb.blend` template), with the real `DPIV` point(s)
+     2,632) and render each via `husk export --glb` +
+     `tools/render_lean_glb.py`, with the real `DPIV` point(s)
      themselves visualized as an overlay marker (an empty/gizmo at the
      point's own world-space position, same change-of-basis as husk's
      own `kWowToGltf`) so the point's placement relative to the mesh is
      visible in the same shot — overlay-marker support doesn't exist in
-     the render script today and would need adding. Arrange each side's
+     the render script and would need adding. Arrange each side's
      sample into one grid image (thumbnail montage) so the two
      categories are directly comparable at a glance.
    - **By `field3`** (the small integer tag, 0-3): same method, but one

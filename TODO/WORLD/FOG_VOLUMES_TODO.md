@@ -630,8 +630,8 @@ unique two-emitter record — see `../../WIKI_FINDINGS/WORLD.md`).
   `LIQUID_TODO.md`'s References section already cites for `MLIQ`, cited
   again here since it applies just as directly).
 - **husk `src/`**: `../../M2_COMPLETENESS.md`'s Particles/Ribbons rows,
-  `src/gltf.hpp`'s `Skeleton::EmitterAnchor`/`ribbonAnchors`/
-  `particleAnchors`, `src/cmd_dump.cpp`'s `dumpEmitters` — the direct
+  the M2 emitters' bundle effects (`src/m2_scene_input.cpp`),
+  `src/cmd_dump.cpp`'s `dumpEmitters` — the direct
   precedent this whole document's consumption plan is built on;
   `src/json_writer.hpp` (the streaming JSON writer every `dump-chunks`
   output already uses, reused unmodified for these new record types);

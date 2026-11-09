@@ -55,8 +55,9 @@ actually matters.
 
 ## Why this doesn't affect husk today
 
-Checked directly (not assumed): `export_materials.cpp`'s per-batch
-resolution already goes through the real chain above, keyed by a specific,
+Checked directly (not assumed) against the since-deleted
+`export_materials.cpp`; its successor `m2_material_input.cpp` (`assembleMaterial`)
+keeps the shape: per-batch resolution goes through the real chain above, keyed by a specific,
 already-resolved texture array index -- it never consults `type` to *pick*
 a texture, only to categorize one it already has (for the unrelated
 fuzzy-disk-file-candidate-pool problem, itself keyed off a specific

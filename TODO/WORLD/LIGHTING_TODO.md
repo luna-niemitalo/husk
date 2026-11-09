@@ -139,6 +139,10 @@ rendering.
 
 ### The `KHR_lights_punctual` fit — full comparison
 
+**Moot for export**: husk writes no glTF for WMOs; their lights are bundle
+`static_lights` (update above). Kept as the field-by-field mapping a glTF
+consumer of the bundle would need.
+
 Fetched the real extension spec (Khronos `KHR_lights_punctual` README,
 bounded single web fetch, see References) rather than guessing at its
 shape from memory.
@@ -148,12 +152,13 @@ shape from memory.
 | `type` (omni/spot/direct/ambient) | `type`: `point`/`spot`/`directional` | omni→point, spot→spot, direct→directional all map cleanly. **`ambient` (type 3) has no equivalent at all** — the extension explicitly does not support ambient lighting. |
 | `color` (`CImVector`, 0–255 BGRA) | `color` (linear RGB, 0.0–1.0 floats) | Clean: divide by 255, drop alpha. No gamma-correction guidance found either way; treated as a direct linear scale, same as every other color field this codebase already converts (`M2Color`, etc.). |
 | `position` | node `translation` | Clean — same "position becomes a child node's translation" pattern this codebase already uses for `Attachment`/`Event`/`Light` (M2) nodes. |
-| `rotation` (spot/direct only) | node `rotation` (direction = local -Z axis) | **Structural mismatch husk hasn't hit before**: `KHR_lights_punctual` has *no* rotation field on the light object itself — direction comes entirely from the *node's* rotation. Every existing husk `Attachment`/`Event`/`Light` (M2) node is translation-only, no rotation, by explicit design (`src/gltf.hpp`'s doc comment). A `MOLT` spot/direct light would need a **new** node shape (translation + rotation) to carry this — a real, small architecture change, not a blocker, but a first. |
+| `rotation` (spot/direct only) | node `rotation` (direction = local -Z axis) | **Structural mismatch husk hasn't hit before**: `KHR_lights_punctual` has *no* rotation field on the light object itself — direction comes entirely from the *node's* rotation. The deleted glTF pipeline's `Attachment`/`Event`/`Light` (M2) nodes were translation-only, no rotation, by design. A `MOLT` spot/direct light would need a **new** node shape (translation + rotation) to carry this — a real, small architecture change, not a blocker, but a first. |
 | `intensity` | `intensity` (lux for directional, candela for point/spot) | **Unit mismatch, not just field-shape**: `MOLT.intensity` is an arbitrary WoW engine unit (this session's real samples were all exactly `1.0`), not calibrated to lux/candela. A 1:1 passthrough is defensible (both are "how bright," same "don't guess the exact physical mapping, expose the source value" precedent as `M2Sequence`'s own `sequence_metadata` extras) but is a real approximation, not a verified unit conversion. |
 | `attenStart`/`attenEnd` (two-radius model) | `range` (single cutoff distance, `>0`, optional) + a **fixed** inverse-square+smoothed-cutoff falloff formula | **The single biggest real mismatch.** `KHR_lights_punctual` explicitly does *not* support a two-parameter attenuation model — only inverse-square falloff with an optional single `range` cutoff. `attenEnd` maps reasonably onto `range`; `attenStart` has **no target field at all** in the extension. |
 | *(no field)* | `innerConeAngle`/`outerConeAngle` (spot only) | **`SMOLight` has no cone-angle field at all** — the documented struct has nothing analogous. A `KHR_lights_punctual` spot light would fall back to the extension's own defaults (0 / π/4 radians) for every WMO spot light, not real authored data. |
 
-**Decision, confirmed by Luna 2026-08-01: adopt `KHR_lights_punctual`.**
+**Decision, confirmed by Luna 2026-08-01 (superseded: WMO export became
+bundle-only, see the note above): adopt `KHR_lights_punctual`.**
 `type` ∈ {omni, spot, direct} get real `native` glTF lights — position/
 color/type map cleanly, and the known gaps (attenuation shape, missing
 cone angles, intensity units) are accepted as the kind of "real but
@@ -168,32 +173,8 @@ records all carried alongside as inert `extras` on the same light node
 (same "native construct plus an extras sidecar for what doesn't fit"
 pattern `Material::additionalTextureLayers` already establishes).
 
-### Correction to the investigation brief's own premise
-
-The brief describes this as potentially "the FIRST real use of a proper
-glTF extension" in husk. **This is not quite right, checked directly**:
-`src/gltf.cpp`/`src/gltf.hpp` already declare and use
-`KHR_materials_unlit` (`model.extensionsUsed.push_back
-("KHR_materials_unlit")`, gated on any material's `unlit` flag — see
-`gltf.cpp` lines 558/763). `KHR_lights_punctual` would be the **second**
-real extension, not the first — a smaller step than the brief implied,
-since the `extensionsUsed`-declaration plumbing, at least, already
-exists and is already exercised by real tests. What *would* be new: a
-light-carrying node needing `rotation` for the first time (every existing
-anchor/attachment node is translation-only), and a document-level
-`extensions.KHR_lights_punctual.lights[]` array (`KHR_materials_unlit`
-is a materials-only, no-payload extension — this would be the first
-extension with a real per-document data array and a node-level
-`extensions.KHR_lights_punctual.light` index reference).
-
-- **Parse**: `full` (once implemented against the confirmed 48-byte
-  struct).
-- **Consumption**: `native` (`KHR_lights_punctual`, omni/spot/direct) +
-  `extras` (ambient records, `attenStart`, raw `intensity`) — decided, see
-  above.
-- **glTF ceiling**: `native — gap remains` (ambient lights and the
-  attenuation-shape/cone-angle mismatches are real, permanent gaps even
-  with the extension in play) rather than `native — 100%`.
+- **Parse**: `full` (the confirmed 48-byte struct).
+- **Consumption**: bundle (`resources.scene.static_lights`).
 
 ---
 
@@ -608,12 +589,8 @@ matching this document's own decoded examples.
   directional light — corroborates the wiki's own "`MOLT` may be
   baking-only, not live-rendered" caveat, independently, from a different
   tool).
-- **husk `src/`**: `src/gltf.cpp`/`src/gltf.hpp` (existing
-  `KHR_materials_unlit` `extensionsUsed` plumbing — the correction to
-  the investigation brief's "first extension" framing above; the
-  `Attachment`/`Event`/`Light` (M2) node shape that a `MOLT`/`MNLD` light
-  node would extend with a first-ever `rotation` field); `src/chunk.hpp`
-  (reused unmodified, same as `LIQUID_TODO.md`).
+- **husk `src/`**: `src/chunk.hpp` (reused unmodified, same as
+  `LIQUID_TODO.md`).
 - **Real corpus counts, this session** (`/media/luna/data/wow_export`,
   scratch scripts in `/media/luna/work/cache/tmp/.../scratchpad/`, not
   committed): `MOLT` 777/4,000 root files present (19.4%), 7/418 (1.7%)

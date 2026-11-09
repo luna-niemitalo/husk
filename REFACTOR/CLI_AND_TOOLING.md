@@ -38,13 +38,13 @@ The grouping actually used, each nameable in under three words (`CLI.md`
 
 | Group | Flags |
 |---|---|
-| Input / output | `--input`, `--output`, `--format`, `--slim-textures`, `--textures-out` |
-| Model sidecars | `--skin`, `--skin-dir`, `--skel`, `--anim`, `--bones-dir`, `--phys`, `--lod`, `--collision` |
+| Input / output | `--input`, `--output`, `--textures`, `--textures-out`, `--glb` |
+| Model sidecars | `--skin`, `--skin-dir`, `--anim`, `--skel`, `--bones-dir`, `--phys` |
 | Game data | `--db2-dir`, `--dbd-dir`, `--listfile`, `--listfile-root` |
-| Character | `--chr-model-id`, `--char-layout-id`, `--customization-choice-ids`, `--creature-display-id` |
+| Character | `--char-layout-id`, `--customization-choice-ids`, `--chr-model-id` |
 | Appearance / gear | `--appearance`, `--object-skin-texture-id` |
 | Batch | `--from-list`, `--output-dir` |
-| Diagnostics | `--knowledge-db`, `--config` |
+| Diagnostics | `--config`, `--explain-textures`, `--knowledge-db` |
 
 Grouping *is* documentation, and it must reach `completions/` — regenerated via
 `--print-completion`, never hand-edited.
@@ -127,11 +127,6 @@ once per run by `_init_worker`, not per-module hardcoded constants.
 `m2_full_validation_task.py`, and `particle_only_task.py` all had their own
 copies deleted; `corpus_checks.py`'s own `HUSK_BIN` default was fixed at
 its one real source instead of overridden per-caller.
-`render_sample_driver.py` was deliberately left alone — a driver script
-with its own argv, not a `ScanTask`, and part of the render pipeline this
-project already treats as human-gated (`CLAUDE.md` Hazards); it still has
-its own `CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE` copies, a real follow-up if
-that pipeline is ever brought into this same mechanism.
 
 Each constant was a distinct bug with its own fix:
 
@@ -220,7 +215,7 @@ structured-output work below, not started).
 **Decided and done** (`REFACTOR_LOG.md`'s 2026-08-28 entry): keep, not
 retire — the now-deleted `TODO/KNOWLEDGE_BASE_DESIGN.md` already made this
 call explicitly ("kept as diagnostic/future-work infrastructure, not
-load-bearing"; disabled by default in `render_sample_driver.py`), so
+load-bearing"), so
 retiring the flag here would have reopened a decision already made rather
 than executing it. What was actually missing was the I4 half:
 `cmd_export.cpp` now prints a real warning at the exact point a
