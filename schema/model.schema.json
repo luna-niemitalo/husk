@@ -783,7 +783,7 @@
                       },
                       "fog_volumes": {
                         "type": "array",
-                        "description": "Fog instances that apply inside the part, beyond the model's default fog, in source order.",
+                        "description": "Fog instances a viewer inside the part sees, beyond the model's default fog, in source order. Distance fog for that viewer, not fog volumes: nothing in them is a medium to place.",
                         "items": {
                           "$ref": "common.schema.json#/definitions/instance_ref",
                           "description": "A fog instance."

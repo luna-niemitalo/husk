@@ -27,14 +27,19 @@ anchored to their bones (`point` region; `quad`, `mesh_instance` and
 style) in an inline `effects` set the model owns. Phase 2 is done.
 
 Phase 3 so far: `medium` content and particle `spawn` density, instance
-`priority` and `provenance`, and four rules: `linear_fog_to_extinction`
-and `fog_color_to_albedo` (WMO fog spheres), `fog_level_to_priority`
+`priority` and `provenance`, and two rules: `fog_level_to_priority`
 (map fogs), `count_to_spawn_density` (particle volumes). Each derived
 value is an optional input or the priority, named in the instance's
 provenance; `validate-bundle` checks every provenance path names a value
-the instance holds. Not yet: `fog_density_to_extinction` (its source,
-the zone light below, is keyed by time of day, and a medium is one value
-so far), the gate. A fifth rule, `blend_to_light_role`, gives each
+the instance holds. `MFOG` gets no medium: the client applies it to a
+viewer inside the parts that list it, so its sphere is where that viewer
+sees the fog, not a fog volume (12 of 17 records mantlecore sampled have
+radii 0.28 and 2.8 yards with linear fog over 1.4 to 28 yards; a medium
+there would be a small dense ball). Not yet:
+`fog_density_to_extinction` and `fog_color_to_albedo` (their source, the
+zone light below, is keyed by time of day, a medium is one value so far,
+and the density's transform to extinction is unknown: see the rule
+table), the gate. A third rule, `blend_to_light_role`, gives each
 WMO and map particle-volume emitter its light role (content
 `particles.light.role`): emission for `EGxBlend` Add, albedo for Alpha
 (846/846 map emitters). It replaces the planned `additive_to_emission`/
@@ -428,7 +433,7 @@ how the value was obtained. Paths not listed are `source`:
 "provenance": {
   "classification": "ground_fog/particleemitters_groundfog",
   "fields": {
-    "content.extinction": {"kind": "derived", "rule": "linear_fog_to_extinction"},
+    "inputs.density": {"kind": "derived", "rule": "count_to_spawn_density"},
     "priority": {"kind": "derived", "rule": "fog_level_to_priority"}
   }
 }
@@ -500,8 +505,7 @@ the field stays absent.
 | Rule | Computes | From |
 |---|---|---|
 | `fog_density_to_extinction` | medium `extinction` = the exponential density (the shader's `exp(−d·density)`) | zone fog `exponential.density` |
-| `linear_fog_to_extinction` | `extinction` = 3 / (end − start): 95 % opacity across the band | `MFOG` linear fog |
-| `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog, `MFOG` |
+| `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog |
 | `fog_level_to_priority` | `priority` | `VFOG.fogLevel` |
 | `blend_to_light_role` | particle `light.role`: emission or albedo | WMO/map particle emitters' `EGxBlend` (Add, Alpha); not M2, whose blend ids are unsettled |
 | `count_to_spawn_density` | `spawn` density = count / box volume | `MPVD`/`PVMI` (once box size is verified) |
@@ -516,7 +520,7 @@ then lives in one reviewable place, not on every instance.
 | Source | Effect | Anchor, region | Content | Style |
 |---|---|---|---|---|
 | Zone light (`Light`/`LightParams`/`LightData`) | `classic_zone_light` | world, `everywhere`/`sphere` | medium (`base`, derived) | `zone_light` → `light_params` by `day_time` |
-| WMO `MFOG` | `classic_local_fog` | instance, `sphere` | medium (derived) | `distance_fog.linear`, `looks.underwater` |
+| WMO `MFOG` | `classic_local_fog` | instance, `sphere`: where a viewer inside the listing parts sees the fog | — (a viewer's distance fog, not a volume) | `distance_fog.linear`, `looks.underwater` |
 | `MFOG` flag 0x1 | `classic_local_fog` | instance | — | `exit_blend` |
 | `VFOG`+`VFEX`+`VFE2` | `classic_volumetric_fog` | world, `shape` | medium (`pinned`), values absent until known | `volumetric_fog` |
 | `MAVG`/`MAVD`/`MBVD` | `classic_ambient_region` | instance, `everywhere`/`sphere`/`planes` | — | `ambient_color` |
