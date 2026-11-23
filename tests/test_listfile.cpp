@@ -1,7 +1,6 @@
 // Tests for the community-listfile.csv-style loader (src/listfile.hpp/.cpp),
 // used by `husk export --listfile` as a last-resort FileDataID -> real-name
-// fallback (see export_materials.cpp's own fallback tier, tested end to end
-// in test_cli.cpp).
+// fallback (sources::Catalog's listfile tier, sources/catalog.hpp).
 
 #include <doctest/doctest.h>
 

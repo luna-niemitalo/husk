@@ -2,9 +2,8 @@
 
 husk does parse M2Batch's on-disk shader_id (offset 0x02, `m2::Batch::shaderId`,
 src/skin.hpp/.cpp) and resolve it to real shader names
-(`m2::resolveShaderNames`, src/m2_shader_names.hpp/.cpp) -- this docstring's
-own earlier claim that it didn't is stale (REFACTOR/AUDIT.md caught it).
-Both are consumed internally by `export_materials.cpp` alone, though:
+(`m2::resolveShaderNames`, src/m2_shader_names.hpp/.cpp). Both are consumed
+by the export's material assembly (src/m2_material_input.cpp), though:
 neither `husk info` nor `husk dump-chunks` exposes shaderId/the resolved
 name anywhere in their own JSON/text output today, so there is currently
 no structured husk output this task could consume instead of reading raw

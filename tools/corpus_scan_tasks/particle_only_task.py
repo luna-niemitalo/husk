@@ -1,15 +1,10 @@
 """Full-corpus scan for models whose real visible content is (or is very
-likely) entirely M2Particle-driven -- the class TODO/RENDER_QUALITY_TODO.md
-section 2 confirmed via `creature/cloud/cloudswampgas_white_clickable.m2`:
-a model can have real, non-degenerate mesh geometry and a correctly-
-resolved material, and still render as flat background color, because its
-only real *visible* content in the live client is a particle-emitter
-simulation husk structurally can't bake into geometry (glTF has no native
-procedural-emitter representation) and no companion Blender script
-reconstructs yet (a real, scoped, not-yet-built task -- deferred to
-Blender-side work, same category as billboard alignment/texture-transform-
-animation reconstruction, not a permanent wall the way character-texture
-DB2 compositing is).
+likely) entirely M2Particle-driven -- confirmed by hand on
+`creature/cloud/cloudswampgas_white_clickable.m2`: a model can have real,
+non-degenerate mesh geometry and a correctly-resolved material, and still
+render as flat background color, because its only real *visible* content
+in the live client is a particle-emitter simulation husk can't bake into
+geometry (the bundle carries emitters only as placeholder effects).
 
 Heuristic, not a proof: flags a file when every one of its real materials
 uses an additive-family blend mode (M2Material blend_mode >= 3 -- Add/
@@ -52,8 +47,7 @@ TIMEOUT = 15.0
 # M2Material blend_mode >= 3 is the additive family (Add/AddAlpha/Mod/
 # Mod2x/...) -- 0 (Opaque) and 1 (AlphaKey) are real, ordinary surfaces;
 # 2 (Alpha) is a real translucent surface too (glass, cloth), not additive
-# -- see wowdev.wiki M2#Materials and this project's own
-# alphaModeForBlend (src/export_materials.cpp).
+# -- see wowdev.wiki M2#Materials.
 ADDITIVE_FAMILY_THRESHOLD = 3
 
 

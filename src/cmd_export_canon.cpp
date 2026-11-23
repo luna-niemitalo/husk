@@ -37,9 +37,8 @@ namespace husk::commands {
 namespace {
 
 // M2Sequence flags bits (wowdev.wiki M2#Animation_sequences's Flags
-// table) -- reimplemented here rather than shared, same private-per-TU
-// constant tradeoff canon_model.cpp/export_animation.cpp both already
-// accept for this one bit test (see canon_model.cpp's own comment on it).
+// table). Duplicated in m2_canon_input.cpp: two bit tests aren't worth a
+// shared header.
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 constexpr uint32_t kSequenceAliasFlag = 0x40;
 
@@ -60,8 +59,7 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
         // Non-empty alternates means genuinely ambiguous (Resolved<T>'s own
         // doc comment), regardless of whether `resolved` itself carries a
         // chosen default -- canon::TextureRef::Ambiguous keeps the full
-        // candidate set rather than the one guess, same reasoning
-        // AlternateTextureCandidate already applied for gltf::Material.
+        // candidate set rather than the one guess.
         ref.state = canon::TextureRef::State::Ambiguous;
         ref.candidates.reserve(resolved.alternates.size());
         for (const auto& alt : resolved.alternates) {
@@ -190,7 +188,7 @@ m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, cons
         bool preferGlowVariant = b.materialIndex < model.materials.size() && model.materials[b.materialIndex].blendMode > 2;
         for (uint32_t layer = 0; layer < b.textureCount; ++layer) {
             size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
-            if (comboIdx >= model.textureCombos.size()) break;  // best-effort beyond layer 0, same as legacy
+            if (comboIdx >= model.textureCombos.size()) break;  // best-effort beyond layer 0
             uint16_t textureIndex = model.textureCombos[comboIdx];
             if (textureIndex >= model.textures.size()) break;
             resolveSlot(textureIndex, preferGlowVariant);
@@ -209,20 +207,14 @@ m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, cons
 
 namespace {
 
-// Zero-pads `value` to at least `width` digits (e.g. zeroPad(69, 4) ==
-// "0069") -- same tiny helper export_animation.cpp's own
-// findAnimFileByBasename uses, reimplemented rather than shared (see this
-// file's own note below on why nothing here calls into export_animation.*
-// at all).
+// zeroPad(69, 4) == "0069".
 std::string zeroPad(unsigned value, size_t width) {
     std::string s = std::to_string(value);
     if (s.size() < width) s.insert(0, width - s.size(), '0');
     return s;
 }
 
-// Finds the FileDataID for sequence (animId, subAnimId) in `animFileIds`,
-// mirroring export_animation.cpp's own (private, anonymous-namespace)
-// findAnimFileId exactly.
+// The FileDataID for sequence (animId, subAnimId) in `animFileIds`; 0 = none.
 uint32_t findAnimFileId(const std::optional<std::vector<m2::Header::AnimFileEntry>>& animFileIds, uint16_t animId,
                         uint16_t subAnimId) {
     if (!animFileIds) return 0;
@@ -232,8 +224,7 @@ uint32_t findAnimFileId(const std::optional<std::vector<m2::Header::AnimFileEntr
     return 0;
 }
 
-// Real wow.export-style same-basename fallback naming, mirroring
-// export_animation.cpp's own (public) findAnimFileByBasename exactly.
+// wow.export's same-basename naming: `<model stem><animId:4>-<subAnimId:2>.anim`.
 std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const std::string& animDir,
                                               uint16_t animId, uint16_t subAnimId) {
     std::string baseName = std::filesystem::path(modelPath).stem().string();
@@ -242,22 +233,8 @@ std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const
 }
 
 // One non-inline, non-alias sequence's already-loaded external .anim
-// payload bytes, mirroring buildAnimations's own external-.anim resolution
-// (export_animation.cpp: FileDataID-named file first, the casc-tool store
-// second, same-basename fallback third, AFSB-over-AFM2 priority in a chunked file) exactly --
-// reimplemented independently in THIS file rather than calling into or
-// factoring shared code out of export_animation.cpp/.hpp. Deliberate:
-// `--export-canon`'s whole point is comparing canon:: against an
-// UNTOUCHED legacy pipeline (this file's own top doc comment already says
-// so) -- editing a legacy source file to share code with this one, even a
-// behavior-preserving pure refactor, means the "legacy" side of every
-// comparison this tool ever runs is no longer the real, ordinarily-shipping
-// legacy pipeline but a version modified for canon::'s benefit. A small
-// amount of duplication here is the correct price for that guarantee, the
-// same tradeoff canon_model.cpp/m2_animation_input.cpp already made
-// for the sequence-flag bit tests (see their own comments on it) — applied
-// here to a whole resolution routine instead of one bit test, but the same
-// principle.
+// payload bytes: FileDataID-named file first, the casc-tool store second,
+// same-basename fallback third; AFSB wins over AFM2 in a chunked file.
 std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
     const m2::Sequence& seq, const std::optional<std::vector<m2::Header::AnimFileEntry>>& animFileIds,
     bool animChunked, const std::string& animDir, const std::string& listfileRoot,
@@ -304,9 +281,7 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
 // this model -- the M2's own inline arrays, or a .skel's own SKS1/AFID
 // tables (a .skel's own AFID entries name FileDataIDs distinct from the
 // owning M2's, per skel.hpp's own doc comment) -- `animChunked` always
-// comes from the M2's own header.globalFlags regardless (mirrors
-// resolveAnimationsForModel's own haveSkel branch, cmd_export.cpp, which
-// reuses `header.globalFlags` for both sources identically).
+// comes from the M2's own header.globalFlags regardless, for both sources.
 m2input::ExternalAnimBlobs buildExternalAnimBlobs(
     const std::vector<m2::Sequence>& sequences,
     const std::optional<std::vector<m2::Header::AnimFileEntry>>& animFileIds, bool animChunked,
@@ -387,14 +362,10 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
 
     bool animChunked = (model.header.globalFlags & 0x200000) != 0;
 
-    // .skel-sourced bones/sequences (AUDIT.md §7.2's "no .skel coverage
-    // at all" gap): independently re-parsed from `skelBytes` here, not
-    // reused from `commands::resolveBones`'s own already-parsed result
-    // -- same "genuinely separate re-derivation" policy this file's own
-    // top doc comment states for the skin tier. `skelSequences` peeks
-    // for a real SKS1 chunk first (a .skel with no sequences at all is
-    // "no animation clips available," not a parse failure -- mirrors
-    // resolveAnimationsForModel's own haveSkel branch).
+    // .skel-sourced bones/sequences (AUDIT.md §7.2), parsed from
+    // `skelBytes` here. `skelSequences` peeks for a real SKS1 chunk first
+    // (a .skel with no sequences at all is "no animation clips available,"
+    // not a parse failure).
     std::optional<m2input::ExternalSkeletonSource> skelSource;
     std::vector<m2::Sequence> skelSequences;
     if (!bonesAreInline && haveSkel) {

@@ -10,10 +10,9 @@
 #include "canon_ref.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
-// REFACTOR/CANON_DESIGN.md's "canon:: material design" -- a pure value type, no consumers
-// wired to it yet (migrating gltf_mesh.hpp's Material/export_materials.cpp
-// onto it, and porting real Combiners_* formula math into
-// ShadingFunction::function, are both separate, later work).
+// REFACTOR/CANON_DESIGN.md's "canon:: material design" -- a pure value type.
+// Porting real Combiners_* formula math into ShadingFunction::function is
+// separate, later work.
 namespace husk::canon {
 
 // M2 (Legion+) has no PBR map slots anywhere in the parsed format -- these
@@ -101,18 +100,17 @@ struct TextureRef {
     std::string unresolvedReason;
 
     // Meaningful only when state == Ambiguous: N real candidates, no
-    // in-file tiebreak -- generalizes today's gltf::Material::
-    // AlternateTextureCandidate, kept as the full candidate set (not
-    // collapsed to one guess) so a consumer can pick, or a human can
-    // resolve it later. Deliberately excludes AlternateTextureCandidate's
-    // own filename/imagePng fields: a path-shaped string has no place in
+    // in-file tiebreak -- kept as the full candidate set (not collapsed to
+    // one guess) so a consumer can pick, or a human can resolve it later.
+    // Deliberately excludes a candidate's filename and image bytes: a
+    // path-shaped string has no place in
     // canon:: (I1), and an ambiguous slot has no single payload to carry --
     // resolving the ambiguity (or not) is what turns this into a real
     // Resolved payload, not a fact this diagnostic state should guess at.
     struct Candidate {
         Ref identity;          // FileDataId + whatever name source resolved it (I6)
-        std::string category;  // export_materials.cpp's classifyCandidateCategory vocabulary; empty if unclassified
-        uint32_t width = 0;    // real decoded pixel dimensions -- load-bearing for ranking, see AlternateTextureCandidate's own doc comment
+        std::string category;  // sources::classifyCandidateCategory's vocabulary (texture_resolution.hpp); empty if unclassified
+        uint32_t width = 0;    // real decoded pixel dimensions -- load-bearing for ranking, see orderCandidatesForDefault (texture_resolution.hpp)
         uint32_t height = 0;
     };
     std::vector<Candidate> candidates;

@@ -58,7 +58,7 @@ namespace {
 // explicit path overrides; unset auto-detects a same-basename '.skel' next
 // to the model, else the one SKID names (listfile path, then the store's
 // `_by_fdid/`, where a model's own name is its FileDataID). `bonesAreInline`/`haveSkel`/`skelBytes` are out-parameters
-// since buildAnimations (below) needs to know which source's track offsets
+// since animation assembly (cmd_export_canon.cpp) needs to know which source's track offsets
 // `bones` carries, and haveSkel/skelBytes are reused by --bones-dir
 // resolution too.
 //
@@ -615,7 +615,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     // generalize past --anim?") -- inline M2Sequence/global-sequence bone
     // tracks and external-.anim-directory resolution are independent axes.
     // 'inline' deliberately leaves `animDir` empty rather than setting a
-    // separate flag: buildAnimations already treats an empty animDir as
+    // separate flag: resolveExternalAnimBlobForCanon (cmd_export_canon.cpp)
+    // already treats an empty animDir as
     // "skip external resolution," which is exactly what 'inline' means.
     std::string animDir;
     bool animNone = false;  // --anim none: the bundle gets no clips (bind pose only)

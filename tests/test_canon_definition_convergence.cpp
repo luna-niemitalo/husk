@@ -1,14 +1,10 @@
-// Structural convergence proof for canon::assembleDefinition
-// (canon_definition_builder.hpp) against chrcustomization::namedChoicesForModel
-// (chrcustomization_db2.cpp) -- the real DB2 traversal export_extras.cpp's
-// own customizationOptions-building loop also drives -- REFACTOR/README.md
-// stage 3's gate. assembleDefinition reuses namedChoicesForModel directly
-// rather than re-walking Data itself, so most of these checks are against
-// facts derived straight from chrcustomization::Data (the same already-loaded
-// structure both assembleDefinition and export_extras.cpp consume), not
-// against namedChoicesForModel's own output -- same "derive independently,
-// even if that duplicates a little logic" rule test_canon_material_convergence.cpp
-// already establishes.
+// canon::assembleDefinition (canon_definition_builder.hpp) against real
+// chrcustomization:: DB2 data. assembleDefinition reuses
+// chrcustomization::namedChoicesForModel directly rather than re-walking
+// Data itself, so most of these checks are against facts derived straight
+// from chrcustomization::Data, not against namedChoicesForModel's own
+// output -- "derive independently, even if that duplicates a little
+// logic".
 
 #include <algorithm>
 #include <doctest/doctest.h>
@@ -72,16 +68,13 @@ TEST_CASE("canon::assembleDefinition converges with chrcustomization::Data again
     // choices, and asserting per-item-per-field multiplies this test's
     // assertion count by that corpus size for no added coverage (every
     // option and every choice is still examined; only the assertion *count*
-    // changes). Same aggregate-then-diagnose discipline
-    // test_canon_skeleton_convergence.cpp's per-joint loop already
-    // establishes. A structural precondition (e.g. "id is a Db2Row") that
+    // changes). A structural precondition (e.g. "id is a Db2Row") that
     // would crash on `std::get` if false is guarded with `continue` instead
     // of `REQUIRE`, so one option's bad shape doesn't abort inspection of
     // the rest of the corpus.
 
     // Definition::options must be in real optionOrderIndex order (ties
-    // broken by id) -- canon_definition_builder.hpp's own deliberate
-    // divergence from export_extras.cpp's insertion-order-preserving loop.
+    // broken by id) -- see assembleDefinition's doc comment.
     std::optional<size_t> orderMismatch;
     for (size_t i = 1; i < result.options.size(); ++i) {
         const auto& prev = result.options[i - 1];

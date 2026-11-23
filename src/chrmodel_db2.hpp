@@ -22,9 +22,9 @@
 // resolve *which* CharComponentTextureLayoutsID applies to a given .m2
 // model itself -- that's `chrrace_db2.hpp`'s own real ChrModel.db2 ->
 // CharComponentTextureLayoutID column, joined against whichever
-// ChrModelID `--chr-model-id` resolves (`cmd_export.cpp`'s
-// attachCharTextureLayout) -- and this module does NOT attempt any pixel
-// compositing; that stays Blender's job, not husk's. An explicit
+// ChrModelID `--chr-model-id` resolves (character_texture_context.cpp's
+// layoutFor) -- and this module does NOT attempt any pixel compositing;
+// that stays the consumer's job, not husk's. An explicit
 // `--char-layout-id` still overrides that derivation outright,
 // same "hand husk a plain local answer instead of making it guess" option
 // every other opt-in sidecar in this project has.

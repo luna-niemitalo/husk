@@ -80,11 +80,6 @@ trusting the framework's speedup on a real multi-hour corpus run.
   look. A GPU run (`~/.claude/rules/gpu-lock.md`). `blender --background
   --factory-startup --python tools/render_lean_glb.py -- <in.glb>
   <out.png>`.
-- `corpus_scan_tasks/build_render_sample.py` — a stratified
-  (proportional-by-sqrt-per-category) sample of `.m2` paths plus every
-  file with a co-located `.phys`, one path per line
-  (`corpus_reports/render_sample.txt`). No batch renderer consumes it
-  any more.
 
 ## More scan tasks
 

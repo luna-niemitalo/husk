@@ -3,8 +3,7 @@
 Runs, per file: independent header parse cross-check, a *rich* husk export
 (model's own directory auto-discovers --skin/--skin-dir/--anim/--skel/
 --bones-dir/--phys, --textures deliberately 'none' to keep the mass sweep
-fast/disk-bounded -- texture correctness is covered separately by the
-Blender render sample, not this pass), dump-chunks,
+fast/disk-bounded -- texture correctness is not this pass's job), dump-chunks,
 fidelity/finite/mesh_completeness bundle-content checks, and `husk
 validate-bundle` on the bundle. Validation runs per file, unbatched: the
 bundle is deleted as soon as the file's checks finish, so the scratch pool

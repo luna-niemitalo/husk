@@ -49,9 +49,7 @@ using ExternalAnimBlobs = std::unordered_map<uint32_t, std::vector<uint8_t>>;
 // data"), so `buildCanonModel` keeps reading those from `model` unchanged
 // regardless of whether this parameter is supplied.
 //
-// Mirrors `commands::resolveBones`/`resolveAnimationsForModel`'s own
-// `haveSkel` branch (`cmd_export.cpp`) at the type level: `bones`/
-// `sequences`/`blob` are exactly `skel::parseBones(skelBytes)`/
+// `bones`/`sequences`/`blob` are exactly `skel::parseBones(skelBytes)`/
 // `skel::parseSequences(skelBytes)`/`skel::boneTrackBlob(skelBytes)`'s own
 // return shapes. Parsing the .skel file and deciding whether one applies
 // at all (an M2 with 0 inline bones, `--skel` not `none`, a real `.skel`
@@ -74,8 +72,8 @@ struct LodSkin {
 };
 
 // Builds a canon::Model from one real M2 model + its already-resolved
-// skin tier, mirroring the legacy pipeline's own three real animation
-// shapes (real-inline, global-sequence, alias) and deduping materials by
+// skin tier: the three real animation shapes (real-inline,
+// global-sequence, alias), and materials deduped by
 // the same real M2 identity every distinct material actually has: a
 // batch's own (materialIndex, textureCount, textureComboIndex,
 // textureCoordComboIndex, colorIndex, textureWeightComboIndex,
@@ -84,10 +82,8 @@ struct LodSkin {
 // `textureResolutions`/sequence-index this function already threads
 // through uniformly) -- so two batches sharing that tuple share one
 // canon::Material, found by identity rather than by hashing the built
-// material's own content after the fact (legacy's own materialDedupKey,
-// export_texture_resolution.cpp, does the latter -- more expensive, and a
-// real float-stringification fragility risk this tuple-identity approach
-// doesn't have).
+// material's own content after the fact (more expensive, and a real
+// float-stringification fragility risk this tuple identity doesn't have).
 //
 // `externalAnimBlobs`/`textureResolutions` default to empty, preserving
 // every existing caller's exact current behavior (no external-.anim

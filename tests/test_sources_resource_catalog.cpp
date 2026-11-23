@@ -1,8 +1,8 @@
 // Tests for src/sources/catalog.hpp/.cpp -- the real sources::Catalog
 // object REFACTOR/RESOURCE_CATALOG.md describes: the one place that owns
 // the texture tier order (literal -> listfile -> fuzzy same-basename pool)
-// and tier 3's claim-and-remove pool state, replacing export_materials.cpp's
-// old three-way branch with one Resolved<EncodedTexture> per slot.
+// and tier 3's claim-and-remove pool state, answering with one
+// Resolved<EncodedTexture> per slot.
 
 #include <doctest/doctest.h>
 
@@ -118,7 +118,7 @@ TEST_CASE("Catalog::texture hits tier 3 (fuzzy pool) claiming the sole type-comp
     // fdid == 0 -- a genuinely hardcoded slot, nothing for tiers 1/2 to try.
     // textureType 999 is deliberately not a real M2 texture type -- this
     // test is about generic tier-3 plumbing (claim-and-remove), not the
-    // real per-type tag conjunction (export_texture_resolution.cpp's
+    // real per-type tag conjunction (texture_resolution.cpp's
     // textureTypeTagClauses), and "mymodel_9999" carries none of that
     // table's real vocabulary tokens on purpose.
     auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
@@ -387,7 +387,7 @@ TEST_CASE("Catalog::texture: an untagged texture type (no textureTypeTagClauses 
     Catalog cat(dir.string(), kNoListfile, "", "");
     // textureType 2 = object_skin, real M2 type with no textureTypeTagClauses
     // entry (confirmed unreachable by any filename tag, see
-    // export_texture_resolution.cpp's own textureTypeTagClauses doc comment).
+    // texture_resolution.cpp's own textureTypeTagClauses doc comment).
     auto r = cat.texture(0, /*textureType=*/2, ctxFor((dir / "mymodel.m2").string()));
     REQUIRE(r.found());
     CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);

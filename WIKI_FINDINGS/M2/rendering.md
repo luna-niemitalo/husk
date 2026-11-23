@@ -178,6 +178,20 @@ material sampling it contributes no light, so such a model draws nothing
 by design (e.g. `creature/cloud/cloudswampgas_white_clickable.m2`,
 material 0); an empty render of it is not a resolution bug.
 
+## Texture transforms (`M2.md` "Texture Transforms")
+
+`M2TextureTransform` rotates about the texture centre (0.5, 0.5). A
+transform that pivots on the UV origin (glTF's `KHR_texture_transform`)
+needs the pivot folded into its offset: `offset = R·S·translation + R·t_S
++ t_R`, where `t_S = 0.5·(1 − s)` per axis and `t_R = (0.5, 0.5) −
+R·(0.5, 0.5)` are the pivot's displacement under scale and rotation. Valid
+only for a planar (Z-only) rotation, the case the wiki's pivot note
+covers. Verified on `bloodknightcharger.m2` by hand, by 20,000 random
+trials against wow.export's matrix composition, and by Blender's importer
+producing the same Mapping node. A track that is "constant" must be empty
+or a single value: `brewfestmount.m2` has per-sequence tracks that happen
+to be identity, which are animated, not constant.
+
 ## Particles and ribbons (`M2.md`)
 
 - **Multi-texture particles** (`particle_3colortex_3alphatex`):

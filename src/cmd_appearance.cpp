@@ -18,7 +18,7 @@
 // (src/itemappearance_db2.hpp) -- otherwise they stay opaque (slot,
 // ItemModifiedAppearanceID) pairs, same
 // "current vs target" honesty as every other still-partial feature here.
-// Output carries both real gear cases (TODO/EQUIPPED_GEAR_RENDER_TODO.md):
+// Output carries both real gear cases (canon_item.hpp):
 // `texture(type=N)=<fdid>` is case 1 (the item's own standalone geometry's
 // texture), `section(N)=<fdid>` is case 2 (a base-character-mesh section
 // overlay, N a real CharComponentTextureSections.SectionType-space value).

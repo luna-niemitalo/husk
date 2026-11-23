@@ -1,16 +1,15 @@
 """Full-corpus scan for models likely to render as flat background color
 because their only resolved texture is genuinely black and every material
-is additive-family -- the class TODO/RENDER_QUALITY_TODO.md section 1
-found for `creature/deathwingcorruptedjaw/deathwingcorruptedjaw.m2`
+is additive-family -- e.g.
+`creature/deathwingcorruptedjaw/deathwingcorruptedjaw.m2`
 (blend_mode=4, 0 particles, texture resolves via --listfile to a real
 32x32 all-black `interface/characterframe/ui-party-background.blp`).
 
 `particle_only_task.py` catches the *particle-driven* half of this same
 underlying symptom (additive-only materials, blank in practice) but only
 when there's also a real M2Particle emitter to blame -- deathwingcorrupted-
-jaw has none, so that task's own candidate filter can't see it. This task
-is the real, scoped follow-up RENDER_QUALITY_TODO.md's section 1 named but
-never built: instead of proxying through particle-presence, resolve each
+jaw has none, so that task's own candidate filter can't see it. Instead
+of proxying through particle-presence, this task resolves each
 additive-only file's own primary texture (same three-tier resolution
 unfillable_texture_task.py already mirrors -- literal FileDataID, then
 --listfile, then same-basename fuzzy) and check its *actual* decoded pixel
@@ -59,11 +58,11 @@ BLP_CACHE_DIR = Path(tempfile.gettempdir()) / "husk_black_additive_blp_cache"
 
 # Same additive-family threshold particle_only_task.py uses -- 0 (Opaque)/
 # 1 (AlphaKey) are ordinary surfaces, 2 (Alpha) is real translucency (glass,
-# cloth), not additive. See wowdev.wiki M2#Materials / export_materials.cpp.
+# cloth), not additive. See wowdev.wiki M2#Materials.
 ADDITIVE_FAMILY_THRESHOLD = 3
 # Mean 0-255 RGB brightness below this counts as "genuinely black" -- same
-# order of magnitude as the pixel-flatness std<1.0 threshold
-# RENDER_QUALITY_TODO.md's own blank-render scan already used.
+# order of magnitude as the pixel-flatness std<1.0 threshold a blank-render
+# check uses.
 BLACK_MEAN_THRESHOLD = 4.0
 
 
@@ -92,7 +91,7 @@ def _fuzzy_candidate_path(model_dir: Path, basename_lower: str) -> Path | None:
 
 def _resolve_texture_path(model_dir: Path, basename_lower: str, fdid: int | None) -> Path | None:
     """Mirrors husk's own three resolution tiers in order
-    (export_materials.cpp:437-456). Returns a real local path, .blp or
+    (sources::Catalog::texture, src/sources/catalog.cpp). Returns a real local path, .blp or
     .png, or None if nothing resolves.
     """
     if fdid:

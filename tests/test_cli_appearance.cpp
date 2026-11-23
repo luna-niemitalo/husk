@@ -212,8 +212,8 @@ TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: a real gear ItemModifiedA
 }
 
 TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: an ItemDisplayInfoMaterialRes-bearing item "
-          "resolves real base-character-mesh section overlays (case 2, EQUIPPED_GEAR_RENDER_TODO.md "
-          "step 1's own real ComponentSection finding) alongside case 1's own ModelMatRes texture -- "
+          "resolves real base-character-mesh section overlays (case 2, itemappearance_db2.hpp's "
+          "ComponentSection) alongside case 1's own ModelMatRes texture -- "
           "a real multi-section item (e.g. boots spanning LEG_LOWER + FOOT) carries more than one "
           "section() entry, not just the first.") {
     auto dir = defaultsDir("appearancegearsection");

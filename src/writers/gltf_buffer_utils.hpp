@@ -5,14 +5,9 @@
 
 #include <tiny_gltf.h>
 
-// Shared tinygltf buffer/accessor bookkeeping helpers, used by every gltf_*
-// implementation file that appends raw vertex/index/animation/image bytes
-// into the one growing tinygltf::Buffer a writeGlbMulti call builds
-// (gltf.cpp, gltf_mesh.cpp, gltf_skeleton.cpp) -- not part of the public
-// husk::gltf API (see gltf.hpp/gltf_mesh.hpp/gltf_skeleton.hpp for that),
-// promoted out of gltf.cpp's own former anonymous namespace so more than
-// one translation unit can call it (same "cross-file helper gets promoted"
-// pattern as m2_primitives.hpp, FILE_SPLIT_TODO.md Item 2).
+// tinygltf buffer/accessor bookkeeping helpers for appending raw
+// vertex/index/animation/image bytes into the one growing tinygltf::Buffer
+// a .glb carries (gltf_lean.cpp).
 namespace husk::gltf {
 
 // glTF 2.0 requires an accessor's total byte offset (bufferView.byteOffset
@@ -22,8 +17,7 @@ namespace husk::gltf {
 // animation sampler in/out). `buffer.data` is one shared, growing byte
 // array with every bufferView's offset simply wherever the previous append
 // left off, so anything of a length that isn't itself a multiple of 4 --
-// most concretely, a `--textures`-embedded PNG (mat.baseColorImagePng),
-// whose byte length is essentially never a multiple of 4 -- would silently
+// most concretely, an embedded PNG, whose byte length is essentially never a multiple of 4 -- would silently
 // misalign every bufferView appended after it for the rest of the file
 // otherwise. Zero-pad up to the next 4-byte boundary after every append
 // (image bytes included, see the ad hoc appends that don't go through

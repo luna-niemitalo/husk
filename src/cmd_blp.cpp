@@ -15,7 +15,7 @@
 
 // `husk blp-export` -- native BLP2 -> PNG conversion, reusing the exact
 // `blp::decode`/`blp::encodePng` pipeline `husk export` already uses
-// internally to embed real textures into every `.glb` (export_materials.cpp).
+// internally to embed real textures (sources/texture_payload.cpp).
 // Motivating gap: the separate Python `blp/`/`husk-blp` tool's CLI is
 // strictly one-file-in-one-file-out, no directory/batch mode, no flag
 // conventions matching the rest of this project's CLI -- there was no new

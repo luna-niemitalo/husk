@@ -415,7 +415,7 @@ if(HUSK_BUILD_TESTS)
       HUSK_BLENDER_IMPORT_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/tests/blender_import_check.py"
       # Reads a husk bundle's manifest.json + .bin slices directly, no
       # glTF involved (tests/bundle_import_check.py's own doc comment) --
-      # the canon-vs-legacy comparison counterpart to the .glb script above.
+      # the bundle counterpart to the .glb script above.
       HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/tests/bundle_import_check.py"
     )
   endif()

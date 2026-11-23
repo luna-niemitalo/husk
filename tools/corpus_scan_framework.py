@@ -180,11 +180,9 @@ def husk_resolve_json(path: Path, timeout: float = 20.0, textures_out: str | Pat
 
     `textures_out` is passed straight through as `husk resolve`'s own
     --textures-out. **It is NOT a way to get every resolved texture's bytes
-    onto disk, and a task must not treat it as one.** An earlier version of
-    this docstring claimed it was; that claim was wrong and two task
-    conversions built on it had to be reverted. What --textures-out
+    onto disk, and a task must not treat it as one.** What --textures-out
     actually is, per its own implementation
-    (`writeTextureOutCopy`, export_texture_resolution.cpp): a best-effort
+    (`writeTextureOutCopy`, src/sources/texture_resolution.cpp): a best-effort
     *convenience copy* of textures husk happened to decode, explicitly "not
     the thing the export itself depends on", write failures ignored. So it
     writes decoded `.blp` sources only -- a slot already resolved from a

@@ -105,8 +105,8 @@ void putPngChunk(std::vector<uint8_t>& png, const char* tag, const std::vector<u
 // `width`x`height`, one solid color -- unlike the hand-transcribed 1x1
 // literal several tests already use, this lets a test construct real
 // candidates of *different* pixel dimensions, needed for anything
-// exercising export_materials.cpp's pixel-area-based default ranking
-// (orderCandidatesForDefault). No zlib dependency: the IDAT stream uses
+// exercising the pixel-area-based default ranking
+// (orderCandidatesForDefault, sources/texture_resolution.hpp). No zlib dependency: the IDAT stream uses
 // uncompressed ("stored") deflate blocks, a real, spec-legal deflate
 // encoding (RFC 1951 §3.2.4) most decoders (including stb_image, which
 // tinygltf uses) accept exactly the same as a compressed one.
@@ -298,7 +298,7 @@ std::vector<uint8_t> emptySkin() {
 // geometry-less VFX model still has (the corpus's own
 // particle-only .m2 files all carry at least one bone for emitter
 // attachment), so a mesh-less export still has a skeleton to fall back to
-// instead of hitting writeGlbMulti's "nothing to export at all" case.
+// instead of hitting writeCanonBundleOnly's "no vertices and no bones" error.
 std::vector<uint8_t> zeroVertexOneBoneM2() {
     auto b = minimalMd20();
     uint32_t boneOff = static_cast<uint32_t>(b.size());
@@ -440,10 +440,10 @@ std::vector<uint8_t> twoGeosetSkin() {
     return b;
 }
 
-// Configurable single-batch fixture for the buildMaterialsAndPrimitives
-// out-of-range tests below: one submesh (skinSectionId = 0, indexStart = 0,
+// Configurable single-batch fixture for the export out-of-range tests:
+// one submesh (skinSectionId = 0, indexStart = 0,
 // indexCount = submeshIndexCount) and one batch built from `fields`. Every
-// earlier check in buildMaterialsAndPrimitives's own chain
+// earlier check in the export's batch validation chain
 // (skinSectionIndex -> submesh index range -> materialIndex -> colorIndex
 // -> textureWeightComboIndex[+resolved weightIndex] ->
 // textureComboIndex[+resolved textureIndex] -> textureCoordComboIndex)

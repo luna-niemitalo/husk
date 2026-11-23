@@ -68,7 +68,7 @@ struct Sequence {
     // animations" doc comment). Only meaningful when `flags & 0x40` is set
     // ("is alias") -- per the wiki, "the client skips these by following
     // aliasNext until an animation without 0x40 is found," which is
-    // exactly what cmd_export.cpp's resolveAliasChain does to reuse the
+    // exactly what m2_canon_input.cpp's resolveAliasChain does to reuse the
     // terminal sequence's own keyframe data for this (otherwise-dataless)
     // alias sequence. Real data: `WIKI_FINDINGS/M2.md`.
     uint16_t aliasNext = 0;
@@ -88,16 +88,10 @@ struct Sequence {
 // weight) either way, since a wrong guess (e.g. reading an animated alpha
 // track's unrelated first keyframe) can be worse than no value at all.
 //
-// The `*Animated` flags below distinguish those two nullopt cases for a
-// caller that wants to *say something* about the second one: core glTF
-// has no way to animate a material's baseColorFactor at all (unlike a
-// bone's translation/rotation/scale, which are real animatable node
-// properties), so there's no real *playback* to build -- but the full
-// curve is still real, useful data for a custom renderer or Blender
-// script, resolved via `*TrackOffset` below the same way buildAnimations
-// resolves bone tracks (resolveVec3TrackSequence/resolveRawIntTrackSequence,
-// see cmd_export.cpp's buildMaterialsAndPrimitives) and attached as inert
-// glTF material `extras` (`tint_animation`/`fade_animation`).
+// The `*Animated` flags below distinguish those two nullopt cases: an
+// animated track's full curve is resolved via `*TrackOffset` below the
+// same way bone tracks are (resolveVec3TrackSequence/
+// resolveRawIntTrackSequence, see m2_material_input.cpp).
 struct Color {
     std::optional<Vec3> color;   // 0..1 per channel, rgb order
     std::optional<float> alpha;  // 0 (transparent) .. 1 (opaque)
@@ -122,13 +116,9 @@ struct TextureWeight {
 // (via Header::textureTransformCombos) -- see husk::skin::Batch. Like
 // Color/TextureWeight above, all three fields are M2Track<T>-backed and
 // only resolved here when unambiguously constant; the `*Animated` flags
-// mirror Color's own for the non-constant case.
-//
-// Unlike Color/TextureWeight, the constant case *is* applied to the
-// rendered material as a real KHR_texture_transform, pivot-corrected from
-// the wiki's texture-center (0.5, 0.5) rotation -- see
-// gltf::Material::TextureTransform's doc comment for the derivation and
-// why the animated case still can't be.
+// mirror Color's own for the non-constant case. Rotation pivots on the
+// texture center (0.5, 0.5) (WIKI_FINDINGS/M2/rendering.md "Texture
+// transforms" has the origin-pivot conversion).
 struct TextureTransform {
     std::optional<Vec3> translation;
     std::optional<Quat> rotation;  // C4Quaternion -- 4 raw floats (x,y,z,w), NOT the compressed M2CompQuat bones use
@@ -161,10 +151,7 @@ struct TextureTransform {
 // 0 of the track's outer array (a real bug this type existed to fix, not a
 // hypothetical one), and resolveVec3GlobalSequenceTrack/
 // resolveQuatGlobalSequenceTrack below for how it's actually resolved into
-// a real, independently-looping glTF clip instead -- for bone tracks; the
-// same track shape on a material's M2Color/M2TextureWeight has no glTF
-// property to animate at all, see Color::colorAnimated/alphaAnimated's doc
-// comment.
+// a real, independently-looping clip instead.
 struct TrackMeta {
     uint16_t interpolationType = 1;
     // 0xFFFF ("none"), the same -1-as-unsigned sentinel convention this
@@ -178,9 +165,9 @@ struct TrackMeta {
 // Reads interpolation_type/global_sequence directly, without touching the
 // timestamps/values arrays that follow -- the two fields resolveVec3/
 // QuatTrackSequence below check before deciding whether/how to resolve a
-// given sequence index. Exposed separately so a caller building one glTF
-// animation sampler per property (see cmd_export.cpp's buildAnimations)
-// can pick STEP vs. LINEAR once per track, not per keyframe.
+// given sequence index. Exposed separately so a caller building one curve
+// per property (m2_animation_input.cpp) can pick step vs. linear once per
+// track, not per keyframe.
 TrackMeta readTrackMeta(const std::vector<uint8_t>& blob, uint32_t trackOffset);
 
 // Reads `array.count` M2Color records out of `blob` starting at

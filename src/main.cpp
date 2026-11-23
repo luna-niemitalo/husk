@@ -245,18 +245,16 @@ std::string zshValueAction(const std::string& longName, const std::string& subNa
 // stay inside zsh's quoting rules rather than fighting them.
 std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--input") return "the .m2 file to export";
-    if (longName == "--output") return "output .glb path";
+    if (longName == "--output") return "output path";
     if (longName == "--skin") return "a .skin path, or auto";
     if (longName == "--textures") return "texture directory, or none";
     if (longName == "--textures-out") return "directory to also write decoded .png copies to";
-    if (longName == "--slim-textures") return "write textures as external files instead of embedding";
     if (longName == "--skin-dir") return "skin-search directory, or none";
     if (longName == "--anim") return "auto, inline, none, or a directory";
     if (longName == "--skel") return "external .skel path, or none";
     if (longName == "--lod") return "LOD index, or all";
     if (longName == "--bones-dir") return "bone-correction directory, or none";
     if (longName == "--phys") return "external .phys path, or none";
-    if (longName == "--collision") return "include the collision mesh (off by default)";
     if (longName == "--db2-dir") return "character DB2 directory (texture-layout or customization)";
     if (longName == "--dbd-dir") return "WoWDBDefs checkout, for --db2-dir column names";
     if (longName == "--char-layout-id") return "a real CharComponentTextureLayoutsID";
@@ -368,7 +366,7 @@ struct AllSubcommandOpts {
 // with what CLI11 actually parses against.
 void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportSub =
-        root.add_subcommand("export", "export a mesh (+ skin/animation) to glTF");
+        root.add_subcommand("export", "export an M2 model to a canonical model bundle");
     husk::commands::addExportOptions(*exportSub, opts.exportOpts);
 
     CLI::App* infoSub = root.add_subcommand("info", "parse and print an M2 header");
@@ -593,7 +591,7 @@ int main(int argc, char** argv) {
         "\n"
         "commands:\n"
         "  info <file.m2>              parse and print an M2 header\n"
-        "  export <file.m2> [args...]  export a mesh (+ skin/animation) to glTF (see --help)\n"
+        "  export <file.m2> [args...]  export an M2 model to a canonical model bundle (see --help)\n"
         "  dump-chunks <file.m2|.bone> extract misc chunks to JSON (see --help)\n"
         "  db2-info <file.db2>          parse and print a WDC5 DB2 file (proof of concept, see --help)\n"
         "  db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]\n"

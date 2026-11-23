@@ -8,8 +8,7 @@
 // The ~30 small, independent per-tag `dumpXxx(Writer&, Chunk&)` dumpers
 // `husk dump-chunks` uses for Legion+ chunk tags with no shared state
 // beyond dump_writer_utils.hpp's small read/write helpers -- see
-// cmd_dump.cpp's own top doc comment for the full "why these chunks, why
-// JSON not glTF" rationale.
+// cmd_dump.cpp's own top doc comment for "why these chunks".
 namespace husk::commands {
 
 // TXAC (wowdev.wiki M2#TXAC), a flat array of 2-byte records, count =
@@ -190,7 +189,7 @@ void dumpExp2(json::Writer& w, const Chunk& c);
 // (wiki gives no field name) -- exposed raw; confirmed structurally to be
 // a real bitmask, not an enum, but bit semantics are unconfirmed -- see
 // WIKI_FINDINGS/M2.md's PCOL section. Diagnostic-only (`dump-chunks`),
-// same class as EXP2/PFDC/DETL: no glTF slot, since this is War Within
+// same class as EXP2/PFDC/DETL, since this is War Within
 // 11.1.7+ player-housing furniture collision data, not core render
 // geometry -- see M2_COMPLETENESS.md.
 void dumpPcol(json::Writer& w, const Chunk& c);

@@ -56,9 +56,8 @@ Definition assembleDefinition(const chrcustomization::Data& data, uint32_t chrMo
         optIt->choices.push_back(std::move(choice));
     }
 
-    // Deterministic real-UI-order sort -- see this file's own header doc
-    // comment for why this is an intentional divergence from
-    // export_extras.cpp's own insertion-order-preserving loop.
+    // Deterministic real-UI-order sort -- see assembleDefinition's doc
+    // comment (canon_definition_builder.hpp).
     std::sort(options.begin(), options.end(), [](const Option& a, const Option& b) {
         if (a.orderIndex != b.orderIndex) return a.orderIndex < b.orderIndex;
         return dbRow(a.ref) < dbRow(b.ref);

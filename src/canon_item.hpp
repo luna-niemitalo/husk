@@ -9,8 +9,7 @@
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's "Items by identity, not slot" (I7) -- a pure value
-// type, no consumers wired to it yet (migrating gltf_skeleton.hpp's
-// GearItem/GearSectionOverlay onto it is separate, later work).
+// type.
 namespace husk::canon {
 
 // Slot is a vector, not an enum: appearance_string.hpp's own grammar
@@ -19,12 +18,12 @@ namespace husk::canon {
 // fixed enum here would invent a closed set the domain doesn't have.
 using Slot = std::string;
 
-// Case 1 (today's GearItem): standalone geometry, its own separate `.m2`.
+// Case 1: standalone geometry, its own separate `.m2`.
 // modelFileDataIds is a vector because one ModelResourcesID can resolve to
 // several real FileDataIDs (race/sex variants), never collapsed to one -- same
 // policy as itemappearance::Resolution::materials.
 //
-// GearItem::auxGlbPath is excluded: a written-.glb-relative-path is a
+// No exported-file path here: where a writer put the item's model is a
 // writer transport artifact (I1), not a fact about the item.
 struct GeometryComponent {
     std::vector<uint32_t> modelFileDataIds;
@@ -32,7 +31,7 @@ struct GeometryComponent {
     // Real per-texture-role material, keyed by textureType (a texture
     // role, NOT a body section -- see itemappearance_db2.hpp's ModelMatRes
     // doc comment for why TextureType was falsified as a section-enum
-    // reading), mirroring GearItem::Material verbatim.
+    // reading).
     struct Material {
         uint32_t textureType = 0;
         uint32_t materialResourcesId = 0;
@@ -41,7 +40,7 @@ struct GeometryComponent {
     std::vector<Material> materials;
 };
 
-// Case 2 (today's GearSectionOverlay): a texture-layer overlay onto the
+// Case 2: a texture-layer overlay onto the
 // base character's own body sections, no separate geometry of its own.
 struct SectionOverlayComponent {
     struct Section {
@@ -55,11 +54,10 @@ struct SectionOverlayComponent {
 using Component = std::variant<GeometryComponent, SectionOverlayComponent>;
 
 // One equipped item: an identity, the slot(s) it occupies, and the
-// component(s) it contributes. Two parallel lists (GearItem vs.
-// GearSectionOverlay) collapse to one item type carrying either/both
-// component kinds -- an item that is both standalone geometry and a
+// component(s) it contributes. One item type carries either/both
+// component kinds, so an item that is both standalone geometry and a
 // section overlay, or one that occupies more than one slot (a tunic whose
-// hem is a leg-slot piece), is now structurally expressible.
+// hem is a leg-slot piece), is structurally expressible.
 struct Item {
     // ItemModifiedAppearanceID is a real ItemModifiedAppearance.db2 row
     // (itemappearance_db2.hpp) -- Db2Row{table,row} fits directly, same

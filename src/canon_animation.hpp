@@ -14,8 +14,7 @@ namespace husk::canon {
 // One bone's worth of assembled curves for one M2Sequence (or global
 // sequence). Any of the three may hold zero keyframes (that property
 // simply has no data for this sequence) -- m2input::assembleBoneAnimation
-// only returns nullopt when all three are empty, mirroring
-// buildJointAnimation's own "nothing to animate" early return.
+// only returns nullopt when all three are empty ("nothing to animate").
 struct BoneAnimationCurves {
     VecCurve translation;
     QuatCurve rotation;

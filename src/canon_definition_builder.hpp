@@ -7,12 +7,7 @@
 #include "chrcustomization_db2.hpp"
 
 // husk::canon: assembly of one canon::Definition from the real
-// chrcustomization:: data-access layer (chrcustomization_db2.hpp) --
-// the adjacent twin of export_extras.cpp's own customizationOptions-building
-// loop (buildCustomizationOptions-shaped code around
-// chrcustomization::namedChoicesForModel, cmd_export.cpp/export_extras.cpp),
-// built to prove structural convergence (REFACTOR/README.md stage 3's gate)
-// without touching the existing pipeline.
+// chrcustomization:: data-access layer (chrcustomization_db2.hpp).
 //
 // Deliberately reuses chrcustomization::namedChoicesForModel directly rather
 // than re-walking Data::options/choices/categories itself -- that function
@@ -24,14 +19,10 @@
 namespace husk::canon {
 
 // Groups namedChoicesForModel's flat NamedChoice rows under one canon::Option
-// per real optionId (each option's Category embedded once, mirroring
-// export_extras.cpp's own find-or-insert grouping). Real, intentional
-// divergence from export_extras.cpp: that function preserves whatever order
-// namedChoicesForModel happens to yield (Data::options' own table order,
-// itself whatever order chrcustomizationoption.db2's rows load in -- not a
-// display order), because it's building inert extras where order isn't
-// semantically load-bearing. canon::Definition's own doc comment states no
-// such exemption, so this sorts Definition::options by real optionOrderIndex
+// per real optionId (each option's Category embedded once).
+// namedChoicesForModel yields Data::options' own table order (whatever
+// order chrcustomizationoption.db2's rows load in -- not a display order),
+// so this sorts Definition::options by real optionOrderIndex
 // (ties broken by optionId) and each Option::choices by real choiceOrderIndex
 // (ties broken by choiceId) -- deterministic, and matching the real
 // character-creation UI's own display order, the same convention

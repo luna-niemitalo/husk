@@ -47,15 +47,10 @@ std::optional<uint32_t> fileDataIdForPath(const husk::ListfileIndex& listfile, c
 
 // Forward lookup: `listfileRoot / listfile[fdid]`, or nullopt when
 // `listfile` is empty or `fdid` has no row. Deliberately does NOT also
-// require `listfileRoot` non-empty -- one of the two original call sites
-// never checked that either (relying on an empty root acting as an
-// identity join), so requiring it here would be a real behavior change,
-// not a verbatim move; the other call site already checks it before ever
-// reaching this function. Also does NOT check the resulting path's
-// existence, and does NOT strip its extension -- both original call sites
-// (export_materials.cpp's texture-tier lookup, exportGearAuxItemModels)
-// did different caller-specific things with the raw joined path
-// afterward.
+// require `listfileRoot` non-empty: an empty root acts as an identity join,
+// which a caller passing --listfile without --listfile-root relies on.
+// Also does NOT check the resulting path's existence, and does NOT strip
+// its extension -- callers do their own thing with the raw joined path.
 std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex& listfile,
                                                          const std::string& listfileRoot, uint32_t fdid);
 
@@ -84,8 +79,7 @@ std::optional<std::filesystem::path> localFileForFileDataId(const husk::Listfile
                                                             const std::string& listfileRoot, uint32_t fdid);
 
 // The real --listfile content name for `fdid`, for human-readable display
-// (Blender image datablock/material names, --slim-textures' written
-// filenames) -- `listfile[fdid]`'s own stem, no root join needed (a display
+// (texture and material names) -- `listfile[fdid]`'s own stem, no root join needed (a display
 // name, not a path to read). Returns nullopt when `listfile` is empty or
 // `fdid` has no row -- same "primary path unavailable" convention as the
 // other two functions here.

@@ -22,9 +22,9 @@ namespace husk::commands {
 
 // husk export's declared canon::PartialFailurePolicy (see canon_policy.hpp):
 // a malformed field it's about to consume must throw, never silently read
-// as empty. Every attachX()/exportOneModel call site in cmd_export.cpp/
-// export_extras.cpp passes this, rather than each implying strictness by
-// calling a strict-only-named function.
+// as empty. Every enforcePartialFailurePolicy call in cmd_export.cpp
+// passes this, rather than each implying strictness by calling a
+// strict-only-named function.
 inline constexpr auto kExportPartialFailurePolicy = canon::PartialFailurePolicy::Strict;
 
 int info(int argc, char** args);
@@ -32,8 +32,8 @@ int info(int argc, char** args);
 // `export` is a reserved word, hence the name mismatch with the CLI verb.
 int exportBundle(int argc, char** args);
 
-// `dump-chunks` -- extracts M2 chunks that don't feed into `export`'s glTF
-// output into readable JSON (see cmd_dump.cpp's own doc comment).
+// `dump-chunks` -- extracts M2 chunks into readable JSON (see cmd_dump.cpp's
+// own doc comment).
 int dumpChunks(int argc, char** args);
 
 // `db2-info` -- proof-of-concept WDC5 DB2 inspection, the `info` analogue
@@ -208,10 +208,9 @@ void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts);
 
 // `resolve` -- REFACTOR/CLI_AND_TOOLING.md §3's `husk resolve` verb: prints
 // `sources::Catalog`'s own texture-resolution ledger as JSON, driving the
-// exact same tier-order code `export` uses (`buildMaterialsAndPrimitives`,
+// exact same tier-order code `export` uses (`buildTextureResolutions`,
 // `resolveSkinsToExport`) but stopping once every batch's texture slot has
-// been resolved -- no skeleton/animation/mesh-accessor build, no glTF
-// serialization, no file write. See cmd_resolve.cpp's own doc comment for
+// been resolved -- no model assembly, no bundle write. See cmd_resolve.cpp's own doc comment for
 // why this is a separate command rather than an `--explain-textures=json`
 // extension: two of the four corpus tasks this unblocks
 // (`unfillable_texture_task.py`, `texture_dedup_collision_task.py`) already
@@ -405,8 +404,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                     const creaturedisplay::Data* creatures = nullptr,
                     const writers::StoreLink* textureStore = nullptr);
 
-// --bundle-only's creature display tables, loaded once per run from
-// --db2-dir/--dbd-dir; nullopt without them (or for a glTF export).
+// The creature display tables for a model bundle's options, loaded once
+// per run from --db2-dir/--dbd-dir; nullopt without them.
 std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& opts, CLI::App& app);
 
 }  // namespace husk::commands

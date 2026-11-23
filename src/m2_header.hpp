@@ -27,8 +27,8 @@ struct Texture {
 
 // M2Material, per wowdev.wiki M2#Render_flags_and_blending_modes -- 4 bytes
 // on disk. `blendMode` is WoW's M2BLEND_* enum (see wowdev.wiki
-// M2/Rendering#M2BLEND), not a glTF alphaMode directly -- translating that
-// is roadmap stage 5's job (src/cmd_export.cpp), not this parser's.
+// M2/Rendering#M2BLEND), raw -- translating it is m2_material_input.cpp's
+// job, not this parser's.
 struct Material {
     uint16_t flags = 0;
     uint16_t blendMode = 0;
@@ -100,7 +100,7 @@ struct Header {
     // Per the wiki: when set, multitexture blending uses *this* table's
     // material index instead of "current index material + 1" for combining
     // with the first texture -- surfaced here (see globalFlagNames, `husk
-    // info`) but not wired into cmd_export.cpp's material resolution, since
+    // info`) but not wired into material assembly, since
     // the wiki gives no indexing key at all (indexed by what -- batch
     // order? materialIndex? something else?) and this project's own
     // "verify against real bytes before implementing, don't guess at
@@ -245,7 +245,7 @@ constexpr uint32_t kUnk0x40000000 = 0x40000000;  // seen on 11.1.7+ player-housi
 // doesn't recognize -- this is a diagnostic aid (`husk info`), not a
 // bounds-checked parse, so an unrecognized bit isn't an error. Shared
 // helper rather than inlined into cmd_info.cpp so a future caller (e.g.
-// cmd_export.cpp, if a specific bit ever needs to gate real behavior) has
+// export, if a specific bit ever needs to gate real behavior) has
 // one place to check a name against, mirroring billboardModeName's own
 // precedent.
 std::vector<std::string> globalFlagNames(uint32_t flags);
@@ -259,8 +259,8 @@ std::vector<std::string> globalFlagNames(uint32_t flags);
 // baked cinematic camera paths) is needed to act on them. Spherical and
 // cylindrical-lock bits are mutually exclusive per the wiki (only one
 // applies to a given bone); husk doesn't enforce that here, just surfaces
-// whichever bits are actually set (see cmd_info.cpp/cmd_export.cpp for
-// where these get read).
+// whichever bits are actually set (see cmd_info.cpp/m2_skeleton_input.cpp
+// for where these get read).
 namespace BoneFlag {
 constexpr uint32_t kSphericalBillboard = 0x8;
 constexpr uint32_t kCylindricalBillboardLockX = 0x10;
@@ -276,9 +276,9 @@ constexpr uint32_t kBillboardMask = kSphericalBillboard | kCylindricalBillboardL
 // mutually exclusive; if a real file somehow sets more than one, this
 // reports whichever is checked first rather than inventing a combined
 // meaning nothing defines. Shared by `husk info` (cmd_info.cpp, printed
-// per-bone) and `husk export` (cmd_export.cpp, into the exported glTF
-// joint's `extras` -- see gltf::Skeleton::Joint::billboardMode) so the two
-// don't carry two copies of the same bit-to-name mapping.
+// per-bone) and `husk export` (m2_skeleton_input.cpp, onto
+// canon::Joint::billboard) so the two don't carry two copies of the same
+// bit-to-name mapping.
 const char* billboardModeName(uint32_t flags);
 
 // Names a bone's `keyBoneId` (Bone::keyBoneId, a back-reference into
@@ -287,10 +287,9 @@ const char* billboardModeName(uint32_t flags);
 // value the table doesn't cover (the table itself has real gaps -- e.g.
 // IDs 46/47/90-189/191-289/294/295 are undocumented on the wiki, not an
 // omission here). Transcribed directly from the wiki's own 193-row table,
-// IDs and names both -- not guessed at or reordered. Used for glTF joint
-// node names (`gltf::writeGlbMulti`) so a real bone at least sometimes
-// gets a real semantic name instead of Blender's own generic "Bone"/"Node"
-// fallback.
+// IDs and names both -- not guessed at or reordered. Used for joint names
+// (m2_skeleton_input.cpp) so a real bone at least sometimes gets a real
+// semantic name instead of a synthesized "bone_<index>".
 const char* keyBoneName(int32_t keyBoneId);
 
 // Names an attachment's `id` (Attachment::id, wowdev.wiki M2#Attachments'
@@ -323,8 +322,7 @@ const char* eventName(const std::string& identifier);
 // name for them, just "seen in DracthyrDragon.m2" -- not an omission
 // here). Used to give a hardcoded/runtime-resolved texture slot (one husk
 // can't embed a real image for -- no CASC/DB2 access) a real semantic
-// material name instead of a bare "_tex<N>" -- see cmd_export.cpp's
-// material-naming code.
+// name -- see m2_material_input.cpp's textureSlots.
 const char* textureTypeName(uint32_t type);
 
 // Reads `array.count` M2Texture records out of `blob` starting at

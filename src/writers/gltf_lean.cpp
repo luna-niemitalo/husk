@@ -15,8 +15,7 @@
 #include "writers/writer_common.hpp"
 
 // See gltf_lean.hpp's own doc comment for this file's scope (no extras,
-// ever) and REFACTOR/README.md stage 4 for why this exists alongside the
-// production writer rather than replacing it.
+// ever).
 namespace husk::writers {
 
 namespace {
@@ -33,16 +32,12 @@ gltf::Vec3 worldBindPositionGltf(const canon::Joint& joint) { return toGltfPoint
 
 // Pure-translation inverse-bind matrix: identity rotation/scale, -p
 // translation (the exact inverse of a pure-translation bind matrix).
-// Mirrors gltf_skeleton.cpp's own real inverse-bind-matrix construction
-// (same formula, re-derived here rather than called, since that file is
-// off-limits per this writer's own scope).
 std::array<float, 16> inverseBindMatrix(const gltf::Vec3& worldBindPos) {
     return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -worldBindPos.x, -worldBindPos.y, -worldBindPos.z, 1};
 }
 
 // glTF's alphaMode is a framebuffer-blend state: canon::Material::
-// framebufferBlend when the source carried one, mapped exactly as legacy's
-// export_texture_resolution.cpp alphaModeForBlend does (Opaque -> OPAQUE,
+// framebufferBlend when the source carried one (Opaque -> OPAQUE,
 // AlphaKey -> MASK, everything else -> BLEND). Without it, a reasoned
 // fallback from the material's *last* layer's combine op (the one that
 // determines what finally reaches the framebuffer): Replace/Modulate/
@@ -75,10 +70,8 @@ std::string alphaModeFor(const canon::Material& mat) {
 // canon::SequenceRef carries no display name of its own (canon_curve.hpp's
 // own doc comment: neither array entry names itself anywhere in this
 // codebase) -- this writer needs *some* real Animation.name for glTF/
-// Blender's Action-picker UX, so it synthesizes one from the same
-// (kind, index) pair production's own "global_seq_<n>" naming already
-// establishes for the GlobalSequence half; "sequence_<n>" is this writer's
-// own, equally mechanical, choice for the ordinary case.
+// Blender's Action-picker UX, so it synthesizes a mechanical one from the
+// (kind, index) pair.
 std::string animationName(const canon::SequenceRef& ref) {
     const char* prefix = ref.kind == canon::SequenceRef::Kind::GlobalSequence ? "global_sequence_" : "sequence_";
     return prefix + std::to_string(ref.index);
@@ -222,28 +215,25 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
     // slices a byteOffset/count range out of it (mirrors canon::Mesh's own
     // "one shared buffer, PrimitiveGeoset slices a range" shape exactly,
     // rather than re-copying each primitive's own index subrange into a
-    // separate bufferView the way the production writer does).
+    // separate bufferView).
     int idxView = gltf::appendBufferView(buffer, views, mesh.indices, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
 
     // --- Materials --------------------------------------------------------
-    // Dedup cache, same pattern gltf_mesh.cpp's alternateTextureCache
-    // already establishes for the production writer -- more than one
+    // Dedup cache -- more than one
     // canon::Material can carry the same real resolved texture on its own
     // primary layer (e.g. two batches differing only in a later combine
     // layer canon::Material::layers[1+] doesn't drive baseColorTexture
     // from), and re-embedding identical bytes per material would bloat the
-    // file for no reason. Keyed by the resolved Ref's own name -- the same
-    // field the production cache keys on -- empty names simply never hit.
+    // file for no reason. Keyed by the resolved Ref's own name; empty names
+    // simply never hit.
     std::unordered_map<std::string, int> textureCache;
     for (const auto& mat : model.materials) {
         tinygltf::Material tm;
         tm.pbrMetallicRoughness.baseColorFactor = {1.0, 1.0, 1.0, 1.0};
         tm.alphaMode = alphaModeFor(mat);
 
-        // Base color comes from this material's own first layer -- the
-        // same "first texture unit is the base color" convention the
-        // production writer's own primary-layer selection follows
-        // (export_materials.cpp), simplified here since canon::Material
+        // Base color comes from this material's own first layer ("first
+        // texture unit is the base color"), since canon::Material
         // doesn't yet model per-layer combine formulas this writer could
         // pick a "better" layer from (canon_material.hpp's own Function/
         // ShadingFunction doc comments -- not transcribed yet). Embeds only

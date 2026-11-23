@@ -28,7 +28,7 @@ Byte-identical content is checked only for the two tiers that resolve to
 one definite, per-FileDataID file on disk -- the literal `<fdid>.blp/png`
 next to the model, and a `--listfile`-resolved real path (the same two
 tiers `unfillable_texture_task.py` already established as husk's own
-tiers 1/2, `export_materials.cpp:437-456`). Tier 3 (same-basename fuzzy
+tiers 1/2, `src/sources/catalog.cpp`). Tier 3 (same-basename fuzzy
 fallback) resolves every unmatched slot in a directory to the *same*
 single local file regardless of FileDataID, which is a different,
 already-understood collision shape (not this bug's mechanism -- there's

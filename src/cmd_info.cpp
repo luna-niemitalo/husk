@@ -106,7 +106,6 @@ int info(int argc, char** args) {
         // header/blob-level failure -- loadModel itself never throws past
         // that point; a malformed array is isolated into
         // model.parseFailures instead.
-        // TODO: Remove: found via FAILURES.md #1.
         std::cerr << "husk: couldn't read '" << path << "': " << e.what() << "\n";
         return 1;
     }
@@ -260,10 +259,6 @@ int info(int argc, char** args) {
                        << std::dec << " blend_mode=" << materials[i].blendMode << "\n";
         }
     }
-    // TODO: Remove: FINDINGS.md §3.1 tracked texture_transforms not being
-    // counted here at all; now resolved by `husk export` into inert glTF
-    // extras for a batch that references one (see m2::TextureTransform's
-    // doc comment).
     printArray("texture_transforms", h.textureTransforms);
     std::cout << "  num_skin_profiles: " << h.numSkinProfiles << "\n";
 
@@ -414,9 +409,6 @@ int info(int argc, char** args) {
     // These are counts/scalars only, not a full content dump -- same depth
     // as other still-🚧 rows, see
     // README.md#format-support-matrix-m2--m3--wmo--adt--blp.
-    // TODO: Remove: FINDINGS.md §3.3 tracked collision_box/
-    // collision_sphere_radius/collision_indices/collision_face_normals not
-    // being printed/counted here at all; now fixed.
     std::cout << "  collision_box: min=";
     printVec3(h.collisionBox.min);
     std::cout << " max=";

@@ -148,9 +148,9 @@ std::vector<uint8_t> oneTextureTransformM2() {
 // tinyValidM2() (1 vertex) plus exactly 1 M2Sequence (id=100,
 // flags=0x20 -- "stored inline") and exactly 1 inline bone whose
 // translation/rotation/scale tracks all carry real keyframe data for that
-// one sequence -- enough to prove `husk export` produces an actual glTF
-// animation clip end-to-end (see test_m2.cpp/test_gltf.cpp for the same
-// logic tested in isolation, one layer at a time).
+// one sequence -- enough to prove `husk export` produces an actual
+// animation clip end-to-end (test_m2_animation.cpp/
+// test_canon_animation_convergence.cpp test the same logic in isolation).
 std::vector<uint8_t> tinyAnimatedM2() {
     auto b = tinyValidM2();
 
@@ -301,7 +301,7 @@ std::vector<uint8_t> buildSks1Payload(uint16_t seqId, uint32_t seqFlags) {
 // tinyValidM2() (1 vertex) plus 1 M2Texture (type=0)/1 M2Material/a 1-entry
 // textureCombos table pointing at it, wrapped in MD21 with a TXID chunk
 // giving that texture FileDataID `fileDataId` -- the minimum shape
-// buildMaterialsAndPrimitives needs to try resolving a real embedded image.
+// export needs to try resolving a real embedded image.
 // Shared by the --textures default-directory and --textures none tests
 // below: both need the identical model, only the `--textures` argument
 // differs.
@@ -332,9 +332,8 @@ std::vector<uint8_t> oneTexturedModel(uint32_t fileDataId) {
 }
 
 // Same shape as oneTexturedModel() but the single M2Material's blendMode is
-// caller-supplied instead of always 0 -- for exercising alphaModeForBlend's
-// classification (and, for blendMode > 2, the raw blend_mode extras field)
-// against a real fdid-resolvable, embeddable texture slot.
+// caller-supplied instead of always 0 -- for exercising the bundle's
+// framebuffer_blend against a real fdid-resolvable, embeddable texture slot.
 std::vector<uint8_t> oneTexturedModelWithBlendMode(uint32_t fileDataId, uint16_t blendMode) {
     auto file = oneTexturedModel(fileDataId);
     // MD21 header (8 bytes) + matOff computed the same way oneTexturedModel
@@ -472,8 +471,8 @@ std::vector<uint8_t> twoTexturedModel(uint32_t fileDataId) {
 
 // Two *both-hardcoded* texture slots (no TXID chunk at all, fdid stays 0
 // for both), of independently chosen M2Texture::type values, sharing one
-// material -- regression fixture for export_materials.cpp's per-slot
-// fuzzy-candidate category filter: two slots of genuinely different types
+// material -- regression fixture for the per-slot fuzzy-candidate
+// category filter (filterCandidatesForType, sources/texture_resolution.hpp): two slots of genuinely different types
 // (e.g. skin vs. char_jewelry) must each only ever see the candidates
 // compatible with *their own* type, never the other slot's, even though
 // both draw from one shared same-basename pool.
@@ -613,10 +612,10 @@ std::vector<uint8_t> twoBatchSkinDifferentMaterials() {
 
 // Two submesh/batch pairs, both pointing at textureComboIndex 0 and
 // materialIndex 0 -- i.e. two batches that resolve to the exact same
-// material in every way husk models one. Regression fixture for
-// export_materials.cpp's material dedup (materialDedupKey/materialByKey):
+// material in every way husk models one. Regression fixture for the
+// material dedup (buildCanonModel's MaterialKey, m2_canon_input.cpp):
 // over oneTexturedModel()/oneTexturedModelWithType()'s single texture slot,
-// this should collapse to one gltf::Material shared by two primitives,
+// this should collapse to one material shared by two primitives,
 // not two separate (but content-identical) materials.
 std::vector<uint8_t> twoBatchesSameComboSkin() {
     std::vector<uint8_t> skin;

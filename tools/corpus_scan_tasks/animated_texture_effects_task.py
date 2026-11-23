@@ -16,8 +16,8 @@ find_texture_type_collisions.py already established against real files:
     textureWeights    0x058  (M2Array<M2TextureWeight>, stride 0x14: weight M2Track<fixed16> @0x00)
     textureTransforms 0x060  (M2Array<M2TextureTransform>, stride 0x3C: translation @0x00, rotation @0x14, scaling @0x28)
 
-"Genuinely animated" mirrors husk's own resolveAnimatedColorCurve/
-resolveAnimatedFixed16Curve (src/export_materials.cpp): a track counts only
+"Genuinely animated" mirrors husk's own `*Animated` flags (parseColors/
+parseTextureWeights/parseTextureTransforms, src/m2_animation.cpp): a track counts only
 if it has real value data (values-outer M2Array count >= 1) AND that data
 isn't reducible to husk's own "constant" case (outer count == 1 with an
 inner count <= 1, i.e. exactly one value for the whole track, no per-
@@ -41,8 +41,8 @@ than a guess.
 Checked against `husk info --json` (REFACTOR/CLI_AND_TOOLING.md §3) before
 writing this note: `colors`/`textureWeights` aren't emitted in that schema
 at all, and `texture_transforms` is count/offset only, no per-record
-entries -- husk's own resolveAnimatedColorCurve/resolveAnimatedFixed16Curve
-(src/export_materials.cpp) do this determination internally, but nothing
+entries -- husk's own `*Animated` flags (src/m2_animation.cpp) do this
+determination internally, but nothing
 in `husk info` or `dump-chunks` surfaces it. Same considered-exception
 shape `shader_id_task.py` already documents for itself: there is currently
 no structured output this task could consume instead of reading raw bytes,

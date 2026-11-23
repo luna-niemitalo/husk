@@ -5,24 +5,13 @@ resolved real-name path, and no same-basename fuzzy candidate either
 
 Consumes `husk resolve` (REFACTOR/CLI_AND_TOOLING.md §3,
 REFACTOR/RESOURCE_CATALOG.md's "excavation escape hatch" table) instead of
-re-deriving husk's own literal/listfile/fuzzy tier order in Python. This
-task is the reason that verb exists: an earlier version of this file hand-
-mirrored all three tiers directly (export_materials.cpp:437-456's own order,
-transcribed here), and that mirror broke once for real -- a rewrite
-silently dropped tier 2 (--listfile), and a real 18,742-file CASC
-re-extraction landed under real listfile-resolved paths without the scan's
-flagged count moving at all, because the tier that would have noticed was
-never running (see CLAUDE_HISTORY.md's 2026-08-15/16 entries for the full
-incident). `husk resolve` (src/cmd_resolve.cpp) runs the same
-`sources::Catalog::texture()` call `export` itself makes -- one
-implementation, not a second copy that can silently drift again -- while
-skipping the mesh/skeleton/glTF/write cost `export` would otherwise pay
-per file (see REFACTOR_LOG.md's "`husk resolve`, a new verb" entry).
-
-Supersedes and replaces the now-deleted `missing_texture_task.py` (which
-only checked the literal `<FileDataID>.blp/.png` path and therefore
-over-flagged anything husk's listfile or fuzzy fallback would actually
-resolve, per its own module doc, see git history).
+re-deriving husk's own tier order in Python: a hand-mirrored copy of the
+tiers silently drifts (dropping one is a real, previously-hit bug class,
+CLAUDE_HISTORY.md 2026-08-15/16). `husk resolve` (src/cmd_resolve.cpp)
+runs the same `sources::Catalog::texture()` call `export` itself makes --
+one implementation -- while skipping the model assembly and write cost
+`export` would otherwise pay per file (see REFACTOR_LOG.md's "`husk
+resolve`, a new verb" entry).
 
 Only the *used* texture slots are checked -- one ledger entry per (skin,
 texture slot) `husk resolve` actually built a batch for, not every slot in

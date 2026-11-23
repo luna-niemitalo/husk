@@ -290,7 +290,7 @@ TEST_CASE("writeLeanGlb: a real fixture produces a glb the Khronos glTF-Validato
     CHECK(validation.exitCode == 0);
     // gltf_validator's own real summary line shape: "Errors: N, Warnings:
     // N, Infos: N, Hints: N" -- confirmed by running it directly against a
-    // known-good .glb (the production writer's own output) before trusting
+    // known-good .glb before trusting
     // this substring, rather than guessing at a JSON key that turned out
     // not to exist in this tool's real -a output. Warnings aren't asserted
     // at zero: TEXCOORD_0/_1 "may be unused" is real and expected here --
@@ -351,7 +351,7 @@ TEST_CASE("writeLeanGlb: Blender's own glTF importer reads a real fixture's lean
 }
 #endif
 
-TEST_CASE("writeLeanGlb: a material's framebuffer blend sets alphaMode the way legacy's alphaModeForBlend does") {
+TEST_CASE("writeLeanGlb: a material's framebuffer blend sets alphaMode (Opaque -> OPAQUE, AlphaKey -> MASK, else BLEND)") {
     auto alphaModeWith = [](canon::FramebufferBlend blend) {
         canon::Model model = buildSyntheticModel();
         model.materials[0].framebufferBlend = blend;

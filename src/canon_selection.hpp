@@ -10,10 +10,9 @@
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's Selection layer (I5) -- "what did this instance
 // choose," scoped to whichever Definition/mechanism it was chosen against.
-// A pure value type, no consumers wired to it yet (appearance_string.hpp's
-// AppearanceString and gltf_skeleton.hpp's EnabledGeoset/CustomizationChoice/
-// CreatureEnabledGeoset/GearItem/GearSectionOverlay stay exactly as they
-// are; migrating them onto this is separate, later work).
+// A pure value type, no consumers wired to it yet (the bundle carries
+// selections as canon_options.hpp presets; appearance_string.hpp's
+// AppearanceString is not migrated onto this either).
 namespace husk::canon {
 
 // A player-character instance's chosen customization + equipped gear.

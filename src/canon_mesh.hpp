@@ -75,13 +75,11 @@ struct MeshPart {
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space
-// (see gltf_mesh.hpp's Mesh doc comment for the writer-side Y-up conversion
-// this deliberately does NOT perform -- I1, same "no glTF-shaped convenience
-// baked in" rule canon_skeleton.hpp's Joint::globalPosition already states).
-// positions/normals/uvSets/skinning share one index space -- every M2 global
-// vertex, not a per-primitive-local list -- and `indices`/`primitives` slice
-// into that shared space, mirroring gltf::Mesh's own flat-array-plus-index-
-// buffer shape (gltf_mesh.hpp) exactly.
+// (the Y-up conversion is the glTF writer's, writers/gltf_math.hpp -- I1,
+// same "no glTF-shaped convenience baked in" rule canon_skeleton.hpp's
+// Joint::globalPosition already states). positions/normals/uvSets/skinning
+// share one index space -- every M2 global vertex, not a per-primitive-local
+// list -- and `indices`/`primitives` slice into that shared space.
 struct Mesh {
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
@@ -102,10 +100,9 @@ struct Mesh {
     };
     // One entry per position when the model is skinned; empty for a
     // genuinely unskinned/static model (a real, valid state -- a prop with
-    // no bones at all). Mirrors buildSkinning's own bounds check/
-    // normalization exactly (export_skeleton.cpp) -- see m2_mesh_input.hpp's
-    // assembleMesh doc comment for the all-zero-weights detection this
-    // struct doesn't itself perform.
+    // no bones at all). See m2_mesh_input.hpp's assembleMesh doc comment
+    // for the bounds check, normalization and all-zero-weights detection
+    // this struct doesn't itself perform.
     std::vector<Skinning> skinning;
 
     std::vector<uint32_t> indices;  // shared triangle-index buffer; PrimitiveGeoset::indexStart/indexCount slice into this

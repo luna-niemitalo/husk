@@ -5,10 +5,7 @@
 #include "canon_ref.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
-// CANONICAL_MODEL.md's "Geosets are first-class" -- a pure value type, no
-// consumers wired to it yet (retiring Skeleton::GeosetTag and the
-// gltf_mesh.cpp per-primitive geoset_id/group/variant extras is separate,
-// later work).
+// CANONICAL_MODEL.md's "Geosets are first-class" -- a pure value type.
 namespace husk::canon {
 
 // A geoset has no FileDataID and no DB2 row of its own -- it's
@@ -21,11 +18,8 @@ struct Geoset {
     uint32_t group = 0;
     uint32_t variant = 0;
 
-    // group*100+variant is the raw id's own decomposition, mirrored
-    // verbatim from gltf_mesh.cpp's per-primitive extras and
-    // gltf_skeleton.cpp's tag-joint naming -- both derive it from
-    // M2SkinSection::skinSectionId this same way; stated once here so a
-    // third call site doesn't re-derive it.
+    // group*100+variant is M2SkinSection::skinSectionId's own
+    // decomposition; stated once here so no call site re-derives it.
     static Geoset fromRawId(uint32_t rawId) {
         Geoset g;
         g.ref.id = RecordIndex{rawId};

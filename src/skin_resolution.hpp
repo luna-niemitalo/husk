@@ -17,11 +17,10 @@ const std::vector<uint32_t>& requireSkinFileDataIds(const m2::Header& header,
                                                       const std::string& modelPath);
 
 // Resolves the literal "auto" .skin path via the M2's own SFID chunk,
-// honoring an optional --lod selection (`lodArg`, "" if not given). "":
-// SFID entry 0, "the main skin aka lod0" (wowdev.wiki M2#SFID), the
-// highest-detail LOD. "<n>": SFID entry n instead (0-based). "all": every
-// entry, so husk export can emit one glTF node per LOD tier in a single
-// .glb (see exportBundle) instead of just one. Each result pairs the entry's
+// honoring an optional LOD selection (`lodArg`, "" if not given; `husk
+// resolve --lod`). "": SFID entry 0, "the main skin aka lod0" (wowdev.wiki
+// M2#SFID), the highest-detail LOD. "<n>": SFID entry n instead (0-based).
+// "all": every entry. Each result pairs the entry's
 // own index (for node naming) with its resolved local path. husk doesn't
 // resolve any of these FileDataIDs to a WoW/CASC path itself -- this looks
 // for `<skinDir>/<FileDataID>.skin` (the convention `--textures` uses for

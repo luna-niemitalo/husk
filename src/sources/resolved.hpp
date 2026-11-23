@@ -60,8 +60,7 @@ constexpr std::string_view tierName(ResolutionTier tier) {
 // success shape, so `Resolved<T>` carries it as a field (`alternates`,
 // below) rather than as a `std::variant<T, AmbiguousCandidates>`. Shaped
 // for the one real consumer that has this today (the fuzzy same-basename
-// texture pool -- filename/category/dimensions/PNG bytes, the same fields
-// `gltf::Material::AlternateTextureCandidate` already carries) rather than
+// texture pool -- filename/category/dimensions/PNG bytes) rather than
 // genericized over `T`; per READABILITY.md's "abstractions are earned",
 // generalize this only once a second, differently-shaped `Resolved<T>`
 // consumer actually needs ambiguity too.

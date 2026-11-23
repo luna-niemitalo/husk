@@ -421,7 +421,7 @@ int exportMap(int argc, char** args) {
 //      FileDataIDs and name-table paths (resolved against the listfile in
 //      one pass for the whole world), plus every GroundEffectDoodad model,
 //   2. export each model once to models/<fdid>.canon.bundle via
-//      exportOneModel --bundle-only (one shared listfile, no per-model DB2
+//      exportOneModel (one shared listfile, no per-model DB2
 //      loads; creature options from tables loaded once),
 //   3. export each tile to maps/<map>/<tile>.bundle, terrain textures shared
 //      under textures/, uris only to outputs that exist.

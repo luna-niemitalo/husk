@@ -7,17 +7,10 @@
 #include "canon_primitives.hpp" // Vec3
 #include "canon_skeleton.hpp"   // Skeleton
 
-// husk::writers: REFACTOR/README.md stage 4's home for target-conversion
-// code (`src/writers/`) -- this is the first file placed there. Namespace
-// mirrors the directory name the same way husk::canon mirrors its own
-// target directory name (`src/canon/`) despite the files themselves still
-// living flat under `src/` today (canon_*.cpp) -- REFACTOR/README.md's own
-// migration-order note says the directory split hasn't happened yet, only
-// the namespace has, and this file follows that same precedent rather than
-// inventing a new one.
+// husk::writers: target-conversion code (`src/writers/`).
 //
-// Shared math both planned leaf writers (the native bundle format and the
-// lean glTF exporter) need and neither owns: turning canon::Skeleton's
+// Shared math both writers (the model bundle and the lean glTF) need and
+// neither owns: turning canon::Skeleton's
 // absolute bind-pose positions and canon::BoneAnimationCurves' raw
 // delta-from-bind-pose keyframes into the parent-relative / final-value
 // shape an actual local-transform hierarchy wants. Stays entirely in raw M2
@@ -27,12 +20,9 @@ namespace husk::writers {
 
 // Joint `jointIndex`'s bind-pose translation relative to its own parent
 // (`skeleton.joints[jointIndex].parent`), or `globalPosition` itself
-// unchanged for a root joint (`parent == -1`). Mirrors
-// commands::buildJointAnimation's own bind-translation source
-// (`gltf::Skeleton::Joint::localTranslation`, export_skeleton.cpp) in
-// effect, but derives it from canon::Skeleton's absolute-position
-// representation instead of assuming a parent-relative field already
-// exists (canon::Joint deliberately has none -- see its own doc comment).
+// unchanged for a root joint (`parent == -1`), derived from
+// canon::Skeleton's absolute-position representation (canon::Joint
+// deliberately has no parent-relative field -- see its own doc comment).
 //
 // Throws std::runtime_error on an out-of-range `jointIndex` or an
 // out-of-range non-root `parent`. m2input::assembleSkeleton already
@@ -62,8 +52,7 @@ canon::Vec3 localBindTranslation(const canon::Skeleton& skeleton, size_t jointIn
 // specific writer's later axis-conversion technique, not a fact about this
 // raw-M2-space data. This module never converts axes, so the artifact
 // never arises here; a writer that does convert axes is responsible for
-// its own continuity fix afterward, same as export_animation.cpp already
-// is for glTF today.
+// its own continuity fix afterward, as gltf_lean.cpp does.
 //
 // Returns nullopt exactly when clip.boneCurves[jointIndex] is nullopt --
 // mirrors canon::AnimationClip's own "no curve data for this joint"

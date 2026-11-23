@@ -19,10 +19,9 @@
 #include "canon_skeleton.hpp"   // Skeleton
 #include "canon_options.hpp"    // TextureSlot, ParticleColorOption, Preset
 
-// husk::canon: canon::Model, the whole-model composition root -- the first
-// place every already-built, independently-convergence-proven canon::
-// piece (Skeleton, Mesh, Material, per-bone animation curves) is wired
-// together for one real model.
+// husk::canon: canon::Model, the whole-model composition root -- where
+// every canon:: piece (Skeleton, Mesh, Material, per-bone animation curves)
+// is wired together for one real model.
 //
 // `assembleModel` is pure composition and takes ONLY canon:: values --
 // no m2::/skin:: type appears anywhere in its signature. That is the
@@ -78,13 +77,10 @@ struct AnimationClip {
 // which `materials` entry `mesh.primitives[i]` draws with, by that
 // material's own `Material::ref.id` (today: always `RecordIndex{j}`
 // meaning `materials[j]`, since every real producer is local -- see
-// `Material::ref`'s own doc comment). This replaces an earlier positional
-// convention (`materials[i]` implicitly describing `mesh.primitives[i]`)
-// that assumed one distinct Material per primitive -- true of legacy's
-// per-BATCH output, never true of legacy's own deduped `gltf::Material`
-// list (`materialDedupKey`, export_texture_resolution.cpp), and canon::
-// should match the latter, not the former, since a Model with real
-// identity per material is the whole point of this indirection.
+// `Material::ref`'s own doc comment). Not positional (`materials[i]`
+// describing `mesh.primitives[i]`): batches sharing one material share one
+// entry, and a Model with real identity per material is the whole point of
+// this indirection.
 struct Model {
     Ref subject;  // the model itself; set by whoever knows its identity (the export command)
     Skeleton skeleton;
@@ -167,8 +163,8 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
 
 // Resolves `model.primitiveMaterials[primitiveIndex]` to an index into
 // `model.materials` -- the one shared implementation of this lookup (I2):
-// `canon_diff.cpp` and both real writers (`writers/gltf_lean.cpp`,
-// `writers/bundle_writer.cpp`) all need the identical answer, so it lives
+// both writers (`writers/gltf_lean.cpp`, `writers/bundle_writer.cpp`) need
+// the identical answer, so it lives
 // here once rather than being reimplemented at each call site. `RecordIndex`
 // is the only `Identity` kind resolvable against a single local `Model`
 // today (every real producer is local -- `Material::ref`'s own doc

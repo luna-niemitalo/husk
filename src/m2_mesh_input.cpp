@@ -31,8 +31,7 @@ std::vector<canon::PrimitiveGeoset> assemblePrimitiveGeosets(const std::vector<s
         }
 
         // A submesh with zero indices alongside siblings that have real
-        // geometry -- no primitive to build, same skip export_materials.cpp
-        // applies.
+        // geometry -- no primitive to build.
         if (sm.indexCount == 0) {
             continue;
         }

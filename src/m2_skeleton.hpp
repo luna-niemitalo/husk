@@ -31,11 +31,7 @@ struct Vertex {
 // into keyframe data by this struct itself -- see each field's own doc
 // comment below for the real resolution path (m2_animation.hpp's
 // resolveVec3TrackSequence/resolveQuatTrackSequence, driven from
-// export_animation.cpp). This was a real, once-true "not parsed yet" gap
-// early in the project (roadmap stage 2, before stage 6 built real
-// animation) -- left stale in this exact spot until caught; don't trust a
-// struct-level summary comment over the field-level ones immediately below
-// it without checking both agree.
+// m2_animation_input.cpp).
 struct Bone {
     int32_t keyBoneId = -1;  // back-reference into the key-bone lookup table, -1 if none
     uint32_t flags = 0;
@@ -55,15 +51,10 @@ struct Bone {
     // a time.
     //
     // Once an M2 has moved its bones out to a .skel file, per-bone keyframe
-    // data moves out too (into a .anim file's AFSB chunk, a real,
-    // separately-shaped external-animation format from AFM2's -- fully
-    // parsed, see export_animation.cpp's AFSB handling and DESIGN.md's Key
-    // design decisions for the byte-layout investigation). These three
-    // offsets are still populated for .skel bones by parseBones (it can't
-    // tell the difference between an inline and external-.skel bone at this
-    // level), but every M2Track they point at is expected to be genuinely
-    // empty for that case -- export_animation.cpp resolves AFSB's own
-    // payload separately instead, not through these offsets.
+    // data moves out too, into a .anim file's AFSB chunk: the SKB1 bone's
+    // M2Track descriptors point straight into AFSB's payload, passed as the
+    // resolvers' `externalDataBlob` (DESIGN.md's Key design decisions,
+    // "AFSB wins over AFM2").
     uint32_t translationTrackOffset = 0;
     uint32_t rotationTrackOffset = 0;
     uint32_t scaleTrackOffset = 0;
@@ -99,8 +90,8 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
 // `array.offset`. Throws ParseError if that range runs past the end of the
 // blob. Used for the header's various uint16 "combo"/lookup arrays (e.g.
 // `textureCombos`, wowdev.wiki's "Texture lookup table" -- see
-// src/cmd_export.cpp for how batches resolve through it to an actual
-// texture).
+// src/m2_material_input.cpp for how batches resolve through it to an
+// actual texture).
 std::vector<uint16_t> parseUint16Array(const std::vector<uint8_t>& blob, const Array& array);
 
 // Reads `array.count` raw C3Vector (12-byte float triples) out of `blob`
@@ -116,8 +107,8 @@ std::vector<Vec3> parseVec3Array(const std::vector<uint8_t>& blob, const Array& 
 // byte-range conditions as those two functions -- this does NOT
 // cross-check `indices` against `positions.size()` or `faceNormals.size()`
 // against `indices.size() / 3` (that's export-time consumption logic, same
-// "cross-array validation lives at the point of use" split cmd_export.cpp
-// already follows for e.g. vertex bone_indices vs. bone count). Every
+// "cross-array validation lives at the point of use" split
+// m2_mesh_input.cpp follows for vertex bone_indices vs. bone count). Every
 // array empty (count 0) returns an all-empty CollisionMesh.
 CollisionMesh parseCollisionMesh(const std::vector<uint8_t>& blob, const Array& positionsArray,
                                   const Array& indicesArray, const Array& faceNormalsArray);

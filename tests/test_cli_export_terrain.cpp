@@ -1,9 +1,10 @@
 // CLI tier: `husk export-terrain` and `husk export-world` against a small
 // synthetic corpus on disk (tests/test_adt_fixtures.hpp) -- a real tile set
 // with its WDT, a real BLP ground texture and a listfile, run through the
-// real binary (run_husk.hpp). Model export (`export-world`'s pass 2) is
-// covered by the existing `export --bundle-only` tests; these use
-// --skip-models and check that placements stay identity-only. Terrain
+// real binary (run_husk.hpp). Model export itself is covered by the
+// `husk export` tests, but `export-world`'s pass 2 call into it is not
+// tested here: these use --skip-models and check that placements stay
+// identity-only. Terrain
 // levels need a real _lod.adt, so that one test runs on test_data's tile.
 
 #include <doctest/doctest.h>

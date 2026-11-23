@@ -338,8 +338,8 @@ TEST_CASE("resolveRawIntTrackSequence: an unsupported element size throws") {
 
 // parseColors' stored colorTrackOffset/
 // alphaTrackOffset are real, directly-usable M2Track byte offsets --
-// exactly what cmd_export.cpp's resolveAnimatedColorCurve/
-// resolveAnimatedFixed16Curve feed straight into resolveVec3TrackSequence/
+// exactly what m2_material_input.cpp's vec3Track/fixed16Track feed
+// straight into resolveVec3TrackSequence/
 // resolveRawIntTrackSequence. Builds a full M2Color record's worth of real
 // per-sequence keyframe data (both tracks genuinely animated, 2 sub-arrays
 // each) and confirms the round trip through parseColors -> stored offset ->

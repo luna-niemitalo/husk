@@ -73,12 +73,11 @@ Catalog::ModelState& Catalog::stateForModel(const TextureModelContext& model) {
     // texture-array index (e.g. a particle/ribbon-emitter sprite,
     // referenced by array index rather than by any material batch), not an
     // unknown file a human just happened to name after this model. Real
-    // bug this fixes: `ethereal2_f.m2`'s monster_1/monster_2/monster_3/
-    // environment slots (no FileDataID of their own) were picking up this
-    // same model's own particle-effect sprite textures purely because they
-    // share the model's basename under the community listfile's naming
-    // convention -- moved verbatim out of export_materials.cpp's own
-    // pre-Catalog pool setup, same exclusion, same reasoning.
+    // case: without this, `ethereal2_f.m2`'s monster_1/monster_2/monster_3/
+    // environment slots (no FileDataID of their own) pick up this same
+    // model's own particle-effect sprite textures purely because they share
+    // the model's basename under the community listfile's naming
+    // convention.
     if (!model.ownTextureFileDataIds.empty()) {
         std::string basenameLower = husk::sources::lowercaseModelBasename(model.modelPath);
         state.pool.files.erase(

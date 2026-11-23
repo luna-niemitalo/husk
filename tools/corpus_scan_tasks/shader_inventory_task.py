@@ -4,9 +4,10 @@ WMO root/group, ADT root/_tex0, WDT and the client's own .bls shader
 containers. Output feeds SHADER_FINDINGS/README.md.
 
 Excavation task (tools/CORPUS_SCANS.md): reads raw bytes on purpose. husk
-exposes none of this as structured output -- skin shaderId/batch fields and
-the material/blend join are consumed only inside export_materials.cpp, WMO
-materials and .bls containers are not parsed by husk at all. The batch shader
+exposes none of this as one structured inventory -- skin shaderId/batch
+fields and the material/blend join are consumed inside the export's
+material assembly (src/m2_material_input.cpp), and .bls containers are not
+parsed by husk at all. The batch shader
 table mirrors src/m2_shader_names.cpp, so out-of-range indices here mean that
 table is stale for the scanned build.
 Offsets transcribe src/m2_primitives.cpp, src/m2_scene.cpp, src/skin.cpp and
