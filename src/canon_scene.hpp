@@ -114,7 +114,7 @@ struct ParticleSystem {
     Animated<float> speedVariation;
     Animated<float> verticalRange;
     Animated<float> horizontalRange;
-    Animated<Vec3> gravity;  // acceleration in the model's frame
+    Animated<Vec3> gravity;  // acceleration in the emitter's frame: it turns with the emitter
     Animated<float> lifespan;
     Animated<float> emissionRate;
     Animated<float> emissionAreaLength;

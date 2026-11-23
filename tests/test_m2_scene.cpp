@@ -409,7 +409,7 @@ TEST_CASE("decodeParticleGravity: a plain key is a float g pulling along -z") {
     float g = 9.5f;
     uint32_t key;
     std::memcpy(&key, &g, sizeof(key));
-    husk::m2::Vec3 v = husk::m2::decodeParticleGravity(key, 0);
+    husk::m2::Vec3 v = husk::m2::decodeParticleGravity(key, 0).value();
     CHECK(v.x == 0.0f);
     CHECK(v.y == 0.0f);
     CHECK(v.z == -9.5f);
@@ -419,14 +419,14 @@ TEST_CASE("decodeParticleGravity: a packed key is {int8 x, int8 y, int16 z} on t
     constexpr uint32_t kPacked = husk::m2::kParticleCompressedGravityFlag;
     // Bytes 00 00 15 fe (spells/8fx_generic_water_impactlow_chest.m2,
     // emitter 2): x 0, y 0, z -491: straight down at 491 * 0.04238648.
-    husk::m2::Vec3 down = husk::m2::decodeParticleGravity(0xFE150000u, kPacked);
+    husk::m2::Vec3 down = husk::m2::decodeParticleGravity(0xFE150000u, kPacked).value();
     CHECK(down.x == 0.0f);
     CHECK(down.y == 0.0f);
     CHECK(down.z == doctest::Approx(-20.8118f).epsilon(1e-4));
 
     // Bytes 00 af 20 00 (helm_mail_raidshaman_n_01_hum.m2, emitter 0):
     // x 0, y -81, z 32: tilted, with z's positive sign kept.
-    husk::m2::Vec3 tilted = husk::m2::decodeParticleGravity(0x0020AF00u, kPacked);
+    husk::m2::Vec3 tilted = husk::m2::decodeParticleGravity(0x0020AF00u, kPacked).value();
     float magnitude = 32 * 0.04238648f;
     float dy = -81 / 128.0f;
     CHECK(tilted.x == 0.0f);
@@ -435,7 +435,7 @@ TEST_CASE("decodeParticleGravity: a packed key is {int8 x, int8 y, int16 z} on t
 
     // Bytes 20 40 e0 ff: x 32, y 64, z -32. A negative z flips the
     // direction's z, never x or y, and the length stays |z| * scale.
-    husk::m2::Vec3 flipped = husk::m2::decodeParticleGravity(0xFFE04020u, kPacked);
+    husk::m2::Vec3 flipped = husk::m2::decodeParticleGravity(0xFFE04020u, kPacked).value();
     CHECK(flipped.x > 0.0f);
     CHECK(flipped.y > 0.0f);
     CHECK(flipped.z < 0.0f);
@@ -443,13 +443,12 @@ TEST_CASE("decodeParticleGravity: a packed key is {int8 x, int8 y, int16 z} on t
           doctest::Approx(32 * 0.04238648f));
 
     // The same bits without the flag are read as a float.
-    CHECK(husk::m2::decodeParticleGravity(0xFE150000u, 0).z == doctest::Approx(4.951374e37f));
+    CHECK(husk::m2::decodeParticleGravity(0xFE150000u, 0).value().z == doctest::Approx(4.951374e37f));
 }
 
-TEST_CASE("decodeParticleGravity: a packed x, y outside the unit disc throws") {
+TEST_CASE("decodeParticleGravity: a packed x, y outside the unit disc has no vector") {
     // x = y = -128: x^2 + y^2 = 2 * 128^2.
-    CHECK_THROWS_AS(husk::m2::decodeParticleGravity(0x00018080u, husk::m2::kParticleCompressedGravityFlag),
-                    husk::m2::ParseError);
+    CHECK_FALSE(husk::m2::decodeParticleGravity(0x00018080u, husk::m2::kParticleCompressedGravityFlag).has_value());
 }
 
 

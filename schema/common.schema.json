@@ -1949,7 +1949,7 @@
         },
         "gravity": {
           "$ref": "#/definitions/animated_vec3",
-          "description": "Gravity: the acceleration vector applied to each particle, in the model's frame (z up). A source with one scalar g writes [0, 0, -g].",
+          "description": "Gravity: the acceleration vector applied to each particle, in the emitter's frame (the model's axes, z up): it rotates with the emitter (its bone and the model's placement), not fixed to world down (game knowledge, not measured from client code). A source with one scalar g writes [0, 0, -g]; a source key with no direction (M2 packed x^2 + y^2 > 128^2) is dropped with a warning, the curve interpolating across it.",
           "x-unit": "yard/second^2"
         },
         "lifespan": {

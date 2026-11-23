@@ -6,6 +6,7 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -154,6 +155,40 @@ TEST_CASE("assembleEffects: a compressed-gravity emitter's packed keys decode to
     CHECK(g.x == 0.0f);
     CHECK(g.y == 0.0f);
     CHECK(g.z == doctest::Approx(-491 * 0.04238648f));
+}
+
+TEST_CASE("assembleEffects: a packed gravity key outside the unit disc is dropped, the rest kept" *
+          doctest::skip(!std::filesystem::exists(kCompressedGravityM2))) {
+    m2::Model model = m2::loadModel(readFile(kCompressedGravityM2));
+    REQUIRE(model.particleEmitters.size() > 2);
+    const uint32_t sequenceCount = static_cast<uint32_t>(model.sequences.size());
+    canon::PlacementSet beforeSet = m2input::assembleEffects(model, sequenceCount, {}, {});
+    const canon::ParticleSystem& before = *beforeSet.instances[2].effect->style.at(0).blocks.at(0).particleSystem;
+    REQUIRE(!before.gravity.empty());
+    const size_t keysBefore = before.gravity[0].keyframes.size();
+
+    // M2Track: values M2Array at +12 -> per-sequence M2Array {count, offset}
+    // -> the 4-byte keys. Overwrite the first sequence's first key.
+    auto u32At = [&](size_t off) {
+        uint32_t v;
+        std::memcpy(&v, model.blob.data() + off, sizeof(v));
+        return v;
+    };
+    const uint32_t trackOffset = model.particleEmitters[2].gravityTrackOffset;
+    uint32_t firstSequence = 0;
+    while (u32At(u32At(trackOffset + 16) + firstSequence * 8) == 0) ++firstSequence;
+    const uint32_t keyOffset = u32At(u32At(trackOffset + 16) + firstSequence * 8 + 4);
+    const uint32_t outOfDisc = 0x00018080u;  // x = y = -128
+    std::memcpy(model.blob.data() + keyOffset, &outOfDisc, sizeof(outOfDisc));
+
+    canon::PlacementSet afterSet = m2input::assembleEffects(model, sequenceCount, {}, {});
+    const canon::ParticleSystem& after = *afterSet.instances[2].effect->style.at(0).blocks.at(0).particleSystem;
+    if (keysBefore == 1) {
+        CHECK(after.gravity.size() == before.gravity.size() - 1);
+    } else {
+        REQUIRE(after.gravity.size() == before.gravity.size());
+        CHECK(after.gravity[0].keyframes.size() == keysBefore - 1);
+    }
 }
 
 TEST_CASE("assembleScene: lights resolve every animated property per sequence" *

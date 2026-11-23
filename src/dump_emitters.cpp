@@ -1,6 +1,9 @@
 #include "dump_emitters.hpp"
 
+#include <cstdio>
 #include <functional>
+#include <optional>
+#include <string>
 
 #include "dump_writer_utils.hpp"
 
@@ -78,10 +81,11 @@ void writeVec3Track(json::Writer& w, const std::vector<uint8_t>& blob, uint32_t 
                                [](json::Writer& w2, const m2::Vec3& v) { writeVec3(w2, v); });
 }
 
-// `elementSize` is 1 (uint8_t) or 2 (uint16_t/fixed16); `writeValue` decides
-// how the raw zero-extended uint32_t gets serialized -- as-is for a plain
-// index/flag (texSlotTrack/visibilityTrack/enabledIn), or scaled to a
-// 0.0..1.0 float the same way readFixed16TrackValue does (alphaTrack).
+// `elementSize` is 1 (uint8_t), 2 (uint16_t/fixed16) or 4 (gravity's float
+// or packed vector); `writeValue` decides how the raw zero-extended uint32_t
+// gets serialized -- as-is for a plain index/flag (texSlotTrack/
+// visibilityTrack/enabledIn), scaled to a 0.0..1.0 float the same way
+// readFixed16TrackValue does (alphaTrack), or decoded (gravityTrack).
 void writeRawIntTrack(json::Writer& w, const std::vector<uint8_t>& blob, uint32_t trackOffset,
                        uint32_t sequenceCount, size_t elementSize,
                        const std::function<void(json::Writer&, uint32_t)>& writeValue) {
@@ -206,7 +210,22 @@ void writeParticle(json::Writer& w, const std::vector<uint8_t>& blob, const m2::
     w.key("horizontal_range_track");
     writeFloatTrack(w, blob, p.horizontalRangeTrackOffset, sequenceCount);
     w.key("gravity_track");
-    writeFloatTrack(w, blob, p.gravityTrackOffset, sequenceCount);
+    // A key is a float or a packed vector depending on the emitter's flags,
+    // so both the raw bits and the decoded vector print (null: no direction).
+    writeRawIntTrack(w, blob, p.gravityTrackOffset, sequenceCount, 4, [flags = p.flags](json::Writer& w2, uint32_t key) {
+        char hex[11];
+        std::snprintf(hex, sizeof(hex), "0x%08x", key);
+        w2.beginObject();
+        w2.key("raw");
+        w2.value(std::string(hex));
+        w2.key("decoded");
+        if (std::optional<m2::Vec3> g = m2::decodeParticleGravity(key, flags)) {
+            writeVec3(w2, *g);
+        } else {
+            w2.nullValue();
+        }
+        w2.endObject();
+    });
     w.key("lifespan_track");
     writeFloatTrack(w, blob, p.lifespanTrackOffset, sequenceCount);
     w.key("lifespan_variation");

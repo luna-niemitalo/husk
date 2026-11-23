@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -178,8 +179,9 @@ constexpr uint32_t kParticleCompressedGravityFlag = 0x800000;
 // the key is a float g pulling along -z: (0, 0, -g). With it the key is
 // {int8 x, int8 y, int16 z}: direction (x/128, y/128, +-sqrt(1 - x^2 - y^2))
 // with z's sign, magnitude |z| * 0.04238648. A packed x, y outside the unit
-// disc throws: the client's sqrt would yield NaN there.
-Vec3 decodeParticleGravity(uint32_t key, uint32_t particleFlags);
+// disc has no direction (the client's sqrt would yield NaN there): nullopt,
+// and the caller decides what to do with the key.
+std::optional<Vec3> decodeParticleGravity(uint32_t key, uint32_t particleFlags);
 
 // M2ExtendedParticle (wowdev.wiki M2#EXP2, >= 7.3.0), 28 (0x1C) bytes on
 // disk -- effectively supersedes M2Particle's own zSource/colorMult/

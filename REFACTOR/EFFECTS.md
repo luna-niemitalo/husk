@@ -25,10 +25,15 @@ M2 particle and ribbon emitters are `classic_m2_particle_emitter`,
 anchored to their bones (`point` region; `quad`, `mesh_instance` and
 `ribbon` looks; the simulation as `particle_system`/`ribbon_system`
 style) in an inline `effects` set the model owns. `particle_system.gravity`
-is an acceleration vector track in the model's frame (z up): a plain
-`M2Particle` gravity key g is `[0, 0, -g]`; with particle flag `0x800000`
-the key is the packed vector, decoded (`WIKI_FINDINGS/M2.md`). Phase 2 is
-done.
+is an acceleration vector track in the emitter's frame (the model's axes,
+z up): a plain `M2Particle` gravity key g is `[0, 0, -g]`; with particle
+flag `0x800000` the key is the packed vector, decoded
+(`WIKI_FINDINGS/M2.md`). Gravity rotates with the emitter: a tilted bone
+or a rotated placement turns the vector with it, so a reader transforms it
+by the emitter's world rotation, not by world down (Luna's game knowledge,
+not traced in client code). A packed key with x² + y² > 128² has no
+direction; the export drops that keyframe with a warning and goes on (none
+in the 27,758-key sample). Phase 2 is done.
 
 Phase 3 so far: `medium` content and particle `spawn` density, instance
 `priority` and `provenance`, and two rules: `fog_level_to_priority`
