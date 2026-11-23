@@ -93,15 +93,67 @@ band meshes over the tile's baked map texture. Tile placement instances
 listed in `_obj1.adt` carry `distant`; leave the rest out when drawing a
 tile from afar. `BUNDLE_FORMAT.md` "Levels of detail" has the details.
 
-Technique ops (2026-11-24, additions; `schema_version` unchanged): `min`
-(n-ary, per channel), `dot` (two operands, a scalar; `dot(x, 1)` sums
-x's channels) and `tangent_frame(v, p, n, uv)` (two channels; needs
-screen derivatives of `p` and `uv`, so the renderer evaluates it). Their
-definitions are in `schema/technique.schema.json`'s `expression`.
-Parallax (22) no longer has the `tangent_view` input: its term `e` is
-`tangent_frame(view_position, view_position, view_normal, uv1) /
-dot(view_normal, view_position)`, over two new `renderer_value` inputs.
-UnkDFShader (23) sums its weights with `dot`.
+v0.4.0 (`schema_version` "0.4.0", 2026-11-24). Every document carries
+"0.4.0"; a 0.3.0 reader rejects it by the `schema_version` const, so
+re-export rather than mix. Breaking changes, each with what a reader
+changes:
+- **Particle gravity is a vector track.** `particle_system.gravity` was
+  an `animated_float` (and `null` or a meaningless float for the 80% of
+  emitters whose keys are packed vectors, M2Particle flag `0x800000`); it
+  is now an `animated_vec3`, the acceleration in yard/s² in the
+  emitter's frame (z up). A plain source value g is `[0, 0, -g]`. Apply
+  it in the emitter's frame: it turns with the emitter's bone and the
+  model's placement, it is not world down. A packed key with no
+  direction is dropped from the curve (husk warns); none occur in a
+  27,758-key sample.
+- **MFOG has no medium.** `classic_local_fog` instances lost the optional
+  inputs `extinction` and `albedo` (derived by `linear_fog_to_extinction`
+  and `fog_color_to_albedo`) and the effect lost its `medium` content.
+  Don't place an MFOG sphere as a fog volume: it is distance fog a viewer
+  inside the parts that list it sees (the classic look stays in the
+  instance's `style`, the radii in `inner_radius`/`outer_radius`).
+- **Parallax (WMO shader 22) has no `tangent_view` input.** Its term `e`
+  is `tangent_frame(view_position, view_position, view_normal, uv1) /
+  dot(view_normal, view_position)` over two new `renderer_value` inputs,
+  `view_position` and `view_normal`. Provide those two and evaluate the
+  new `tangent_frame` op (below) in the renderer.
+- **Portal `side` is resolved.** `parts[].portals[].unresolved.side` is
+  now `parts[].portals[].side`, required, +1 or -1: +1 when the owning
+  part lies where `dot(normal, p) + distance > 0`. The link has no
+  `unresolved` object any more. Values are the source's, so the ~14
+  authoring errors in 3,871 cleanly separated sample portals stay flipped.
+- **`parts[].fog_volumes` is `parts[].interior_fogs`.** Same `{set, id}`
+  refs, renamed for what they are: the fogs a viewer inside the part
+  sees, beside `resources.scene.default_fog`.
+- **Material layer alpha is two curves.** `layers[].alpha_fade` is gone;
+  read `layers[].color_alpha` (M2Color.alpha) and
+  `layers[].texture_weight` (M2TextureWeight). Both are written when the
+  source sets both; the consumer combines them (`BUNDLE_FORMAT.md`
+  "Material tracks", table in "`Model()`" below).
+- *(Reserved: `definition.items[]` models become `{position, model |
+  unresolved_reason}` and textures gain `model_position`; lands on its
+  own branch.)*
+
+Additions (a 0.3 reader that ignores unknown keys loses nothing):
+- **Zone flags.** With `--db2-dir`, a world zone's `source` carries
+  AreaTable `flags` (Flags[0], Flags[1]), `mount_flags` and
+  `flag_names` (wowdev.wiki's 10.2 bit names), all three or none
+  (`BUNDLE_FORMAT.md` "World documents", `zones`).
+- **Technique ops** `min` (n-ary, per channel), `dot` (two operands, a
+  scalar; `dot(x, 1)` sums x's channels) and `tangent_frame(v, p, n, uv)`
+  (two channels; needs screen derivatives of `p` and `uv`, so the
+  renderer evaluates it). Definitions: `schema/technique.schema.json`'s
+  `expression`. UnkDFShader (23) sums its weights with `dot`.
+- **Zone fog density relabelled.** `density` and `height_density` of a
+  zone light's fog are the client's exponential-fog parameter, unit `1`,
+  not an extinction in 1/yard. The values are unchanged; a reader that
+  used them as extinction must stop (the client's transform to `k` in
+  `exp(-e·k)` is unknown, `REFACTOR/EFFECTS.md`).
+
+Output change, not a format change: DB2 copy-table rows are now read, so
+ItemDisplayInfo, ComponentModelFileData (65 stored + 59,474 copies),
+ChrCustomizationMaterial/Geoset, GroundEffectTexture and LightParams gain
+rows. Bundles built before it miss that data; rebuild them.
 
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so
