@@ -911,6 +911,26 @@ its `MAID` (the listfile only without one).
   `--db2-dir` (unnamed without). azeroth: 785 zones; Northshire is its
   three subzones over 31_48, 32_48, 32_49 (and slivers of 33_48/33_49).
   It exists so work can be loaded by zone: a zone is a workable size.
+  With `--db2-dir`, a zone's `source` also carries its AreaTable flag
+  words as stored (optional, additive within 0.3.0): `flags` (Flags[0],
+  Flags[1]), `mount_flags` (MountFlags), and `flag_names`, the names of
+  the set bits from wowdev.wiki DB/AreaTable's 10.2 tables (Area Flags,
+  Area Flags2, Area Mount Flags; WoWDBDefs names columns, not bits). A set
+  bit the wiki doesn't name is only in the raw words. The names are
+  WoW's, so they stay under `source`.
+- No graveyards. The client carries no graveyard positions:
+  `WorldSafeLocs.db2` (FileDataID 1369425) is absent from every local
+  build (12.0.7 through 12.1.5 and Forever 1.60.1; no WoWDBDefs layout for
+  it names a build after 8.x), so graveyards are server data, like which
+  zones a graveyard serves. The only client table mentioning
+  WorldSafeLocs ids is `WaypointSafeLocs` (467 rows in 12.1.5,
+  `ID`/`Pos`/`MapID`), and every row of it is a `WaypointNode`'s point:
+  portals, boats, trams, instance entrances (`Take the portal from
+  Wizard's Sanctum to Jade Forest`), not graveyards. `AreaPOI.PortLocID`
+  references WorldSafeLocs ids without positions. What the client does
+  say about graveyards is three AreaTable flags
+  (`DontEvaluateGraveyardFromClient`, `UseMapTransferLocsForCemeteries`,
+  `DontUseParentMapForCemeteries`), exported with the zone flags above.
   `export-map --tiles-from <tree>/maps/<map>` rewrites a map's world
   document linked to an existing export's tiles (seconds, not a
   re-export).

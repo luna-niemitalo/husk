@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -34,11 +35,21 @@ struct ZoneCell {
     float coverage = 0;  // fraction of the cell's surface, 0..1
 };
 
+// The source record's flag words as stored (AreaTable Flags[2] and
+// MountFlags), with the names of the set bits the source's documentation
+// names.
+struct ZoneFlags {
+    std::array<uint32_t, 2> flags{};
+    uint32_t mountFlags = 0;
+    std::vector<std::string> names;
+};
+
 struct Zone {
     std::string id;  // stable UUID, what `parent` and consumers refer to
     Ref ref;  // identity is the source's record (AreaTable row), the name its own
     std::optional<size_t> parent;  // index into World::zones; written as that zone's id
     std::vector<ZoneCell> cells;
+    std::optional<ZoneFlags> sourceFlags;
 };
 
 // A map as the root of a place: its tiles and what it places as a whole.

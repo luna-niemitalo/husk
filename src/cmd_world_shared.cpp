@@ -604,6 +604,9 @@ std::vector<canon::Zone> buildZones(const std::string& map, const std::vector<ca
             zone.ref.name = row->name;
             zone.ref.source = canon::NameSource::Db2;
         }
+        if (row && row->flags && row->mountFlags) {
+            zone.sourceFlags = canon::ZoneFlags{*row->flags, *row->mountFlags, areadb::flagNames(*row->flags, *row->mountFlags)};
+        }
         zones.push_back(std::move(zone));
         if (row && row->parent != 0) {
             size_t parent = zoneOf(row->parent);
@@ -701,8 +704,7 @@ writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const L
     out.sources.push_back({"light db2", "the map's zone lights and their fog by time of day", haveLights, ""});
     out.sources.push_back({"volume condition db2", "the map volumes' PlayerConditions (Particulate, VolumeFogCondition)",
                            haveConditions, ""});
-    out.sources.push_back({"area db2", "zone names and which zone each lies in (AreaTable)", haveAreas, ""});
-    return out;
+    out.sources.push_back({"area db2", "zone names, which zone each lies in, and their flags (AreaTable)", haveAreas, ""});    return out;
 }
 
 }  // namespace husk::commands::world
