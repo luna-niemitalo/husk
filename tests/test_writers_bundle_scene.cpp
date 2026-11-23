@@ -30,6 +30,11 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
                      {"frames", {int64_t{4}}}};
     canon::ParticleSystem system;
     system.headCell.keyframes = {{0, 4}, {32767, 9}};
+    canon::Curve<canon::Vec3> gravity;
+    gravity.sequence = canon::SequenceRef::sequence(0);
+    gravity.interpolation = canon::Interpolation::Linear;
+    gravity.keyframes = {{0.0f, canon::Vec3{0.0f, -0.5f, -9.5f}}};
+    system.gravity.push_back(gravity);
     canon::StyleBlock style;
     style.particleSystem = system;
     effect.style = {{"particles", {style}}};
@@ -77,6 +82,9 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     const auto& written = p["style"]["particles"]["particle_system"];
     CHECK(written["head_cell"] == nlohmann::json::array({{0, 4}, {32767, 9}}));
     CHECK(written["emission_rate"].empty());
+    REQUIRE(written["gravity"].size() == 1);
+    CHECK(written["gravity"][0]["keyframes"][0] == nlohmann::json::array({0.0, {0.0, -0.5, -9.5}}));
+    CHECK(bundle_schema::validateDocument(dir).empty());
 }
 
 TEST_CASE("writeBundle: local lights write their optional blocks only when present") {

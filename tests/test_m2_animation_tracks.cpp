@@ -332,7 +332,7 @@ TEST_CASE("resolveRawIntTrackSequence: an unsupported element size throws") {
     std::vector<uint8_t> blob(100, 0);
     size_t trackOff = 100;
     putFullTrack(blob, trackOff, {{{0, rawIntBytes(1, 2)}}});
-    CHECK_THROWS_AS(husk::m2::resolveRawIntTrackSequence(blob, static_cast<uint32_t>(trackOff), 0, 4),
+    CHECK_THROWS_AS(husk::m2::resolveRawIntTrackSequence(blob, static_cast<uint32_t>(trackOff), 0, 3),
                      husk::m2::ParseError);
 }
 

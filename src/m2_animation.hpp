@@ -327,16 +327,17 @@ std::vector<std::pair<uint32_t, float>> resolveFloatGlobalSequenceTrack(
 // Same shape as resolveVec3TrackSequence, but for an M2Track<T> whose
 // keyframe values are a small raw integer (uint8_t/uint16_t/int16_t) rather
 // than a float/Vec3/Quat -- M2Ribbon's texSlotTrack (uint16_t)/
-// visibilityTrack (uint8_t) and M2Particle's enabledIn (uint8_t) all need
-// this, but each individually has too few real occurrences (1-2) to justify
-// its own named function the way resolveFloatTrackSequence's dozen+ uses
-// do -- `elementSize` (1 or 2 bytes) plays the same runtime-parameter role
+// visibilityTrack (uint8_t), M2Particle's enabledIn (uint8_t) and its
+// gravity (4 bytes, a float or a packed vector) all need this, but each
+// individually has too few real occurrences (1-2) to justify its own named
+// function the way resolveFloatTrackSequence's dozen+ uses do --
+// `elementSize` (1, 2 or 4 bytes) plays the same runtime-parameter role
 // here that checkInnerArrayFits already uses instead of a template, matching
 // this codebase's existing style. Each keyframe's raw little-endian bytes
 // are returned zero-extended into a uint32_t; scaling (e.g. alphaTrack's
 // fixed16 0..0x7FFF -> 0.0..1.0) is the caller's job, same split
 // readFixed16TrackValue already draws from its own raw bit read. Throws
-// ParseError if `elementSize` isn't 1 or 2, or under the same conditions as
+// ParseError if `elementSize` isn't 1, 2 or 4, or under the same conditions as
 // resolveVec3TrackSequence otherwise.
 std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntTrackSequence(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,

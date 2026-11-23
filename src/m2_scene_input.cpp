@@ -107,6 +107,16 @@ canon::Animated<float> fixed16Track(const TrackSource& src, uint32_t trackOffset
         decodeFixed16);
 }
 
+canon::Animated<canon::Vec3> particleGravityTrack(const TrackSource& src, const m2::ParticleEmitter& p) {
+    return resolveTrack<canon::Vec3, uint32_t>(
+        src, p.gravityTrackOffset,
+        [](const Blob& b, uint32_t off, uint32_t si, const Blob* ext) {
+            return m2::resolveRawIntTrackSequence(b, off, si, 4, ext);
+        },
+        [](const Blob& b, uint32_t off) { return m2::resolveRawIntGlobalSequenceTrack(b, off, 4); },
+        [flags = p.flags](uint32_t key) { return toCanon(m2::decodeParticleGravity(key, flags)); });
+}
+
 template <typename T, typename Raw, typename Convert>
 canon::LifetimeCurve<T> lifetimeCurve(const std::vector<std::pair<uint16_t, Raw>>& raw, Convert convert) {
     canon::LifetimeCurve<T> curve;
@@ -290,7 +300,7 @@ canon::PlacedInstance assembleParticle(const m2::Model& model, const m2::Particl
     particle.speedVariation = floatTrack(src, p.speedVariationTrackOffset);
     particle.verticalRange = floatTrack(src, p.verticalRangeTrackOffset);
     particle.horizontalRange = floatTrack(src, p.horizontalRangeTrackOffset);
-    particle.gravity = floatTrack(src, p.gravityTrackOffset);
+    particle.gravity = particleGravityTrack(src, p);
     particle.lifespan = floatTrack(src, p.lifespanTrackOffset);
     particle.emissionRate = floatTrack(src, p.emissionRateTrackOffset);
     particle.emissionAreaLength = floatTrack(src, p.emissionAreaLengthTrackOffset);

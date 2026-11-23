@@ -24,7 +24,11 @@ M2 particle and ribbon emitters are `classic_m2_particle_emitter`,
 `classic_m2_model_particle_emitter` and `classic_m2_ribbon` instances
 anchored to their bones (`point` region; `quad`, `mesh_instance` and
 `ribbon` looks; the simulation as `particle_system`/`ribbon_system`
-style) in an inline `effects` set the model owns. Phase 2 is done.
+style) in an inline `effects` set the model owns. `particle_system.gravity`
+is an acceleration vector track in the model's frame (z up): a plain
+`M2Particle` gravity key g is `[0, 0, -g]`; with particle flag `0x800000`
+the key is the packed vector, decoded (`WIKI_FINDINGS/M2.md`). Phase 2 is
+done.
 
 Phase 3 so far: `medium` content and particle `spawn` density, instance
 `priority` and `provenance`, and four rules: `linear_fog_to_extinction`

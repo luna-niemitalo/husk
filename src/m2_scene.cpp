@@ -1,5 +1,6 @@
 #include "m2_scene.hpp"
 
+#include <cmath>
 #include <cstring>
 
 #include "m2_skeleton.hpp"
@@ -389,6 +390,32 @@ std::vector<ExtendedParticle> parseExtendedParticles(const std::vector<uint8_t>&
     }
 
     return out;
+}
+
+Vec3 decodeParticleGravity(uint32_t key, uint32_t particleFlags) {
+    if (!(particleFlags & kParticleCompressedGravityFlag)) {
+        float g;
+        std::memcpy(&g, &key, sizeof(g));
+        return {0.0f, 0.0f, -g};
+    }
+    constexpr float kMagnitudeScale = 0.04238648f;
+    auto x = static_cast<int8_t>(key & 0xFF);
+    auto y = static_cast<int8_t>((key >> 8) & 0xFF);
+    auto z = static_cast<int16_t>(key >> 16);
+    float dx = x / 128.0f;
+    float dy = y / 128.0f;
+    float remainder = 1.0f - (dx * dx + dy * dy);
+    if (remainder < 0.0f) {
+        throw ParseError("compressed particle gravity key " + std::to_string(key) +
+                         ": expected x^2 + y^2 <= 128^2, got x " + std::to_string(x) + ", y " + std::to_string(y));
+    }
+    float dz = std::sqrt(remainder);
+    float magnitude = z * kMagnitudeScale;
+    if (magnitude < 0.0f) {
+        dz = -dz;
+        magnitude = -magnitude;
+    }
+    return {dx * magnitude, dy * magnitude, dz * magnitude};
 }
 
 }  // namespace husk::m2

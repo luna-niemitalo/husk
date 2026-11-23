@@ -492,6 +492,59 @@
         "$ref": "#/definitions/inline_curve"
       }
     },
+    "vec3_curve": {
+      "type": "object",
+      "description": "An inline_curve whose keyframe values are vec3s.",
+      "properties": {
+        "sequence_index": {
+          "$ref": "#/definitions/inline_curve/properties/sequence_index",
+          "description": "Which sequence or global sequence."
+        },
+        "sequence_kind": {
+          "$ref": "#/definitions/sequence_kind",
+          "description": "Sequence or global sequence."
+        },
+        "interpolation": {
+          "$ref": "#/definitions/interpolation",
+          "description": "Interpolation between keyframes."
+        },
+        "keyframes": {
+          "type": "array",
+          "description": "[time, vec3] pairs.",
+          "x-unit": "second",
+          "items": {
+            "type": "array",
+            "description": "One keyframe.",
+            "items": [
+              {
+                "type": "number",
+                "description": "Time."
+              },
+              {
+                "$ref": "#/definitions/vec3",
+                "description": "Value."
+              }
+            ],
+            "minItems": 2,
+            "additionalItems": false
+          }
+        }
+      },
+      "required": [
+        "sequence_index",
+        "sequence_kind",
+        "interpolation",
+        "keyframes"
+      ],
+      "additionalProperties": false
+    },
+    "animated_vec3": {
+      "type": "array",
+      "description": "A vector property's curves, one per sequence that animates it; [] means never animated and no value.",
+      "items": {
+        "$ref": "#/definitions/vec3_curve"
+      }
+    },
     "lifetime_curve": {
       "type": "array",
       "description": "Keyframes over a particle's own age: [raw timestamp 0..32767 read as a fraction of the lifespan, value].",
@@ -1895,8 +1948,8 @@
           "x-unit": "radian"
         },
         "gravity": {
-          "$ref": "#/definitions/animated",
-          "description": "Gravity.",
+          "$ref": "#/definitions/animated_vec3",
+          "description": "Gravity: the acceleration vector applied to each particle, in the model's frame (z up). A source with one scalar g writes [0, 0, -g].",
           "x-unit": "yard/second^2"
         },
         "lifespan": {
