@@ -2122,8 +2122,8 @@
         },
         "density": {
           "type": "number",
-          "description": "Exponential density (FogDensity).",
-          "x-unit": "1/yard"
+          "description": "FogDensity: the client's exponential-fog parameter, not an extinction. The shader fogs by exp(-e * k), e the yards past the fog start; how the client turns this value into k is not known (REFACTOR/EFFECTS.md, fog_density_to_extinction).",
+          "x-unit": "1"
         },
         "start_offset": {
           "type": "number",
@@ -2142,8 +2142,8 @@
         },
         "height_density": {
           "type": "number",
-          "description": "Density inside the height fog (FogHeightDensity).",
-          "x-unit": "1/yard"
+          "description": "FogHeightDensity: the client's exponential-fog parameter inside the height fog, not an extinction; its transform is unknown, as for density.",
+          "x-unit": "1"
         },
         "z_scalar": {
           "type": "number",
