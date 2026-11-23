@@ -288,6 +288,21 @@ root-level candidates from the wiki's own page layout. The wholly
 undocumented `_fogs.wdt` chunk **`VFE2`** and `MPVD`'s record layout are
 both now reverse-engineered — see the dedicated sections below.
 
+## Suramar ley lines: liquid type 868 on three tiles, otherwise models (12.1.5, 2026-11-24)
+
+| Claim | Evidence |
+|---|---|
+| `LiquidType.db2` has four ley-line rows: 868 `Ley Line`, 891 `Backup_Ley Line`, 896 `WMO Ley Line`, plus the related 890 `Suramar Illuminated Water` (920 its WMO twin) | `husk db2-export liquidtype.db2`, 201 rows, `Name LIKE '%ley%'` and Suramar names |
+| All five share `LiquidMaterial` 12 (`Flags` 1, `LVF` 0, height + depth). Material 12 is not ley-line specific: it holds 27 types, the glowing waters of 7.x–12.x (Void Water, Bastion Soul River, Arden, Tyrhold). Which type draws with the `procleyline*` shader family is not decided by the material; the selector is unresolved | `LiquidType` grouped by `MaterialID` |
+| Map 1220 (`troll raid`, Broken Isles): 729 root ADTs, 721 with `MH2O`, 158,613 liquid instances. Type 868 has 45 instances on 3 tiles: `19_30`, `20_29`, `20_30`. Type 890 has 239 instances on 10 tiles (`23_29`..`27_30`). 891, 896, 920 appear on no tile | every root ADT's `MH2O` instance headers, `liquidType` at +0 |
+| The ley-line network across Suramar is drawn by M2 doodads, not liquid: `7fx_leyline_doodad_a/b/c.m2` (FDIDs 1093200/1093202/1093203, `world/expansion06/doodads/fx/`), plus nightborne props `7ne_ancient_leylinecoil*`, `_leylineseals`, `_leyline_glowball` | listfile, 9 M2 paths matching `ley_?line` |
+| No DB2 holds ley-line paths or splines | WoWDBDefs definitions: no table or column names a ley line |
+
+husk's terrain bundle already carries the liquid instances with their type:
+`liquid_types[]` names row 868 `Ley Line` with its material and texture
+frames (needs `--db2-dir`/`--dbd-dir`). Whether 896 is used by a WMO's
+`MLIQ` was not surveyed.
+
 ## WMO lightset lights: `MOLS` resolved, `MOLP` corrected, `MOP2` verified (2026-10-11)
 
 From a full-corpus chunk scan (**86,134 `.wmo` files**, roots + `MOGP`-nested
