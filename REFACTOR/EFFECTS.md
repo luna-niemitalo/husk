@@ -507,7 +507,10 @@ the field stays absent.
 | `count_to_spawn_density` | `spawn` density = count / box volume | `MPVD`/`PVMI` (once box size is verified) |
 
 **Wind response time**: husk derives none in the literal tier, since no
-WoW field informs it. A classified effect may state one as an `authored`
+WoW field informs it. The client marks only *whether* an emitter follows
+the world wind (`M2Particle` flag DynamicWind, 1.3% of emitters; static
+`windVector`/`windTime` are practically unused, `WIKI_FINDINGS/M2.md`
+"Wind on particles"); the bundle carries that flag raw. A classified effect may state one as an `authored`
 value of that effect (a leaf responds fast, a spark slowly). The judgement
 then lives in one reviewable place, not on every instance.
 
