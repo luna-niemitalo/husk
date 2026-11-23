@@ -313,9 +313,11 @@ cleanly (1,539 portals). Facts: `../../WIKI_FINDINGS/WORLD.md` "Collision &
 culling".
 
 Open:
-- **`side` semantics**: matches the owning group's half-space at its
-  vertex centroid in 86% of links; the wiki's culling pseudocode reads the
-  other way. Needs a client-side check before anything relies on it.
+- **`side` out of `unresolved`**: its meaning is established (the owning
+  part's half-space of the portal plane, `../../WIKI_FINDINGS/WORLD.md`
+  MOPR); moving it to a resolved field is a schema change waiting on
+  Luna. Source portals flipped against their geometry (14 of 3,871 cleanly
+  separated) stay as the source has them.
 - **`MOPE`**: kept raw; its contents look like uninitialized memory.
 - **`MOVV`/`MOVB`**: 0/71,929 real group files; not parsed.
 

@@ -36,8 +36,10 @@ struct PrimitiveGeoset {
 struct PortalLink {
     uint32_t portal = 0;  // index into Mesh::portals
     uint32_t toPart = 0;  // the part on the other side
-    // Source sign, raw (+1/-1). In 8,685/10,103 real links it is the sign
-    // of dot(normal, c) + distance for this part's vertex centroid c.
+    // Source sign, raw (+1/-1): the half-space of the portal plane this
+    // part lies in (+1: dot(normal, p) + distance > 0); the portal's other
+    // link carries the opposite sign. Counts and the flipped exceptions:
+    // WIKI_FINDINGS/WORLD.md, MOPR `side`.
     int32_t side = 0;
 };
 
