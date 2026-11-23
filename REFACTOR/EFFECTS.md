@@ -504,7 +504,7 @@ the field stays absent.
 
 | Rule | Computes | From |
 |---|---|---|
-| `fog_density_to_extinction` | medium `extinction` = the exponential density (the shader's `exp(−d·density)`) | zone fog `exponential.density` |
+| `fog_density_to_extinction` | medium `extinction` per yard from the zone fog's density. Not buildable yet: the shader's `exp(−e·[0].z)` takes `e` in yards past the fog start (`../SHADER_FINDINGS/notes/fog.md`), but `FogDensity` (1.8 to 130 in azeroth's keys) reaches `[0].z` through a CPU-side transform that no shader, wiki page or DB2 field states. Copied as is, it would make the fog opaque within a yard. So `density` is the client's parameter (unit `1`), not an extinction | zone fog `density`, `height_density` |
 | `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog |
 | `fog_level_to_priority` | `priority` | `VFOG.fogLevel` |
 | `blend_to_light_role` | particle `light.role`: emission or albedo | WMO/map particle emitters' `EGxBlend` (Add, Alpha); not M2, whose blend ids are unsettled |

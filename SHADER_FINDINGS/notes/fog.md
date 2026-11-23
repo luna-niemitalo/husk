@@ -133,6 +133,11 @@ LightParams; they are **inferred** unless marked.
 | `[8].xyz` | Sun direction (view space) | — |
 | `[5].x`, `[7].x` | Sun-fog angle threshold and strength | — |
 
+`[0].z` is an extinction per view-space yard (`exp(−e·[0].z)`), but `LightData.FogDensity`
+(and `FogHeightDensity` for `[4].x`) is not that value: it runs 1.8 to 130 in azeroth's zone
+lights, which would make fog opaque within a yard. The client converts it on the CPU before
+filling `cb5`; the shaders cannot show how, and no wiki page or DB2 field does either.
+
 The wiki's MoP formula (`s_fogParams`: linear fog from `fogEnd · fogScalar` to `fogEnd`,
 `md/Day_night_cycle.md:259-283`) is gone. This client keeps a linear cutoff at the fog end
 and adds exponential, height and curve terms.
