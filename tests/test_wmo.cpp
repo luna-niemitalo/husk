@@ -450,6 +450,11 @@ TEST_CASE("wmo::parseRoot: MOPV/MOPT/MOPR read portal polygons and the groups' l
     CHECK(root.portalRefs[1].side == -1);
     REQUIRE(root.portalExtras.size() == 1);
     CHECK(root.portalExtras[0][15] == 0x7A);
+
+    put<int16_t>(mopr, 0x0C, 0);
+    CHECK_THROWS_WITH_AS(
+        wmo::parseRoot(minimalRoot(2, {{"MOGI", mogi}, {"MOPV", mopv}, {"MOPT", mopt}, {"MOPR", mopr}, {"MOPE", mope}})),
+        "MOPR record 1 side: expected +1 or -1, got 0", wmo::ParseError);
 }
 
 TEST_CASE("wmo::parseRoot: portal ranges and links past their tables throw with both values") {

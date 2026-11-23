@@ -848,26 +848,20 @@
                               "description": "The part on the other side.",
                               "x-index-into": "/resources/geometry/mesh/parts"
                             },
-                            "unresolved": {
-                              "type": "object",
-                              "description": "Fields whose meaning is not established.",
-                              "properties": {
-                                "side": {
-                                  "type": "integer",
-                                  "description": "Source sign, +1 or -1: the half-space of the portal's plane this part lies in (+1 where dot(normal, p) + distance > 0). The portal's other link carries the opposite sign. A few source portals carry the pair flipped against their geometry."
-                                }
-                              },
-                              "additionalProperties": false,
-                              "required": [
-                                "side"
-                              ]
+                            "side": {
+                              "type": "integer",
+                              "enum": [
+                                -1,
+                                1
+                              ],
+                              "description": "The half-space of the portal's plane this part lies in: +1 where dot(normal, p) + distance > 0, -1 where it is < 0. The portal's other link carries the opposite sign. Written as the source states it: a few source portals (14 of 3,871 cleanly separated ones in a 4,000-root sample) carry the pair flipped against their geometry."
                             }
                           },
                           "additionalProperties": false,
                           "required": [
                             "portal",
                             "to_part",
-                            "unresolved"
+                            "side"
                           ]
                         }
                       },

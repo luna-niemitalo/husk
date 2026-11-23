@@ -319,7 +319,8 @@ TEST_CASE("writeBundle: portals on the mesh, links on their parts") {
     const auto& link = mesh["parts"][0]["portals"][0];
     CHECK(link["portal"] == 1);
     CHECK(link["to_part"] == 1);
-    CHECK(link["unresolved"]["side"] == -1);
+    CHECK(link["side"] == -1);
+    CHECK_FALSE(link.contains("unresolved"));
 }
 
 TEST_CASE("writeBundle: surface types, materials' surface_type and the per-face channel") {

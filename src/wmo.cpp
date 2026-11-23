@@ -409,6 +409,12 @@ std::vector<PortalRef> parsePortalRefs(const Chunk& c) {
         out[i].portal = read<uint16_t>(c.data, c.size, o + 0x00, "MOPR");
         out[i].group = read<uint16_t>(c.data, c.size, o + 0x02, "MOPR");
         out[i].side = read<int16_t>(c.data, c.size, o + 0x04, "MOPR");
+        // The bundle states side as a half-space sign (WIKI_FINDINGS/WORLD.md
+        // MOPR: only +-1 seen in 13,036 links); anything else has no meaning.
+        if (out[i].side != 1 && out[i].side != -1) {
+            throw ParseError("MOPR record " + std::to_string(i) + " side: expected +1 or -1, got " +
+                             std::to_string(out[i].side));
+        }
     }
     return out;
 }

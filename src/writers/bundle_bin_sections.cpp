@@ -226,11 +226,8 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
                 w.value(static_cast<int64_t>(link.portal));
                 w.key("to_part");
                 w.value(static_cast<int64_t>(link.toPart));
-                w.key("unresolved");
-                w.beginObject();
                 w.key("side");
                 w.value(static_cast<int64_t>(link.side));
-                w.endObject();
                 w.endObject();
             }
             w.endArray();
