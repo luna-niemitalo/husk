@@ -32,7 +32,6 @@ LIVE_LOG_PATH = Path("/home/luna/dev/husk/corpus_reports/m2_full_validation_live
 
 cc.STATUS_DIR = STATUS_DIR
 cc.SCRATCH_DIR = SCRATCH_DIR
-cc.TIMEOUT = 60.0
 
 # cc.CORPUS_ROOT is deliberately NOT set here at import time: under
 # ProcessPoolExecutor's default fork start method, this module's top-level

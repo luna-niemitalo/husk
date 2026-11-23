@@ -57,8 +57,11 @@ SCRATCH_DIR: Path | None = None            # per-file scratch bundle dir + valid
 # provides husk's build tools, not a built husk, so a bare "husk" alone
 # would break every invocation there.
 HUSK_BIN = shutil.which("husk") or str(REPO_ROOT / "build" / "husk")
-TIMEOUT = 30.0                             # seconds, per husk invocation
-VALIDATOR_TIMEOUT = 120.0                  # seconds, per `husk validate-bundle` invocation
+TIMEOUT = 30.0                             # seconds, per `husk info`/`dump-chunks` invocation
+# An export is far slower than a header read: humanmale_hd took 14.5 s idle
+# and ~4 min on a heavily loaded machine (2026-11-10). A hang still ends.
+EXPORT_TIMEOUT = 600.0                     # seconds, per `husk export` invocation
+VALIDATOR_TIMEOUT = 600.0                  # seconds, per `husk validate-bundle` batch (character manifests run ~130 MB)
 ANIM_MODE = "auto"                         # passed straight through to `husk export --anim`
 
 
@@ -270,7 +273,7 @@ def _export_result(m2_path, bundle_dir: Path, extra_args) -> TestResult:
     shutil.rmtree(bundle_dir, ignore_errors=True)
     bundle_dir.parent.mkdir(parents=True, exist_ok=True)
     cmd = [str(HUSK_BIN), "export", str(m2_path), "-o", str(bundle_dir), *extra_args]
-    code, out = run_cmd(cmd, TIMEOUT)
+    code, out = run_cmd(cmd, EXPORT_TIMEOUT)
     manifest_path = bundle_dir / "manifest.json"
     written = manifest_path.exists()
     kind = None
