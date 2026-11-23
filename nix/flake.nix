@@ -5,7 +5,8 @@
     pins.url = "path:/etc/nixos/pins";
     nixpkgs.follows = "pins/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
-    casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
+    #casc-tool.inputs.pins.follows = "pins";
+    #casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
   };
 
   outputs =
@@ -14,7 +15,7 @@
       pins,
       nixpkgs,
       flake-utils,
-      casc-tool,
+      #casc-tool,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -118,7 +119,7 @@
           # dev-shell only, gcc stays the actual build compiler.
           clang-tools
           doctest
-          casc-tool.packages.${pkgs.system}.default
+         # casc-tool.packages.${pkgs.system}.default
           gltf-validator
           blender
           # vkd3d-compiler/vkd3d-dxbc: disassemble the captured DXBC shader
