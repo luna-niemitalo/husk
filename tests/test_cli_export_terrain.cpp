@@ -2,9 +2,9 @@
 // synthetic corpus on disk (tests/test_adt_fixtures.hpp) -- a real tile set
 // with its WDT, a real BLP ground texture and a listfile, run through the
 // real binary (run_husk.hpp). Model export itself is covered by the
-// `husk export` tests, but `export-world`'s pass 2 call into it is not
-// tested here: these use --skip-models and check that placements stay
-// identity-only. Terrain
+// `husk export` tests; here one test runs `export-world`'s model pass (the
+// fixture's models have no files, so they are logged), the rest use
+// --skip-models and check that placements stay identity-only. Terrain
 // levels need a real _lod.adt, so that one test runs on test_data's tile.
 
 #include <doctest/doctest.h>
@@ -410,6 +410,19 @@ TEST_CASE("husk export-world: shared textures, per-map tile bundles, logged fail
         ++hits;
     }
     CHECK(hits == 2);
+}
+
+TEST_CASE("husk export-world: the model pass runs, and a placed model with no file is logged") {
+    Corpus c = makeCorpus("world-models");
+    fs::path out = c.root / "scene";
+    auto r = runHusk("export-world " + q(c.root / "world" / "maps") + " " + q(out) + " " + c.listfileArgs() +
+                     " --map azeroth --jobs 2");
+    INFO(r.output);
+    // Pass 2 parses `export`'s own options once; a flag `export` no longer
+    // has stops the whole run here, before any model is tried.
+    REQUIRE(r.exitCode == 0);
+    std::string log = readText(out / "errors.log");
+    CHECK(log.find("model\t4242\t") != std::string::npos);
 }
 
 TEST_CASE("husk export-world: a broken sidecar is logged and its tile still exports without it") {

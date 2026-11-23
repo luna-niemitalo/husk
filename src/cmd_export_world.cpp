@@ -415,7 +415,7 @@ int exportWorld(int argc, char** args) {
             ExportOptions modelOpts;
             CLI::App modelApp;
             addExportOptions(modelApp, modelOpts);
-            std::vector<std::string> modelArgs = {"--bundle-only", "--listfile", opts.listfile, "--listfile-root",
+            std::vector<std::string> modelArgs = {"--listfile", opts.listfile, "--listfile-root",
                                                   opts.listfileRoot, "--db2-dir", "none", "--dbd-dir", "none",
                                                   "--config", "/dev/null"};
             std::vector<char*> argv;
