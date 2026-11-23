@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <ostream>
@@ -27,10 +28,12 @@
 //   ItemModifiedAppearanceID
 //     -> ItemModifiedAppearance.ItemAppearanceID -> ItemAppearance
 //          .ItemDisplayInfoID -> ItemDisplayInfo
-//     -> ItemDisplayInfo.ModelResourcesID (element 0 of the real 2-entry
-//        array field -- same "_0 only, never an OR across both slots"
-//        convention cmd_db2_build.cpp's own comment documents for this
-//        exact field)
+//     -> ItemDisplayInfo.ModelResourcesID[2]: the item's model resources,
+//        one per model it attaches. A shoulder lists the same resource
+//        twice; ComponentModelFileData.PositionIndex then picks the left
+//        (resource 0) and right (resource 1) file out of it
+//        (component_file_db2.hpp). ItemDisplayInfoModelMatRes.ModelIndex
+//        says which of the two a texture belongs to.
 //
 // From ItemDisplayInfoID, TWO real, structurally different sibling tables
 // branch off -- a "case 1 vs case 2" split, confirmed against
@@ -95,7 +98,7 @@ struct Appearance {
 
 struct DisplayInfo {
     uint32_t id = 0;
-    uint32_t modelResourcesId = 0;  // ModelResourcesID_0 only, see this file's own doc comment
+    std::array<uint32_t, 2> modelResourcesIds{};  // 0 = no model in that position
 };
 
 // One ItemDisplayInfoModelMatRes row's relevant fields -- case 1 (the
@@ -140,7 +143,7 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 // both, or neither (e.g. a pure recolor item carries only sectionMaterials).
 struct Resolution {
     std::optional<uint32_t> itemDisplayInfoId;
-    std::optional<uint32_t> modelResourcesId;  // feed to modelfiledata::Data for the real .m2 FileDataID(s)
+    std::optional<std::array<uint32_t, 2>> modelResourcesIds;  // feed to modelfiledata::Data for the .m2 FileDataIDs
     std::vector<ModelMatRes> materials;        // feed materialResourcesId to texturefiledata::Data per entry
     std::vector<MaterialRes> sectionMaterials;  // feed materialResourcesId to texturefiledata::Data per entry
 };

@@ -481,16 +481,21 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
 - **Items.** `definition.items[]` is `{ref, models?, textures?, overlays?}`.
   `export --appearance` adds one preset: its customization choices and
   its gear, each gear entry an `ItemModifiedAppearance` item that carries
-  `models` (the item's `.m2`, exported as its own model bundle at
-  `items/<fdid>.bundle/` and listed in `references`), `textures` (by the
-  item model's texture type; type 2 also textures the item bundle) and
-  `overlays` (textures for the wearer's body sections, by
-  `component_section`). Preset item `source` is `item_slot` (NPC slot
-  number) or `slot_token` (the appearance string's own slot name);
-  `slot` is set when the name is a known one. Known limits: the item
-  model is the first of its `ModelResourcesID` files whatever race or
-  sex it is for (`ComponentModelFileData` isn't read), and a second model
-  (`ModelResourcesID[1]`, the right shoulder) isn't read.
+  `models` (one per `position`, the `ModelResourcesID` index: on
+  shoulders 0 is the left model, 1 the right; `model` is the `.m2`
+  exported as its own model bundle at `items/<fdid>.bundle/` and listed in
+  `references`), `textures` (by the item model's texture type and the
+  `model_position` it textures; type 2 also textures that item bundle)
+  and `overlays` (textures for the wearer's body sections, by
+  `component_section`). Every model and texture is the file the wearer's
+  race and sex draw (CHARACTER_RENDERING.md §6). Where none could be
+  picked (the wearer is unknown, several files fit equally, none fits) a
+  model has `unresolved_reason` instead of `model`, and a texture is
+  `known_unresolved` with the reason. Class-specific files (demon hunter,
+  death knight) are never picked: the wearer's class isn't known. Preset
+  item `source` is `item_slot` (NPC slot number) or `slot_token` (the
+  appearance string's own slot name); `slot` is set when the name is a
+  known one.
 - **Physics.** `resources.physics`: the `.phys` beside the model (or
   `--phys`) as `bodies` (joint, position, shape indices), `shapes`
   (capsule and polytope geometry; box and sphere layouts unverified, so

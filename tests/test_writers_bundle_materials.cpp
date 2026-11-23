@@ -293,8 +293,10 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
 
     canon::ItemEntry item;
     item.ref = canon::Ref{canon::Db2Row{"ItemModifiedAppearance", 15}, "", canon::NameSource::None};
-    item.models.push_back({canon::Ref{canon::FileDataId{148132}, "", canon::NameSource::None}, "items/148132.bundle/manifest.json"});
-    item.textures.push_back({2, unresolvedTexture(700)});
+    item.models.push_back({0, canon::Ref{canon::FileDataId{148132}, "", canon::NameSource::None},
+                           "items/148132.bundle/manifest.json", ""});
+    item.models.push_back({1, std::nullopt, "", "files 1, 2 all fit race 0 gender 2"});
+    item.textures.push_back({2, 0, unresolvedTexture(700)});
     item.overlays.push_back({3, unresolvedTexture(701)});
     model.items = {item};
     canon::Preset preset;
@@ -321,8 +323,13 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
     CHECK(manifest["definition"]["customization"]["options"][0]["choices"][0]["correction_set"] == 0);
 
     const auto& i = manifest["definition"]["items"][0];
-    CHECK(i["models"][0]["uri"] == "items/148132.bundle/manifest.json");
+    CHECK(i["models"][0]["position"] == 0);
+    CHECK(i["models"][0]["model"]["uri"] == "items/148132.bundle/manifest.json");
+    CHECK(i["models"][1]["position"] == 1);
+    CHECK_FALSE(i["models"][1].contains("model"));
+    CHECK(i["models"][1]["unresolved_reason"] == "files 1, 2 all fit race 0 gender 2");
     CHECK(i["textures"][0]["texture_type"] == 2);
+    CHECK(i["textures"][0]["model_position"] == 0);
     CHECK(i["overlays"][0]["component_section"] == 3);
     bool referenced = false;
     for (const auto& r : manifest["references"]) referenced |= r["asset"].value("uri", "") == "items/148132.bundle/manifest.json";

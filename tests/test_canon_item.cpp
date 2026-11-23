@@ -27,12 +27,13 @@ TEST_CASE("Item: two slots and both component kinds at once -- the shape today's
     tunic.slots = {"CHEST", "LEGS"};
 
     SectionOverlayComponent overlay;
-    overlay.sections.push_back({/*componentSection=*/3, /*materialResourcesId=*/501, /*fileDataId=*/900123});
+    overlay.sections.push_back({/*componentSection=*/3, /*materialResourcesId=*/501, /*fileDataId=*/900123, ""});
     tunic.components.push_back(overlay);
 
     GeometryComponent clasp;
-    clasp.modelFileDataIds = {370361, 370362};  // e.g. LOD variants
-    clasp.materials.push_back({/*textureType=*/2, /*materialResourcesId=*/77, /*fileDataId=*/900456});
+    clasp.models.push_back({/*position=*/0, /*modelResourcesId=*/160, 370361u, ""});
+    clasp.models.push_back({/*position=*/1, /*modelResourcesId=*/161, std::nullopt, "no file fits"});
+    clasp.materials.push_back({/*textureType=*/2, /*materialResourcesId=*/77, /*fileDataId=*/900456, 0, ""});
     tunic.components.push_back(clasp);
 
     REQUIRE(tunic.slots.size() == 2);
@@ -50,9 +51,10 @@ TEST_CASE("Item: two slots and both component kinds at once -- the shape today's
 
     REQUIRE(std::holds_alternative<GeometryComponent>(tunic.components[1]));
     const auto& gotGeometry = std::get<GeometryComponent>(tunic.components[1]);
-    REQUIRE(gotGeometry.modelFileDataIds.size() == 2);
-    CHECK(gotGeometry.modelFileDataIds[0] == 370361);
-    CHECK(gotGeometry.modelFileDataIds[1] == 370362);
+    REQUIRE(gotGeometry.models.size() == 2);
+    CHECK(gotGeometry.models[0].fileDataId == 370361u);
+    CHECK_FALSE(gotGeometry.models[1].fileDataId);
+    CHECK(gotGeometry.models[1].unresolved == "no file fits");
     REQUIRE(gotGeometry.materials.size() == 1);
     CHECK(gotGeometry.materials[0].textureType == 2);
     CHECK(gotGeometry.materials[0].fileDataId == 900456);
@@ -60,9 +62,9 @@ TEST_CASE("Item: two slots and both component kinds at once -- the shape today's
 
 TEST_CASE("GeometryComponent: no auxGlbPath field -- writer transport artifact excluded per I1") {
     GeometryComponent geo;
-    geo.modelFileDataIds = {123};
+    geo.models.push_back({0, 160, 123u, ""});
     // No .auxGlbPath member exists; this test documents the exclusion by
     // construction (a stray auxGlbPath field would fail to compile here
     // if someone re-added it without updating this test's intent).
-    CHECK(geo.modelFileDataIds.size() == 1);
+    CHECK(geo.models.size() == 1);
 }

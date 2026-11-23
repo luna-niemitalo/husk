@@ -1,15 +1,16 @@
+#include <algorithm>
 #include <iostream>
 #include <optional>
+#include <sstream>
 
 #include <CLI/CLI.hpp>
 
 #include "appearance_string.hpp"
+#include "canon_item_builder.hpp"
 #include "cli_args.hpp"
 #include "commands.hpp"
 #include "husk_config.hpp"
 #include "itemappearance_db2.hpp"
-#include "modelfiledata_db2.hpp"
-#include "texturefiledata_db2.hpp"
 
 // `husk appearance-string` -- validates/normalizes a husk-appearance/1
 // string (src/appearance_string.hpp's own doc comment covers the grammar
@@ -73,47 +74,58 @@ int appearanceString(int argc, char** args) {
 
         std::optional<husk::itemappearance::Data> itemAppearanceData =
             husk::itemappearance::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
-        std::optional<husk::modelfiledata::Data> modelFileData =
-            husk::modelfiledata::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
-        std::optional<husk::texturefiledata::Data> textureFileData =
-            husk::texturefiledata::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
         if (!itemAppearanceData) {
             std::cerr << "husk: appearance-string: couldn't load the item-appearance DB2 chain from '"
                        << opts.db2DirArg << "' -- gear entries left unresolved\n";
             return 0;
         }
+        std::optional<husk::modelfiledata::Data> models =
+            husk::modelfiledata::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
+        std::optional<husk::texturefiledata::Candidates> textures =
+            husk::texturefiledata::loadCandidates(opts.db2DirArg, opts.dbdDirArg, std::cerr);
+        std::optional<husk::componentfile::Data> components =
+            husk::componentfile::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
+        husk::canon::GearSources sources;
+        sources.models = models ? &*models : nullptr;
+        sources.textures = textures ? &*textures : nullptr;
+        sources.components = components ? &*components : nullptr;
+        if (parsed.raceId != 0) {
+            sources.wearers.push_back({static_cast<uint32_t>(parsed.raceId), static_cast<uint32_t>(parsed.sexId)});
+        }
 
+        auto pickText = [](std::optional<uint32_t> fileDataId, const std::string& unresolved) {
+            return fileDataId && *fileDataId != 0 ? std::to_string(*fileDataId) : "(" + unresolved + ")";
+        };
+        std::vector<husk::canon::Item> items =
+            husk::canon::assembleEquippedItems(*itemAppearanceData, sources, parsed.gear, std::cerr);
         for (const husk::appearance::GearEntry& entry : parsed.gear) {
+            // assembleEquippedItems already reported this entry's dangling hops.
+            std::ostringstream alreadyReported;
             husk::itemappearance::Resolution resolution =
-                husk::itemappearance::resolve(*itemAppearanceData, entry.itemModifiedAppearanceId, std::cerr);
+                husk::itemappearance::resolve(*itemAppearanceData, entry.itemModifiedAppearanceId, alreadyReported);
             std::cout << "husk: appearance-string: gear " << entry.slot << ":" << entry.itemModifiedAppearanceId;
             if (!resolution.itemDisplayInfoId) {
                 std::cout << " -- unresolved\n";
                 continue;
             }
             std::cout << " -> ItemDisplayInfoID=" << *resolution.itemDisplayInfoId;
-            if (resolution.modelResourcesId && modelFileData) {
-                auto it = modelFileData->find(*resolution.modelResourcesId);
-                if (it != modelFileData->end()) {
-                    std::cout << " model=";
-                    for (size_t i = 0; i < it->second.size(); ++i) {
-                        if (i) std::cout << ",";
-                        std::cout << it->second[i];
+            auto item = std::find_if(items.begin(), items.end(), [&](const husk::canon::Item& i) {
+                return std::get<husk::canon::Db2Row>(i.identity.id).row ==
+                       static_cast<uint32_t>(entry.itemModifiedAppearanceId);
+            });
+            for (const husk::canon::Component& component : item->components) {
+                if (const auto* geometry = std::get_if<husk::canon::GeometryComponent>(&component)) {
+                    for (const auto& m : geometry->models) {
+                        std::cout << " model[" << m.position << "]=" << pickText(m.fileDataId, m.unresolved);
                     }
+                    for (const auto& m : geometry->materials) {
+                        std::cout << " texture(type=" << m.textureType << ",model=" << m.modelIndex
+                                  << ")=" << pickText(m.fileDataId, m.unresolved);
+                    }
+                    continue;
                 }
-            }
-            if (textureFileData) {
-                for (const husk::itemappearance::ModelMatRes& m : resolution.materials) {
-                    auto it = textureFileData->find(m.materialResourcesId);
-                    if (it != textureFileData->end()) {
-                        std::cout << " texture(type=" << m.textureType << ")=" << it->second;
-                    }
-                }
-                for (const husk::itemappearance::MaterialRes& m : resolution.sectionMaterials) {
-                    auto it = textureFileData->find(m.materialResourcesId);
-                    if (it != textureFileData->end()) {
-                        std::cout << " section(" << m.componentSection << ")=" << it->second;
-                    }
+                for (const auto& s : std::get<husk::canon::SectionOverlayComponent>(component).sections) {
+                    std::cout << " section(" << s.componentSection << ")=" << pickText(s.fileDataId, s.unresolved);
                 }
             }
             std::cout << "\n";

@@ -140,7 +140,19 @@ void writeItem(json::Writer& w, const canon::ItemEntry& item, TextureTable& text
     if (!item.models.empty()) {
         w.key("models");
         w.beginArray();
-        for (const canon::ItemModel& model : item.models) writeRef(w, model.ref, model.uri);
+        for (const canon::ItemModel& model : item.models) {
+            w.beginObject();
+            w.key("position");
+            w.value(static_cast<int64_t>(model.position));
+            if (model.ref) {
+                w.key("model");
+                writeRef(w, *model.ref, model.uri);
+            } else {
+                w.key("unresolved_reason");
+                w.value(model.unresolved);
+            }
+            w.endObject();
+        }
         w.endArray();
     }
     if (!item.textures.empty()) {
@@ -150,6 +162,8 @@ void writeItem(json::Writer& w, const canon::ItemEntry& item, TextureTable& text
             w.beginObject();
             w.key("texture_type");
             w.value(static_cast<int64_t>(t.textureType));
+            w.key("model_position");
+            w.value(static_cast<int64_t>(t.modelPosition));
             w.key("texture");
             w.value(static_cast<int64_t>(textures.add(t.texture)));
             w.endObject();
@@ -750,7 +764,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
                     rw.key("kind");
                     rw.value("model");
                     rw.key("asset");
-                    writeRef(rw, itemModel.ref, itemModel.uri);
+                    writeRef(rw, *itemModel.ref, itemModel.uri);
                     rw.endObject();
                 }
             }

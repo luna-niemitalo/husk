@@ -5,6 +5,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 // Real, typed reader for TextureFileData.db2 -- resolves a real
 // MaterialResourcesID (the shape ChrCustomizationMaterial.MaterialResourcesID
@@ -28,10 +29,17 @@ namespace husk::texturefiledata {
 // -- callers treat a missing key as "not resolved," never fabricate one.
 using Data = std::unordered_map<uint32_t, uint32_t>;
 
+// Every UsageType == 0 file per MaterialResourcesID, in table order. An item
+// texture resource lists one file per race/sex variant; which one a wearer
+// draws is ComponentTextureFileData's answer (component_file_db2.hpp).
+// `Data` above keeps only the first of these.
+using Candidates = std::unordered_map<uint32_t, std::vector<uint32_t>>;
+
 // Loads texturefiledata.db2 from `db2Dir`. Returns nullopt when the file
 // can't be read/parsed or no row resolves (nothing to offer), same "partial
 // real data is still useful, total failure only on totally empty" policy as
 // chrmodel::load.
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err);
+std::optional<Candidates> loadCandidates(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err);
 
 }  // namespace husk::texturefiledata

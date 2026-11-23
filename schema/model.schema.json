@@ -186,10 +186,42 @@
               },
               "models": {
                 "type": "array",
-                "description": "The item's own models; uri, when set, is the item model's bundle, also listed in /references.",
+                "description": "The item's own models, one per model position, each the file the wearer's race and sex draw.",
                 "items": {
-                  "$ref": "common.schema.json#/definitions/asset_ref",
-                  "description": "One model."
+                  "type": "object",
+                  "description": "One model position.",
+                  "properties": {
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "ItemDisplayInfo.ModelResourcesID index; on shoulders 0 is the left model, 1 the right."
+                    },
+                    "model": {
+                      "$ref": "common.schema.json#/definitions/asset_ref",
+                      "description": "The picked model; uri, when set, is its bundle, also listed in /references."
+                    },
+                    "unresolved_reason": {
+                      "type": "string",
+                      "description": "Why no file was picked: the wearer is unknown, several files fit equally, or none fits."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "position"
+                  ],
+                  "oneOf": [
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "unresolved_reason"
+                      ]
+                    }
+                  ]
                 }
               },
               "textures": {
@@ -204,6 +236,12 @@
                       "minimum": 0,
                       "description": "The item model's M2 texture type it fills."
                     },
+                    "model_position": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "The model position (models[].position) whose model it textures."
+                    },
                     "texture": {
                       "$ref": "common.schema.json#/definitions/texture_index",
                       "description": "The texture."
@@ -212,6 +250,7 @@
                   "additionalProperties": false,
                   "required": [
                     "texture_type",
+                    "model_position",
                     "texture"
                   ]
                 }
