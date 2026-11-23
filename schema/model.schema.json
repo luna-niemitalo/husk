@@ -854,7 +854,7 @@
                               "properties": {
                                 "side": {
                                   "type": "integer",
-                                  "description": "Source sign, +1 or -1."
+                                  "description": "Source sign, +1 or -1: the half-space of the portal's plane this part lies in (+1 where dot(normal, p) + distance > 0). The portal's other link carries the opposite sign. A few source portals carry the pair flipped against their geometry."
                                 }
                               },
                               "additionalProperties": false,

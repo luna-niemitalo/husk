@@ -626,10 +626,48 @@ portals (never `- distance`), with unit normals; 5,003 are quads. Every
 only ±1, the filler is 0, and the groups' `MOGP` portalStart/portalCount
 ranges partition `MOPR` exactly. A group with no portals may store
 portalStart **0xFFFF** with count 0. 5,037 portals are linked from two
-groups, 28 from one, 3 from none. `side` matches the sign of
-`dot(normal, c) + distance` at the owning group's vertex centroid in
-8,685/10,103 links; PortalCulling.md's front/back test is one
-contributor's guess and reads the other way, so neither is encoded.
+groups, 28 from one, 3 from none.
+
+**`MOPR.side` is the half-space of the portal plane the owning group lies
+in** (2026-11-24, seeded 4,000 roots, seed 20261124, listfile 2026-11-21:
+762 roots with portals, 6,541 portals, 13,036 links;
+`tools/survey_wmo_portal_sides.py`): +1 means the group is where
+`dot(normal, p) + distance > 0`, -1 where it is < 0. A portal's two refs
+always carry opposite signs and name each other's group (6,495/6,495
+two-ref portals), so `side` is one fact per portal: which group the
+normal points into.
+- Tested against the geometry next to the portal (sign of the 16
+  off-plane group vertices nearest the portal centre), the rule holds for
+  5,999 of the 6,068 portals whose two groups land on opposite sides;
+  427 don't separate that way (both groups on one side near the plane:
+  nested groups, portals much larger than the opening). Single-ref
+  portals: 41/46.
+- Where both groups lie cleanly apart (>= 90% of each group's off-plane
+  vertices on its side), 3,857 of 3,871 portals follow the rule. The 14
+  others carry
+  the pair flipped against unambiguous geometry; most have a correctly
+  signed portal joining the same two groups beside them (an exact
+  duplicate polygon in `8zul_cavemicro_mine01` p7,
+  `10xt_exterior_burrowtunnels01` p6), so they read as authoring errors,
+  not a second convention.
+- The vertex centroid is a bad test point, not a different convention: it
+  agrees in 11,364/13,036 links, and 1,332 of the 1,672 misses are links
+  owned by an exterior group (0x8), which wraps around the building
+  (exterior groups own 2,424 of all links). The bounding-box centre is
+  worse (11,226). The polygon's vertex order carries no side: its Newell
+  normal matches `side` in 6,523 links and opposes it in 6,513.
+- The client reads it this way: `CMapObj::AttenTransVerts` (wiki WMO.md,
+  MOCV) takes `side * distance(plane, v)` over the owning group's own
+  vertices and treats >= 0 as inside, fading vertex colour over 6 yards
+  toward an exterior neighbour. PortalCulling.md's front/back test is one
+  contributor's own renderer, not the client.
+- `6as_horde_tower` (FileDataID 1000061): portals 1 and 2 are the same
+  quad (the roof hatch, z = 23.25, normal +z) between the exterior
+  group 0 and the interior group 1. Portal 2 follows the rule (group 0
+  +1, above; group 1 -1, below); portal 1 is its copy with the pair
+  flipped. Portal 0 (the door) follows it too, though group 0's centroid
+  and box centre fall on the wrong side of the door plane.
+
 **`MOPE`** (74 of these roots, always one record per portal) doesn't
 hold what the wiki says: its "portalIndex" field is often 0x4D4F50xx
 (the portal index in the low byte under ASCII "MOP"), and its other
