@@ -181,7 +181,7 @@
   "definitions": {
     "expression": {
       "type": "object",
-      "description": "An expression over the technique's inputs and terms. Values are colours or scalars; operations act per channel, and a scalar combines with every channel of a colour. Operations: add, sub, mul, div (n-ary for add and mul); max (n-ary, per channel); lerp(a, b, t) = a + (b - a)*t; saturate(x) clamps to 0..1; luma(x) = 0.30*x.r + 0.59*x.g + 0.11*x.b; channels(x) selects `channels` of x; lit(x) is the renderer's lighting applied to x. A node is exactly one of: {input, channels?}, {term}, {const}, {op, args, channels?}.",
+      "description": "An expression over the technique's inputs and terms. Values are colours or scalars; operations act per channel, and a scalar combines with every channel of a colour. Operations: add, sub, mul, div (n-ary for add and mul); max, min (n-ary, per channel); dot(a, b) = the sum over channels of a*b, a scalar (a scalar operand combines with every channel of the other, so dot(x, 1) sums x's channels); lerp(a, b, t) = a + (b - a)*t; saturate(x) clamps to 0..1; luma(x) = 0.30*x.r + 0.59*x.g + 0.11*x.b; channels(x) selects `channels` of x; lit(x) is the renderer's lighting applied to x; tangent_frame(v, p, n, uv) is v in the frame that screen derivatives of uv span on the surface, two channels (x, y), computed by the renderer: with p a position and n a normal (three channels each, the same space as v) and uv two channels, dp1 = ddx(p), dp2 = ddy(p), du1 = ddx(uv), du2 = ddy(uv) (screen-space derivatives across neighbouring pixels), T = cross(dp2, n)*du1.x + cross(n, dp1)*du2.x, B = cross(dp2, n)*du1.y + cross(n, dp1)*du2.y, s = 1/sqrt(max(dot(T, T), dot(B, B))): (dot(T, v)*s, dot(B, v)*s). A node is exactly one of: {input, channels?}, {term}, {const}, {op, args, channels?}.",
       "properties": {
         "input": {
           "type": "string",
@@ -203,11 +203,14 @@
             "mul",
             "div",
             "max",
+            "min",
+            "dot",
             "lerp",
             "saturate",
             "luma",
             "channels",
-            "lit"
+            "lit",
+            "tangent_frame"
           ],
           "description": "An operation."
         },

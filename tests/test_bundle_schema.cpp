@@ -214,6 +214,36 @@ TEST_CASE("bundle_schema: a technique's input coordinates are checked, and a cyc
     CHECK(mentions(problems, "expected terms and input coordinates without a cycle"));
 }
 
+TEST_CASE("bundle_schema: min, dot and tangent_frame are ops with their operand counts") {
+    auto technique = [](const char* outputs) {
+        return std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+        "definition": {"family": "wmo_shader", "status": "verified", "evidence": "test",
+                       "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x"},
+                                  "p": {"kind": "renderer_value", "description": "x"},
+                                  "n": {"kind": "renderer_value", "description": "x"},
+                                  "uv0": {"kind": "vertex_value", "description": "x"}},
+                       "outputs": )" + outputs + R"(},
+        "selection": {}, "references": []})";
+    };
+    fs::path file = fs::temp_directory_path() / "husk-schema-technique-ops" / "t.json";
+    fs::remove_all(file.parent_path());
+
+    writeText(file, technique(R"({"diffuse": {"op": "min", "args": [{"input": "t0", "channels": "rgb"}, {"const": 0.5}, {"input": "n"}]},
+        "alpha": {"op": "dot", "args": [{"input": "n"}, {"input": "p"}]},
+        "emissive": {"op": "tangent_frame", "args": [{"input": "p"}, {"input": "p"}, {"input": "n"}, {"input": "uv0"}]}})"));
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(file);
+    INFO(describe(problems));
+    CHECK(problems.empty());
+
+    writeText(file, technique(R"({"diffuse": {"op": "min", "args": [{"input": "t0"}]},
+        "alpha": {"op": "dot", "args": [{"input": "n"}, {"input": "p"}, {"input": "p"}]},
+        "emissive": {"op": "tangent_frame", "args": [{"input": "p"}, {"input": "n"}, {"input": "uv0"}]}})"));
+    problems = bundle_schema::validateDocument(file);
+    CHECK(mentions(problems, "expected 2+ operands for min, got 1"));
+    CHECK(mentions(problems, "expected 2 operands for dot, got 3"));
+    CHECK(mentions(problems, "expected 4 operands for tangent_frame, got 3"));
+}
+
 TEST_CASE("bundle_schema: an inline effect's instance is checked against the inputs it declares") {
     std::vector<bundle_schema::Problem> warnings;
     std::vector<bundle_schema::Problem> problems =

@@ -106,7 +106,7 @@
       "tint": {
         "kind": "per_draw_constant",
         "status": "unidentified",
-        "description": "A per-draw colour (cb2[5]); its source is not identified (MOMT diffColor and sidnColor are candidates)."
+        "description": "A per-draw colour (cb2[5]); its source is not identified. Candidates are MOMT sidnColor, opaque black in all 10,361 shader-23 materials of a 4,000-root sample (so black, as wow.export draws it), and diffColor, which varies by material (88 values, 0xff959595 in 9,394) (WIKI_FINDINGS/WORLD.md \"Shader 23's tint\")."
       }
     },
     "terms": {
@@ -120,24 +120,14 @@
             "op": "saturate",
             "args": [
               {
-                "op": "add",
+                "op": "dot",
                 "args": [
                   {
-                    "op": "add",
-                    "args": [
-                      {
-                        "input": "v9",
-                        "channels": "x"
-                      },
-                      {
-                        "input": "v9",
-                        "channels": "y"
-                      }
-                    ]
+                    "input": "v9",
+                    "channels": "xyz"
                   },
                   {
-                    "input": "v9",
-                    "channels": "z"
+                    "const": 1
                   }
                 ]
               }
