@@ -531,14 +531,21 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   optional: absent when the option has none (`CategoryID` 0), never a
   reference to row 0.
 
-### Particle gravity (breaking; ships with schema 0.4.0)
+### Schema 0.4.0 (breaking)
+
+The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
 
 - `particle_system.gravity` is an `animated_vec3`: per keyframe the
-  acceleration vector `[x, y, z]` in the model's frame (z up),
-  yard/second^2. A plain M2 gravity g is `[0, 0, -g]`; an emitter with
-  particle flag `0x800000` stores a packed vector, which husk decodes
-  (`WIKI_FINDINGS/M2.md`, 80 % of sampled emitters). No scalar form and
-  no raw bits remain. `ribbon_system.gravity` stays a scalar.
+  acceleration vector `[x, y, z]` in the emitter's frame (the model's
+  axes, z up), yard/second^2; it rotates with the emitter. A plain M2
+  gravity g is `[0, 0, -g]`; an emitter with particle flag `0x800000`
+  stores a packed vector, which husk decodes (`WIKI_FINDINGS/M2.md`, 80 %
+  of sampled emitters); a packed key with no direction is dropped with a
+  warning. No scalar form and no raw bits remain. `ribbon_system.gravity`
+  stays a scalar.
+- WMO mesh parts: `portals[].side` (+1/-1, the part's half-space of the
+  portal plane) is a resolved field; `interior_fogs` (was `fog_volumes`)
+  lists the fogs a viewer inside the part sees.
 
 ## Embed or reference — one rule
 
