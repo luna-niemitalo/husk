@@ -21,7 +21,12 @@ documentation
 # their own self-excluding .gitignore, these cover the rest.
 __pycache__/
 *.pyc
+
+# why: Claude Code local state, can hold secrets (~/.claude/rules/git-no-claude-dir.md)
 .claude
+# why: messages from other projects and Luna's inbox answers, ingested then pruned
+# (worked_on_index DESIGN.md "Feedback")
+feedback/
 
 # tools/corpus_test.py's uv-managed venv (tqdm/rich) -- set up locally via
 # `cd tools && uv venv venv && uv pip install --python venv/bin/python tqdm rich`,
@@ -47,15 +52,15 @@ __pycache__/
 # actually referenced by anything, regenerated locally on every crash.
 *.blend1
 
-# tools/corpus_scan_tasks/render_glb.py's scratch render output (default
-# out.glb/out.webm next to wherever it's invoked from).
+# Scratch render output from local render runs.
 /out/
 
-# playwright-mcp's own per-call snapshot/screenshot dump (page-*.yml,
-# console-*.log), written next to wherever a session invokes it from.
+# Snapshot dump the removed playwright-mcp left behind; delete the
+# directory, then this line.
 /.playwright-mcp/
-# nix flake update backups
-nix/flake.lock.bak
+# why: the central flake update (update-flakes.nu) leaves flake.lock.bak
+# beside each flake.lock it bumps (~/.claude/rules/gitignore-bak.md)
+*.bak
 
 # Machine-local paths and commands (development/REFERENCES.md).
 /development/
