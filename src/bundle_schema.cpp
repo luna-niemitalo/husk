@@ -548,8 +548,9 @@ void checkExpression(const json& node, const json& definition, const std::string
     }
     if (!node.contains("op")) return;
     static const std::map<std::string, std::pair<size_t, size_t>> arity = {
-        {"add", {2, 99}}, {"sub", {2, 2}},      {"mul", {2, 99}},      {"div", {2, 2}},  {"max", {2, 99}},
-        {"lerp", {3, 3}}, {"saturate", {1, 1}}, {"luma", {1, 1}}, {"channels", {1, 1}}, {"lit", {1, 1}}};
+        {"add", {2, 99}},  {"sub", {2, 2}},      {"mul", {2, 99}},  {"div", {2, 2}},      {"max", {2, 99}},
+        {"min", {2, 99}},  {"dot", {2, 2}},      {"lerp", {3, 3}},  {"saturate", {1, 1}}, {"luma", {1, 1}},
+        {"channels", {1, 1}}, {"lit", {1, 1}}, {"tangent_frame", {4, 4}}};
     std::string op = node["op"];
     size_t n = node.contains("args") ? node["args"].size() : 0;
     auto [lo, hi] = arity.at(op);

@@ -227,7 +227,44 @@ and the 12.1.5.70391 mount. The formulas are the technique documents
   shader's `o9.xy`, not sphere-mapped); `t3` at
   `uv1 − e·0.25·t17.r` and `t4` at `uv2 − e·0.5·t17.r`, where `e` is the
   view direction in a tangent frame built from screen derivatives of
-  `uv1`. The technique states `e` as a renderer value (`tangent_view`).
+  `uv1`: `e = (dot(T, V), dot(B, V)) / dot(N, V)`, with T and B from
+  `ddx_coarse`/`ddy_coarse` of the view-space position and `uv1`, scaled
+  by `1/sqrt(max(dot(T, T), dot(B, B)))` (program 0000, `case l(22)`).
+  The technique states it with the ops `tangent_frame` and `dot`.
+
+### Shader 23's tint `cb2[5]`: MOMT colours (2026-11-24)
+
+Shader 23 blends `diffuse` toward `cb2[5].rgb` by `v9.w` (`MOC2` alpha).
+No other `uber` material and no vertex shader reads `cb2[5]`, so the
+shaders don't name its source. Data side: 4,000 WMO roots drawn with seed
+20261124 from the 13,080 the 2026-11-21 listfile names (75 unreadable),
+read from the 12.1.5 mount's `_by_fdid`; 1,193 have shader-23 materials,
+10,361 in all. Tint weight is `MOC2` byte 3 over each material's batch
+vertex ranges (`MOBA` first to last vertex) in the tier-0 group files.
+
+| MOMT field | Distinct values | Values (materials) |
+|---|---|---|
+| `sidnColor` | 1 | `0xff000000` (10,361) |
+| `frameSidnColor` | 1 | `0x00000000` (10,361) |
+| `diffColor` | 88 | `0xff959595` 9,394; `0xff969696` 199; `0xff483420` 120; `0xff523c25` 78; 84 others, mostly dark browns, 570 |
+| `flags` | 7 | 0 in 10,233; bits `0x4` 63, `0x100` 35, `0x10` 23, `0x8` 16, `0x2` 3 |
+| `blendMode` | 2 | 0 in 10,359; 1 in 2 |
+
+The tint is in use: 10,270,889 of 20,004,902 batch vertices (51%) have
+`MOC2` alpha > 0, in 9,699 of the 10,346 materials with `MOC2`; 627,293
+vertices are at 255, and in 93 materials (80 roots, mostly expansion-11
+player-housing exteriors) every vertex is. Tinted materials split like all
+of them (`diffColor` 0xff959595 in 8,750 of 9,699; mean alpha 0.237 for
+those, 0.226 for the others).
+
+What this settles and what it doesn't:
+- `sidnColor` is opaque black in every sampled shader-23 material. If
+  `cb2[5]` is `sidnColor`, the tint is black, which is what wow.export draws.
+- `diffColor` varies by material (88 values), so it is the only candidate
+  that would make the tint differ between materials.
+- Neither is ruled out. Nothing in the files says which one the client
+  uploads, and a render to compare against needs a client capture, which
+  is ruled out. **Unresolved.**
   The branch on `v3.w > 0` only skips the `t0` fetch.
 
 ## WDT `_lgt.wdt` lights in the client shaders (12.1.0)

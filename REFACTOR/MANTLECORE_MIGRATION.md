@@ -93,6 +93,16 @@ band meshes over the tile's baked map texture. Tile placement instances
 listed in `_obj1.adt` carry `distant`; leave the rest out when drawing a
 tile from afar. `BUNDLE_FORMAT.md` "Levels of detail" has the details.
 
+Technique ops (2026-11-24, additions; `schema_version` unchanged): `min`
+(n-ary, per channel), `dot` (two operands, a scalar; `dot(x, 1)` sums
+x's channels) and `tangent_frame(v, p, n, uv)` (two channels; needs
+screen derivatives of `p` and `uv`, so the renderer evaluates it). Their
+definitions are in `schema/technique.schema.json`'s `expression`.
+Parallax (22) no longer has the `tangent_view` input: its term `e` is
+`tangent_frame(view_position, view_position, view_normal, uv1) /
+dot(view_normal, view_position)`, over two new `renderer_value` inputs.
+UnkDFShader (23) sums its weights with `dot`.
+
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so
 it never said how layers combine. An M2 material now names its
