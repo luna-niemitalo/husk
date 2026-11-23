@@ -258,8 +258,8 @@ TEST_CASE("writeBundle: fog instances in an owned set, the effects they place, a
 
     CHECK(manifest["resources"]["scene"]["default_fog"] == nlohmann::json({{"set", 0}, {"id", 7}}));
     const auto& parts = manifest["resources"]["geometry"]["mesh"]["parts"];
-    CHECK(parts[0]["fog_volumes"] == nlohmann::json::array({{{"set", 0}, {"id", 7}}}));
-    CHECK_FALSE(parts[1].contains("fog_volumes"));
+    CHECK(parts[0]["interior_fogs"] == nlohmann::json::array({{{"set", 0}, {"id", 7}}}));
+    CHECK_FALSE(parts[1].contains("interior_fogs"));
 
     nlohmann::json setDoc = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     CHECK(setDoc["references"][0]["kind"] == "effect");

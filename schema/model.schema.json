@@ -781,9 +781,9 @@
                         "description": "Bounding box maximum.",
                         "x-unit": "yard"
                       },
-                      "fog_volumes": {
+                      "interior_fogs": {
                         "type": "array",
-                        "description": "Fog instances a viewer inside the part sees, beyond the model's default fog, in source order. Distance fog for that viewer, not fog volumes: nothing in them is a medium to place.",
+                        "description": "Fog instances a viewer inside the part sees, beyond the model's default fog (scene.default_fog), in source order. Distance fog for that viewer, not fog volumes: nothing in them is a medium to place.",
                         "items": {
                           "$ref": "common.schema.json#/definitions/instance_ref",
                           "description": "A fog instance."

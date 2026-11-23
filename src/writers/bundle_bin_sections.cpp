@@ -193,7 +193,7 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
         writeVec3Value(w, part.boundsMin);
         w.key("bounds_max");
         writeVec3Value(w, part.boundsMax);
-        for (auto [key, refs] : {std::pair{"fog_volumes", &part.fogs}, std::pair{"ambient_color_volumes", &part.ambientVolumes},
+        for (auto [key, refs] : {std::pair{"interior_fogs", &part.fogs}, std::pair{"ambient_color_volumes", &part.ambientVolumes},
                                  std::pair{"ambient_particle_volumes", &part.particulateVolumes}}) {
             if (refs->empty()) continue;
             w.key(key);

@@ -41,7 +41,7 @@ Phase 3 so far: `medium` content and particle `spawn` density, instance
 value is an optional input or the priority, named in the instance's
 provenance; `validate-bundle` checks every provenance path names a value
 the instance holds. `MFOG` gets no medium: the client applies it to a
-viewer inside the parts that list it, so its sphere is where that viewer
+viewer inside the parts that list it (`parts[].interior_fogs`), so its sphere is where that viewer
 sees the fog, not a fog volume (12 of 17 records mantlecore sampled have
 radii 0.28 and 2.8 yards with linear fog over 1.4 to 28 yards; a medium
 there would be a small dense ball). Not yet:

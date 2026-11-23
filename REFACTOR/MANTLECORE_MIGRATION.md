@@ -290,9 +290,10 @@ A WMO bundle also has:
 - `definition.placement_sets`: its doodad sets, each a document under
   `sets/`. Set 0 is always on; an instance's selection adds others.
 - `resources.geometry.mesh.parts`: groups, with bounds, portals, and the
-  volumes each uses. `fog_volumes` are `{set, id}` refs to effect
-  instances in the doodad sets (`REFACTOR/EFFECTS.md`; a fog is placed by
-  its set, its look is the instance's `style`); `ambient_color_volumes`
+  volumes each uses. `interior_fogs` are `{set, id}` refs to effect
+  instances in the doodad sets, the fogs a viewer inside the part sees
+  (`REFACTOR/EFFECTS.md`; a fog is placed by its set, its look is the
+  instance's `style`); `ambient_color_volumes`
   and `ambient_particle_volumes` are the same. `resources.scene.default_fog`
   is the fog a part falls back to.
 - `resources.geometry.mesh.attributes`: per-face flags and material, which
