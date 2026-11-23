@@ -31,7 +31,7 @@ TEST_CASE("lightdb::load: real 12.1.0 tables -- zones in world yards, fog keys b
     std::optional<lightdb::Data> data = lightdb::load(kMountDb2Dir, test::testDbdDir(), err);
     INFO(err.str());
     REQUIRE(data.has_value());
-    CHECK(data->zones.size() == 5343);
+    CHECK(data->zones.size() == 5355);  // 5343 stored records + 12 copy-table rows
     CHECK(data->mapIds.at("azeroth") == 0);
     // Light 2: a local zone west of Elwynn, its clear-weather params 14.
     auto zone = std::find_if(data->zones.begin(), data->zones.end(), [](const lightdb::Zone& z) { return z.id == 2; });
@@ -48,7 +48,7 @@ TEST_CASE("lightdb::load: real 12.1.0 tables -- zones in world yards, fog keys b
     CHECK(keys[0].directColor == 1845298u);
     CHECK(keys[0].cloudDensity == 0.5f);
 
-    CHECK(data->params.size() == 1674);
+    CHECK(data->params.size() == 3738);  // 1674 stored records + the copy-table rows
     CHECK(data->params.at(14).glow == doctest::Approx(0.2f));
     CHECK(data->params.at(12).highlightSky);
     // LightParams 1 draws LightSkybox 81, DeathSkybox.mdx.

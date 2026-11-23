@@ -57,6 +57,40 @@ std::vector<ColumnResolution> resolveColumns(const std::string& path, const dbd:
     return resolutions;
 }
 
+// The file's rows, copy-table rows included (db2::tableRows), with any copy
+// that can't be read said on `err` rather than dropped silently.
+std::vector<db2::RowRef> readableRows(const std::string& path, const db2::File& file, std::ostream& err) {
+    db2::TableRows table = db2::tableRows(file);
+    if (table.unreadableCopies > 0) {
+        err << "husk: db2table: '" << path << "': " << table.unreadableCopies
+            << " copy-table row(s) copy a record in an unreadable section -- not read\n";
+    }
+    return std::move(table.rows);
+}
+
+// A `$noninline,relation$` column's value per row: the relationship map is
+// keyed by record, so a copy row reads its source record's entry.
+class RelationCache {
+public:
+    RelationCache(const db2::File& file, const std::vector<ColumnResolution>& resolutions)
+        : file_(file),
+          needed_(std::any_of(resolutions.begin(), resolutions.end(),
+                              [](const ColumnResolution& r) { return r.kind == ColumnKind::Relation; })),
+          bySection_(file.sections.size()) {}
+
+    std::optional<uint32_t> value(const db2::RowRef& ref) {
+        if (!needed_) return std::nullopt;
+        std::optional<std::vector<std::optional<uint32_t>>>& values = bySection_[ref.section];
+        if (!values) values = db2::nonInlineRelationValuesByRecord(file_, file_.sections[ref.section]);
+        return ref.record < values->size() ? (*values)[ref.record] : std::nullopt;
+    }
+
+private:
+    const db2::File& file_;
+    bool needed_;
+    std::vector<std::optional<std::vector<std::optional<uint32_t>>>> bySection_;
+};
+
 }  // namespace
 
 std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& path,
@@ -80,43 +114,34 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
         return std::nullopt;
     }
 
+    RelationCache relations(file, resolutions);
     std::vector<ColumnValues> rows;
-    for (const db2::Section& section : file.sections) {
-        if (!section.recordsAvailable()) continue;
-        if (!section.offsetMap.empty()) continue;
-
-        bool needsRelation = std::any_of(resolutions.begin(), resolutions.end(),
-                                          [](const ColumnResolution& r) { return r.kind == ColumnKind::Relation; });
-        std::vector<std::optional<uint32_t>> relationValues =
-            needsRelation ? db2::nonInlineRelationValuesByRecord(file, section)
-                          : std::vector<std::optional<uint32_t>>{};
-
-        for (uint32_t r = 0; r < section.header.recordCount; ++r) {
-            ColumnValues row;
-            row.reserve(resolutions.size());
-            for (const ColumnResolution& res : resolutions) {
-                switch (res.kind) {
-                    case ColumnKind::Id:
-                        row.emplace_back(db2::recordId(file, section, r));
-                        break;
-                    case ColumnKind::Relation:
-                        row.push_back(r < relationValues.size() ? relationValues[r] : std::nullopt);
-                        break;
-                    case ColumnKind::Inline: {
-                        std::vector<uint64_t> values = db2::decodeField(file, section, r, res.inlineFieldIndex);
-                        const dbd::Column& column = (*inlineColumns)[res.inlineFieldIndex];
-                        row.push_back(values.empty() ? std::nullopt
-                                                     : std::optional<uint32_t>(static_cast<uint32_t>(
-                                                           dbd::asDeclaredType(column, values[0]))));
-                        break;
-                    }
-                    case ColumnKind::Unresolved:
-                        row.emplace_back(std::nullopt);
-                        break;
+    for (const db2::RowRef& ref : readableRows(path, file, err)) {
+        const db2::Section& section = file.sections[ref.section];
+        ColumnValues row;
+        row.reserve(resolutions.size());
+        for (const ColumnResolution& res : resolutions) {
+            switch (res.kind) {
+                case ColumnKind::Id:
+                    row.emplace_back(ref.id);
+                    break;
+                case ColumnKind::Relation:
+                    row.push_back(relations.value(ref));
+                    break;
+                case ColumnKind::Inline: {
+                    std::vector<uint64_t> values = db2::decodeField(file, section, ref.record, res.inlineFieldIndex);
+                    const dbd::Column& column = (*inlineColumns)[res.inlineFieldIndex];
+                    row.push_back(values.empty() ? std::nullopt
+                                                 : std::optional<uint32_t>(static_cast<uint32_t>(
+                                                       dbd::asDeclaredType(column, values[0]))));
+                    break;
                 }
+                case ColumnKind::Unresolved:
+                    row.emplace_back(std::nullopt);
+                    break;
             }
-            rows.push_back(std::move(row));
         }
+        rows.push_back(std::move(row));
     }
     return rows;
 }
@@ -158,38 +183,35 @@ std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
     }
 
     std::vector<StringColumnValues> rows;
-    for (size_t sectionIndex = 0; sectionIndex < file.sections.size(); ++sectionIndex) {
-        const db2::Section& section = file.sections[sectionIndex];
-        if (!section.recordsAvailable()) continue;
-        if (!section.offsetMap.empty()) continue;
-
-        for (uint32_t r = 0; r < section.header.recordCount; ++r) {
-            StringColumnValues row;
-            row.reserve(fieldIndices.size());
-            for (const std::optional<size_t>& fieldIndex : fieldIndices) {
-                if (!fieldIndex) {
-                    row.emplace_back(std::nullopt);
-                    continue;
-                }
-                std::vector<uint64_t> values = db2::decodeField(file, section, r, *fieldIndex);
-                bool isScalarNone =
-                    values.size() == 1 && file.fieldStorageInfo[*fieldIndex].storageType == db2::FieldCompression::None;
-                if (!isScalarNone) {
-                    row.emplace_back(std::nullopt);
-                    continue;
-                }
-                int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
-                                       static_cast<int64_t>(r) * file.header.recordSize +
-                                       file.fieldStructures[*fieldIndex].position +
-                                       db2::stringOffsetSectionCorrection(file, sectionIndex);
-                std::optional<std::string> str;
-                if (fieldAbsPos >= 0) {
-                    str = db2::resolveFieldString(fileBytes, static_cast<size_t>(fieldAbsPos), values[0]);
-                }
-                row.push_back(std::move(str));
+    for (const db2::RowRef& ref : readableRows(path, file, err)) {
+        const db2::Section& section = file.sections[ref.section];
+        StringColumnValues row;
+        row.reserve(fieldIndices.size());
+        for (const std::optional<size_t>& fieldIndex : fieldIndices) {
+            if (!fieldIndex) {
+                row.emplace_back(std::nullopt);
+                continue;
             }
-            rows.push_back(std::move(row));
+            std::vector<uint64_t> values = db2::decodeField(file, section, ref.record, *fieldIndex);
+            bool isScalarNone =
+                values.size() == 1 && file.fieldStorageInfo[*fieldIndex].storageType == db2::FieldCompression::None;
+            if (!isScalarNone) {
+                row.emplace_back(std::nullopt);
+                continue;
+            }
+            // A string offset is relative to its own field's position, so a
+            // copy row resolves through its source record.
+            int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
+                                   static_cast<int64_t>(ref.record) * file.header.recordSize +
+                                   file.fieldStructures[*fieldIndex].position +
+                                   db2::stringOffsetSectionCorrection(file, ref.section);
+            std::optional<std::string> str;
+            if (fieldAbsPos >= 0) {
+                str = db2::resolveFieldString(fileBytes, static_cast<size_t>(fieldAbsPos), values[0]);
+            }
+            row.push_back(std::move(str));
         }
+        rows.push_back(std::move(row));
     }
     return rows;
 }
@@ -215,51 +237,41 @@ std::optional<std::vector<ArrayColumnValues>> readNamedArrayColumns(const std::s
         return std::nullopt;
     }
 
+    RelationCache relations(file, resolutions);
     std::vector<ArrayColumnValues> rows;
-    for (const db2::Section& section : file.sections) {
-        if (!section.recordsAvailable()) continue;
-        if (!section.offsetMap.empty()) continue;
-
-        bool needsRelation = std::any_of(resolutions.begin(), resolutions.end(),
-                                          [](const ColumnResolution& r) { return r.kind == ColumnKind::Relation; });
-        std::vector<std::optional<uint32_t>> relationValues =
-            needsRelation ? db2::nonInlineRelationValuesByRecord(file, section)
-                          : std::vector<std::optional<uint32_t>>{};
-
-        for (uint32_t r = 0; r < section.header.recordCount; ++r) {
-            ArrayColumnValues row;
-            row.reserve(resolutions.size());
-            for (const ColumnResolution& res : resolutions) {
-                switch (res.kind) {
-                    case ColumnKind::Id:
-                        row.push_back(std::vector<uint32_t>{db2::recordId(file, section, r)});
-                        break;
-                    case ColumnKind::Relation: {
-                        std::optional<uint32_t> v = r < relationValues.size() ? relationValues[r] : std::nullopt;
-                        row.push_back(v ? std::optional<std::vector<uint32_t>>(std::vector<uint32_t>{*v})
-                                         : std::nullopt);
-                        break;
-                    }
-                    case ColumnKind::Inline: {
-                        std::vector<uint64_t> values = db2::decodeField(file, section, r, res.inlineFieldIndex);
-                        if (values.empty()) {
-                            row.push_back(std::nullopt);
-                            break;
-                        }
-                        const dbd::Column& column = (*inlineColumns)[res.inlineFieldIndex];
-                        std::vector<uint32_t> elements;
-                        elements.reserve(values.size());
-                        for (uint64_t v : values) elements.push_back(static_cast<uint32_t>(dbd::asDeclaredType(column, v)));
-                        row.push_back(std::move(elements));
-                        break;
-                    }
-                    case ColumnKind::Unresolved:
-                        row.emplace_back(std::nullopt);
-                        break;
+    for (const db2::RowRef& ref : readableRows(path, file, err)) {
+        const db2::Section& section = file.sections[ref.section];
+        ArrayColumnValues row;
+        row.reserve(resolutions.size());
+        for (const ColumnResolution& res : resolutions) {
+            switch (res.kind) {
+                case ColumnKind::Id:
+                    row.push_back(std::vector<uint32_t>{ref.id});
+                    break;
+                case ColumnKind::Relation: {
+                    std::optional<uint32_t> v = relations.value(ref);
+                    row.push_back(v ? std::optional<std::vector<uint32_t>>(std::vector<uint32_t>{*v}) : std::nullopt);
+                    break;
                 }
+                case ColumnKind::Inline: {
+                    std::vector<uint64_t> values = db2::decodeField(file, section, ref.record, res.inlineFieldIndex);
+                    if (values.empty()) {
+                        row.push_back(std::nullopt);
+                        break;
+                    }
+                    const dbd::Column& column = (*inlineColumns)[res.inlineFieldIndex];
+                    std::vector<uint32_t> elements;
+                    elements.reserve(values.size());
+                    for (uint64_t v : values) elements.push_back(static_cast<uint32_t>(dbd::asDeclaredType(column, v)));
+                    row.push_back(std::move(elements));
+                    break;
+                }
+                case ColumnKind::Unresolved:
+                    row.emplace_back(std::nullopt);
+                    break;
             }
-            rows.push_back(std::move(row));
         }
+        rows.push_back(std::move(row));
     }
     return rows;
 }

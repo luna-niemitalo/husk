@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -154,6 +155,7 @@ void printSections(const db2::File& file) {
         const db2::Section& s = file.sections[i];
         std::cout << "  section " << i << ": " << s.header.recordCount << " records at file offset 0x"
                    << std::hex << s.header.fileOffset << std::dec;
+        if (s.header.copyTableCount != 0) std::cout << ", " << s.header.copyTableCount << " copy-table rows";
         if (s.header.tactKeyHash != 0) {
             if (s.recordsAvailable()) {
                 std::cout << "  [TACT-key-gated, tact_key_hash=0x" << std::hex << s.header.tactKeyHash
@@ -463,48 +465,68 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
     sqliteCheck(sqlite3_prepare_v2(db, insertSql.str().c_str(), -1, &stmt, nullptr), db,
                 "prepare INSERT into \"" + lf.tableName + "\"");
 
+    // One relationship_map decode per section, shared by every non-inline
+    // relation column: a section carries one map, not one per DBD field.
+    std::map<size_t, std::vector<std::optional<uint32_t>>> relationsBySection;
+    auto relationValues = [&](size_t sectionIndex) -> const std::vector<std::optional<uint32_t>>& {
+        auto [it, added] = relationsBySection.try_emplace(sectionIndex);
+        if (added && !lf.nonInlineRelationColumns.empty()) {
+            it->second = db2::nonInlineRelationValuesByRecord(lf.file, lf.file.sections[sectionIndex]);
+        }
+        return it->second;
+    };
+
+    // `r` is the record whose values the row has; `id` the row's own ID
+    // (a copy-table row repeats another record under a new ID).
     size_t rowCount = 0;
+    auto insertRow = [&](size_t sectionIndex, uint32_t r, uint32_t id) {
+        const db2::Section& section = lf.file.sections[sectionIndex];
+        sqlite3_reset(stmt);
+        sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(sectionIndex));
+        sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(r));
+        int bindIndex = 3;
+        if (!idSqlName.empty()) {
+            sqlite3_bind_int64(stmt, bindIndex, static_cast<sqlite3_int64>(id));
+            ++bindIndex;
+        }
+        const std::vector<std::optional<uint32_t>>& relations = relationValues(sectionIndex);
+        for (size_t i = 0; i < lf.nonInlineRelationColumns.size(); ++i) {
+            std::optional<uint32_t> v = r < relations.size() ? relations[r] : std::nullopt;
+            if (v) {
+                sqlite3_bind_int64(stmt, bindIndex, static_cast<sqlite3_int64>(*v));
+            } else {
+                sqlite3_bind_null(stmt, bindIndex);
+            }
+            ++bindIndex;
+        }
+        std::vector<FieldValues> fields = decodeRecordValues(lf.file, section, sectionIndex, lf.bytes, r);
+        for (size_t f = 0; f < fields.size(); ++f) {
+            if (lf.dbdNames) {
+                for (uint64_t& v : fields[f].raw) v = dbd::asDeclaredType((*lf.dbdNames)[f], v);
+            }
+            bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
+            bindFieldValues(stmt, bindIndex, fields[f], isFloat);
+            bindIndex += static_cast<int>(fields[f].str ? 1 : fields[f].raw.size());
+        }
+        int rc = sqlite3_step(stmt);
+        sqliteCheck(rc, db, "INSERT into \"" + lf.tableName + "\"");
+        ++rowCount;
+    };
+
     for (size_t sectionIndex : lf.usableSectionIndices) {
         const db2::Section& section = lf.file.sections[sectionIndex];
-        // One relationship_map decode per section, shared by every
-        // non-inline relation column -- the section carries a single
-        // relationship_map, not one per DBD field, matching db2table.cpp's
-        // own "needsRelation" computation.
-        std::vector<std::optional<uint32_t>> relationValues =
-            lf.nonInlineRelationColumns.empty() ? std::vector<std::optional<uint32_t>>{}
-                                                 : db2::nonInlineRelationValuesByRecord(lf.file, section);
         for (uint32_t r = 0; r < section.header.recordCount; ++r) {
-            sqlite3_reset(stmt);
-            sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(sectionIndex));
-            sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(r));
-            int bindIndex = 3;
-            if (!idSqlName.empty()) {
-                sqlite3_bind_int64(stmt, bindIndex,
-                                    static_cast<sqlite3_int64>(db2::recordId(lf.file, section, r)));
-                ++bindIndex;
-            }
-            for (size_t i = 0; i < lf.nonInlineRelationColumns.size(); ++i) {
-                std::optional<uint32_t> v = r < relationValues.size() ? relationValues[r] : std::nullopt;
-                if (v) {
-                    sqlite3_bind_int64(stmt, bindIndex, static_cast<sqlite3_int64>(*v));
-                } else {
-                    sqlite3_bind_null(stmt, bindIndex);
-                }
-                ++bindIndex;
-            }
-            std::vector<FieldValues> fields = decodeRecordValues(lf.file, section, sectionIndex, lf.bytes, r);
-            for (size_t f = 0; f < fields.size(); ++f) {
-                if (lf.dbdNames) {
-                    for (uint64_t& v : fields[f].raw) v = dbd::asDeclaredType((*lf.dbdNames)[f], v);
-                }
-                bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
-                bindFieldValues(stmt, bindIndex, fields[f], isFloat);
-                bindIndex += static_cast<int>(fields[f].str ? 1 : fields[f].raw.size());
-            }
-            int rc = sqlite3_step(stmt);
-            sqliteCheck(rc, db, "INSERT into \"" + lf.tableName + "\"");
-            ++rowCount;
+            insertRow(sectionIndex, r, db2::recordId(lf.file, section, r));
         }
+    }
+    db2::TableRows table = db2::tableRows(lf.file);
+    for (size_t i = table.storedCount; i < table.rows.size(); ++i) {
+        const db2::RowRef& copy = table.rows[i];
+        insertRow(copy.section, static_cast<uint32_t>(copy.record), copy.id);
+    }
+    if (table.unreadableCopies > 0) {
+        std::cerr << "husk: db2-export: \"" << lf.tableName << "\": " << table.unreadableCopies
+                  << " copy-table row(s) copy a record in an unreadable section -- not exported\n";
     }
     sqlite3_finalize(stmt);
     return rowCount;

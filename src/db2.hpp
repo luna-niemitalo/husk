@@ -252,6 +252,29 @@ std::vector<uint64_t> decodeField(const File& file, const Section& section, size
 // happen on a real file, but never guessed at beyond that).
 uint32_t recordId(const File& file, const Section& section, size_t recordIndex);
 
+// One row of the table as a reader sees it: a stored record, or a copy-table
+// row (the record of another ID again, under its own `id`).
+struct RowRef {
+    size_t section = 0;
+    size_t record = 0;
+    uint32_t id = 0;
+};
+
+// Every readable row of `file`, in reading order: each readable fixed-width
+// section's records, then every copy-table row. WDC5 stores identical rows
+// once and lists the other IDs in a copy table (ComponentModelFileData: 65
+// records, 59,474 copies), so a reader that skips it misses most rows.
+// A copy whose source record sits in an unreadable section (encrypted, or
+// the offset-map path) is counted in `unreadableCopies`, not returned.
+// IN (critical): a copy naming an ID no section holds throws ParseError,
+// naming both IDs.
+struct TableRows {
+    std::vector<RowRef> rows;
+    size_t storedCount = 0;  // rows[0, storedCount) are stored records, the rest copies
+    size_t unreadableCopies = 0;
+};
+TableRows tableRows(const File& file);
+
 // Resolves a `$noninline,relation$` DBD column's real per-record value from
 // `section.relationshipEntries` -- real for real tables like
 // ChrModelTextureLayer, whose CharComponentTextureLayoutsID occupies no

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace husk::db2 {
 
@@ -437,6 +439,14 @@ File parse(const std::vector<uint8_t>& buf) {
 
 namespace {
 
+// BitpackedSigned is signed by definition, whatever its flags word says
+// (ComponentModelFileData.PositionIndex's -1 is stored as 2-bit `11` with
+// the flag clear; wow.export's WDCReader sign-extends type 5 the same way).
+// Plain Bitpacked is signed only when its flag asks.
+bool signExtends(const FieldStorageInfo& info) {
+    return info.storageType == FieldCompression::BitpackedSigned || info.signExtend;
+}
+
 // Extracts `sizeBits` bits starting at `offsetBits` (both counted from the
 // start of `record`) as an unsigned value, per DB2.md's Bitpacked case:
 // "read as a little-endian value, then shifted right by (offset & 7) and
@@ -500,6 +510,50 @@ uint32_t recordId(const File& file, const Section& section, size_t recordIndex) 
         if (!values.empty()) return static_cast<uint32_t>(values[0]);
     }
     return static_cast<uint32_t>(recordIndex);
+}
+
+TableRows tableRows(const File& file) {
+    TableRows result;
+    std::unordered_map<uint32_t, size_t> rowById;  // readable stored records only
+    for (size_t s = 0; s < file.sections.size(); ++s) {
+        const Section& section = file.sections[s];
+        if (!section.recordsAvailable() || !section.offsetMap.empty()) continue;
+        for (size_t r = 0; r < section.header.recordCount; ++r) {
+            uint32_t id = recordId(file, section, r);
+            rowById.emplace(id, result.rows.size());
+            result.rows.push_back({s, r, id});
+        }
+    }
+    result.storedCount = result.rows.size();
+
+    // A copy's source may sit in a section that can't be decoded; its ID
+    // is still in that section's ID list, so "unreadable" and "absent" stay
+    // apart.
+    std::unordered_set<uint32_t> unreadableIds;
+    for (const Section& section : file.sections) {
+        if (section.recordsAvailable() && section.offsetMap.empty()) continue;
+        unreadableIds.insert(section.idList.begin(), section.idList.end());
+        unreadableIds.insert(section.offsetMapIdList.begin(), section.offsetMapIdList.end());
+    }
+
+    for (const Section& section : file.sections) {
+        for (const CopyTableEntry& copy : section.copyTable) {
+            auto source = rowById.find(copy.copiedId);
+            if (source != rowById.end()) {
+                RowRef row = result.rows[source->second];
+                row.id = copy.newId;
+                result.rows.push_back(row);
+                continue;
+            }
+            if (unreadableIds.count(copy.copiedId) || !section.recordsAvailable()) {
+                ++result.unreadableCopies;
+                continue;
+            }
+            throw ParseError("db2: copy-table row " + std::to_string(copy.newId) + " copies ID " +
+                             std::to_string(copy.copiedId) + ", expected an ID one of the file's sections holds");
+        }
+    }
+    return result;
 }
 
 std::vector<std::optional<uint32_t>> nonInlineRelationValuesByRecord(const File& file,
@@ -566,7 +620,7 @@ std::vector<uint64_t> decodeField(const File& file, const Section& section, size
         case FieldCompression::Bitpacked:
         case FieldCompression::BitpackedSigned: {
             uint64_t raw = readBits(record, info.fieldOffsetBits, info.fieldSizeBits);
-            if (info.signExtend && info.fieldSizeBits < 64) {
+            if (signExtends(info) && info.fieldSizeBits < 64) {
                 uint64_t signBit = uint64_t{1} << (info.fieldSizeBits - 1);
                 if (raw & signBit) raw |= ~((signBit << 1) - 1);
             }
@@ -745,7 +799,7 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
             case FieldCompression::Bitpacked:
             case FieldCompression::BitpackedSigned: {
                 uint64_t raw = readBits(record, static_cast<uint32_t>(cursorBits), info.fieldSizeBits);
-                if (info.signExtend && info.fieldSizeBits < 64) {
+                if (signExtends(info) && info.fieldSizeBits < 64) {
                     uint64_t signBit = uint64_t{1} << (info.fieldSizeBits - 1);
                     if (raw & signBit) raw |= ~((signBit << 1) - 1);
                 }

@@ -30,9 +30,11 @@ TEST_CASE("liquiddb::load: real 12.1.0 tables -- every type's textures split int
     std::optional<liquiddb::Data> data = liquiddb::load(kMountDb2Dir, test::testDbdDir(), err);
     INFO(err.str());
     REQUIRE(data.has_value());
-    CHECK(data->types.size() == 197);
-    CHECK(data->objects.size() == 314);
-    CHECK(data->materials.size() == 5);
+    // Counts include copy-table rows (one record stored once, listed under
+    // several IDs): LiquidObject stores 314 records for 8082 rows.
+    CHECK(data->types.size() == 199);
+    CHECK(data->objects.size() == 8082);
+    CHECK(data->materials.size() == 11);
 
     const liquiddb::TypeRow& water = data->types.at(1);
     CHECK(water.name == "Water");
