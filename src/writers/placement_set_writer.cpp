@@ -301,7 +301,7 @@ void writeParticleSystem(json::Writer& w, const canon::ParticleSystem& p) {
     writeAnimated(w, "speed_variation", p.speedVariation, writeScalarValue);
     writeAnimated(w, "vertical_range", p.verticalRange, writeScalarValue);
     writeAnimated(w, "horizontal_range", p.horizontalRange, writeScalarValue);
-    writeAnimated(w, "gravity", p.gravity, writeScalarValue);
+    writeAnimated(w, "gravity", p.gravity, writeVec3Value);
     writeAnimated(w, "lifespan", p.lifespan, writeScalarValue);
     writeAnimated(w, "emission_rate", p.emissionRate, writeScalarValue);
     writeAnimated(w, "emission_area_length", p.emissionAreaLength, writeScalarValue);

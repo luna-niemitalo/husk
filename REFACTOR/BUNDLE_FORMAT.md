@@ -531,6 +531,15 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   optional: absent when the option has none (`CategoryID` 0), never a
   reference to row 0.
 
+### Particle gravity (breaking; ships with schema 0.4.0)
+
+- `particle_system.gravity` is an `animated_vec3`: per keyframe the
+  acceleration vector `[x, y, z]` in the model's frame (z up),
+  yard/second^2. A plain M2 gravity g is `[0, 0, -g]`; an emitter with
+  particle flag `0x800000` stores a packed vector, which husk decodes
+  (`WIKI_FINDINGS/M2.md`, 80 % of sampled emitters). No scalar form and
+  no raw bits remain. `ribbon_system.gravity` stays a scalar.
+
 ## Embed or reference — one rule
 
 A payload is either external (`uri`, a relative path) or inline. Either way the

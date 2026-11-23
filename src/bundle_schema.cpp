@@ -80,8 +80,8 @@ const std::vector<std::string> kHeader = {"format", "kind", "schema_version", "s
 
 // Definitions that are real-valued and so need a unit where they are used.
 const std::set<std::string> kRealValuedDefinitions = {"vec2", "vec3", "vec4", "quat", "rgb", "rgba",
-                                                      "animated", "lifetime_curve", "inline_curve",
-                                                      "bound_number", "bound_vec3"};
+                                                      "animated", "animated_vec3", "lifetime_curve", "inline_curve",
+                                                      "vec3_curve", "bound_number", "bound_vec3"};
 
 // Keys that hold file paths: only the shared link definitions may have them.
 const std::set<std::string> kPathKeys = {"uri", "file"};
@@ -114,6 +114,8 @@ bool isRealValued(const json& node) {
     if (node.value("type", "") == "number") return true;
     if (node.value("type", "") == "array" && node.contains("items")) {
         const json& items = node["items"];
+        // A tuple's `items` is an array of per-position schemas.
+        if (!items.is_object()) return false;
         return items.value("type", "") == "number" || kRealValuedDefinitions.count(refTarget(items)) > 0;
     }
     return false;
