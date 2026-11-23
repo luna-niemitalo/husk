@@ -253,16 +253,16 @@ std::optional<canon::VecCurve> resolveColorTint(const m2::Color& color, const M2
     return constantCurve(canon::Vec3{color.color->x, color.color->y, color.color->z}, sequenceIndex);
 }
 
-std::optional<canon::ScalarCurve> resolveColorAlphaFade(const m2::Color& color, const M2MaterialInputs& m2,
-                                                          uint32_t sequenceIndex) {
+std::optional<canon::ScalarCurve> resolveColorAlpha(const m2::Color& color, const M2MaterialInputs& m2,
+                                                     uint32_t sequenceIndex) {
     if (color.alphaAnimated) return m2.blob ? fixed16Track(*m2.blob, color.alphaTrackOffset, sequenceIndex) : std::nullopt;
     if (!color.alpha || *color.alpha == 1.0f) return std::nullopt;
     return constantCurve(*color.alpha, sequenceIndex);
 }
 
-// A constant weight of 0 is kept: the batch is never drawn.
-std::optional<canon::ScalarCurve> resolveWeightFade(const m2::TextureWeight& weight, const M2MaterialInputs& m2,
-                                                      uint32_t sequenceIndex) {
+// Only 1 is the identity: a constant weight of 0 is real data and kept.
+std::optional<canon::ScalarCurve> resolveTextureWeight(const m2::TextureWeight& weight, const M2MaterialInputs& m2,
+                                                        uint32_t sequenceIndex) {
     if (weight.weightAnimated) return m2.blob ? fixed16Track(*m2.blob, weight.weightTrackOffset, sequenceIndex) : std::nullopt;
     if (!weight.weight || *weight.weight == 1.0f) return std::nullopt;
     return constantCurve(*weight.weight, sequenceIndex);
@@ -366,15 +366,11 @@ canon::MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batch
     if (batch.colorIndex != 0xFFFF) {
         const auto& color = m2.colors[batch.colorIndex];
         layer.tint = resolveColorTint(color, m2, sequenceIndex);
-        layer.alphaFade = resolveColorAlphaFade(color, m2, sequenceIndex);
+        layer.colorAlpha = resolveColorAlpha(color, m2, sequenceIndex);
     }
-
-    // M2Color alpha and M2TextureWeight multiply, but a layer has one
-    // `alphaFade`: the colour alpha wins when both are set (a known gap,
-    // CHARACTER_RENDERING.md §5).
-    if (!m2.textureWeightCombos.empty() && !layer.alphaFade) {
+    if (!m2.textureWeightCombos.empty()) {
         uint16_t weightIndex = m2.textureWeightCombos[batch.textureWeightComboIndex];
-        layer.alphaFade = resolveWeightFade(m2.textureWeights[weightIndex], m2, sequenceIndex);
+        layer.textureWeight = resolveTextureWeight(m2.textureWeights[weightIndex], m2, sequenceIndex);
     }
 
     layer.uvAnimation = uvAnimationForUnit(batch, 0, m2, sequenceIndex);

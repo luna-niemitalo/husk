@@ -198,7 +198,7 @@ TEST_CASE("husk export: a real weapon's attachments/events/lights become exactly
 // A real weapon's animated transparency fade decodes to plausible, finite,
 // in-range values -- not garbage or NaN. Ashbringer (kWeaponRibbon) has
 // real animated M2TextureWeight/M2Color batches, checked by hand.
-TEST_CASE("husk export: a real weapon's layer alpha fade curves decode to finite, in-range, time-ordered "
+TEST_CASE("husk export: a real weapon's layer color_alpha/texture_weight curves decode to finite, in-range, time-ordered "
           "keyframes" *
           doctest::skip(testWeaponRibbon().empty())) {
     fs::path dir = freshBundleDir("husk-test-fade-animation");
@@ -210,19 +210,21 @@ TEST_CASE("husk export: a real weapon's layer alpha fade curves decode to finite
     size_t animatedFades = 0;
     for (const auto& material : manifest["resources"]["materials"]) {
         for (const auto& layer : material["layers"]) {
-            if (!layer.contains("alpha_fade")) continue;
-            const auto& keyframes = layer["alpha_fade"]["keyframes"];
-            if (keyframes.size() > 1) ++animatedFades;
-            double lastTime = -1.0;
-            for (const auto& kf : keyframes) {
-                auto t = kf[0].get<double>();
-                auto v = kf[1].get<double>();
-                CHECK(std::isfinite(t));
-                CHECK(std::isfinite(v));
-                CHECK(v >= 0.0);
-                CHECK(v <= 1.0);
-                CHECK(t >= lastTime);
-                lastTime = t;
+            for (const char* key : {"color_alpha", "texture_weight"}) {
+                if (!layer.contains(key)) continue;
+                const auto& keyframes = layer[key]["keyframes"];
+                if (keyframes.size() > 1) ++animatedFades;
+                double lastTime = -1.0;
+                for (const auto& kf : keyframes) {
+                    auto t = kf[0].get<double>();
+                    auto v = kf[1].get<double>();
+                    CHECK(std::isfinite(t));
+                    CHECK(std::isfinite(v));
+                    CHECK(v >= 0.0);
+                    CHECK(v <= 1.0);
+                    CHECK(t >= lastTime);
+                    lastTime = t;
+                }
             }
         }
     }

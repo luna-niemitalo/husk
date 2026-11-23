@@ -274,6 +274,7 @@ M2 and WMO bundles share one layout.
 | `mesh.positions`, `normals`, `uv0`, `indices`, `primitives[].index_start/index_count/material_index` | unchanged |
 | `materials[m].layers[].texture_state == "resolved"` | `materials[m].layers[].texture` is an index into `resources.textures`; that entry's `state` |
 | `layers[].texture.uri` | the entry's `payload.uri` |
+| `layers[].alpha_fade` | two curves: `layers[].color_alpha` (M2Color.alpha) and `layers[].texture_weight` (M2TextureWeight); both may be set, combine them as the renderer sees fit |
 
 A WMO bundle also has:
 - `definition.placement_sets`: its doodad sets, each a document under

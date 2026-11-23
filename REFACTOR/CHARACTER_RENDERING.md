@@ -186,13 +186,15 @@ Character usage (`SHADER_FINDINGS/scan/shader_inventory.csv`):
 **Bundle bugs, husk-side, data we already have:**
 1. Env-mapped layers never flagged for 12.1 content (`textureCoordCombos` is
    empty in 132,860 of 132,863 files); armour shine falls to UV0
-   (`MATERIALS_TODO.md` §8).
+   (`MATERIALS_TODO.md` §7).
 2. Material curves from one sequence only (§7).
-3. Colour alpha and weight both animated: only colour alpha kept
-   (`m2_material_input.cpp`).
-4. `priorityPlane`/`materialLayer` unparsed (`skin.cpp:178`), so there is no
+3. `priorityPlane`/`materialLayer` unparsed (`skin.cpp:178`), so there is no
    draw order for coplanar transparent batches (eye glow over face).
-5. Flags 0x8/0x10 (no depth test/write) only in raw `source.flags`.
+4. Flags 0x8/0x10 (no depth test/write) only in raw `source.flags`.
+
+A batch's colour alpha and texture weight are both carried, as
+`color_alpha` and `texture_weight` (2026-11-24); how the client combines
+them is the consumer's call.
 
 **Unknown (client CPU side):** M2 blend 0–7 → internal blend class; per-draw
 constants (`cb0[6].z`, `cb0[8]`, `cb0[22]`, guild colours `cb0[10..12]`, dye

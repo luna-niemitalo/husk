@@ -70,8 +70,9 @@ struct M2MaterialInputs {
     // (M2Track offsets are relative to it, not the .skin file). Left
     // unset (nullptr) only by a hypothetical caller that never populated
     // it -- when unset, every
-    // *Animated track is left unresolved (MaterialLayer::tint/alphaFade/
-    // uvAnimation stay nullopt) rather than dereferencing a null blob.
+    // *Animated track is left unresolved (MaterialLayer::tint/colorAlpha/
+    // textureWeight/uvAnimation stay nullopt) rather than dereferencing a
+    // null blob.
     const std::vector<uint8_t>* blob = nullptr;
 };
 
@@ -98,7 +99,7 @@ struct M2MaterialInputs {
 //
 // `sequenceIndex` scopes every animated curve to one m2::Sequence array
 // index, the same per-sequence question assembleBoneAnimation answers for
-// bones: canon::MaterialLayer::tint/alphaFade/uvAnimation each hold exactly
+// bones: canon::MaterialLayer::tint/colorAlpha/textureWeight/uvAnimation each hold exactly
 // one canon::Curve (a single SequenceRef), not a list. A track driven by a
 // global loop gets a global-sequence curve instead (the same keys under
 // every sequence). A constant (non-animated) value other than the identity

@@ -137,7 +137,11 @@ struct MaterialLayer {
     std::optional<uint32_t> textureUnit;
     LayerRole role;
     std::optional<VecCurve> tint;
-    std::optional<ScalarCurve> alphaFade;
+    // The batch's two opacity sources, each kept as its source names it:
+    // M2Color.alpha and M2TextureWeight.weight. Both can be set; how the
+    // client combines them is not established, so the consumer decides.
+    std::optional<ScalarCurve> colorAlpha;
+    std::optional<ScalarCurve> textureWeight;
 
     // A batch's M2TextureTransform (wowdev.wiki M2#Texture_Transforms),
     // each component independently animated via canon::Curve -- the shape

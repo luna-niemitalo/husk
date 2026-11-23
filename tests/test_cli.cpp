@@ -415,7 +415,8 @@ TEST_CASE("husk export: a model with no global-sequence-driven tracks gains no e
 // A batch's M2Color/M2TextureWeight can be genuinely animated (per-sequence
 // or global-sequence keyframes), the same track shape a bone's
 // translation/rotation/scale can be: the bundle carries it as the layer's
-// tint/alpha_fade curve rather than collapsing it to a constant.
+// tint/color_alpha/texture_weight curve rather than collapsing it to a
+// constant.
 
 namespace {
 uint32_t arrayOffset(const std::vector<uint8_t>& m2, size_t headerOff) {
@@ -446,7 +447,7 @@ TEST_CASE("husk export: an animated (non-constant) M2Color track is the layer's 
 }
 
 TEST_CASE("husk export: an animated (non-constant) M2TextureWeight track is the layer's "
-          "alpha_fade curve") {
+          "texture_weight curve") {
     auto dir = defaultsDir("animatedweight");
     // 1 material, 1 textureWeight, 1 textureWeightCombos entry (its
     // zeroed default value, 0, already points at textureWeights[0]).
@@ -463,7 +464,33 @@ TEST_CASE("husk export: an animated (non-constant) M2TextureWeight track is the 
     nlohmann::json m = parseManifest(dir / "m.bundle");
     const nlohmann::json& layers = onlyMaterial(m)["layers"];
     REQUIRE(layers.size() >= 1);
-    CHECK(layers[0].contains("alpha_fade"));
+    CHECK(layers[0].contains("texture_weight"));
+    CHECK_FALSE(layers[0].contains("color_alpha"));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a batch whose M2Color alpha and M2TextureWeight both animate keeps both, "
+          "each under its own name") {
+    auto dir = defaultsDir("animatedalphaweight");
+    auto m2 = materialsFixtureM2(1, 1, 1, 1, 0, 0, 0);  // 1 material, 1 color, 1 weight + combo
+    // M2Color.alpha (offset 0x14, fixed16): opaque to half.
+    fillTrack(m2, arrayOffset(m2, 0x048) + 0x14, {0, 1000}, {{0xFF, 0x7F}, {0xFF, 0x3F}});
+    // M2TextureWeight.weight: opaque to transparent.
+    fillTrack(m2, arrayOffset(m2, 0x058), {0, 1000}, {{0xFF, 0x7F}, {0x00, 0x00}});
+    giveTextures(m2, 1);
+    writeFile(dir / "m.m2", m2);
+    writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0, .textureCount = 1, .textureWeightComboIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "m.bundle");
+    const nlohmann::json& layer = onlyMaterial(m)["layers"][0];
+    REQUIRE(layer.contains("color_alpha"));
+    REQUIRE(layer.contains("texture_weight"));
+    CHECK(layer["color_alpha"]["keyframes"][1][1].get<double>() == doctest::Approx(0x3FFF / 32767.0));
+    CHECK(layer["texture_weight"]["keyframes"][1][1].get<double>() == 0.0);
 
     fs::remove_all(dir);
 }

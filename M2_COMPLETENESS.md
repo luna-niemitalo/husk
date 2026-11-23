@@ -58,7 +58,7 @@ layout husk actually decodes for this feature:
 | External `.anim` (`AFSB`, `.skel`-linked) | full | bundle + glb | `SKB1`'s descriptors point straight into `AFSB`'s payload (`WIKI_FINDINGS/M2/anim.md`) |
 | Global-sequence bone tracks | full | bundle + glb | their own global loop, not folded into sequence clips |
 | Alias sequences (`flags & 0x40`) | full | bundle + glb | chain-walked through `aliasNext` to the terminal sequence; `0x20` (inline) wins over `0x40` (31 of 38 aliases in `bloodelffemale_hd.skel` carry both) |
-| Animated material tint/fade (`M2Color`/`M2TextureWeight`, per-sequence or global) | full | bundle | material layer `tint`/`alpha_fade` curves |
+| Animated material tint/fade (`M2Color`/`M2TextureWeight`, per-sequence or global) | full | bundle | material layer `tint`/`color_alpha`/`texture_weight` curves |
 
 ## Materials & textures
 

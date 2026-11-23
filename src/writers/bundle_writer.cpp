@@ -438,9 +438,13 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
         w.key("tint");
         writeInlineCurve(w, *layer.tint, writeVec3Value);
     }
-    if (layer.alphaFade) {
-        w.key("alpha_fade");
-        writeInlineCurve(w, *layer.alphaFade, writeScalarValue);
+    if (layer.colorAlpha) {
+        w.key("color_alpha");
+        writeInlineCurve(w, *layer.colorAlpha, writeScalarValue);
+    }
+    if (layer.textureWeight) {
+        w.key("texture_weight");
+        writeInlineCurve(w, *layer.textureWeight, writeScalarValue);
     }
     w.endObject();
 }
