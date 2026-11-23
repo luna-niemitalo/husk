@@ -44,8 +44,14 @@ message(STATUS "HUSK_VERSION: ${HUSK_VERSION}")
 # rather than assuming it's on PATH outside that shell.
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
-  set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-  set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+  # base_dir: git worktrees of this repo share hits (paths hash relative to
+  # each tree's own root). Only this is per-project; hash_dir and sloppiness
+  # come from the machine-wide $CCACHE_DIR/ccache.conf, and an inline value
+  # here would override it. Cost: debug info and __FILE__ in a hit may name
+  # another worktree.
+  set(HUSK_CCACHE_LAUNCHER "${CCACHE_PROGRAM}" "base_dir=${CMAKE_SOURCE_DIR}")
+  set(CMAKE_C_COMPILER_LAUNCHER ${HUSK_CCACHE_LAUNCHER})
+  set(CMAKE_CXX_COMPILER_LAUNCHER ${HUSK_CCACHE_LAUNCHER})
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -192,6 +198,7 @@ add_library(husk-lib STATIC
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
   src/texturefiledata_db2.cpp
+  src/component_file_db2.cpp
   src/modelfiledata_db2.cpp
   src/itemappearance_db2.cpp
   src/creature_geoset_db2.cpp
@@ -292,6 +299,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_selection.cpp
     tests/test_canon_selection_convergence.cpp
     tests/test_canon_item_convergence.cpp
+    tests/test_component_file.cpp
     tests/test_canon_material.cpp
     tests/test_writers_common.cpp
     tests/test_writers_gltf_lean.cpp
