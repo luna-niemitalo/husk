@@ -927,7 +927,7 @@ its `MAID` (the listfile only without one).
   three subzones over 31_48, 32_48, 32_49 (and slivers of 33_48/33_49).
   It exists so work can be loaded by zone: a zone is a workable size.
   With `--db2-dir`, a zone's `source` also carries its AreaTable flag
-  words as stored (optional, additive within 0.3.0): `flags` (Flags[0],
+  words as stored (optional, since 0.4.0): `flags` (Flags[0],
   Flags[1]), `mount_flags` (MountFlags), and `flag_names`, the names of
   the set bits from wowdev.wiki DB/AreaTable's 10.2 tables (Area Flags,
   Area Flags2, Area Mount Flags; WoWDBDefs names columns, not bits). A set
