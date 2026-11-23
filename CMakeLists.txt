@@ -44,16 +44,12 @@ message(STATUS "HUSK_VERSION: ${HUSK_VERSION}")
 # rather than assuming it's on PATH outside that shell.
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
-  # base_dir + hash_dir=false: git worktrees of this repo share hits (paths
-  # hash relative to each tree's own root; -g would otherwise hash the build
-  # dir). Cost: debug info and __FILE__ in a hit may name another worktree.
-  # sloppiness: the toolchain and every system header live in the immutable
-  # nix store, so skipping their hashing and mtime checks is safe.
-  set(HUSK_CCACHE_LAUNCHER
-    "${CCACHE_PROGRAM}"
-    "base_dir=${CMAKE_SOURCE_DIR}"
-    "hash_dir=false"
-    "sloppiness=system_headers,time_macros,include_file_mtime,include_file_ctime,locale")
+  # base_dir: git worktrees of this repo share hits (paths hash relative to
+  # each tree's own root). Only this is per-project; hash_dir and sloppiness
+  # come from the machine-wide $CCACHE_DIR/ccache.conf, and an inline value
+  # here would override it. Cost: debug info and __FILE__ in a hit may name
+  # another worktree.
+  set(HUSK_CCACHE_LAUNCHER "${CCACHE_PROGRAM}" "base_dir=${CMAKE_SOURCE_DIR}")
   set(CMAKE_C_COMPILER_LAUNCHER ${HUSK_CCACHE_LAUNCHER})
   set(CMAKE_CXX_COMPILER_LAUNCHER ${HUSK_CCACHE_LAUNCHER})
 endif()
