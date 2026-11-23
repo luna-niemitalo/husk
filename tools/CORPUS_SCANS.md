@@ -158,6 +158,17 @@ established this rule: a deleted predecessor of `unfillable_texture_task.py`
 superficially similar work (`husk info` per file) but had a very
 different per-file cost shape once it also did directory-listing work.
 
+## Known false positives for texture scans
+
+- **Sundered Zerethsteed** (Zereth Mortis reward mount, cervid crystal
+  construct): its real art is flat grey/white facets that read like a
+  UV-checker "missing texture" placeholder. Seen in game only; the model
+  file isn't identified yet. If a missing-texture scan flags it, or a
+  model with the same Zereth Mortis construct look, check it visually
+  before treating it as a bug.
+- **FileDataID 124154 (`black32.blp`)** on an additive material draws
+  nothing by design (`WIKI_FINDINGS/M2/rendering.md`).
+
 ## Existing tasks, for reference
 
 | Task | What it checks |

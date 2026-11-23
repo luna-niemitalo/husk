@@ -93,7 +93,12 @@ verbatim).
     gaps it found are `STYLE_CLEANUP.md` item 4.
   - Legacy glTF pipeline deleted (bdec5ce..1e4b766): `export` writes the
     model bundle; its glTF extras moved into the bundle (schema 0.3.0);
-    `--glb` is the only glTF; docs updated to match.
+    `--glb` is the only glTF; docs, comments and help text updated to
+    match (through d82fdac). export-world's model pass still passed the
+    removed `--bundle-only` and failed every run without `--skip-models`;
+    fixed with a test that runs the model pass (fb09000).
+  - 2026-11-24: playwright removed from the flake; `casc-tool` input
+    commented out of the dev shell (Luna, b13f953). No worktrees open.
 - **Next step** (pick one; each names where its detail lives):
   - MantleCore migration to the current format:
     `REFACTOR/MANTLECORE_MIGRATION.md` (placement sets, tile-local frames,

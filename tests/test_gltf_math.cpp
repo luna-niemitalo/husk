@@ -1,7 +1,6 @@
-// Tests for husk::gltf's math module (src/gltf_math.hpp/.cpp): Vec3/Vec2/
-// Quat, zUpToYUp/rotationZUpToYUp/scaleZUpToYUp.
-// Split out of the former tests/test_gltf.cpp -- see FILE_SPLIT_TODO.md
-// Item 5.
+// Tests for husk::gltf's math module (src/writers/gltf_math.hpp/.cpp):
+// Vec3/Vec2/Quat, zUpToYUp/rotationZUpToYUp/scaleZUpToYUp,
+// enforceHemisphereContinuity.
 
 #include <cmath>
 #include <doctest/doctest.h>
@@ -16,12 +15,8 @@
 // import via a real headless-Blender check (see the synthetic
 // coordinate-frame probe in tests/test_conformance.cpp, which exercises
 // this through the real Blender import path, not just this function in
-// isolation).
-// TODO: Remove: TRANSFORM_TRIAGE.md -- the formula this test used to
-// assert before the fix ((X, -Z, Y), per wowdev.wiki's literal text)
-// composed with Blender's own import conversion into a net 180-degree
-// flip, not the identity a correct round trip requires (confirmed via a
-// real headless-Blender import landing a head-height landmark bone below a feet-height one).
+// isolation). DESIGN.md's "Axis conversion is one matrix" has the rejected
+// (X, -Z, Y) formula.
 TEST_CASE("zUpToYUp: (X, Y, Z) becomes (X, Z, -Y) -- the corrected formula") {
     husk::gltf::Vec3 in{1, 2, 3};
     auto out = husk::gltf::zUpToYUp(in);
@@ -51,7 +46,7 @@ TEST_CASE("rotationZUpToYUp: identity rotation maps to identity rotation") {
 namespace {
 
 // Rotates `v` by quaternion `q` (standard active-rotation formula,
-// independent of husk's own gltf.cpp internals -- this is the test's own
+// independent of husk's own gltf_math.cpp internals -- this is the test's own
 // ground truth, not a call into the code under test).
 husk::gltf::Vec3 rotateVec(const husk::gltf::Quat& q, const husk::gltf::Vec3& v) {
     husk::gltf::Vec3 qv{q.x, q.y, q.z};
@@ -85,7 +80,6 @@ bool approxEqual(const husk::gltf::Vec3& a, const husk::gltf::Vec3& b, float eps
 // implementation bug in the conversion machinery itself (a sign error in
 // the matrix<->quat round trip, say) independently of which underlying
 // WoW->glTF matrix is in use.
-// TODO: Remove: TRANSFORM_TRIAGE.md §5a citation for this design's origin.
 TEST_CASE("rotationZUpToYUp: converting-then-rotating equals rotating-then-converting, for "
           "several real test rotations") {
     struct Case {
@@ -139,11 +133,10 @@ TEST_CASE("rotationZUpToYUp: converting-then-rotating equals rotating-then-conve
     }
 }
 
-// TODO: Remove: TODO/RENDER_QUALITY_TODO.md section 1 -- a real corpus
-// fixture (creature/corruptedtentacle/corruptedtentacle_low.m2) had a
-// skeletal animation visibly collapse/shear at large rotation angles
-// before this fix, root-caused to hemisphere discontinuities between
-// consecutive keyframes' converted quaternions.
+// Real case: creature/corruptedtentacle/corruptedtentacle_low.m2's
+// skeletal animation visibly collapses/shears at large rotation angles
+// without this, from hemisphere discontinuities between consecutive
+// keyframes' converted quaternions.
 TEST_CASE("enforceHemisphereContinuity: same-hemisphere input is returned unchanged") {
     husk::gltf::Quat prev{0.1f, 0.2f, 0.3f, 0.9f};
     husk::gltf::Quat curr{0.15f, 0.25f, 0.35f, 0.85f};  // positive dot with prev

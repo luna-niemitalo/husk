@@ -53,8 +53,8 @@ std::optional<std::string> classifyCandidateCategory(const std::filesystem::path
 // when the stem doesn't end in a digit run at all.
 //
 // Used to cross-check a candidate against this model's *own* M2 texture
-// array (`M2MaterialInputs::textureFileDataIds`, the TXID chunk) -- see
-// buildMaterialsAndPrimitives' fuzzyTexturePool filtering for why a
+// array (`TextureModelContext::ownTextureFileDataIds`, the TXID chunk) --
+// see catalog.cpp's pool setup for why a
 // candidate whose own FileDataID is already a different, specifically-
 // identified texture slot in this exact M2 is never a plausible guess for
 // an unrelated hardcoded slot.
@@ -80,7 +80,7 @@ std::vector<std::filesystem::path> filterCandidatesForType(const std::vector<std
                                                              const std::string& modelBasenameLower);
 
 // Real, corpus-wide texture-filename tokens (kTextureTagVocabulary,
-// export_texture_resolution.cpp) present anywhere in `stemLower` as a
+// texture_resolution.cpp) present anywhere in `stemLower` as a
 // substring, not a delimited token -- real ground-truth filenames run
 // tags together with no separator at all (e.g. the real
 // "bloodelffemalenakedtorsoskin00_105_hd.blp", "naked"+"torso"+"skin",
@@ -91,7 +91,7 @@ std::vector<std::filesystem::path> filterCandidatesForType(const std::vector<std
 std::set<std::string> extractTextureTags(const std::string& stemLower);
 
 // True when `stemLower` carries a real, delimited "hd" token (split on
-// '_', exact match -- same idiom as export_texture_resolution.cpp's own
+// '_', exact match -- same idiom as texture_resolution.cpp's own
 // isGlowVariantCandidate, deliberately *not* a substring test the way
 // extractTextureTags is, since "hd" as a bare substring collides with
 // real English words far more readily than the longer vocabulary tokens
@@ -103,7 +103,7 @@ bool filenameCarriesHdToken(const std::string& stemLower);
 // The real per-slot tag-conjunction query for `textureType`, when one is
 // established -- nullopt for every type this table has no confident
 // real-corpus tag for (the weapon/environment/monster replaceable types,
-// object_skin -- see export_texture_resolution.cpp's own doc comment on
+// object_skin -- see texture_resolution.cpp's own doc comment on
 // textureTypeTagClauses for why object_skin specifically can never get
 // one), in which case the caller should fall back to
 // filterCandidatesForType exactly as before this function existed.
@@ -125,7 +125,7 @@ std::pair<uint32_t, uint32_t> pngDimensions(const std::vector<uint8_t>& png);
 
 // Reorders `candidates` (in place, already filterCandidatesForType's
 // output) so the preferred default-pick lands at front() -- see
-// export_texture_resolution.cpp's own doc comment for the four real,
+// texture_resolution.cpp's own doc comment for the four real,
 // measured/verified signals this uses, in order (glow-variant preference,
 // decoded pixel area, skin_color-category preference). `byteCache` is
 // shared across every ambiguous batch this export call processes (the
@@ -140,8 +140,8 @@ void orderCandidatesForDefault(std::vector<std::filesystem::path>& candidates, c
 // The scanned, not-yet-claimed same-basename fuzzy candidate pool for one
 // model export -- see scanFuzzyTexturePool's doc comment for how it's
 // built, claimSoleFuzzyTextureCandidate's for how it's depleted. Shared
-// and depleted across every batch in one buildMaterialsAndPrimitives call,
-// never rescanned per batch (that would let every unresolved slot on a
+// and depleted across every batch of one model (sources::Catalog keeps one
+// per model), never rescanned per batch (that would let every unresolved slot on a
 // model wire in the exact same file).
 struct FuzzyTexturePool {
     std::vector<std::filesystem::path> files;
@@ -179,7 +179,7 @@ std::optional<std::filesystem::path> claimSoleFuzzyTextureCandidate(FuzzyTexture
 // FileDataID-named lookup, since a real texture directory isn't always
 // FileDataID-named. Falls back to a "_sdr" stand-in model's real (non-
 // "_sdr") basename when the direct scan finds nothing -- see
-// export_texture_resolution.cpp's own doc comment for why that specific
+// texture_resolution.cpp's own doc comment for why that specific
 // fallback is real, confirmed-by-bytes WoW naming convention, not a
 // guess. Returns an empty pool for an empty `texturesDir` or a model path
 // with no basename at all.

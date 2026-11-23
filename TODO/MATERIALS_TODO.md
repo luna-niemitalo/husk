@@ -17,26 +17,23 @@ compositing".
    the client samples for a missing height texture (`runTimeData` 0) is
    unknown. The lighting after the shader (vertex light, the `r8.x`
    flag) is not traced.
-5. **Mesh colour alpha**: a batch whose colour alpha and texture weight
-   both animate keeps only the colour's in `alpha_fade`; the shaders
-   multiply by both.
-6. **`canon::BlendOp`**: not written to the bundle; only the lean glTF
+5. **`canon::BlendOp`**: not written to the bundle; only the lean glTF
    writer reads it (its `alphaMode` fallback). Remove it or the fallback.
-7. **UV animation coverage**: a layer's transform is resolved for
+6. **UV animation coverage**: a layer's transform is resolved for
    sequence 0 (or its global loop) only, so transforms animated in other
    sequences never reach `uv_maps`. Recheck the spell fixture
    `7037014.m2` (one transform; exported none before global loops were
    read).
-8. **Environment mapping source**: the fox's vertex shader is
+7. **Environment mapping source**: the fox's vertex shader is
    `Diffuse_T1_Env` while its texture-coordinate combo gives set 0 for
    unit 1. Which one the client honours is inferred only
    (`WIKI_FINDINGS/M2/rendering.md`, `cb0[5].y`).
-9. **Effect styles as techniques**: the classic effect styles (particle
+8. **Effect styles as techniques**: the classic effect styles (particle
    and ribbon draws, fog) still carry their parameters inline; whether
    they move onto technique documents is open.
-10. **NPC bakes and composites**: a bake replaces the whole skin canvas
+9. **NPC bakes and composites**: a bake replaces the whole skin canvas
    (a slot option); nothing says which composite a preset uses vs its
    bake beyond the preset's slot choice.
-11. **Choice textures unplaced**: reported by export (`not placed`) when
+10. **Choice textures unplaced**: reported by export (`not placed`) when
    no layout layer draws the target, the material has no texture file,
    or the related choice isn't the model's.

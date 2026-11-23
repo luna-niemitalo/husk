@@ -7,12 +7,8 @@
 #include "canon_primitives.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
-// CANONICAL_MODEL.md's "One curve representation" -- today gltf::JointAnimation
-// (parallel-array TRS keyframes) and gltf::Material::AnimatedColorCurve/
-// AnimatedScalarCurve/AnimatedQuatCurve (array-of-pairs keyframes) are the
-// same concept in incompatible shapes; this is the one shape. A pure value
-// type, no consumers wired to it yet (migrating gltf_skeleton.hpp/
-// gltf_mesh.hpp onto it is separate, later work).
+// CANONICAL_MODEL.md's "One curve representation": bone TRS tracks and
+// material tint/fade/UV-transform tracks share this one shape.
 namespace husk::canon {
 
 // Which timeline a curve plays against. husk::m2 keeps two separate,
@@ -43,9 +39,8 @@ struct SequenceRef {
 enum class Interpolation { Step, Linear };
 
 // One property's worth of sampled keyframe animation -- a bone's
-// translation/rotation/scale (today's gltf::JointAnimation, one Curve per
-// property instead of three parallel-array fields) or a material's
-// tint/fade/UV-transform track (today's gltf::Material::AnimatedXCurve).
+// translation/rotation/scale (one Curve per property) or a material's
+// tint/fade/UV-transform track.
 // T is Vec3 (translation/scale/color), Quat (rotation), or float (scalar
 // weight/alpha) -- the three real value shapes this codebase resolves a
 // track into; see ScalarCurve/VecCurve/QuatCurve below. Each producer

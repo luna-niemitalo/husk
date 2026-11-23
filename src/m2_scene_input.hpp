@@ -10,9 +10,8 @@
 #include "skel.hpp"
 
 // husk::m2input: M2 -> canon::Scene (attachments, events, lights) and the
-// ribbon and particle emitters as effect instances. The legacy glTF path
-// reduces these to placement anchors
-// (export_extras.cpp); this keeps every parsed field and resolves every track.
+// ribbon and particle emitters as effect instances, keeping every parsed
+// field and resolving every track.
 namespace husk::m2input {
 
 // Particle texture slots, in layer order: the low 15 bits of

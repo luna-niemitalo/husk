@@ -68,8 +68,7 @@ TEST_CASE("sources::pathForFileDataId returns nullopt when the FileDataID has no
 }
 
 TEST_CASE("sources::pathForFileDataId does NOT require listfileRoot non-empty -- an empty root acts "
-          "as an identity join, matching export_materials.cpp's original (pre-consolidation) behavior "
-          "for a caller that passes --listfile without --listfile-root") {
+          "as an identity join, for a caller that passes --listfile without --listfile-root") {
     std::unordered_map<uint32_t, std::string> listfile{{1, "world/foo.m2"}};
     MapListfileIndex idx(listfile);
     auto result = pathForFileDataId(idx, "", 1);

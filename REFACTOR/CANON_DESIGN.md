@@ -156,9 +156,10 @@ read only as evidence of what M2 can express.
 
 **Review flags recorded at assembly (2026-09-07):**
 
-- A batch can animate `M2Color::alpha` *and* `M2TextureWeight::weight`
-  (multiplied together); `MaterialLayer` has one `alphaFade`, and the
-  assembler takes colour's. Still open (`m2_material_input.cpp`).
+- A batch can set `M2Color::alpha` *and* `M2TextureWeight::weight`:
+  `MaterialLayer` keeps both, as `colorAlpha` and `textureWeight`, named
+  after their sources. How the client combines them is not established,
+  so the consumer decides (Luna, 2026-11-24).
 - `blendMode -> BlendOp` approximated a framebuffer blend onto a texture-
   combiner op. **Resolved**: `canon::Material::framebufferBlend`
   (`FramebufferBlend`) is now its own axis.

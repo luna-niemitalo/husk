@@ -190,7 +190,7 @@ bool hasDelimitedToken(const std::string& lower, std::string_view want) {
 // because of any ambiguity in the tag data itself:
 //
 // - type 1 (skin) / type 8 (skin_extra): real, confirmed against
-//   `bloodelffemale_hd`'s own real chr_texture_layout extras --
+//   `bloodelffemale_hd`'s own real character texture layout (DB2) --
 //   these two hardcoded slots are fed by several independently-selectable
 //   ChrCustomizationOptions at once (Skin Color, Face, Tattoo Color,
 //   Bracelets/body jewelry overlays, ...), the same real "composite,
@@ -507,8 +507,7 @@ std::pair<uint32_t, uint32_t> pngDimensions(const std::vector<uint8_t>& png) {
 // measured/verified signals, in order:
 //
 // 0. `preferGlow` (the caller's own batch is itself additive, `blendMode >
-//    2` -- the same threshold `gltf::Material::blendMode`'s own doc
-//    comment already uses for "no core-glTF alphaMode equivalent"): a
+//    2`, past M2BLEND_ALPHA): a
 //    "glow" candidate (isGlowVariantCandidate) is preferred, not avoided.
 //    Real bug this closes: `creature/tripod2.m2` has two ambiguous batches
 //    sharing one same-basename candidate pool (tripod2_{blue,green,purple,
@@ -549,9 +548,9 @@ std::pair<uint32_t, uint32_t> pngDimensions(const std::vector<uint8_t>& png) {
 //    default by themselves, whatever their resolution.
 //
 // `readTextureFileBytes` result is cached in `byteCache` -- the *same*
-// `ambiguousCandidateCache` map `buildMaterialsAndPrimitives` already
-// shares across every ambiguous batch for the actual embed step, passed
-// in by reference rather than a fresh local cache. This isn't just a
+// map (sources::Catalog's `ambiguousCandidateCache_`) shared across every
+// ambiguous batch for the actual embed step, passed in by reference
+// rather than a fresh local cache. This isn't just a
 // convenience: a real character model can have dozens of batches sharing
 // one candidate pool (the exact shape `ambiguousCandidateCache`'s own doc
 // comment describes), and each one calls this function -- a fresh local

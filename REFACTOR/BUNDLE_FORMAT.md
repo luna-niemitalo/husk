@@ -464,7 +464,7 @@ To apply preset `p` (indices are into this document unless stated):
   textures to the composite inputs they name (`materials/<n>.json`,
   `target_<id>`) to compose the skin instead of using the bake. Which of
   the two the client draws for an NPC is open (TODO/MATERIALS_TODO.md
-  §10).
+  §9).
 - `shown_geosets`, when present, is the complete list of visible geosets.
 - `items[]` index `definition.items` (see "Items, physics and bone
   corrections" below). NPC equipment is a bare `ItemDisplayInfo` ref.
@@ -510,11 +510,14 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   `blend_out`, and the raw `source{flags, variation_next}`
   (`variation_next` −1 = last variation). `M2Sequence` bounds and replay
   range are not written.
-- **Material tracks.** Layer `tint`/`alpha_fade` and `uv_maps[].transform`:
-  a constant tint, alpha, texture weight or UV transform is a one-key
-  `step` curve; identity values stay absent; a constant weight of 0 is
-  kept (the batch never draws). A track a global sequence drives is that
-  global loop (`sequence_kind: global_sequence`).
+- **Material tracks.** Layer `tint`, `color_alpha`, `texture_weight` and
+  `uv_maps[].transform`: a constant tint, alpha, texture weight or UV
+  transform is a one-key `step` curve; identity values stay absent; a
+  constant weight of 0 is kept. `color_alpha` (M2Color.alpha) and
+  `texture_weight` (M2TextureWeight) are both written when both are set:
+  how the client combines them is not established, so the consumer
+  decides. A track a global sequence drives is that global loop
+  (`sequence_kind: global_sequence`).
 - **Texture identity.** A `known_unresolved` entry keeps the FileDataID it
   was looked for under (what a consumer would fetch). A resolved entry's
   FileDataID is the file the bytes are (the DB2 character tier answers a

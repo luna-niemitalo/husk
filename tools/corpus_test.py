@@ -488,8 +488,11 @@ def main():
     ap.add_argument("--anim", default="auto", choices=["auto", "inline", "none"],
                      help="--anim mode passed to husk export (default: auto, most thorough; "
                           "use 'inline' for a faster pass that skips external .anim directory search)")
-    ap.add_argument("--timeout", type=float, default=30.0, help="per-husk-invocation timeout, seconds")
-    ap.add_argument("--validator-timeout", type=float, default=120.0,
+    ap.add_argument("--timeout", type=float, default=30.0,
+                     help="per `husk info`/`dump-chunks` invocation timeout, seconds")
+    ap.add_argument("--export-timeout", type=float, default=cc.EXPORT_TIMEOUT,
+                     help="per `husk export` invocation timeout, seconds")
+    ap.add_argument("--validator-timeout", type=float, default=cc.VALIDATOR_TIMEOUT,
                      help="per-batch `husk validate-bundle` timeout, seconds")
     ap.add_argument("--skip-validator", action="store_true", help="skip the validate-bundle pass entirely")
     ap.add_argument("--skip-dump", action="store_true", help="skip the dump-chunks pass on chunked files")
@@ -515,6 +518,7 @@ def main():
     # its one configuration point.
     cc.HUSK_BIN = str(opts.husk_bin)
     cc.TIMEOUT = opts.timeout
+    cc.EXPORT_TIMEOUT = opts.export_timeout
 
     use_color = (not opts.no_color) and sys.stdout.isatty()
     console = Console(force_terminal=use_color, no_color=not use_color, highlight=False)

@@ -22,7 +22,7 @@ namespace {
 namespace fs = std::filesystem;
 
 // A minimal, real 8-byte PNG signature is enough here: readTextureFileBytes
-// (export_texture_resolution.cpp) reads a .png file's raw bytes verbatim,
+// (texture_resolution.cpp) reads a .png file's raw bytes verbatim,
 // with no decode/validation for that extension -- only .blp goes through
 // blp::decode. So any non-empty file with a .png extension is a genuine hit.
 void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {

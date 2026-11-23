@@ -3,8 +3,7 @@
 Runs, per file: independent header parse cross-check, a *rich* husk export
 (model's own directory auto-discovers --skin/--skin-dir/--anim/--skel/
 --bones-dir/--phys, --textures deliberately 'none' to keep the mass sweep
-fast/disk-bounded -- texture correctness is covered separately by the
-Blender render sample, not this pass), dump-chunks,
+fast/disk-bounded -- texture correctness is not this pass's job), dump-chunks,
 fidelity/finite/mesh_completeness bundle-content checks, and `husk
 validate-bundle` on the bundle. Validation runs per file, unbatched: the
 bundle is deleted as soon as the file's checks finish, so the scratch pool
@@ -33,7 +32,6 @@ LIVE_LOG_PATH = Path("/home/luna/dev/husk/corpus_reports/m2_full_validation_live
 
 cc.STATUS_DIR = STATUS_DIR
 cc.SCRATCH_DIR = SCRATCH_DIR
-cc.TIMEOUT = 60.0
 
 # cc.CORPUS_ROOT is deliberately NOT set here at import time: under
 # ProcessPoolExecutor's default fork start method, this module's top-level

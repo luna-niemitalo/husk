@@ -93,12 +93,14 @@ TEST_CASE("MaterialLayer: identity is a stable Ref, not a raw index") {
     CHECK_FALSE(layer.uvAnimation.has_value());
 }
 
-TEST_CASE("MaterialLayer: per-layer tint/alphaFade/uvAnimation reuse canon::Curve") {
+TEST_CASE("MaterialLayer: per-layer tint/colorAlpha/textureWeight/uvAnimation reuse canon::Curve") {
     MaterialLayer layer;
     layer.tint = VecCurve{};
     layer.tint->keyframes.emplace_back(0.0f, Vec3{1.0f, 1.0f, 1.0f});
-    layer.alphaFade = ScalarCurve{};
-    layer.alphaFade->keyframes.emplace_back(0.0f, 1.0f);
+    layer.colorAlpha = ScalarCurve{};
+    layer.colorAlpha->keyframes.emplace_back(0.0f, 1.0f);
+    layer.textureWeight = ScalarCurve{};
+    layer.textureWeight->keyframes.emplace_back(0.0f, 0.5f);
 
     MaterialLayer::TextureTransformCurves uvAnim;
     uvAnim.scaling = VecCurve{};

@@ -80,11 +80,6 @@ trusting the framework's speedup on a real multi-hour corpus run.
   look. A GPU run (`~/.claude/rules/gpu-lock.md`). `blender --background
   --factory-startup --python tools/render_lean_glb.py -- <in.glb>
   <out.png>`.
-- `corpus_scan_tasks/build_render_sample.py` — a stratified
-  (proportional-by-sqrt-per-category) sample of `.m2` paths plus every
-  file with a co-located `.phys`, one path per line
-  (`corpus_reports/render_sample.txt`). No batch renderer consumes it
-  any more.
 
 ## More scan tasks
 
@@ -231,10 +226,6 @@ docstring — read the script for the real detail, not this list:
 - `export_terrain_scene.nu` — hand-picked ADT tiles → one terrain bundle
   each plus a shared directory of the model bundles they reference (for a
   whole map, `husk export-world --map` does this in-process).
-- `playwright_mcp_launch.nu` — launch shim registered with `claude mcp add`
-  that resolves `PLAYWRIGHT_BROWSERS_PATH` via `direnv exec` at launch time
-  instead of a hardcoded `/nix/store/<hash>-...` path, so a nixpkgs bump
-  doesn't silently rot the registered MCP server path.
 - `shader_dump_watcher.nu` — watches a vkd3d-proton `VKD3D_SHADER_DUMP_PATH`
   directory for newly captured shaders and fires a desktop notification per
   new hash (deduped on `.spv` creation only), to correlate a live capture

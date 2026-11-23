@@ -1,13 +1,10 @@
-// Structural convergence proof for canon::assembleCreatureSelection and
-// canon::assembleCharacterSelection (canon_selection_builder.hpp).
+// canon::assembleCreatureSelection and canon::assembleCharacterSelection
+// (canon_selection_builder.hpp).
 //
 // assembleCreatureSelection is checked against creaturegeoset::resolveDisplay
-// (creature_geoset_db2.cpp) -- the real DB2 join export_extras.cpp's own
-// attachCreatureGeosets also drives -- REFACTOR/README.md stage 3's gate.
-// assembleCreatureSelection reuses resolveDisplay directly rather than
-// re-walking Data itself, so these checks derive an independent expectation
-// straight from creaturegeoset::Data (the same already-loaded structure
-// both assembleCreatureSelection and attachCreatureGeosets consume) using
+// (creature_geoset_db2.cpp), the real DB2 join. It reuses resolveDisplay
+// directly rather than re-walking Data itself, so these checks derive an
+// independent expectation straight from creaturegeoset::Data using
 // resolveDisplay's own documented (GeosetIndex+1)*100+GeosetValue formula,
 // not by calling assembleCreatureSelection to produce its own expected
 // values. No real local creaturedisplayinfogeosetdata.db2 fixture exists in
@@ -16,10 +13,8 @@
 // takes when its real fixture is absent.
 //
 // assembleCharacterSelection is a pure composition function over two
-// already-independently-tested inputs (a raw chosen-choice-id list,
-// mirroring attachCustomizationChoices' own as-is/no-filtering use of its
-// parsed --customization-choice-ids list -- export_extras.cpp; and a
-// std::vector<canon::Item>, canon::assembleEquippedItems' own output,
+// already-independently-tested inputs (a raw chosen-choice-id list, used
+// as-is with no filtering; and a std::vector<canon::Item>, canon::assembleEquippedItems' own output,
 // test_canon_item_convergence.cpp) -- so its checks build those inputs as
 // literals/via assembleEquippedItems and verify the composition directly,
 // not a DB2 join of its own.
@@ -83,8 +78,7 @@ TEST_CASE("canon::assembleCreatureSelection: an unrelated displayId's rows are e
 }
 
 TEST_CASE("canon::assembleCreatureSelection: enabledGeosetIds preserves resolveDisplay's own "
-          "order verbatim -- no sort/dedupe, matching attachCreatureGeosets's own "
-          "push-every-resolved-id-unchanged behavior (export_extras.cpp)") {
+          "order verbatim -- no sort/dedupe") {
     creaturegeoset::Data data;
     data.entries = {
         {1, 5, 0},  // -> 600

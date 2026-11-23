@@ -1,11 +1,6 @@
-// Structural convergence proof for m2input::assemblePrimitiveGeosets
-// (m2_mesh_input.hpp) against export_materials.cpp's batch loop, the
-// real production logic -- REFACTOR/README.md stage 3's gate. That
-// function is too entangled with material/texture resolution (DB2/listfile/
-// catalog dependencies) to call directly for just this slice, so this
+// m2input::assemblePrimitiveGeosets/assembleMesh (m2_mesh_input.hpp):
 // checks the canon result's structural properties against facts derived
-// independently, straight from the same parsed .skin tables, rather than
-// against buildMaterialsAndPrimitives's own output.
+// independently, straight from the same parsed .skin/M2 tables.
 
 #include <doctest/doctest.h>
 
@@ -32,7 +27,7 @@ std::vector<uint8_t> readFile(const std::string& path) {
 
 }  // namespace
 
-TEST_CASE("m2input::assemblePrimitiveGeosets converges with export_materials.cpp's batch loop on a "
+TEST_CASE("m2input::assemblePrimitiveGeosets matches independently derived batch facts on a "
           "real fixture" *
           doctest::skip(test::testSkin().empty())) {
     std::vector<uint8_t> file = readFile(test::testSkin());
@@ -67,9 +62,8 @@ TEST_CASE("m2input::assemblePrimitiveGeosets converges with export_materials.cpp
     // fixture's `.skin` runs to dozens/hundreds of primitives, and
     // asserting per-primitive-per-field multiplies this test's assertion
     // count by that corpus size for no added coverage (every primitive is
-    // still examined; only the assertion *count* changes). Same
-    // aggregate-then-diagnose discipline test_canon_skeleton_convergence.cpp's
-    // per-joint loop already establishes. A structural precondition that
+    // still examined; only the assertion *count* changes). A structural
+    // precondition that
     // would crash on `std::get` if false is guarded with `continue` instead
     // of `REQUIRE`.
     std::set<uint16_t> actualIds;
@@ -84,8 +78,7 @@ TEST_CASE("m2input::assemblePrimitiveGeosets converges with export_materials.cpp
         actualIds.insert(static_cast<uint16_t>(rawId));
 
         // group*100+variant must reconstruct the raw id exactly -- the
-        // same decomposition gltf_mesh.cpp's geoset_group/geoset_variant
-        // extras use, already proven correct in canon_geoset's own tests;
+        // decomposition already proven correct in canon_geoset's own tests;
         // this just confirms the real fixture's real ids decompose
         // sensibly (no negative/nonsensical values -- unsigned types make
         // "negative" impossible by construction, so this is really just a
@@ -161,8 +154,7 @@ TEST_CASE("m2input::assemblePrimitiveGeosets: the real fixture's zero-indexCount
     CHECK(!zeroCountMismatch.has_value());
 }
 
-TEST_CASE("m2input::assemblePrimitiveGeosets throws on an out-of-range skinSectionIndex, same as "
-          "export_materials.cpp's batch loop") {
+TEST_CASE("m2input::assemblePrimitiveGeosets throws on an out-of-range skinSectionIndex") {
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
 
@@ -173,7 +165,7 @@ TEST_CASE("m2input::assemblePrimitiveGeosets throws on an out-of-range skinSecti
 }
 
 TEST_CASE("m2input::assemblePrimitiveGeosets throws when a submesh's index range runs past the "
-          "triangle-index buffer, same as export_materials.cpp's batch loop") {
+          "triangle-index buffer") {
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexStart = 90;
     submeshes[0].indexCount = 20;  // 90 + 20 = 110, past a 100-entry buffer
@@ -209,7 +201,7 @@ TEST_CASE("m2input::assemblePrimitiveGeosets skips a zero-indexCount submesh, pr
 // m2input::assembleMesh
 // ---------------------------------------------------------------------
 
-TEST_CASE("m2input::assembleMesh converges with the real M2 vertex data + buildSkinning-equivalent "
+TEST_CASE("m2input::assembleMesh matches the real M2 vertex data and independently derived "
           "skinning, on a real fixture" *
           doctest::skip(test::testM2().empty() || test::testSkin().empty())) {
     m2::Model model = m2::loadModel(readFile(test::testM2()));
@@ -245,9 +237,9 @@ TEST_CASE("m2input::assembleMesh converges with the real M2 vertex data + buildS
         CHECK(mesh.uvSets[0][vi].y == v.texCoords[0].y);
     }
 
-    // Independently re-derive expected skinning -- same bounds-check/
-    // normalization as buildSkinning (export_skeleton.cpp), computed here
-    // rather than by calling m2input::assembleMesh's own output back at itself.
+    // Independently re-derive expected skinning (bounds check, uint8 ->
+    // float normalization), computed here rather than by calling
+    // m2input::assembleMesh's own output back at itself.
     bool expectSkinned = false;
     for (const auto& v : model.vertices) {
         for (int j = 0; j < 4; ++j) {
@@ -301,7 +293,7 @@ TEST_CASE("m2input::assembleMesh converges with the real M2 vertex data + buildS
     CHECK(mesh.indices == triangleIndices);
 }
 
-TEST_CASE("m2input::assembleMesh throws on an out-of-range bone index, same as buildSkinning") {
+TEST_CASE("m2input::assembleMesh throws on an out-of-range bone index") {
     std::vector<m2::Vertex> vertices(1);
     vertices[0].boneWeights[0] = 255;  // genuinely skinned -- the check must actually run
     vertices[0].boneIndices[0] = 5;    // out of range for 2 bones

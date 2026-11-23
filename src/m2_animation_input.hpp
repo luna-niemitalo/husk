@@ -10,13 +10,9 @@
 // husk::m2input: the M2 input module -- see m2_canon_input.hpp's own doc
 // comment for the split this belongs to. Assembles a bone's raw
 // translation/rotation/scale curves from an inline M2Sequence's own
-// keyframe data -- the adjacent twin of commands::buildJointAnimation
-// (export_animation.hpp), built to prove structural convergence
-// (REFACTOR/README.md stage 3's gate) without touching the existing
-// pipeline. assembleBoneAnimation covers the per-M2Sequence case
+// keyframe data. assembleBoneAnimation covers the per-M2Sequence case
 // (SequenceRef::sequence); assembleBoneAnimationGlobal (below) covers the
-// Header::globalLoops-scoped case (SequenceRef::globalSequence), the
-// adjacent twin of commands::buildGlobalSequenceAnimations. Alias-sequence
+// Header::globalLoops-scoped case (SequenceRef::globalSequence). Alias-sequence
 // resolution reuses an already-assembled AnimationClip rather than calling
 // either of these a second time (m2_canon_input.cpp's own doc comment).
 // External .anim files are handled by this same assembleBoneAnimation, via
@@ -25,17 +21,16 @@
 // sequence, as an input parameter; deciding WHICH FileDataID to fetch and
 // reading it off disk stays entirely outside canon:: and this input module
 // (REFACTOR/AUDIT.md §7.2, invariant I1: "no paths in canon::") -- see
-// commands::buildAnimations for that filesystem-touching logic, not
-// mirrored here.
+// resolveExternalAnimBlobForCanon (cmd_export_canon.cpp) for that
+// filesystem-touching logic.
 namespace husk::m2input {
 
 // `blob`/`bone`/`sequenceIndex`/`externalBlob` feed straight into
-// m2::resolveVec3TrackSequence/resolveQuatTrackSequence -- the same real
-// track-resolution functions buildAnimations calls, not a re-derivation
-// of that logic (TOOLS.md documents the cost of a hand-mirrored copy
-// silently drifting from the real thing).
+// m2::resolveVec3TrackSequence/resolveQuatTrackSequence, not a
+// re-derivation of that logic (TOOLS.md documents the cost of a
+// hand-mirrored copy silently drifting from the real thing).
 //
-// Deliberately does NOT: convert Z-up to Y-up (toGltf/toGltfScale -- a
+// Deliberately does NOT: convert Z-up to Y-up (writers/gltf_math.hpp -- a
 // writer's own axis-space choice), add bind-pose translation (glTF's
 // local-transform representation, not a fact about the M2 track's own
 // delta-from-bind-pose data), or fix quaternion hemisphere continuity.
@@ -53,7 +48,7 @@ namespace husk::m2input {
 // discontinuity at all, so the fix stays writer-side.
 //
 // `boneIndex` is carried only for repairDuplicateTimestampsAndValidate's
-// diagnostic messages (export_transform.hpp) -- reused as-is (foreign-
+// diagnostic messages (keyframe_validation.hpp) -- reused as-is (foreign-
 // data validation, not a writer convention) rather than re-implemented,
 // same one-source-of-truth reasoning as the resolve*TrackSequence calls
 // above.
@@ -62,18 +57,15 @@ std::optional<canon::BoneAnimationCurves> assembleBoneAnimation(const std::vecto
                                                                    uint32_t sequenceIndex,
                                                                    const std::vector<uint8_t>* externalBlob = nullptr);
 
-// Global-sequence counterpart to assembleBoneAnimation -- the adjacent twin
-// of commands::buildGlobalSequenceAnimations's own per-bone resolution
-// (export_animation.cpp): resolves `bone`'s translation/rotation/scale
-// tracks against `globalSequenceIndex` (an index into
-// m2::Header::globalLoops) via m2::resolveVec3GlobalSequenceTrack/
+// Global-sequence counterpart to assembleBoneAnimation: resolves `bone`'s
+// translation/rotation/scale tracks against `globalSequenceIndex` (an
+// index into m2::Header::globalLoops) via m2::resolveVec3GlobalSequenceTrack/
 // resolveQuatGlobalSequenceTrack instead of the *TrackSequence family,
-// gated per-property the same way legacy is: a track only contributes when
+// gated per-property: a track only contributes when
 // its own m2::TrackMeta::globalSequence equals `globalSequenceIndex`
 // (a bone's three tracks need not all share one global sequence, or be
 // global-sequence-driven at all). No `externalBlob` parameter -- global
-// sequences have no external-.anim mechanism of their own (see
-// buildGlobalSequenceAnimations's own doc comment). Returns nullopt under
+// sequences have no external-.anim mechanism of their own. Returns nullopt under
 // the same "nothing to animate" condition as assembleBoneAnimation.
 std::optional<canon::BoneAnimationCurves> assembleBoneAnimationGlobal(const std::vector<uint8_t>& blob,
                                                                         const m2::Bone& bone, size_t boneIndex,

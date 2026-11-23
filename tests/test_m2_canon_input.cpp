@@ -1,16 +1,11 @@
-// Structural convergence proof for m2input::buildCanonModel (m2_canon_input.hpp)
-// -- the M2 input module's own orchestration: which sequences produce a
-// clip, which batches share a material (deduped), wiring together every
-// already independently-convergence-proven canon:: piece (assembleSkeleton,
-// assembleMesh, assembleMaterial, assembleBoneAnimation) for one real M2 +
-// .skin fixture. This file checks buildCanonModel's own wiring (sizes,
-// index correspondence, filter conditions), not those pieces' internal
-// logic -- each already has its own dedicated convergence test. (This file
-// used to test canon::assembleModel directly, back when that function did
-// this orchestration itself -- see canon_model.hpp's own doc comment for
-// why that moved here, to the m2-specific input module, and
-// tests/test_canon_model.cpp for the new, much smaller test file covering
-// canon::assembleModel's own remaining pure-composition job.)
+// m2input::buildCanonModel (m2_canon_input.hpp) -- the M2 input module's
+// own orchestration: which sequences produce a clip, which batches share a
+// material (deduped), wiring together every independently tested canon::
+// piece (assembleSkeleton, assembleMesh, assembleMaterial,
+// assembleBoneAnimation) for one real M2 + .skin fixture. This file checks
+// buildCanonModel's own wiring (sizes, index correspondence, filter
+// conditions), not those pieces' internal logic -- each has its own test.
+// canon::assembleModel's pure-composition job is tests/test_canon_model.cpp's.
 
 #include <doctest/doctest.h>
 
@@ -43,7 +38,7 @@ std::vector<uint8_t> readFile(const std::string& path) {
 // one real keyframe at sequence index 0 -- enough to make a bone's
 // translation track genuinely non-empty (not the "zeroed, not empty"
 // all-nullopt case tests/test_canon_animation_convergence.cpp documents),
-// so a test exercising the empty-clip skip (canon_model.cpp's pass 1) can
+// so a test exercising the empty-clip skip (m2_canon_input.cpp's pass 1) can
 // also exercise the real "clip has data, gets emitted/reused" path. A
 // smaller, single-sequence special case of test_m2_animation_tracks.cpp's
 // own putFullTrack, not shared with it since that helper is private to
@@ -72,7 +67,7 @@ void putOneKeyframeTrack(std::vector<uint8_t>& buf, size_t trackOff, uint32_t ti
     putArray(buf, trackOff + 0x0C, 1, static_cast<uint32_t>(valOuterOff));
 }
 
-// Mirrors canon_model.cpp's own private constants/helpers -- computing an
+// Mirrors m2_canon_input.cpp's own private constants/helpers -- computing an
 // expected fact via the same lower-level m2:: production functions
 // assembleModel itself calls, never by calling assembleModel back at
 // itself. Same convention this file already established for
@@ -80,7 +75,7 @@ void putOneKeyframeTrack(std::vector<uint8_t>& buf, size_t trackOff, uint32_t ti
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 constexpr uint32_t kSequenceAliasFlag = 0x40;
 
-// Same bounded-hop resolution as canon_model.cpp's own resolveAliasChain,
+// Same bounded-hop resolution as m2_canon_input.cpp's own resolveAliasChain,
 // but returns `sequences.size()` (an always-invalid sentinel) instead of
 // throwing on a cycle/out-of-range hop -- a test computing an *expected*
 // count has no real corrupted-data case to react to here, only real
@@ -98,7 +93,7 @@ size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t star
 
 // Every distinct global-sequence index referenced by any bone track that
 // ALSO has at least one bone with real (non-empty) resolved data for it --
-// independently mirrors canon_model.cpp's own globalSequenceIndices +
+// independently mirrors m2_canon_input.cpp's own globalSequenceIndices +
 // per-clip anyBoneAnimated gating, via the same m2::readTrackMeta/
 // resolve*GlobalSequenceTrack production functions assembleModel itself
 // calls.
@@ -134,7 +129,7 @@ std::set<uint16_t> expectedGlobalSequenceClips(const m2::Model& model) {
 
 // True when at least one bone has real (non-empty) resolved translation/
 // rotation/scale data for sequence index `si` -- independently mirrors
-// canon_model.cpp pass 1's own anyBoneAnimated gate (the empty-clip skip),
+// m2_canon_input.cpp pass 1's own anyBoneAnimated gate (the empty-clip skip),
 // via the same m2::resolve*TrackSequence production functions
 // assembleBoneAnimation itself calls.
 bool sequenceHasRealBoneData(const m2::Model& model, size_t si) {
@@ -160,8 +155,7 @@ bool sequenceHasRealBoneData(const m2::Model& model, size_t si) {
 // from `blob`), while the actual timestamp/value bytes the descriptors
 // point at go into `externalBlob` instead, with their offsets relative to
 // `externalBlob`'s own buffer -- mirrors the real inline-struct/external-
-// bytes split an AFSB-sourced external .anim file has (buildAnimations's
-// own `loadedAnimBlob`, export_animation.cpp), just synthetic.
+// bytes split an AFSB-sourced external .anim file has, just synthetic.
 void putOneKeyframeTrackExternal(std::vector<uint8_t>& modelBlob, std::vector<uint8_t>& externalBlob,
                                   size_t trackOff, uint32_t timestampMs, const m2::Vec3& value) {
     if (modelBlob.size() < trackOff + 0x14) modelBlob.resize(trackOff + 0x14, 0);
@@ -226,13 +220,12 @@ TEST_CASE("m2input::buildCanonModel wires together skeleton/mesh/materials/anima
     CHECK_FALSE(unresolvedPrimitive.has_value());
 
     // Independently counted real inline-sequence count -- same bit test
-    // assembleModel itself uses (canon_model.cpp's isRealInlineSequence),
+    // buildCanonModel itself uses (m2_canon_input.cpp's isRealInlineSequence),
     // counted here from the raw parsed sequence array rather than by
     // reading result.animations.size() back at itself. Also gated on
     // sequenceHasRealBoneData: a real-inline sequence with no bone carrying
-    // any actual keyframe data for it produces no clip (canon_model.cpp
-    // pass 1's empty-clip skip, mirroring commands::buildAnimations's own
-    // `if (!anim.joints.empty())` gate) -- confirmed as a real, non-empty
+    // any actual keyframe data for it produces no clip (m2_canon_input.cpp
+    // pass 1's empty-clip skip) -- confirmed as a real, non-empty
     // case on this fixture, not a hypothetical (see REFACTOR/AUDIT.md §7.2).
     size_t expectedInlineCount = 0;
     std::unordered_set<size_t> inlineIndicesWithData;
@@ -245,7 +238,7 @@ TEST_CASE("m2input::buildCanonModel wires together skeleton/mesh/materials/anima
 
     // Independently counted pure-alias sequences whose alias chain
     // terminates at a real-inline sequence that ITSELF has real bone data
-    // -- same resolveAliasChain shape canon_model.cpp's own pass 3 uses,
+    // -- same resolveAliasChain shape m2_canon_input.cpp's own pass 3 uses,
     // computed here via the sentinel-returning test helper above instead
     // of assembleModel's own private one. A terminal with no real data
     // isn't in inlineIndicesWithData at all, so its aliases are correctly
@@ -313,7 +306,7 @@ TEST_CASE("m2input::buildCanonModel resolves a pure-alias (non-inline) sequence 
     model.bones.resize(1);
     model.blob.assign(64, 0);
     // Bone 0's translation track carries one real keyframe at sequence
-    // index 0 -- pass 1 (canon_model.cpp) now skips a sequence with no
+    // index 0 -- pass 1 (m2_canon_input.cpp) now skips a sequence with no
     // real bone data at all (the empty-clip fix), so the inline sequence
     // needs genuine data for this test to exercise the alias-reuse path
     // rather than the "nothing to reuse" one.
@@ -351,8 +344,7 @@ TEST_CASE("m2input::buildCanonModel resolves a pure-alias (non-inline) sequence 
 }
 
 TEST_CASE("m2input::buildCanonModel skips a real-inline sequence entirely when no bone has any real "
-          "keyframe data for it, mirroring commands::buildAnimations's own "
-          "'if (!anim.joints.empty())' gate") {
+          "keyframe data for it") {
     m2::Model model;
     model.bones.resize(1);  // default (zero) track offsets all point at the zeroed blob below --
                              // the real "no data at all" case, per test_canon_animation_convergence.cpp's

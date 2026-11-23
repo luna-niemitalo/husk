@@ -18,8 +18,8 @@
 //
 //   ChrCustomizationChoiceID
 //     -> ChrCustomizationElement.ChrCustomizationGeosetID  -> ChrCustomizationGeoset
-//          geoset_id = GeosetType * 100 + GeosetID  (same convention husk's
-//          own geoset_group/geoset_variant extras already use)
+//          geoset_id = GeosetType * 100 + GeosetID  (same convention
+//          canon::Geoset::fromRawId decomposes)
 //     -> ChrCustomizationElement.ChrCustomizationBoneSetID -> ChrCustomizationBoneSet
 //          .BoneFileDataID  (the real FileDataID of a '.bone' file --
 //          exactly what --bones-dir already resolves)

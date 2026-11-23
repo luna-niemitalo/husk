@@ -16,8 +16,8 @@
 #include "m2.hpp"
 #include "phys.hpp"
 
-// `husk dump-chunks`: extracts M2 data that doesn't feed into `husk
-// export`'s .glb output into readable JSON on stdout instead of leaving it
+// `husk dump-chunks`: extracts M2 data `husk export`'s model bundle doesn't
+// carry in full into readable JSON on stdout instead of leaving it
 // silently unread. Two categories, both real:
 //
 // - Legion+-only chunks (TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/
@@ -36,33 +36,20 @@
 //   record array, chunk.size/32 records; WFV2: a flat 16x float32 array).
 //   Only present in Legion+ chunked files.
 // - `ribbon_emitters`/`particle_emitters` -- core MD20 header arrays
-//   present in every version, not Legion+ chunks, but the same "no glTF
-//   slot" rationale applies: procedural emitter systems, not renderable
-//   geometry (see gltf.hpp's EmitterAnchor doc comment). `husk export`
-//   still attaches a minimal position/bone anchor to the .glb itself (see
-//   gltf::Skeleton::RibbonAnchor/ParticleAnchor), so a consumer that only
-//   needs placement doesn't need this command at all; this is the home for
-//   every other field and fully-resolved animation curve.
+//   present in every version, not Legion+ chunks: procedural emitter
+//   systems, not renderable geometry. `husk export` puts each emitter in
+//   the bundle as a bone-anchored placeholder effect instance
+//   (REFACTOR/EFFECTS.md); this is the home for every other field and
+//   fully-resolved animation curve.
 //
 // A `.phys` file, passed directly (like `.bone`), also gets its full
-// body/shape/joint/PHYV record set dumped here -- same ".glb gets a
-// minimal placement anchor, this command gets everything else" split as
-// ribbon/particle emitters above (see gltf::Skeleton::PhysicsBody's doc
-// comment).
+// body/shape/joint/PHYV record set dumped here, without exporting a model.
 //
-// This is deliberately a *separate* intermediary format, not a step toward
-// richer glTF export.
-//
-// Per FILE_SPLIT_TODO.md's Item 4, this file is now the index: the actual
-// per-chunk dumpers live in dump_chunks_misc.cpp (~30 small Legion+-tag
-// dumpers), dump_emitters.cpp (ribbon_emitters/particle_emitters), and
-// dump_phys.cpp (.phys's own body/shape/joint/PHYV set) -- all pure moves,
-// no behavior change. Only the CLI entry point and the chunk-tag dispatch
-// table stay here.
-// TODO: Remove: WFV1/WFV2/DPIV/AFRA parsing was former
-// RO_COMPLETENESS_TODO.md Item 3, see WIKI_FINDINGS.md. Ribbon/particle
-// scope was broadened from chunk-tags-only once real weapon fixtures made
-// full parsing verifiable, see WIKI_FINDINGS.md.
+// This file is the index: the per-chunk dumpers live in
+// dump_chunks_misc.cpp (~30 small Legion+-tag dumpers), dump_emitters.cpp
+// (ribbon_emitters/particle_emitters), and dump_phys.cpp (.phys's own
+// body/shape/joint/PHYV set). Only the CLI entry point and the chunk-tag
+// dispatch table stay here.
 namespace husk::commands {
 
 namespace {
@@ -91,16 +78,14 @@ void addDumpChunksOptions(CLI::App& app, DumpChunksOptions& opts) {
 int dumpChunks(int argc, char** args) {
     DumpChunksOptions opts;
     CLI::App app{
-        "Extracts M2 data husk doesn't fold into `export`'s glTF output into readable JSON on "
+        "Extracts M2 data `export`'s model bundle doesn't carry in full into readable JSON on "
         "stdout: ribbon_emitters/particle_emitters (every field and fully resolved animation "
         "curve, present in every M2 version, particle_emitters count-only below Cataclysm); "
         "Legion+ chunk tags (TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/EDGF/DBOC/"
         "TEXL/PFDC/EXP2/DETL/PCOL, all documented on wowdev.wiki, plus WFV1/WFV2/DPIV/AFRA which "
         "aren't). A .bone file (M2/.skel's BFID chunk) is also accepted -- dumps its per-bone "
         "correction matrices (src/bone.hpp). A .phys file (M2's PFID chunk) is also accepted -- "
-        "dumps every body/shape/joint/PHYV record (src/phys.hpp); `husk export --phys` attaches "
-        "only a minimal per-body placement anchor to the .glb itself, this is the home for "
-        "everything else.",
+        "dumps every body/shape/joint/PHYV record (src/phys.hpp).",
         "husk dump-chunks"};
     addDumpChunksOptions(app, opts);
 

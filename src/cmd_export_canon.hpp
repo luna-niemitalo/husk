@@ -16,10 +16,8 @@
 #include "skin.hpp"
 #include "sources/catalog.hpp"
 
-// husk::commands: `husk export --export-canon`'s own path -- REFACTOR/
-// README.md stage 3's runtime convergence gate. See cmd_export_canon.cpp's
-// doc comment for the full rationale; this header only declares the one
-// entry point cmd_export.cpp calls.
+// husk::commands: the model-bundle side of `husk export` (see
+// cmd_export_canon.cpp's top comment), called from cmd_export.cpp.
 namespace husk::commands {
 
 // One catalog.texture() call per distinct M2 texture-array index a batch

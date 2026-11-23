@@ -1,9 +1,8 @@
 # Run headlessly by tests/test_conformance.cpp (blender --background
 # --python this_file -- <bundle_dir>) to answer "does the native husk
 # bundle (REFACTOR/BUNDLE_FORMAT.md, written by writers::writeBundle) carry
-# the same mesh/skeleton content as the legacy glTF pipeline" -- WITHOUT
-# ever going through glTF or bpy.ops.import_scene.gltf on the canon side.
-# This is the whole point (REFACTOR/BLENDER_ADDON.md's "Import becomes:
+# the mesh/skeleton content the source M2 has" -- WITHOUT ever going
+# through glTF or bpy.ops.import_scene.gltf. This is the whole point (REFACTOR/BLENDER_ADDON.md's "Import becomes:
 # point at a manifest. Nothing else."): reads manifest.json + the raw
 # .bin slices directly, per bundle_writer.hpp's own doc comment, which is
 # the one canonical description of this schema.
@@ -11,11 +10,9 @@
 # This is a diagnostic probe for test_conformance.cpp, not the real
 # packaged addon (REFACTOR/BLENDER_ADDON.md) -- mesh/skeleton/base-color
 # materials only, no animation, no geosets, no customization, no
-# blend-op/tint/UV-animation shading. It exists to let a
-# --export-canon bundle be checked against real Blender-side counts the
-# same way blender_import_check.py already does for the legacy .glb, so
-# the two pipelines can be compared without gltf as an intermediary on
-# either side eventually needing to agree file-for-file.
+# blend-op/tint/UV-animation shading. It lets a model bundle be checked
+# against real Blender-side counts the same way blender_import_check.py
+# does for the lean .glb.
 #
 # Prints "HUSK_PROBE key=value" lines, same convention and parser
 # (test_conformance.cpp's parseProbeInt) as blender_import_check.py.

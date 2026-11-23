@@ -6,11 +6,9 @@
 
 using namespace husk::canon;
 
-TEST_CASE("Geoset::fromRawId decomposes group/variant the same way gltf_mesh.cpp/gltf_skeleton.cpp do") {
+TEST_CASE("Geoset::fromRawId decomposes group/variant as id/100, id%100") {
     // 301 -> group 3, variant 1: a real hairstyle-family geoset shape
-    // (hundreds digit = group, remainder = variant), same id/100,id%100
-    // split as gltf_mesh.cpp's geoset_group/geoset_variant extras and
-    // gltf_skeleton.cpp's tag-joint naming.
+    // (hundreds digit = group, remainder = variant).
     Geoset g = Geoset::fromRawId(301);
     CHECK(g.group == 3);
     CHECK(g.variant == 1);

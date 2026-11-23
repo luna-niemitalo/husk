@@ -1,12 +1,8 @@
-// Structural convergence proof for m2input::assembleBoneAnimation
-// (m2_animation_input.hpp) against commands::buildJointAnimation +
-// m2::resolveVec3TrackSequence/resolveQuatTrackSequence (export_animation.cpp),
-// the real production pipeline -- REFACTOR/README.md stage 3's gate, inline-
-// sequence scope only. Compares canon's raw-M2-space curves directly against
-// the same resolve*TrackSequence output buildJointAnimation itself consumes,
-// rather than round-tripping through gltf::JointAnimation and inverting its
-// writer-specific transforms (toGltf, bind-pose addition, toGltfScale) --
-// canon's whole point is not needing any of those to represent this data.
+// m2input::assembleBoneAnimation (m2_animation_input.hpp) against direct
+// m2::resolveVec3TrackSequence/resolveQuatTrackSequence output on a real
+// model, inline-sequence scope plus global sequences. Compares canon's
+// raw-M2-space curves directly, with no writer-side transform (axis
+// conversion, bind-pose addition) on either side.
 
 #include <doctest/doctest.h>
 
@@ -24,12 +20,9 @@ using namespace husk;
 namespace {
 
 // M2Sequence::flags bit 0x20 ("primary bone sequence": keyframe data lives
-// inline in this M2, not an external .anim file) -- private to
-// export_animation.cpp's anonymous namespace as kSequenceStoredInlineFlag,
-// no public accessor exists, so checked directly here rather than silently
-// duplicating a second copy of the constant under a different name (still
-// documented against the same wowdev.wiki source that private constant
-// cites).
+// inline in this M2, not an external .anim file), wowdev.wiki
+// M2#Animation_sequences. Private in production code (m2_canon_input.cpp),
+// so restated here.
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 
 }  // namespace
@@ -37,7 +30,7 @@ constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 namespace {
 
 // One (sequence, bone) pick plus its resolved raw track data, used to run
-// both the legacy-equivalent resolution and m2input::assembleBoneAnimation
+// both the direct track resolution and m2input::assembleBoneAnimation
 // over the exact same real inputs.
 struct Pick {
     size_t sequenceIndex = 0;
@@ -83,10 +76,8 @@ std::optional<Pick> findBestInlinePick(const m2::Model& model, ScoreFn score) {
 // the highest keyframe count) can run to dozens/hundreds of keyframes, and
 // asserting per-keyframe-per-component multiplies this test's assertion
 // count by that curve length for no added coverage (every keyframe is
-// still compared; only the assertion *count* changes). Same
-// aggregate-then-diagnose discipline test_canon_skeleton_convergence.cpp's
-// per-joint loop already establishes; INFO below names the first offending
-// keyframe/component on failure.
+// still compared; only the assertion *count* changes). INFO below names
+// the first offending keyframe/component on failure.
 void checkVecCurve(const canon::VecCurve& curve, const std::vector<std::pair<uint32_t, m2::Vec3>>& legacy,
                     uint32_t sequenceIndex, const char* property) {
     INFO("property ", property);
@@ -117,9 +108,8 @@ void checkVecCurve(const canon::VecCurve& curve, const std::vector<std::pair<uin
 // doesn't apply gltf::enforceHemisphereContinuity (see
 // m2_animation_input.hpp's doc comment -- that fix compensates for a
 // discontinuity rotationZUpToYUp's own matrix round-trip introduces, not a
-// property of the raw M2CompQuat data), and `legacy` here is the
-// pre-toGltf resolveQuatTrackSequence output, never run through that fix
-// either. A raw-value mismatch would mean raw M2 quaternion data itself is
+// property of the raw M2CompQuat data), and `legacy` here is raw
+// resolveQuatTrackSequence output, never run through that fix either. A raw-value mismatch would mean raw M2 quaternion data itself is
 // hemisphere-discontinuous -- a real design question, not something to
 // silently patch over in this comparison.
 void checkQuatCurve(const canon::QuatCurve& curve, const std::vector<std::pair<uint32_t, m2::Quat>>& legacy,
@@ -353,8 +343,8 @@ TEST_CASE("m2input::assembleBoneAnimationGlobal returns nullopt when a bone has 
     CHECK_FALSE(result.has_value());
 }
 
-TEST_CASE("m2input::assembleBoneAnimation returns nullopt when all three tracks are empty, same "
-          "nothing-to-animate case buildJointAnimation early-returns on") {
+TEST_CASE("m2input::assembleBoneAnimation returns nullopt when all three tracks are empty "
+          "(nothing to animate)") {
     // Zeroed, not empty: readTrackMeta/trackSequenceInnerArrays bounds-check
     // against the blob before deciding a track is empty, so an out-of-range
     // read (a truly empty blob) throws ParseError instead of resolving

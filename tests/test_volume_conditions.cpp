@@ -36,7 +36,7 @@ TEST_CASE("volumecond::load: real 12.1.0 Particulate and VolumeFogCondition rows
     std::optional<volumecond::Data> data = volumecond::load(kMountDb2Dir, test::testDbdDir(), err);
     INFO(err.str());
     REQUIRE(data.has_value());
-    CHECK(data->particulateConditions.size() == 79);
+    CHECK(data->particulateConditions.size() == 663);  // 79 stored records + copy-table rows
     CHECK(data->particulateConditions.at(185) == 0);
     CHECK(data->fogConditions.size() == 64);  // 65 rows, one without a fog id
     const volumecond::FogCondition& fog = data->fogConditions.at(959);

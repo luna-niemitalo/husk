@@ -1,8 +1,6 @@
-// Structural convergence proof for canon::assembleEquippedItems
-// (canon_item_builder.hpp) against itemappearance::resolve
-// (itemappearance_db2.cpp) -- the real DB2 join export_extras.cpp's own
-// attachGearAppearance loop also drives -- REFACTOR/README.md stage 3's
-// gate. assembleEquippedItems reuses itemappearance::resolve directly
+// canon::assembleEquippedItems (canon_item_builder.hpp) against the
+// itemappearance:: DB2 join (itemappearance_db2.cpp).
+// assembleEquippedItems reuses itemappearance::resolve directly
 // rather than re-walking itemappearance::Data itself, so these checks
 // derive an independent expectation straight from the already-loaded
 // itemappearance::Data/modelfiledata::Data/texturefiledata::Data structs,
@@ -69,8 +67,7 @@ TEST_CASE("canon::assembleEquippedItems: a single gear entry carrying both case-
     REQUIRE(item.slots.size() == 1);
     CHECK(item.slots[0] == "MAINHAND");
 
-    // assembleEquippedItems mirrors attachGearAppearance's own case-2-then-
-    // case-1 push order (export_extras.cpp) -- overlay first, geometry second.
+    // Case 2 before case 1: overlay first, geometry second.
     REQUIRE(item.components.size() == 2);
     REQUIRE(std::holds_alternative<canon::SectionOverlayComponent>(item.components[0]));
     const auto& overlay = std::get<canon::SectionOverlayComponent>(item.components[0]);
@@ -90,8 +87,7 @@ TEST_CASE("canon::assembleEquippedItems: a single gear entry carrying both case-
 
 TEST_CASE("canon::assembleEquippedItems: I7's own payoff -- two GearEntrys sharing one "
           "itemModifiedAppearanceId at different slots collapse into ONE canon::Item with two "
-          "slots, its components resolved once, not duplicated -- unlike attachGearAppearance's "
-          "own one-entry-per-slot shape (export_extras.cpp)") {
+          "slots, its components resolved once, not duplicated") {
     itemappearance::Data data = makeFullyResolvableData(15, 154, 1542, 160);
     modelfiledata::Data modelData{{160, {370361}}};
     texturefiledata::Data textureData{{22758, 148134}, {34187, 500001}};
@@ -143,8 +139,7 @@ TEST_CASE("canon::assembleEquippedItems: two distinct itemModifiedAppearanceIds 
 }
 
 TEST_CASE("canon::assembleEquippedItems: a real ModelResourcesID of 0 with no materials means "
-          "'no standalone geometry' -- no fabricated empty GeometryComponent, same distinction "
-          "attachGearAppearance itself must draw (export_extras.cpp's own comment there)") {
+          "'no standalone geometry' -- no fabricated empty GeometryComponent") {
     itemappearance::Data data;
     data.modifiedAppearances.push_back({367, 495});
     data.appearances.push_back({495, 233});

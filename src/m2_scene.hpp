@@ -24,7 +24,7 @@ struct Attachment {
     // Raw M2Track<uint8_t> byte offset for `animate_attached` ("whether or
     // not the attached model is animated when this model is, default
     // true") -- always set, resolved via m2::resolveRawIntTrackSequence by
-    // the caller (see gltf::Skeleton::Attachment::animateAttached).
+    // the caller (m2_scene_input.cpp, canon::Attachment::animateAttached).
     uint32_t animateAttachedTrackOffset = 0;
 };
 
@@ -54,7 +54,7 @@ struct Light {
     // Raw M2Track<C3Vector>/M2Track<float>/M2Track<uint8_t> byte offsets --
     // always set, resolved via m2::resolveVec3TrackSequence/
     // resolveFloatTrackSequence/resolveRawIntTrackSequence by the caller
-    // (see gltf::Skeleton::Light's animation curve fields).
+    // (m2_scene_input.cpp, canon_scene.hpp's light fields).
     uint32_t ambientColorTrackOffset = 0;
     uint32_t ambientIntensityTrackOffset = 0;
     uint32_t diffuseColorTrackOffset = 0;

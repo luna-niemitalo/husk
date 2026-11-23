@@ -10,8 +10,7 @@
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's Definition layer (I5) -- "what exists and what is
 // valid," scoped to one real ChrModelID. A pure value type: the bundle
-// writer consumes it (canon::Model::customization); the legacy glTF path
-// keeps its own gltf_skeleton.hpp CustomizationOption/CustomizationChoice.
+// writer consumes it (canon::Model::customization).
 namespace husk::canon {
 
 // One ChrCustomizationCategory row -- the real UI section header
@@ -33,15 +32,12 @@ struct Category {
 // chrcustomization_db2.hpp's own Resolution::geosetId already uses the
 // identical GeosetType*100+GeosetID encoding Geoset::fromRawId expects.
 //
-// Excluded on purpose: today's gltf_skeleton.hpp CustomizationChoice::Material
-// (fileDataId/materialResourcesId/relatedChoiceId/contentName). That's "what
-// realizes this choice if picked" -- Resources, not Definition -- and I5
-// names exactly this kind of blending as the problem to not reproduce.
-// boneSetId (the other real Element target, ChrCustomizationBoneSet ->
-// a .bone FileDataID) is the same Resources-layer shape as Material for
-// the identical reason and is excluded alongside it, though nothing
-// upstream exposes it as a per-choice field today to name in a doc
-// comment the way Material already is.
+// Excluded on purpose: a choice's material (fileDataId/materialResourcesId/
+// relatedChoiceId/contentName). That's "what realizes this choice if
+// picked" -- Resources, not Definition -- and I5 names exactly this kind of
+// blending as the problem to not reproduce. boneSetId (the other real
+// Element target, ChrCustomizationBoneSet -> a .bone FileDataID) is the
+// same Resources-layer shape and is excluded for the same reason.
 struct Choice {
     Ref ref;  // id = Db2Row{"ChrCustomizationChoice", row}; name empty for swatch-only choices (real Name_lang == "0")
     uint32_t orderIndex = 0;

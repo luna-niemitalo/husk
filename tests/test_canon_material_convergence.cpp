@@ -1,13 +1,7 @@
-// Structural convergence proof for m2input::assembleMaterial
-// (m2_material_input.hpp) against export_materials.cpp's per-batch
-// material construction, the real production logic -- REFACTOR/README.md
-// stage 3's gate. That function is too entangled with texture-byte
-// resolution (DB2/listfile/catalog dependencies) to call directly for just
-// this slice, so this checks the canon result's structural properties
-// against facts derived independently, straight from the same parsed M2/
-// .skin tables, rather than against buildMaterialsAndPrimitives's own
-// output -- same approach test_canon_mesh_convergence.cpp already
-// establishes for geosets.
+// m2input::assembleMaterial (m2_material_input.hpp): checks the canon
+// result's structural properties against facts derived independently,
+// straight from the same parsed M2/.skin tables -- same approach
+// test_canon_mesh_convergence.cpp takes for geosets.
 
 #include <doctest/doctest.h>
 
@@ -64,8 +58,8 @@ canon::BlendOp expectedBlendOp(uint16_t blendMode) {
 
 }  // namespace
 
-TEST_CASE("m2input::assembleMaterial converges with export_materials.cpp's per-batch material "
-          "construction on a real fixture" *
+TEST_CASE("m2input::assembleMaterial matches independently derived per-batch material facts "
+          "on a real fixture" *
           doctest::skip(test::testM2().empty() || test::testSkin().empty())) {
     m2::Model model = m2::loadModel(readFile(test::testM2()));
     std::vector<uint8_t> skinFile = readFile(test::testSkin());
@@ -80,9 +74,7 @@ TEST_CASE("m2input::assembleMaterial converges with export_materials.cpp's per-b
     // fixture's `.skin` runs to hundreds of batches, and asserting
     // per-batch-per-field multiplies this test's assertion count by that
     // corpus size for no added coverage (every batch is still examined;
-    // only the assertion *count* changes). Same aggregate-then-diagnose
-    // discipline test_canon_skeleton_convergence.cpp's per-joint loop
-    // already establishes. A structural precondition that would crash on
+    // only the assertion *count* changes). A structural precondition that would crash on
     // `std::get`/`.front()` if false is guarded with `continue` instead of
     // `REQUIRE`, so one bad batch doesn't abort inspection of the rest.
     std::optional<size_t> emptyLayersMismatch, materialIndexOOR, comboIndexOOR, textureIndexOOR,
@@ -107,8 +99,7 @@ TEST_CASE("m2input::assembleMaterial converges with export_materials.cpp's per-b
         }
         canon::BlendOp expectedOp = expectedBlendOp(model.materials[b.materialIndex].blendMode);
 
-        // Independently re-derive layer 0's real texture index the same
-        // way export_materials.cpp's batch loop does.
+        // Independently re-derive layer 0's real texture index.
         if (b.textureComboIndex >= m2in.textureCombos.size()) {
             if (!comboIndexOOR) comboIndexOOR = bi;
             continue;
@@ -183,8 +174,8 @@ TEST_CASE("m2input::assembleMaterial converges with export_materials.cpp's per-b
         }
 
         // Independently reconstruct how many additional layers should have
-        // resolved, mirroring export_materials.cpp's own break-vs-continue
-        // rule.
+        // resolved: a combo index out of range stops (break), a texture
+        // index out of range skips one layer (continue).
         size_t expectedLayerCount = 1;
         for (uint16_t layerOffset = 1; layerOffset < b.textureCount; ++layerOffset) {
             size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layerOffset;
@@ -343,8 +334,7 @@ TEST_CASE("m2input::assembleMaterial: real texture-transform curves reflect each
     CHECK(foundTransformBatch);
 }
 
-TEST_CASE("m2input::assembleMaterial throws on an out-of-range materialIndex, same as "
-          "export_materials.cpp's batch loop") {
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range materialIndex") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
 
@@ -355,8 +345,7 @@ TEST_CASE("m2input::assembleMaterial throws on an out-of-range materialIndex, sa
     CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureComboIndex, same as "
-          "export_materials.cpp's batch loop") {
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureComboIndex") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos.resize(1);
@@ -370,7 +359,7 @@ TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureComboIndex
 }
 
 TEST_CASE("m2input::assembleMaterial throws when a resolved texture index is out of range for the "
-          "primary layer, same as export_materials.cpp's batch loop") {
+          "primary layer") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {7};  // points at texture index 7
@@ -385,7 +374,7 @@ TEST_CASE("m2input::assembleMaterial throws when a resolved texture index is out
 }
 
 TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureCoordComboIndex when the "
-          "table is non-empty, same as export_materials.cpp's batch loop") {
+          "table is non-empty") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
@@ -401,8 +390,7 @@ TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureCoordCombo
     CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("m2input::assembleMaterial throws on an out-of-range colorIndex, same as "
-          "export_materials.cpp's batch loop") {
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range colorIndex") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
@@ -418,7 +406,7 @@ TEST_CASE("m2input::assembleMaterial throws on an out-of-range colorIndex, same 
 }
 
 TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureWeightComboIndex when the "
-          "table is non-empty, same as export_materials.cpp's batch loop") {
+          "table is non-empty") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
@@ -435,7 +423,7 @@ TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureWeightComb
 }
 
 TEST_CASE("m2input::assembleMaterial: an out-of-range additional-layer combo index stops emitting "
-          "further layers (break), same as export_materials.cpp's batch loop") {
+          "further layers (break)") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};  // only 1 entry -- layer 1's combo index (0+1=1) is out of range
@@ -451,7 +439,7 @@ TEST_CASE("m2input::assembleMaterial: an out-of-range additional-layer combo ind
 }
 
 TEST_CASE("m2input::assembleMaterial: an out-of-range additional-layer texture index skips just "
-          "that layer (continue), same as export_materials.cpp's batch loop") {
+          "that layer (continue)") {
     m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     // combo[0] -> texture 0 (valid), combo[1] -> texture 9 (invalid), combo[2] -> texture 0 (valid)

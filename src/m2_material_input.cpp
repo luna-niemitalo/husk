@@ -12,12 +12,8 @@ namespace husk::m2input {
 namespace {
 
 // M2BLEND_* (wowdev.wiki M2/Rendering#M2BLEND): 0 OPAQUE, 1 ALPHA_KEY,
-// 2 ALPHA, 3 NO_ALPHA_ADD, 4 ADD, 5 MOD, 6 MOD2X -- the same numeric table
-// export_texture_resolution.cpp's own alphaModeForBlend doc comment cites
-// ("0 (OPAQUE) maps directly, 1 (ALPHA_KEY) maps to MASK, and everything
-// else... maps to BLEND"). No blendModeToGxTexOp-shaped conversion exists
-// anywhere else in this codebase (confirmed by a full repo search before
-// writing this) -- BlendOp's own EGxTexOp vocabulary names a texture
+// 2 ALPHA, 3 NO_ALPHA_ADD, 4 ADD, 5 MOD, 6 MOD2X. BlendOp's own EGxTexOp
+// vocabulary names a texture
 // *combiner* stage (how one texture unit folds into the running stack
 // within a single draw), while M2Material::blendMode is that draw's final
 // *framebuffer* blend against whatever's already on screen -- a different
@@ -25,9 +21,8 @@ namespace {
 // canon::Material::framebufferBlend (framebufferBlendFor, below); this maps
 // it onto the combiner vocabulary too because BlendOp's six named modes
 // happen to name-match MOD/MOD2X/ADD closely enough to be more useful than
-// leaving every layer at the struct's bare default. This is genuinely new code, not a mirrored
-// fact from elsewhere in the pipeline -- flagged in this task's own report
-// for review, not treated as settled.
+// leaving every layer at the struct's bare default. A judgment call, not a
+// sourced fact -- not treated as settled.
 canon::BlendOp blendModeToBlendOp(uint16_t blendMode) {
     switch (blendMode) {
         case 0: return canon::BlendOp::Replace;    // OPAQUE: full replace, no blend
@@ -37,7 +32,7 @@ canon::BlendOp blendModeToBlendOp(uint16_t blendMode) {
         case 4: return canon::BlendOp::Add;        // ADD
         case 5: return canon::BlendOp::Modulate;   // MOD
         case 6: return canon::BlendOp::Modulate2x; // MOD2X
-        default: return canon::BlendOp::Fade;      // unknown mode: same "closest BLEND approximation" fallback alphaModeForBlend uses
+        default: return canon::BlendOp::Fade;      // unknown mode: closest BLEND approximation
     }
 }
 
@@ -48,11 +43,9 @@ std::optional<canon::FramebufferBlend> framebufferBlendFor(uint16_t blendMode) {
     return static_cast<canon::FramebufferBlend>(blendMode);
 }
 
-// Same decode export_texture_resolution.cpp's own decodeFixed16 uses
-// (anonymous-namespace there, not exported for reuse across the
-// commands/m2input boundary) -- wowdev.wiki M2#Colors_and_transparency's
-// "0 - transparent, 0x7FFF - opaque" scale. Duplicated, not shared: see
-// that file's own decodeFixed16 for the counterpart.
+// wowdev.wiki M2#Colors_and_transparency's "0 - transparent, 0x7FFF -
+// opaque" scale. Counterpart: m2_scene_input.cpp's decodeFixed16
+// (anonymous there too).
 float decodeFixed16(uint32_t bits) {
     auto b = static_cast<uint16_t>(bits);
     int16_t raw;
@@ -102,12 +95,9 @@ canon::ScalarCurve toScalarCurve(std::vector<std::pair<uint32_t, uint32_t>> raw,
 
 // Layer 0's UV lookup (the batch's own textureCoordComboIndex, unoffset) --
 // throws on an out-of-range index into a non-empty textureCoordCombos
-// table, same required strictness export_materials.cpp applies to this
-// exact field (that function's own throw, before its per-layer loop even
-// starts). An empty table means the model doesn't use this pre-Cataclysm
+// table. An empty table means the model doesn't use this pre-Cataclysm
 // feature at all -- every layer is UV set 0, batch.textureCoordComboIndex
-// never dereferenced, same convention M2MaterialInputs::textureCoordCombos
-// documents.
+// never dereferenced (M2MaterialInputs::textureCoordCombos).
 canon::UvRef resolveUvStrict(uint16_t coordComboIndex, const M2MaterialInputs& m2, size_t batchIndex) {
     if (m2.textureCoordCombos.empty()) return canon::UvSetIndex{0};
     if (coordComboIndex >= m2.textureCoordCombos.size()) {
@@ -121,9 +111,8 @@ canon::UvRef resolveUvStrict(uint16_t coordComboIndex, const M2MaterialInputs& m
     return canon::UvSetIndex{static_cast<uint32_t>(mapping == 1 ? 1 : 0)};
 }
 
-// A later layer's (offset-adjusted) UV lookup -- best-effort, same
-// tolerance export_materials.cpp's own additionalTextureLayers loop applies
-// to this field: an out-of-range offset (or an empty table) just falls back
+// A later layer's (offset-adjusted) UV lookup -- best-effort: an
+// out-of-range offset (or an empty table) just falls back
 // to UV set 0 rather than throwing, since this is supplementary
 // multi-texture metadata, not required for a usable layer.
 canon::UvRef resolveUvBestEffort(size_t coordComboIdx, const M2MaterialInputs& m2) {
@@ -143,8 +132,8 @@ canon::UvRef resolveUvBestEffort(size_t coordComboIdx, const M2MaterialInputs& m
 // as-is via LayerRole's open-string alternative. Only when neither of
 // those applies (type 0, an ordinary embedded/FileDataID-driven texture)
 // does this fall back to a KnownRole: Diffuse for the primary (index-0)
-// layer, since that's the one layer glTF's own baseColorTexture slot
-// actually corresponds to; Unknown for any later layer, since assigning it
+// layer, since that's the one layer a base-color slot actually
+// corresponds to; Unknown for any later layer, since assigning it
 // e.g. Detail/Specular/Emission would be guessing at a shading role real
 // M2 batch data doesn't itself assert -- that inference needs the
 // shaderId's real Combiners_* formula decoded (ShadingFunction/Function,
@@ -264,16 +253,16 @@ std::optional<canon::VecCurve> resolveColorTint(const m2::Color& color, const M2
     return constantCurve(canon::Vec3{color.color->x, color.color->y, color.color->z}, sequenceIndex);
 }
 
-std::optional<canon::ScalarCurve> resolveColorAlphaFade(const m2::Color& color, const M2MaterialInputs& m2,
-                                                          uint32_t sequenceIndex) {
+std::optional<canon::ScalarCurve> resolveColorAlpha(const m2::Color& color, const M2MaterialInputs& m2,
+                                                     uint32_t sequenceIndex) {
     if (color.alphaAnimated) return m2.blob ? fixed16Track(*m2.blob, color.alphaTrackOffset, sequenceIndex) : std::nullopt;
     if (!color.alpha || *color.alpha == 1.0f) return std::nullopt;
     return constantCurve(*color.alpha, sequenceIndex);
 }
 
-// A constant weight of 0 is kept: the batch is never drawn.
-std::optional<canon::ScalarCurve> resolveWeightFade(const m2::TextureWeight& weight, const M2MaterialInputs& m2,
-                                                      uint32_t sequenceIndex) {
+// Only 1 is the identity: a constant weight of 0 is real data and kept.
+std::optional<canon::ScalarCurve> resolveTextureWeight(const m2::TextureWeight& weight, const M2MaterialInputs& m2,
+                                                        uint32_t sequenceIndex) {
     if (weight.weightAnimated) return m2.blob ? fixed16Track(*m2.blob, weight.weightTrackOffset, sequenceIndex) : std::nullopt;
     if (!weight.weight || *weight.weight == 1.0f) return std::nullopt;
     return constantCurve(*weight.weight, sequenceIndex);
@@ -308,8 +297,7 @@ std::optional<canon::MaterialLayer::TextureTransformCurves> resolveUvAnimation(c
 // Texture unit `unit`'s coordinate animation: like its coordinate set, the
 // unit's transform is at textureTransformComboIndex + unit (wowdev.wiki
 // M2/.skin "Texture units"). Best-effort: an out-of-range combo or
-// transform index, or a combo entry of 0xFFFF, means none, same tolerance
-// export_materials.cpp applies to this field.
+// transform index, or a combo entry of 0xFFFF, means none.
 std::optional<canon::MaterialLayer::TextureTransformCurves> uvAnimationForUnit(const skin::Batch& batch, uint16_t unit,
                                                                                  const M2MaterialInputs& m2,
                                                                                  uint32_t sequenceIndex) {
@@ -347,8 +335,7 @@ void checkColorAndWeightIndices(const skin::Batch& batch, size_t batchIndex, con
 }
 
 // The required, layer-0 (primary) texture unit -- every check here throws
-// on the same corruption cases export_materials.cpp's own batch loop does
-// for its base texture, tint, and transparency-fade fields.
+// on corruption of its base texture, tint, and transparency-fade fields.
 canon::MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2,
                                            uint32_t sequenceIndex, canon::BlendOp blendOp,
                                            const TextureResolutions& textureResolutions) {
@@ -379,15 +366,11 @@ canon::MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batch
     if (batch.colorIndex != 0xFFFF) {
         const auto& color = m2.colors[batch.colorIndex];
         layer.tint = resolveColorTint(color, m2, sequenceIndex);
-        layer.alphaFade = resolveColorAlphaFade(color, m2, sequenceIndex);
+        layer.colorAlpha = resolveColorAlpha(color, m2, sequenceIndex);
     }
-
-    // M2Color alpha and M2TextureWeight multiply, but a layer has one
-    // `alphaFade`: the colour alpha wins when both are set (a known gap,
-    // CHARACTER_RENDERING.md §5).
-    if (!m2.textureWeightCombos.empty() && !layer.alphaFade) {
+    if (!m2.textureWeightCombos.empty()) {
         uint16_t weightIndex = m2.textureWeightCombos[batch.textureWeightComboIndex];
-        layer.alphaFade = resolveWeightFade(m2.textureWeights[weightIndex], m2, sequenceIndex);
+        layer.textureWeight = resolveTextureWeight(m2.textureWeights[weightIndex], m2, sequenceIndex);
     }
 
     layer.uvAnimation = uvAnimationForUnit(batch, 0, m2, sequenceIndex);
@@ -412,14 +395,10 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
                                   uint32_t sequenceIndex, const TextureResolutions& textureResolutions) {
     canon::Material result;
 
-    // export_materials.cpp checks materialIndex unconditionally, before its
-    // own `if (b.textureCount > 0)` gate -- a real gltf::Material is built
-    // from `mat` (alphaMode/blendMode/doubleSided/unlit) even for a
-    // textureless batch, so a corrupt materialIndex is a real foreign-data
-    // problem regardless of textureCount. Mirrored here with the same
-    // ordering even though canon::Material has no batch-wide equivalent of
-    // those fields to actually populate when there ends up being no layer
-    // to carry blendOp on.
+    // Checked before the textureCount gate: a textureless batch still takes
+    // its framebuffer blend and render flags from `mat`, so a corrupt
+    // materialIndex is a real foreign-data problem regardless of
+    // textureCount.
     if (batch.materialIndex >= m2.materials.size()) {
         throw std::runtime_error("batch " + std::to_string(batchIndex) + "'s materialIndex (" +
                                   std::to_string(batch.materialIndex) + ") is out of range for " +
@@ -456,9 +435,8 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
 
     // Additional texture layers (textureCount > 1): per wowdev.wiki
     // M2/.skin#Texture_units, layer i's real combo index is
-    // textureComboIndex + i. Mirrors export_materials.cpp's own
-    // additionalTextureLayers loop exactly, including its two distinct
-    // failure responses: an out-of-range *combo* index stops the loop
+    // textureComboIndex + i. Two distinct failure responses: an
+    // out-of-range *combo* index stops the loop
     // outright (further offsets only grow further out of range), while an
     // out-of-range *texture* index for one specific offset just skips that
     // one layer and keeps trying later ones.

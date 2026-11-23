@@ -430,11 +430,8 @@ int db2Build(int argc, char** args) {
 
         // One arbitrary (lowest ItemDisplayInfoID, deterministic) default
         // per model for callers that just want *a* texture, sourced only
-        // from the verified (slot-confirmed) set -- the same "one wins,
-        // the rest become extras/alternates" convention
-        // export_materials.cpp's own ambiguous-fuzzy-match handling
-        // already established (gltf::Material::alternateTextureCandidates,
-        // not yet wired to these DB2-sourced alternates -- future work).
+        // from the verified (slot-confirmed) set. The other candidates are
+        // not surfaced as alternates anywhere yet.
         sqliteCheck(sqlite3_exec(db,
                                   "CREATE VIEW model_object_skin_texture AS "
                                   "SELECT model_file_data_id, texture_file_data_id FROM model_object_skin_verified v "

@@ -5,7 +5,8 @@
     pins.url = "path:/etc/nixos/pins";
     nixpkgs.follows = "pins/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
-    casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
+    #casc-tool.inputs.pins.follows = "pins";
+    #casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
   };
 
   outputs =
@@ -14,7 +15,7 @@
       pins,
       nixpkgs,
       flake-utils,
-      casc-tool,
+      #casc-tool,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -118,7 +119,7 @@
           # dev-shell only, gcc stays the actual build compiler.
           clang-tools
           doctest
-          casc-tool.packages.${pkgs.system}.default
+         # casc-tool.packages.${pkgs.system}.default
           gltf-validator
           blender
           # vkd3d-compiler/vkd3d-dxbc: disassemble the captured DXBC shader
@@ -145,22 +146,6 @@
         # nixpkgs' package set for this.
         python = with pkgs; [
           uv
-        ];
-
-        # tools/live_gallery: a real, nix-pinned headless browser for
-        # structural/visual verification (curve playback, etc.) --
-        # playwright-driver bundles Chromium/Firefox/WebKit + the driver,
-        # pre-fetched by nix so nothing downloads at runtime. Python
-        # bindings come from `uv` (matching blp/'s own convention), pointed
-        # at these browsers via PLAYWRIGHT_BROWSERS_PATH below rather than
-        # letting `playwright install` fetch its own copy.
-        # playwright-mcp: an MCP server, lets Claude itself navigate/
-        # screenshot a running tools/live_gallery instance instead of
-        # guessing at its behavior -- register separately via `claude mcp
-        # add` (a flake package alone doesn't wire it into a session).
-        webtest = with pkgs; [
-          playwright-driver
-          playwright-mcp
         ];
       in
       {
@@ -194,12 +179,9 @@
             buildLibs
             devTools
             python
-            webtest
           ];
 
           CCACHE_DIR = "/media/luna/work/cache/ccache";
-          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
 
           shellHook = ''
                         echo "husk dev shell ${HUSK_VERSION} for ${system}"

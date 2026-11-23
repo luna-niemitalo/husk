@@ -200,7 +200,7 @@ std::optional<surfacedb::Data> loadSurfaces(const std::string& db2Dir, const std
     return data;
 }
 
-// M2s only: what `husk export --bundle-only` can export.
+// M2s only: what `husk export` can export.
 std::set<uint32_t> referencedModels(const canon::Terrain& terrain) {
     std::set<uint32_t> out;
     for (const canon::PlacedInstance& instance : terrain.doodads.instances) {

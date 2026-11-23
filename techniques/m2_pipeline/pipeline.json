@@ -18,7 +18,7 @@
       },
       "mesh_color": {
         "kind": "material_value",
-        "description": "The first layer's tint (rgb) and alpha_fade (a); white and opaque when absent."
+        "description": "The first layer's tint (rgb) and color_alpha (a); white and opaque when absent."
       },
       "lit": {
         "kind": "renderer_value",
@@ -64,7 +64,7 @@
         ]
       }
     },
-    "notes": "The result is then alpha-tested and blended per the material's framebuffer_blend technique."
+    "notes": "The result is then alpha-tested and blended per the material's framebuffer_blend technique. A layer's texture_weight is not in this formula: which per-draw constant the client feeds it into is only inferred (the *_Wgt combiners' weight, WIKI_FINDINGS/M2/rendering.md), so the consumer decides how to apply it."
   },
   "selection": {},
   "references": []

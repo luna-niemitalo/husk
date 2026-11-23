@@ -8,10 +8,7 @@
 #include "phys.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
-// CANONICAL_MODEL.md's "Version-collapsed physics" -- a pure value type, no
-// consumers wired to it yet (gltf_skeleton.hpp's PhysicsBody/PhysicsJoint
-// stay exactly as they are, as that section's own text says: they're a
-// deliberate writer-tier reduction, not the thing this file replaces).
+// CANONICAL_MODEL.md's "Version-collapsed physics" -- a pure value type.
 namespace husk::canon {
 
 // phys::File already IS the version-collapsed graph this section asks for:
@@ -28,10 +25,9 @@ using Physics = phys::File;
 // list. Contrast canon_curve.hpp's SequenceRef, which deliberately stays a
 // bare index because a sequence/global-sequence entry never carries a name
 // anywhere in this codebase (Ref's decorative fields would be dead
-// weight there): a bone is the opposite case. export_skeleton.cpp already
-// resolves real, trust-tiered bone names today (tier 0's keyBoneId table,
-// attachment/event tables, topology-synthesized fallback -- see
-// TODO/BONE_NAME_DEDUCTION_TODO.md), which is exactly the M2Embedded-vs-
+// weight there): a bone is the opposite case. Bone names come in trust
+// tiers (m2_skeleton_input.cpp: the keyBoneId table, else a synthesized
+// fallback -- see TODO/BONE_NAME_DEDUCTION_TODO.md), which is exactly the M2Embedded-vs-
 // Synthesized distinction NameSource exists to carry. So a bone reference
 // is the case *for* wrapping in Ref, not against it.
 //

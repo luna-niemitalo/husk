@@ -409,13 +409,13 @@ int exportWorld(int argc, char** args) {
         }
 
         // Pass 2: models, in-process, one shared listfile. --db2-dir/--dbd-dir
-        // none and an empty config keep per-model DB2 enrichment (legacy glTF
-        // extras only) from running once per model.
+        // none and an empty config keep DB2 loads from running once per
+        // model; the creature tables are loaded once and passed in.
         if (!opts.skipModels) {
             ExportOptions modelOpts;
             CLI::App modelApp;
             addExportOptions(modelApp, modelOpts);
-            std::vector<std::string> modelArgs = {"--bundle-only", "--listfile", opts.listfile, "--listfile-root",
+            std::vector<std::string> modelArgs = {"--listfile", opts.listfile, "--listfile-root",
                                                   opts.listfileRoot, "--db2-dir", "none", "--dbd-dir", "none",
                                                   "--config", "/dev/null"};
             std::vector<char*> argv;

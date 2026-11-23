@@ -21,9 +21,7 @@ canon::BillboardMode toBillboardMode(uint32_t flags) {
                               std::string(name));
 }
 
-// Mirrors export_skeleton.cpp's checkNoBoneCycles exactly (memoized
-// parent-chain walk, O(joints)) -- that function is private to its own
-// translation unit, so this is a reimplementation, not a shared call.
+// Memoized parent-chain walk, O(joints).
 void checkNoBoneCycles(const std::vector<canon::Joint>& joints) {
     enum class State { kUnvisited, kInProgress, kDone };
     std::vector<State> state(joints.size(), State::kUnvisited);

@@ -28,8 +28,7 @@ Resolved<std::vector<uint8_t>> resolveLiteralTextureBytes(uint32_t fdid, const s
 
 // Bytes plus the display name tier 2 derives from the listfile's own real
 // content path (`stem.filename()`) -- bundled together since both come out
-// of the same resolved path, and export_materials.cpp's call site needs
-// both (`gm.baseColorImagePng`/`gm.baseColorImageName`).
+// of the same resolved path and the caller needs both.
 struct ListfileTextureResult {
     std::vector<uint8_t> bytes;
     std::string imageName;
@@ -46,8 +45,8 @@ Resolved<ListfileTextureResult> resolveListfileTextureBytes(uint32_t fdid, const
                                                               const std::string& listfileRoot,
                                                               const std::string& texturesOutDir);
 
-// Bytes plus the two display names export_materials.cpp's fuzzy-pool call
-// site derives from the claimed candidate's own path.
+// Bytes plus the two display names derived from the claimed fuzzy-pool
+// candidate's own path.
 struct FuzzyPoolTextureResult {
     std::vector<uint8_t> bytes;
     std::string imageName;       // claimedPath.stem()

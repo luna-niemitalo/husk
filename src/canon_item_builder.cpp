@@ -48,8 +48,7 @@ std::vector<Item> assembleEquippedItems(const itemappearance::Data& data,
         // I7's own payoff: components are resolved once per distinct
         // appearance id, at its first occurrence only -- a second gear
         // entry sharing the same id must not re-resolve (and duplicate)
-        // the same component data, unlike attachGearAppearance's own
-        // one-entry-per-slot loop (export_extras.cpp).
+        // the same component data.
         if (!firstOccurrence) continue;
 
         if (!resolution.sectionMaterials.empty()) {
@@ -65,9 +64,7 @@ std::vector<Item> assembleEquippedItems(const itemappearance::Data& data,
         // A real ModelResourcesID of 0 means "no standalone geometry" (a
         // real, common case-2-only item) -- not "unresolved," since
         // itemappearance::resolve always fills the optional with
-        // DisplayInfo::modelResourcesId's raw value, zero included. Same
-        // check attachGearAppearance itself must draw for the same reason
-        // (export_extras.cpp's own comment there).
+        // DisplayInfo::modelResourcesId's raw value, zero included.
         bool hasRealModel = resolution.modelResourcesId && *resolution.modelResourcesId != 0;
         if (hasRealModel || !resolution.materials.empty()) {
             GeometryComponent geometry;

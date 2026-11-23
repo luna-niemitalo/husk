@@ -1655,9 +1655,14 @@
                       "description": "Colour multiplier over time.",
                       "x-unit": "1"
                     },
-                    "alpha_fade": {
+                    "color_alpha": {
                       "$ref": "common.schema.json#/definitions/inline_curve",
-                      "description": "Opacity multiplier over time.",
+                      "description": "The source colour's opacity over time (M2: M2Color.alpha).",
+                      "x-unit": "1"
+                    },
+                    "texture_weight": {
+                      "$ref": "common.schema.json#/definitions/inline_curve",
+                      "description": "The source texture weight over time (M2: M2TextureWeight). Kept apart from color_alpha: how the client combines the two is not established, so the consumer decides.",
                       "x-unit": "1"
                     }
                   },

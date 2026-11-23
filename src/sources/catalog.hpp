@@ -41,13 +41,10 @@ struct EncodedTexture {
     TextureEncoding encoding = TextureEncoding::Png;
     // Display name derived by whichever tier answered (the source file's own
     // stem) -- not part of I8's {bytes, encoding} payload pair itself, but
-    // every real caller (gltf::Material::baseColorImageName,
-    // --slim-textures' written filename) needs a name paired with the
-    // bytes, and `Resolved<T>::reason` is free text, not meant to be parsed
-    // back out for this. `matchedFilename` (with extension) is set
-    // alongside `imageName` (without) only for tier 3 hits -- the two real
-    // diagnostics that need it (`BuiltMaterials::FuzzyMatch`/
-    // `AmbiguousMatch`) are themselves tier-3-only.
+    // a caller naming the texture needs a name paired with the bytes, and
+    // `Resolved<T>::reason` is free text, not meant to be parsed back out
+    // for this. `matchedFilename` (with extension) is set alongside
+    // `imageName` (without) only for tier 3 hits.
     std::string imageName;
     std::string matchedFilename;
 
@@ -79,8 +76,7 @@ struct TextureModelContext {
     // model, to exclude same-basename pool candidates that are already a
     // different, specifically-identified texture belonging to *this* exact
     // M2 (see catalog.cpp's own doc comment; this is the
-    // `ethereal2_f.m2` particle-sprite-vs-hardcoded-slot bug
-    // `export_materials.cpp` used to guard against inline).
+    // `ethereal2_f.m2` particle-sprite-vs-hardcoded-slot bug).
     std::vector<uint32_t> ownTextureFileDataIds;
     // The real M2 texture-array index (m2::Texture[]) this call resolves --
     // NOT a caller-invented id. Two batches can reference the identical M2
@@ -95,14 +91,10 @@ struct TextureModelContext {
 
 // The data a DB2-character texture tier between listfile and the fuzzy pool
 // needs, already resolved by the caller before `Catalog::texture()` is ever
-// asked about a slot -- `cmd_export.cpp` already runs
-// `attachCharTextureLayout`/`attachCustomizationChoices` (into
-// `gltf::Skeleton::charTextureLayout`/`enabledMaterials`) ahead of the LOD
-// build loop that owns this `Catalog` instance, so this struct is built
-// from that output rather than a second DB2 load or a reimplementation of
-// `chrcustomization::resolveChoice`'s own relatedChoiceId filtering --
-// `sources::` stays free of any DB2/gltf dependency of its own, and the one
-// real place that chain is resolved stays the one place it's resolved (I2).
+// asked about a slot -- built by `chartexture::build`
+// (character_texture_context.hpp), so `sources::` stays free of any DB2
+// dependency of its own, and the one real place that chain is resolved
+// stays the one place it's resolved (I2).
 // Both maps are already scoped to this model's own real
 // `CharComponentTextureLayoutsID`/resolved `ChrCustomizationChoiceID`
 // selection -- `Catalog` does no further scoping of its own.
@@ -121,7 +113,7 @@ struct CharacterTextureContext {
     // ChrModelTextureTargetID -> resolved real texture FileDataID, from
     // this export's own resolved customization choices -- already filtered
     // for Element::relatedChoiceId conditions and resolved through
-    // texturefiledata.db2 (see export_extras.cpp's attachCustomizationChoices).
+    // texturefiledata.db2 (character_texture_context.cpp).
     // A target present here with `fileDataId == 0` is a real, distinct miss
     // (a material element exists but TextureFileData.db2 didn't resolve
     // it) -- never silently dropped, but never treated as a fdid to try
@@ -213,10 +205,8 @@ public:
     std::optional<Located> locateFileDataId(uint32_t fdid) const;
 
     // How many same-basename pool candidates are still unclaimed for
-    // `modelPath` -- the diagnostic `buildMaterialsAndPrimitives` used to
-    // read straight off its own local `FuzzyTexturePool` (now owned here
-    // instead). Returns 0 for a model this catalog has never scanned a pool
-    // for.
+    // `modelPath` (a diagnostic). Returns 0 for a model this catalog has
+    // never scanned a pool for.
     size_t remainingTexturePoolSize(const std::string& modelPath) const;
 
     // I4's ledger -- one line per distinct (model, textureSlotIndex) this
@@ -279,13 +269,12 @@ private:
     std::unordered_map<std::string, ModelState> modelStates_;
     // Shared across every model this catalog instance ever resolves an
     // ambiguous batch for, not just one model's own batches -- see
-    // export_texture_resolution.cpp's own `orderCandidatesForDefault` doc
-    // comment for the redundant-decode regression this avoids (1,786
-    // redundant BLP decodes on one real file before this cache existed);
-    // keyed by absolute path, so sharing it across models is strictly more
-    // effective than the original per-`buildMaterialsAndPrimitives`-call
-    // cache, never less correct (a given real file decodes to the same
-    // bytes regardless of which model's batch asked first).
+    // texture_resolution.hpp's `orderCandidatesForDefault` doc comment for
+    // the redundant-decode regression this avoids (1,786 redundant BLP
+    // decodes on one real file without it); keyed by absolute path, so
+    // sharing it across models is never less correct (a given real file
+    // decodes to the same bytes regardless of which model's batch asked
+    // first).
     std::map<std::filesystem::path, std::vector<uint8_t>> ambiguousCandidateCache_;
     std::vector<LedgerEntry> ledger_;
 };

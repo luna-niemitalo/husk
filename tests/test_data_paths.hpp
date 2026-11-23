@@ -107,7 +107,7 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // entirely. The NN -> BFID[NN] positional assignment is arbitrary for test
 // purposes, not a claimed real slot mapping (that comes from the
 // customization BoneSet chain, chrcustomization_db2.hpp) -- this
-// fixture only needs to prove the resolution/parse/extras pipeline works
+// fixture only needs to prove the resolution/parse/bundle pipeline works
 // end to end against real '.bone' bytes, not that any particular slot is
 // semantically correct. Returns "" if skelPath is empty, has no BFID chunk,
 // or none of the expected same-basename '_NN.bone' files exist next to it.
@@ -289,8 +289,7 @@ constexpr const char* kTextureTransformTranslationSkin =
 // as not yet wired into canon::Model/bundle_writer.cpp at all -- testing
 // materials against one would risk implying that whole unbuilt subsystem is
 // covered when it isn't. Real numbers: 1706 vertices, 79 bones, 18
-// animations, 1 material with 1 embedded texture, `--export-canon` reports
-// "clean, no deviations found" against this exact committed pair.
+// animations, 1 material with 1 embedded texture.
 constexpr const char* kFoxM2 = "creature/fox/fox.m2";
 constexpr const char* kFoxSkin = "creature/fox/fox00.skin";
 // ADT terrain: Crystal Lake, Elwynn (azeroth_32_49) -- the tile the terrain

@@ -293,7 +293,7 @@ def _check_one_batch(data: bytes, b_off: int, counts: dict, tallies: dict, examp
         else:
             transform_idx = counts["texture_transform_combos_values"][transform_combo_index]
             # Unlike textureCombos/textureWeightCombos (below), husk's own real code
-            # (export_materials.cpp) treats an out-of-range resolved transformIndex as
+            # (m2_material_input.cpp's uvAnimationForUnit) treats an out-of-range resolved transformIndex as
             # best-effort/skip, not a hard error -- 0xFFFF here is a real, expected
             # per-slot "no transform" sentinel *inside the combo table itself*, not
             # just on the batch's own textureTransformComboIndex field above. Confirmed

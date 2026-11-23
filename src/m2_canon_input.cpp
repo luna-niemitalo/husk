@@ -18,11 +18,9 @@ namespace husk::m2input {
 
 namespace {
 
-// Private to export_animation.cpp's anonymous namespace (see that file's
-// own comment on the wowdev.wiki M2#Animation_sequences Flags table) --
-// reimplemented here rather than exported, same one-bit-test-not-worth-a-
-// shared-header tradeoff every other canon_*_builder.cpp in this codebase
-// already accepts for a private production constant.
+// M2Sequence flags bits (wowdev.wiki M2#Animation_sequences's Flags
+// table). Duplicated in cmd_export_canon.cpp: two bit tests aren't worth a
+// shared header.
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 constexpr uint32_t kSequenceAliasFlag = 0x40;
 
@@ -32,11 +30,8 @@ bool isPureAliasSequence(const m2::Sequence& seq) {
     return (seq.flags & kSequenceStoredInlineFlag) == 0 && (seq.flags & kSequenceAliasFlag) != 0;
 }
 
-// Mirrors commands::resolveAliasChain (export_animation.cpp) exactly --
-// same bounded-hop-count defensiveness against a cyclic or out-of-range
-// aliasNext chain in real (foreign) file data, reimplemented rather than
-// called since that function lives in commands:: and this file already
-// reimplements the one bit test (kSequenceAliasFlag) it depends on.
+// Bounded hop count: a cyclic or out-of-range aliasNext chain in real
+// (foreign) file data throws instead of looping.
 size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t startIndex) {
     size_t cur = startIndex;
     for (size_t hop = 0; hop <= sequences.size(); ++hop) {
@@ -57,9 +52,8 @@ size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t star
 }
 
 // Every distinct global-sequence index actually referenced by any of
-// `bones`' translation/rotation/scale tracks -- mirrors
-// buildGlobalSequenceAnimations's own discovery exactly (export_animation.cpp):
-// does NOT iterate Header::globalLoops itself, since an entry with no bone
+// `bones`' translation/rotation/scale tracks -- does NOT iterate
+// Header::globalLoops itself, since an entry with no bone
 // track pointing at it would produce an empty, useless clip either way.
 std::set<uint16_t> globalSequenceIndices(const std::vector<uint8_t>& blob, const std::vector<m2::Bone>& bones) {
     std::set<uint16_t> indices;
@@ -183,10 +177,8 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
 
     // Animations, pass 1: one AnimationClip per sequence that is either
     // real inline OR has a caller-supplied external blob (externalAnimBlobs,
-    // ExternalAnimBlobs' own doc comment in this file's header) -- see
-    // ExternalAnimBlobs' own doc comment for the full three-pass breakdown
-    // this mirrors from buildAnimations/buildGlobalSequenceAnimations
-    // (export_animation.cpp). A pure-alias sequence is skipped here
+    // ExternalAnimBlobs' own doc comment in this file's header). Pass 2 is
+    // global sequences, pass 3 aliases. A pure-alias sequence is skipped here
     // unconditionally, even if it has its own externalAnimBlobs entry --
     // aliases resolve exclusively through pass 3 below, against their
     // terminal's index. resolvedClipIndexBySequence lets pass 3 (aliases)
@@ -195,9 +187,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     // own position.
     //
     // A sequence where NO bone has any real keyframe data (every
-    // assembleBoneAnimation call below returns nullopt) produces no clip --
-    // mirrors buildAnimations's own `if (!anim.joints.empty())` gate
-    // (export_animation.cpp) exactly.
+    // assembleBoneAnimation call below returns nullopt) produces no clip.
     std::vector<canon::AnimationClip> animations;
     std::unordered_map<size_t, size_t> resolvedClipIndexBySequence;
     for (size_t si = 0; si < sequences.size(); ++si) {
@@ -234,8 +224,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
 
     // Animations, pass 2: one AnimationClip per distinct global sequence
     // actually referenced by any bone track (globalSequenceIndices above),
-    // independent of any M2Sequence -- mirrors
-    // buildGlobalSequenceAnimations's own per-bone gating exactly.
+    // independent of any M2Sequence (per-bone gating: assembleBoneAnimationGlobal).
     for (uint16_t gs : globalSequenceIndices(blob, bones)) {
         canon::AnimationClip clip;
         clip.sequence = canon::SequenceRef::globalSequence(gs);

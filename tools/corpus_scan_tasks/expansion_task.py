@@ -1,8 +1,7 @@
 """Full-corpus scan tagging every .m2 with its real M2 version, WoW
-expansion label, and a coarse support tier -- built for
-tools/live_gallery/server.py's --expansion-data overlay, so the gallery can
-filter down to "files husk actually targets" instead of showing every file
-in a 130k-file corpus as equally in-scope.
+expansion label, and a coarse support tier, so a consumer can filter down
+to "files husk actually targets" instead of treating every file in a
+130k-file corpus as equally in-scope.
 
 Tier boundaries come straight from DESIGN.md's own stated Goal ("a real
 Blender import path for modern (Legion+, chunked) WoW M2 models") and
