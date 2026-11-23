@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 
+#include "area_db2.hpp"
 #include "test_bundle_fixtures.hpp"
 
 TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with inline and lifetime curves") {
@@ -360,6 +361,7 @@ TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id"
     northshire.ref = canon::Ref{canon::Db2Row{"AreaTable", 9}, "Northshire", canon::NameSource::Db2};
     northshire.parent = 0;
     northshire.cells.push_back({32, 49, 0.5f});
+    northshire.sourceFlags = canon::ZoneFlags{{0x40000040, 0x80}, 0x1, areadb::flagNames({0x40000040, 0x80}, 0x1)};
     world.zones = {elwynn, northshire};
 
     fs::path root = fs::temp_directory_path() / "husk-test-world-zones";
@@ -373,6 +375,18 @@ TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id"
     CHECK(zones[0]["id"] == nameUuid("zone/azeroth/AreaTable/12"));
     CHECK_FALSE(zones[0].contains("parent"));
     CHECK(zones[1]["parent"] == zones[0]["id"]);
+    CHECK_FALSE(zones[0]["source"].contains("flags"));
+    CHECK(zones[1]["source"]["flags"] == nlohmann::json::array({"0x40000040", "0x80"}));
+    CHECK(zones[1]["source"]["mount_flags"] == "0x1");
+    CHECK(zones[1]["source"]["flag_names"] ==
+          nlohmann::json::array({"AllowDueling", "IsSubzone", "NotExplorable", "AllowGroundMounts"}));
+    CHECK(bundle_schema::validateDocument(dir).empty());
+
+    // mount_flags and flag_names come with flags, never alone.
+    nlohmann::json partial = manifest;
+    partial["zones"][1]["source"].erase("flags");
+    std::ofstream(dir / "manifest.json") << partial.dump();
+    CHECK_FALSE(bundle_schema::validateDocument(dir).empty());
 
     // A parent that names no zone's id fails validation, wherever it sits in the array.
     manifest["zones"][1]["parent"] = nameUuid("zone/azeroth/AreaTable/999");

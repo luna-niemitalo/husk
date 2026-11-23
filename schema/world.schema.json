@@ -210,12 +210,47 @@
               "id": {
                 "$ref": "common.schema.json#/definitions/identity",
                 "description": "The source's own record of the zone."
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/flags",
+                  "description": "One flag word."
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "AreaTable Flags[0] and Flags[1] as stored. Absent when the source has no area table."
+              },
+              "mount_flags": {
+                "$ref": "common.schema.json#/definitions/flags",
+                "description": "AreaTable MountFlags as stored. Present exactly when flags is."
+              },
+              "flag_names": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "One set bit's name."
+                },
+                "description": "Names of the set bits of flags[0], flags[1] and mount_flags, in that order, low bit first: wowdev.wiki DB/AreaTable's 10.2 tables (Area Flags, Area Flags2, Area Mount Flags). A set bit those tables don't name is only in the raw words. Present exactly when flags is."
               }
             },
             "additionalProperties": false,
             "required": [
               "id"
-            ]
+            ],
+            "dependencies": {
+              "flags": [
+                "mount_flags",
+                "flag_names"
+              ],
+              "mount_flags": [
+                "flags"
+              ],
+              "flag_names": [
+                "flags"
+              ]
+            }
           }
         },
         "additionalProperties": false,

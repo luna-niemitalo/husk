@@ -936,6 +936,18 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
         w.beginObject();
         w.key("id");
         writeIdentity(w, zone.ref.id);
+        if (zone.sourceFlags) {
+            w.key("flags");
+            w.beginArray();
+            for (uint32_t word : zone.sourceFlags->flags) w.value(hexFlags(word));
+            w.endArray();
+            w.key("mount_flags");
+            w.value(hexFlags(zone.sourceFlags->mountFlags));
+            w.key("flag_names");
+            w.beginArray();
+            for (const std::string& name : zone.sourceFlags->names) w.value(name);
+            w.endArray();
+        }
         w.endObject();
         w.endObject();
     }
