@@ -700,13 +700,43 @@ std::optional<std::string> tryReadInlineString(const std::vector<uint8_t>& recor
     return std::string(reinterpret_cast<const char*>(record.data() + pos), end - pos);
 }
 
+// A field the layout declares a string: every byte up to the NUL, any
+// length and any byte value (localized text is UTF-8).
+std::string readTypedInlineString(const std::vector<uint8_t>& record, size_t field, size_t cursorBits,
+                                  const FieldStorageInfo& info) {
+    if (info.storageType != FieldCompression::None || info.fieldSizeBits != 32) {
+        throw ParseError("db2: offset-map field " + std::to_string(field) +
+                          " is a string in the layout, expected a 32-bit uncompressed field, got compression " +
+                          std::to_string(static_cast<int>(info.storageType)) + " of " +
+                          std::to_string(info.fieldSizeBits) + " bits");
+    }
+    if (cursorBits % 8 != 0) {
+        throw ParseError("db2: offset-map string field " + std::to_string(field) + " starts mid-byte (bit cursor " +
+                          std::to_string(cursorBits) + ")");
+    }
+    size_t pos = cursorBits / 8;
+    auto nul = std::find(record.begin() + static_cast<std::ptrdiff_t>(std::min(pos, record.size())), record.end(),
+                         uint8_t{0});
+    if (pos >= record.size() || nul == record.end()) {
+        throw ParseError("db2: offset-map string field " + std::to_string(field) + " at byte " +
+                          std::to_string(pos) + " has no NUL terminator in its " + std::to_string(record.size()) +
+                          "-byte record");
+    }
+    return std::string(record.begin() + static_cast<std::ptrdiff_t>(pos), nul);
+}
+
 }  // namespace
 
 // IN, critical: a record's fields are walked with a bit cursor, so one
 // misread field would desync every field after it; anything that doesn't
 // fit throws.
 std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const Section& section,
-                                                         size_t recordIndex) {
+                                                         size_t recordIndex, const std::vector<bool>* stringFields) {
+    if (stringFields && stringFields->size() != file.fieldStorageInfo.size()) {
+        throw ParseError("db2: offset-map decode given " + std::to_string(stringFields->size()) +
+                          " field types, expected one per field (" +
+                          std::to_string(file.fieldStorageInfo.size()) + ")");
+    }
     if (recordIndex >= section.header.recordCount) {
         throw ParseError("db2: offset-map record index " + std::to_string(recordIndex) +
                           " out of range, section has " + std::to_string(section.header.recordCount) +
@@ -753,7 +783,9 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
                 // counterpart is always a 4-byte string-table offset; a
                 // narrower/array field can never have been that shape).
                 std::optional<std::string> str;
-                if (arrayLength == 1 && info.fieldSizeBits == 32) {
+                if (stringFields) {
+                    if ((*stringFields)[f]) str = readTypedInlineString(record, f, cursorBits, info);
+                } else if (arrayLength == 1 && info.fieldSizeBits == 32) {
                     if (cursorBits % 8 != 0) {
                         throw ParseError("db2: offset-map field " + std::to_string(f) +
                                           " starts mid-byte (bit cursor " + std::to_string(cursorBits) + ")");

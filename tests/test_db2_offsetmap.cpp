@@ -327,6 +327,51 @@ TEST_CASE("db2::decodeOffsetMapRecord throws on a record too short for a declare
     CHECK_THROWS_AS(husk::db2::decodeOffsetMapRecord(file, section, 0), husk::db2::ParseError);
 }
 
+TEST_CASE("db2::decodeOffsetMapRecord with layout string flags reads short strings the guess rejects") {
+    // 12.1.5 spell.db2 row 0's shape: three empty string fields in a 4-byte
+    // record. The guess reads field 0 as integer 0 (an empty string is
+    // under its floor while a raw read still fits) and then has nothing left
+    // for field 1. The fourth byte stays unread.
+    std::vector<uint8_t> record0 = {0, 0, 0, 0};
+    auto buf = buildOffsetMapFile({32, 32, 32}, {record0});
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    CHECK_THROWS_AS(husk::db2::decodeOffsetMapRecord(file, section, 0), husk::db2::ParseError);
+
+    std::vector<bool> strings = {true, true, true};
+    auto fields = husk::db2::decodeOffsetMapRecord(file, section, 0, &strings);
+    REQUIRE(fields.size() == 3);
+    CHECK(fields[0].str == "");
+    CHECK(fields[1].str == "");
+    CHECK(fields[2].str == "");
+}
+
+TEST_CASE("db2::decodeOffsetMapRecord with layout flags: strings keep UTF-8, ints stay ints") {
+    // Field 0 an int whose bytes look like text ("Hi!" + NUL), field 1 a
+    // string with a UTF-8 'é' (0xc3 0xa9), which the guess rejects as a
+    // high byte.
+    std::vector<uint8_t> record0 = {'H', 'i', '!', 0, 'c', 'a', 'f', 0xc3, 0xa9, 0};
+    auto buf = buildOffsetMapFile({32, 32}, {record0});
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+
+    std::vector<bool> strings = {false, true};
+    auto fields = husk::db2::decodeOffsetMapRecord(file, section, 0, &strings);
+    REQUIRE(fields.size() == 2);
+    CHECK_FALSE(fields[0].str.has_value());
+    REQUIRE(fields[0].raw.size() == 1);
+    CHECK(fields[0].raw[0] == 0x00216948u);
+    CHECK(fields[1].str == "caf\xc3\xa9");
+}
+
+TEST_CASE("db2::decodeOffsetMapRecord with layout flags: a string with no NUL throws") {
+    std::vector<uint8_t> record0 = {'a', 'b', 'c', 'd'};
+    auto buf = buildOffsetMapFile({32}, {record0});
+    auto file = husk::db2::parse(buf);
+    std::vector<bool> strings = {true};
+    CHECK_THROWS_AS(husk::db2::decodeOffsetMapRecord(file, file.sections[0], 0, &strings), husk::db2::ParseError);
+}
+
 TEST_CASE("db2::decodeOffsetMapRecord throws on an out-of-range record index") {
     std::vector<uint8_t> record0 = {1, 0, 0, 0};
     auto buf = buildOffsetMapFile({32}, {record0});

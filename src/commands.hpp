@@ -161,6 +161,7 @@ void addDumpChunksOptions(CLI::App& app, DumpChunksOptions& opts);
 struct Db2InfoOptions {
     std::string model;
     std::string rowsArg = "5";
+    std::string dbdDir;
 };
 void addDb2InfoOptions(CLI::App& app, Db2InfoOptions& opts);
 

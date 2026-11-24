@@ -63,6 +63,10 @@ struct FieldValues {
     std::optional<std::string> str;  // set only for a resolved string; raw is then empty
 };
 
+bool isStringColumn(const dbd::Column& column) {
+    return column.type == dbd::ColumnType::String || column.type == dbd::ColumnType::LocString;
+}
+
 // Decodes every field of one record, from whichever section shape `section`
 // actually is. `fileBytes` is only used by the fixed-width path (the
 // offset-map path resolves strings inline, no file-wide string-table lookup
@@ -70,8 +74,8 @@ struct FieldValues {
 // needed by the fixed-width path's string offsets, which are relative to a
 // virtual all-sections blob, not to this file's own bytes directly (see
 // db2::stringOffsetSectionCorrection). `dbdNames`, when given, decides
-// which fixed-width fields are strings; without it the string-table
-// heuristic guesses, and an int whose value lands on a string start (ChrRaces
+// which fields are strings, in both section shapes; without it the decoders
+// guess, and an int whose value lands on a string start (ChrRaces
 // MaleModelFallbackSex -1) reads as that string.
 std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Section& section,
                                              size_t sectionIndex, const std::vector<uint8_t>& fileBytes,
@@ -79,7 +83,12 @@ std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Se
                                              const std::vector<dbd::Column>* dbdNames = nullptr) {
     std::vector<FieldValues> out;
     if (section.hasOffsetMap()) {
-        std::vector<db2::OffsetMapFieldValue> fields = db2::decodeOffsetMapRecord(file, section, recordIndex);
+        std::vector<bool> stringFields;
+        if (dbdNames) {
+            for (const dbd::Column& column : *dbdNames) stringFields.push_back(isStringColumn(column));
+        }
+        std::vector<db2::OffsetMapFieldValue> fields =
+            db2::decodeOffsetMapRecord(file, section, recordIndex, dbdNames ? &stringFields : nullptr);
         out.reserve(fields.size());
         for (db2::OffsetMapFieldValue& f : fields) {
             out.push_back({std::move(f.raw), std::move(f.str)});
@@ -92,8 +101,7 @@ std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Se
         std::vector<uint64_t> values = db2::decodeField(file, section, recordIndex, f);
         bool isScalarNone =
             values.size() == 1 && file.fieldStorageInfo[f].storageType == db2::FieldCompression::None;
-        bool mayBeString = !dbdNames || (*dbdNames)[f].type == dbd::ColumnType::String ||
-                           (*dbdNames)[f].type == dbd::ColumnType::LocString;
+        bool mayBeString = !dbdNames || isStringColumn((*dbdNames)[f]);
         std::optional<std::string> str;
         if (isScalarNone && mayBeString) {
             int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
@@ -213,8 +221,10 @@ void printFields(const db2::File& file) {
 // `rowLimit == SIZE_MAX` means "all". `fileBytes` is the original file
 // buffer, needed by the fixed-width path's string heuristic (db2::
 // resolveFieldString resolves an absolute file position, not a
-// section-relative one); unused for an offset-map section.
-void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, size_t rowLimit) {
+// section-relative one); unused for an offset-map section. `dbdNames`:
+// the layout's columns, when resolved (decodeRecordValues).
+void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, size_t rowLimit,
+               const std::vector<dbd::Column>* dbdNames) {
     const db2::Section* section = nullptr;
     size_t sectionIndex = 0;
     for (size_t i = 0; i < file.sections.size(); ++i) {
@@ -232,10 +242,12 @@ void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, siz
     std::cout << "  rows (" << n << " of " << section->header.recordCount << "):\n";
     for (size_t r = 0; r < n; ++r) {
         std::cout << "    row " << r << ":";
-        std::vector<FieldValues> fields = decodeRecordValues(file, *section, sectionIndex, fileBytes, r);
+        std::vector<FieldValues> fields = decodeRecordValues(file, *section, sectionIndex, fileBytes, r, dbdNames);
         for (size_t f = 0; f < fields.size(); ++f) {
             const FieldValues& values = fields[f];
-            std::cout << " [" << f << "]=";
+            std::cout << " [" << f;
+            if (dbdNames) std::cout << " " << (*dbdNames)[f].name;
+            std::cout << "]=";
             if (values.str) {
                 std::cout << "\"" << *values.str << "\"";
             } else if (values.raw.size() > 1) {
@@ -335,9 +347,9 @@ void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const FieldValues& 
     }
     for (size_t i = 0; i < values.raw.size(); ++i) {
         int bindIndex = firstBindIndex + static_cast<int>(i);
-        if (isFloat && values.raw.size() == 1) {
+        if (isFloat) {
             float f;
-            auto bits = static_cast<uint32_t>(values.raw[0]);
+            auto bits = static_cast<uint32_t>(values.raw[i]);
             std::memcpy(&f, &bits, sizeof(f));
             sqlite3_bind_double(stmt, bindIndex, static_cast<double>(f));
             continue;
@@ -676,9 +688,15 @@ int db2Export(int argc, char** args) {
 }
 
 void addDb2InfoOptions(CLI::App& app, Db2InfoOptions& opts) {
+    addConfigOption(app);
     app.add_option("model", opts.model, "the .db2 file to inspect")->required();
     app.add_option("--rows", opts.rowsArg, "how many decoded rows to dump, or 'all'")
         ->capture_default_str();
+    app.add_option("--dbd-dir", opts.dbdDir,
+                    "a local WoWDBDefs checkout: names the dumped rows' columns and says which fields "
+                    "are strings, instead of guessing. Optional; without it, or without a matching "
+                    "layout, fields go by index and strings are guessed. 'none' explicitly opts out "
+                    "even when --config/$HUSK_CONFIG supplies a value");
 }
 
 int db2Info(int argc, char** args) {
@@ -687,9 +705,9 @@ int db2Info(int argc, char** args) {
         "Parses a WDC5 DB2 file and prints its header, per-section layout, and per-field storage "
         "info. With --rows (default 5, 0 for none, 'all' for every record), also dumps that many "
         "decoded rows from the first non-encrypted section (fixed-width or offset-map/sparse) -- "
-        "raw values per field, with a best-effort string heuristic. Proof of concept: field "
-        "names are not known (WDC5 carries no column names, only positions/sizes), so fields are "
-        "identified by index only.",
+        "raw values per field. WDC5 carries no column names or types: with --dbd-dir the "
+        "WoWDBDefs layout names each field and says which are strings; without it fields go by "
+        "index and strings are guessed.",
         "husk db2-info"};
     addDb2InfoOptions(app, opts);
 
@@ -721,6 +739,20 @@ int db2Info(int argc, char** args) {
         return 1;
     }
 
+    std::string dbdDir = opts.dbdDir == "none" ? "" : opts.dbdDir;
+    std::optional<std::vector<dbd::Column>> dbdNames;
+    if (!dbdDir.empty()) {
+        std::optional<dbd::Table> table = dbd::loadTableForHash(dbdDir, file.header.tableHash);
+        const dbd::Layout* layout = table ? dbd::findLayout(*table, file.header.layoutHash) : nullptr;
+        if (layout) {
+            dbdNames = dbd::resolveFieldNames(*table, *layout, file.fieldStorageInfo);
+        } else {
+            std::cerr << "husk: db2-info: no WoWDBDefs layout for table_hash=0x" << std::hex
+                      << file.header.tableHash << " layout_hash=0x" << file.header.layoutHash << std::dec
+                      << " -- fields by index, strings guessed\n";
+        }
+    }
+
     std::cout << path << "\n";
     printHeader(file.header);
     printSections(file);
@@ -729,7 +761,7 @@ int db2Info(int argc, char** args) {
     // after parse() accepted the file.
     if (rowLimit > 0) {
         try {
-            printRows(file, bytes, rowLimit);
+            printRows(file, bytes, rowLimit, dbdNames ? &*dbdNames : nullptr);
         } catch (const std::exception& e) {
             std::cout.flush();
             std::cerr << "\nhusk: db2-info: couldn't decode a row of '" << path << "': " << e.what() << "\n";

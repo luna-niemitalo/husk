@@ -738,6 +738,50 @@ TEST_CASE(
     fs::remove_all(dir);
 }
 
+// spell.db2's sparse records hold three string fields; row 0 (three empty
+// strings in 4 bytes) is a record the guessing decoder can't read, the
+// layout's types can.
+TEST_CASE("husk db2-info --dbd-dir: real 12.1.5 spell.db2 sparse rows decode by the layout's string fields" *
+          doctest::skip(husk::test::testDbdDir().empty() ||
+                        !fs::exists("/media/luna/wow_export/builds/12.1.5.70783/dbfilesclient/spell.db2"))) {
+    auto result = runHusk("db2-info /media/luna/wow_export/builds/12.1.5.70783/dbfilesclient/spell.db2 --rows 50 "
+                          "--dbd-dir " +
+                          husk::test::testDbdDir());
+    INFO(result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("rows (50 of") != std::string::npos);
+    CHECK(result.output.find("NameSubtext_lang]=") != std::string::npos);
+    CHECK(result.output.find("couldn't decode") == std::string::npos);
+}
+
+TEST_CASE("husk db2-export --dbd-dir: a float array (real 12.1.0 Light.GameCoords[3]) exports as REAL" *
+          doctest::skip(husk::test::testDbdDir().empty() ||
+                        !fs::exists("/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/light.db2"))) {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-float-array";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::path outPath = dir / "out.sqlite";
+    auto result = runHusk("db2-export /media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/light.db2 " +
+                          outPath.string() + " --dbd-dir " + husk::test::testDbdDir());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+
+    sqlite3* db = nullptr;
+    REQUIRE(sqlite3_open_v2(outPath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    sqlite3_stmt* stmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(db,
+                               "SELECT typeof(GameCoords_0), typeof(GameCoords_2), "
+                               "SUM(typeof(GameCoords_1) != 'real') OVER () FROM Light LIMIT 1",
+                               -1, &stmt, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(stmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))) == "real");
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))) == "real");
+    CHECK(sqlite3_column_int64(stmt, 2) == 0);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
     // DESIGN.md's "Three-state resolution, not two": `--dbd-dir` is
     // optional and config-backed here too (single-file mode has no

@@ -133,13 +133,17 @@ _husk_completions() {
             ;;
         db2-info)
             case "$prev" in
-                --rows)
+                --rows|--config)
                     COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    COMPREPLY=($(compgen -d -W "none" -- "$cur"))
                     return
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --rows" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --rows --dbd-dir" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
