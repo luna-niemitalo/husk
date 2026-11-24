@@ -2,6 +2,9 @@ build/
 /.direnv/
 /.reference/
 test_data/
+# why: worktrees link test_data to the main checkout's copy; a trailing-slash
+# pattern matches only directories, so the symlink needs its own line
+/test_data
 reference/
 /result
 documentation
