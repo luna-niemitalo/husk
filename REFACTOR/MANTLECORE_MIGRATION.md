@@ -158,6 +158,23 @@ changes:
   `resources.light_params[]` entries have a required `id` (from the
   LightParams row); a zone light's `clear`, `clear_underwater`, `storm`,
   `storm_underwater` and `death` hold that id.
+- **Textures are named by id.** Every `resources.textures[]` entry of a
+  model, terrain tile or placement set has an `id` (from the texture's
+  identity, state and what else tells two entries of one file apart), and
+  every texture pointer holds it: material layer `texture`, slot
+  `options[]`, item and choice `textures[].texture`, static light
+  `cookie`, liquid type `textures[].frames[]`, terrain ground texture
+  `diffuse`/`height`, LOD `diffuse`/`normal`, `liquid_flow`, and an
+  effect instance's `image` inputs (e.g. emitter `texture`, zone light
+  `color_grading`). A material document's own `resources.textures` is
+  unchanged: its layers still index it.
+- **Materials are named by id.** `resources.materials[]` entries have a
+  required `id`; a primitive's `material_index` (mesh and every LOD level)
+  and a liquid's `material_index` are replaced by `material`, holding it.
+- **Static lights are named by id.** `resources.scene.static_lights[]`
+  entries have a required `id` (from the model's identity and the light's
+  MNLD/MOLT/MOLS/MOLP record); a part's `lights[]` and `light_sets[][]`
+  hold those ids.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Creature catalog, a new document kind.** `husk export-creatures`
@@ -324,7 +341,7 @@ come from the world grid (step 3), not from `origins[0]`.
 
 | Old | Now |
 |---|---|
-| `textures[i].diffuse.texture_state == "resolved"` | `textures[i].diffuse` is an index into `resources.textures`; that entry's `state`: `resolved`, `known_unresolved` or `ambiguous` |
+| `textures[i].diffuse.texture_state == "resolved"` | `textures[i].diffuse` is the id of an entry of `resources.textures`; that entry's `state`: `resolved`, `known_unresolved` or `ambiguous` |
 | `textures[i].diffuse.texture.uri` | the entry's `payload.uri` (with `payload.media_type`); its identity is the entry's `identity` |
 | `repeats_per_chunk` | unchanged |
 | `chunks.layers[c][k].texture_index`, `.alpha` | unchanged (`ground_effect_index` is new) |
@@ -385,8 +402,9 @@ M2 and WMO bundles share one layout.
 | Old | Now |
 |---|---|
 | `resources.mesh` | `resources.geometry.mesh` |
-| `mesh.positions`, `normals`, `uv0`, `indices`, `primitives[].index_start/index_count/material_index` | unchanged |
-| `materials[m].layers[].texture_state == "resolved"` | `materials[m].layers[].texture` is an index into `resources.textures`; that entry's `state` |
+| `mesh.positions`, `normals`, `uv0`, `indices`, `primitives[].index_start/index_count` | unchanged |
+| `primitives[].material_index` | `primitives[].material`: the id of an entry of `resources.materials` |
+| `materials[m].layers[].texture_state == "resolved"` | `materials[m].layers[].texture` is the id of an entry of `resources.textures`; that entry's `state` |
 | `layers[].texture.uri` | the entry's `payload.uri` |
 | `layers[].alpha_fade` | two curves: `layers[].color_alpha` (M2Color.alpha) and `layers[].texture_weight` (M2TextureWeight); both may be set, combine them as the renderer sees fit |
 

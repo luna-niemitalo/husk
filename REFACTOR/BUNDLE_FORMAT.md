@@ -270,6 +270,9 @@ with no identity of its own. The Blender addon mirrors it
 | creatures `creatures`, `displays` | `creature/Creature/<row>`, `creature_display/CreatureDisplayInfo/<row>` | Their DB2 rows. |
 | mesh `parts` | `part/<identity key of the model>/<source index>` | A WMO group's index in its root file; the model's identity makes it unique across documents. |
 | `light_params` | `light_params/db2_row/LightParams/<row>` | The LightParams row. |
+| `resources.textures` (model, terrain tile, placement set) | `texture/<identity key or none>[/named/<name>/<name_source>]/<state>` + `/payload/<uri>` (resolved with a payload), `/reason/<reason>` (known_unresolved), `/candidates/<identity key>/<category>…` (ambiguous) | The table lists each distinct entry once, and one file can have two: an own payload and the shared store's, two unresolved reasons, or one name synthesized by one producer and read from a DB2 by another. The identity alone would give both one id, so the key adds what the entry says beyond it. The writer (`TextureTable`) throws when two different entries still share a key. |
+| `resources.materials` | `material/<identity key of the model>/<identity key of the material's ref>` | The ref names the material's source record: its position in the source's material list (M2 batch material, WMO MOMT). |
+| `resources.scene.static_lights` | `static_light/<identity key of the model>/<record table>/<record index>`, plus `/part/<part source index>` for MOLS/MOLP | The light's source record (MNLD, MOLT, MOLS, MOLP); a group's own lights count from 0 in every group, so the group's index is part of the key. |
 
 One reference per id: two placements of one file under different names
 are one reference, and a model's item models are deduplicated the same
@@ -283,9 +286,10 @@ ids as text; the writer checks each against the derived one.
 | model `definition.placement_sets[].reference`, `texture_slots[].composite`, customization choice `textures[].material`, `selection.equipped[].reference`, material `techniques[]`; placement_set `instances[].reference`; world `grid.cells[].tile`, `placements[]` | `/references` | id |
 | part `portals[].to_part`, liquid `part`, static light `part`, primitive `part`, LOD `part_levels[].part` | `/resources/geometry/mesh/parts` | id |
 | zone light `clear` / `clear_underwater` / `storm` / `storm_underwater` / `death` | `/resources/light_params` | id |
-| `texture_index` (material layers, slot options, item/choice textures, liquid frames, light cookies, terrain `diffuse`/`normal`, effect image inputs) | `/resources/textures` | index, pending: a WMO or character model can list hundreds; next to convert |
-| primitive / liquid `material_index` | `/resources/materials` | index, pending: a WMO's materials reach ~100-200 |
-| part `lights[]`, `light_sets[][]` | `/resources/scene/static_lights` | index, pending: a WMO's lights reach the hundreds |
+| `texture_id` (material layers, slot options, item/choice textures, liquid frames, light cookies, terrain ground `diffuse`/`height`, LOD `diffuse`/`normal`, `liquid_flow`, effect image inputs) | `/resources/textures` | id: a WMO or character model can list hundreds |
+| material document layer and composite layer `texture` | the material document's `/resources/textures` | index, kept: a material document lists a handful, and composites have no identity of their own |
+| primitive / liquid `material` | `/resources/materials` | id: a WMO's materials reach ~100-200 |
+| part `lights[]`, `light_sets[][]` | `/resources/scene/static_lights` | id: a WMO's lights reach the hundreds |
 | `surface_type_index` | `/resources/surface_types` | index, kept: the face channel `surface_type` (a binary attribute) indexes the same table, and a document lists only the few surfaces it uses |
 | part `portals[].portal` | `/resources/geometry/mesh/portals` | index, kept: portal polygons are geometry, paired with the parts' links |
 | `joint_index` | `/resources/rig/skeleton/joints` | index, kept: vertex joint buffers index joints |
@@ -458,7 +462,7 @@ the same as customization choices.
 
 - `texture_slots`: textures the model takes from outside
   (`{name, source: {texture_type}, options}`; M2: one per distinct
-  nonzero texture type; `options` are indices into `resources.textures`).
+  nonzero texture type; `options` are ids of `resources.textures` entries).
   A layer that reads one names it as `slot`; its own `texture` is the
   default, and any of the slot's `options` may replace it. A slot no
   layer reads still lists its options; one husk tied to the model by

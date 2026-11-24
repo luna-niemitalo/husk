@@ -567,23 +567,77 @@ std::string framebufferBlendName(canon::FramebufferBlend blend) {
     return "opaque";
 }
 
-uint32_t TextureTable::add(const std::function<void(json::Writer&)>& writeEntry) {
-    std::ostringstream text;
-    json::Writer w(text);
-    writeEntry(w);
-    auto [it, added] = index_.emplace(text.str(), static_cast<uint32_t>(entries_.size()));
-    if (added) entries_.push_back(text.str());
-    return it->second;
+namespace {
+
+std::string identityKeyOrNone(const canon::Ref& ref) {
+    if (std::holds_alternative<canon::None>(ref.id) && ref.name.empty()) return "none";
+    return identityKey(ref);
 }
 
-uint32_t TextureTable::add(const canon::TextureRef& texture) {
+// The key of a texture entry's id: its identity and state, and what else
+// the entry says that tells it from another entry of the same file in one
+// document -- the payload's uri (an own copy vs the shared store's), the
+// reason it is unresolved, the candidates of an ambiguous one -- and the
+// identity's name and where it came from: one file named from the
+// listfile by one producer and synthesized by another is two entries.
+std::string textureKey(const canon::TextureRef& texture, const std::string& body) {
+    std::string key = "texture/" + identityKeyOrNone(texture.resolved);
+    nlohmann::json entry = nlohmann::json::parse(body);
+    if (entry.contains("identity") && entry["identity"].contains("name")) {
+        key += "/named/" + entry["identity"]["name"].get<std::string>() + "/" + entry["identity"]["name_source"].get<std::string>();
+    }
+    switch (texture.state) {
+        case canon::TextureRef::State::Resolved:
+            key += "/resolved";
+            if (entry.contains("payload")) key += "/payload/" + entry["payload"]["uri"].get<std::string>();
+            break;
+        case canon::TextureRef::State::KnownUnresolved:
+            key += "/known_unresolved/reason/" + texture.unresolvedReason;
+            break;
+        case canon::TextureRef::State::Ambiguous:
+            key += "/ambiguous/candidates";
+            for (const auto& candidate : texture.candidates) key += "/" + identityKeyOrNone(candidate.identity) + "/" + candidate.category;
+            break;
+    }
+    return key;
+}
+
+}  // namespace
+
+std::string TextureTable::add(const canon::TextureRef& texture, const std::function<void(json::Writer&)>& writeEntry) {
+    std::ostringstream body;
+    json::Writer bw(body);
+    writeEntry(bw);
+    std::string id = nameUuid(textureKey(texture, body.str()));
+    auto [it, added] = bodies_.emplace(id, body.str());
+    if (!added) {
+        // Two entries the key can't tell apart: textureKey misses a field
+        // that distinguishes them.
+        if (it->second != body.str()) {
+            throw std::logic_error("bundle writer: texture entries share id " + id + " (key '" +
+                                   textureKey(texture, body.str()) + "') but differ:\n" + it->second + "\n" + body.str());
+        }
+        return id;
+    }
+    std::ostringstream text;
+    json::Writer w(text);
+    w.beginObject();
+    w.key("id");
+    w.value(id);
+    w.rawMembers(body.str());
+    w.endObject();
+    entries_.push_back(text.str());
+    return id;
+}
+
+std::string TextureTable::add(const canon::TextureRef& texture) {
     auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id);
     bool hasPayload = texture.payload || texture.rawPayload;
     if (texture.state != canon::TextureRef::State::Resolved || hasPayload || !fdid || !shared_ || !shared_->count(fdid->value)) {
-        return add([&](json::Writer& w) { writeTextureEntry(w, texture, bundleDir_, writtenTextures_, uriPrefix_); });
+        return add(texture, [&](json::Writer& w) { writeTextureEntry(w, texture, bundleDir_, writtenTextures_, uriPrefix_); });
     }
     std::string uri = uriPrefix_ + shared_->at(fdid->value);
-    return add([&](json::Writer& w) {
+    return add(texture, [&](json::Writer& w) {
         w.beginObject();
         w.key("state");
         w.value("resolved");

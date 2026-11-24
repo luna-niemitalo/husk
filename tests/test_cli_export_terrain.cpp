@@ -121,7 +121,7 @@ std::vector<uint8_t> fogsFile() {
 
 // Tile ground texture i's diffuse entry, from the tile's resources.textures.
 nlohmann::json groundDiffuse(const nlohmann::json& tile, size_t i) {
-    return tile["resources"]["textures"][tile["resources"]["terrain"]["textures"][i]["diffuse"].get<size_t>()];
+    return textureAt(tile, tile["resources"]["terrain"]["textures"][i]["diffuse"]);
 }
 
 }  // namespace

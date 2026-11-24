@@ -451,7 +451,7 @@ bool isNumbers(const json& value, size_t count) {
 // specs themselves.
 struct InputChecker {
     std::function<void(const std::string& pointer, const std::string& message)> fail;
-    size_t textureCount = 0;  // entries in the document's resources.textures
+    std::set<std::string> textureIds;  // ids of the document's resources.textures
 
     void check(const json& spec, const json& value, const std::string& pointer, const std::string& name) {
         std::string kind = spec["kind"];
@@ -480,8 +480,8 @@ struct InputChecker {
         } else if (kind == "rotation" || kind == "color_alpha") {
             expect(isNumbers(value, 4), "4 numbers");
         } else if (kind == "image") {
-            expect(value.is_number_unsigned() && value.get<size_t>() < textureCount,
-                   "an index into resources.textures (" + std::to_string(textureCount) + " entries)");
+            expect(value.is_string() && textureIds.count(value.get<std::string>()),
+                   "the id of an entry of resources.textures (" + std::to_string(textureIds.size()) + " entries)");
         } else if (kind == "mesh") {
             expect(value.is_object() && value.contains("id"), "an asset reference");
         } else if (kind == "spline") {
@@ -879,8 +879,9 @@ struct Validation {
             const json* effect = referenced[reference];
             if (!effect) continue;  // the effect's own problem is already reported
             const json& resources = set.value("resources", json::object());
-            size_t textureCount = resources.contains("textures") ? resources["textures"].size() : 0;
-            InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }, textureCount};
+            std::set<std::string> textureIds;
+            for (const json& texture : resources.value("textures", json::array())) textureIds.insert(texture.value("id", ""));
+            InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }, textureIds};
             inputs.checkFields((*effect)["definition"]["inputs"], instance.value("inputs", json::object()), pointer + "/inputs", "");
             // A source repeated per list element has one style block per element.
             std::map<std::string, std::string> repeatedOver;

@@ -537,7 +537,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         if (instance.effect) {
             writeEffectInstanceFields(
                 w, *instance.effect,
-                {[&](const canon::TextureRef& texture) { w.value(static_cast<int64_t>(textures.add(texture))); },
+                {[&](const canon::TextureRef& texture) { w.value(textures.add(texture)); },
                  [&](const canon::Ref& model) { writeAssetRef(w, model, uris); },
                  [&](uint32_t params) { w.value(lightParamsId(set.lightParams.at(params))); }});
             w.key("source");
@@ -605,7 +605,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
     if (!set.lightParams.empty()) {
         json::Writer lw(lightParams);
         writeLightParams(lw, set.lightParams,
-                         {[&](const canon::TextureRef& texture) { lw.value(static_cast<int64_t>(textures.add(texture))); },
+                         {[&](const canon::TextureRef& texture) { lw.value(textures.add(texture)); },
                           [&](const canon::Ref& model) { writeAssetRef(lw, model, uris); }, {}});
     }
     if (!textures.empty() || !set.lightParams.empty()) {

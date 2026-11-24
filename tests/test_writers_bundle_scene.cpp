@@ -131,7 +131,9 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     CHECK(s["cone"]["outer_angle"] == 1.5);
     CHECK(s["flicker"]["mode"] == 2);
     CHECK(s["casts_shadows"] == true);
-    CHECK(manifest["resources"]["textures"][s["cookie"].get<size_t>()]["identity"]["id"]["value"] == 9001);
+    CHECK(textureAt(manifest, s["cookie"])["identity"]["id"]["value"] == 9001);
+    CHECK(s["id"].is_string());
+    CHECK(s["id"] != lights[1]["id"]);
     CHECK(s["placement_set"] == 1);
     CHECK(s["source"]["flags"] == "0x3");
     CHECK(s["source"]["record"]["table"] == "MNLD");
@@ -480,7 +482,7 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     CHECK(key["time"] == 43200.0);
     CHECK(key["direct_color"][0].get<double>() == doctest::Approx(1.0));
     CHECK(key["unresolved"]["fields"][0]["field"] == "LightData DirectColor high byte");
-    const auto& texture = set["resources"]["textures"][key["color_grading"].get<size_t>()];
+    const auto& texture = textureAt(set, key["color_grading"]);
     CHECK(texture["identity"]["name"] == "colorgrading_identity");
     CHECK(fs::exists(dir / "effects" / "classic_zone_light.json"));
     CHECK(fs::exists(dir / "effects" / "classic_zone_light_global.json"));

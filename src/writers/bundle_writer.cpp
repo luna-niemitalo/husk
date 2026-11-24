@@ -113,7 +113,7 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
                 w.key("input");
                 w.value(t->input);
                 w.key("texture");
-                w.value(static_cast<int64_t>(textures.add(t->texture)));
+                w.value(textures.add(t->texture));
                 if (t->onlyWith) {
                     w.key("only_with");
                     w.beginObject();
@@ -166,7 +166,7 @@ void writeItem(json::Writer& w, const canon::ItemEntry& item, TextureTable& text
             w.key("model_position");
             w.value(static_cast<int64_t>(t.modelPosition));
             w.key("texture");
-            w.value(static_cast<int64_t>(textures.add(t.texture)));
+            w.value(textures.add(t.texture));
             w.endObject();
         }
         w.endArray();
@@ -179,7 +179,7 @@ void writeItem(json::Writer& w, const canon::ItemEntry& item, TextureTable& text
             w.key("component_section");
             w.value(static_cast<int64_t>(o.componentSection));
             w.key("texture");
-            w.value(static_cast<int64_t>(textures.add(o.texture)));
+            w.value(textures.add(o.texture));
             w.endObject();
         }
         w.endArray();
@@ -209,7 +209,7 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
             }
             w.key("options");
             w.beginArray();
-            for (const canon::TextureRef& option : slot.options) w.value(static_cast<int64_t>(textures.add(option)));
+            for (const canon::TextureRef& option : slot.options) w.value(textures.add(option));
             w.endArray();
             if (slot.composite) {
                 w.key("composite");
@@ -440,7 +440,7 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
     w.key("uv_map");
     w.value(static_cast<int64_t>(uvMaps.add(layer)));
     w.key("texture");
-    w.value(static_cast<int64_t>(textures.add(layer.texture)));
+    w.value(textures.add(layer.texture));
     if (layer.slot) {
         w.key("slot");
         w.value(static_cast<int64_t>(*layer.slot));
@@ -466,12 +466,14 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
 }
 
 // `techniques[i]`: material i's technique reference ids.
-void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials, TextureTable& textures,
-                           UvMapTable& uvMaps, const std::vector<std::vector<std::string>>& techniques) {
+void writeMaterialsSection(json::Writer& w, const canon::Model& model, TextureTable& textures, UvMapTable& uvMaps,
+                           const std::vector<std::vector<std::string>>& techniques) {
     w.beginArray();
-    for (size_t m = 0; m < materials.size(); ++m) {
-        const canon::Material& material = materials[m];
+    for (size_t m = 0; m < model.materials.size(); ++m) {
+        const canon::Material& material = model.materials[m];
         w.beginObject();
+        w.key("id");
+        w.value(materialId(model, m));
         if (!techniques[m].empty()) {
             w.key("techniques");
             w.beginArray();
@@ -618,8 +620,11 @@ void writeSourceBlock(json::Writer& w, uint32_t flags, const canon::SourceRecord
 void writeLocalLights(json::Writer& w, const canon::Model& model, TextureTable& textures) {
     const std::vector<canon::LocalLight>& lights = model.scene.localLights;
     w.beginArray();
-    for (const canon::LocalLight& l : lights) {
+    for (size_t i = 0; i < lights.size(); ++i) {
+        const canon::LocalLight& l = lights[i];
         w.beginObject();
+        w.key("id");
+        w.value(staticLightId(model, i));
         w.key("ref");
         writeRef(w, l.ref);
         w.key("kind");
@@ -671,7 +676,7 @@ void writeLocalLights(json::Writer& w, const canon::Model& model, TextureTable& 
         writeFloatField(w, "shadow_scale", l.shadowScale);
         if (l.cookie) {
             w.key("cookie");
-            w.value(static_cast<int64_t>(textures.add(*l.cookie)));
+            w.value(textures.add(*l.cookie));
         }
         if (l.placementSet) writeIntField(w, "placement_set", placementSetIndex(*l.placementSet));
         if (l.part) {
@@ -844,7 +849,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 
     UvMapTable uvMaps;
     w.key("materials");
-    writeMaterialsSection(w, model.materials, textures, uvMaps, materialTechniqueRefs);
+    writeMaterialsSection(w, model, textures, uvMaps, materialTechniqueRefs);
     uvMaps.write(w);
 
     w.key("scene");
@@ -870,7 +875,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     if (!model.liquidTypes.empty()) {
         w.key("liquid_types");
         writeLiquidTypes(w, model.liquidTypes, [&](const canon::TextureRef& frame) {
-            w.value(static_cast<int64_t>(textures.add(frame)));
+            w.value(textures.add(frame));
         });
     }
     if (!textures.empty()) textures.write(w);

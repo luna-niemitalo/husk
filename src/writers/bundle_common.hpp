@@ -90,7 +90,7 @@ std::string identityKey(const canon::Ref& ref);
 // A stable id (schema "uuid") for an entry whose source identity is `ref`:
 // husk::nameUuid of "<space>/<identityKey>". Derived from the source, never
 // from output position, so a re-export keeps it (REFACTOR/BUNDLE_FORMAT.md
-// "Stable ids"). blender/addons/husk_addon/ids.py mirrors it.
+// "Stable ids"). blender/addons/husk_addon/docs.py mirrors it.
 std::string stableId(std::string_view space, const canon::Ref& ref);
 // A document reference's id: the space is the reference's kind, so a
 // document with a file id or DB2 row has the same id wherever it is
@@ -213,8 +213,8 @@ void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const 
                        std::unordered_set<std::string>& writtenTextures, const std::string& uriPrefix = "");
 
 // A document's resources.textures: every texture entry once, used
-// elsewhere by index (REFACTOR/BUNDLE_FORMAT.md "Textures"). Entries are
-// rendered when added, so identical ones share an index; the table is
+// elsewhere by its id (REFACTOR/BUNDLE_FORMAT.md "Textures", "Stable ids").
+// Entries are rendered when added, so identical ones share an id; the table is
 // written once everything that uses it has been. `shared` holds the uris
 // (relative to the bundle) of textures a shared store already holds
 // (writers/texture_store.hpp): a resolved texture without a payload found
@@ -228,21 +228,21 @@ public:
           uriPrefix_(std::move(uriPrefix)),
           shared_(shared) {}
 
-    // The entry's index; its payload file is written on first sight.
-    uint32_t add(const canon::TextureRef& texture);
+    // The entry's id; its payload file is written on first sight.
+    std::string add(const canon::TextureRef& texture);
     bool empty() const { return entries_.empty(); }
     // The "textures" member of an open resources object.
     void write(json::Writer& w) const;
 
 private:
-    uint32_t add(const std::function<void(json::Writer&)>& writeEntry);
+    std::string add(const canon::TextureRef& texture, const std::function<void(json::Writer&)>& writeEntry);
 
     std::filesystem::path bundleDir_;
     std::unordered_set<std::string>& writtenTextures_;
     std::string uriPrefix_;
     const AssetUris* shared_;
     std::vector<std::string> entries_;
-    std::unordered_map<std::string, uint32_t> index_;
+    std::unordered_map<std::string, std::string> bodies_;  // id -> entry body without the id
 };
 
 // The schema's framebuffer blend vocabulary.

@@ -214,8 +214,9 @@ def build_terrain_material(tile, weight_images):
     uv = nt.nodes.new("ShaderNodeTexCoord")
     total = None
     loaded = []
+    textures_by_id = {t["id"]: t for t in tile.m["resources"]["textures"]}
     for i, tex in enumerate(tile.t["textures"]):
-        d = tile.m["resources"]["textures"][tex["diffuse"]]
+        d = textures_by_id[tex["diffuse"]]
         if d["state"] != "resolved" or "payload" not in d:
             continue
         mapping = nt.nodes.new("ShaderNodeMapping")
@@ -316,12 +317,15 @@ def load_model(bundle_dir, uri):
     for loop in mesh.loops:
         u, v = uv0[loop.vertex_index]
         uvl.data[loop.index].uv = (u, 1.0 - v)
+    textures_by_id = {t["id"]: t for t in res.get("textures", [])}
+    slot_of = {}
     for mat_json in res["materials"]:
+        slot_of[mat_json["id"]] = len(mesh.materials)
         mat = bpy.data.materials.new(mesh.name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
         for layer in mat_json.get("layers", []):
-            tex = res["textures"][layer["texture"]]
+            tex = textures_by_id[layer["texture"]]
             if tex["state"] != "resolved" or "payload" not in tex:
                 continue
             node = mat.node_tree.nodes.new("ShaderNodeTexImage")
@@ -345,7 +349,7 @@ def load_model(bundle_dir, uri):
         mesh.materials.append(mat)
     for prim in mj["primitives"]:
         for p in range(prim["index_start"] // 3, (prim["index_start"] + prim["index_count"]) // 3):
-            mesh.polygons[p].material_index = prim["material_index"]
+            mesh.polygons[p].material_index = slot_of[prim["material"]]
     _model_cache[path] = mesh
     return mesh
 

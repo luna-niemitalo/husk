@@ -34,7 +34,7 @@ std::string slice(size_t offset, size_t length, const char* type, int components
 std::string modelDocument() {
     std::string level0 = R"({"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
                          R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) +
-                         R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
+                         R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
                "attributes": []})";
     return std::string("{") + kHeader + R"(
   "kind": "model",
@@ -47,13 +47,13 @@ std::string modelDocument() {
     "geometry": {
       "mesh": {"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
            R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) + R"(,
-               "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
+               "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
                "parts": [], "portals": [], "attributes": []},
       "lod": {"max_level": 0, "levels": [)" + level0 + R"(]},
       "liquids": []},
     "rig": {"skeleton": {"joint_count": 0, "parents": )" + slice(108, 0, "i32", 1, 0) + R"(, "bind_translation": )" +
            slice(108, 0, "f32", 3, 0) + R"(, "joints": []}, "animation": []},
-    "materials": [{"layers": [], "unlit": false, "unfogged": false, "two_sided": false, "source": {"flags": "0x0"}}],
+    "materials": [{"id": "00000000-0000-3000-8000-00000000000c", "layers": [], "unlit": false, "unfogged": false, "two_sided": false, "source": {"flags": "0x0"}}],
     "scene": {"attachments": [], "events": [], "animated_lights": [], "static_lights": []}}
 })";
 }
@@ -319,9 +319,15 @@ TEST_CASE("bundle_schema: schema violations -- an unknown key, a missing kind, a
 TEST_CASE("bundle_schema: structural checks the schema can't express, each reporting expected and actual") {
     std::string model = modelDocument();
 
-    fs::path dir = writeBundle("husk-schema-index", replaced(model, R"("material_index": 0)", R"("material_index": 1)"), setDocument());
+    fs::path dir = writeBundle("husk-schema-index", replaced(model, R"("selection": {"placement_sets": []})", R"("selection": {"placement_sets": [1]})"), setDocument());
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
-    CHECK(mentions(problems, "expected an index < 1 into '/resources/materials', got 1"));
+    CHECK(mentions(problems, "expected an index < 1 into '/definition/placement_sets', got 1"));
+
+    dir = writeBundle("husk-schema-material-id",
+                      replaced(model, R"("material": "00000000-0000-3000-8000-00000000000c")", R"("material": "00000000-0000-3000-8000-00000000000d")"),
+                      setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir),
+                   "expected the id of an entry of '/resources/materials', got '00000000-0000-3000-8000-00000000000d'"));
 
     dir = writeBundle("husk-schema-length", replaced(model, R"("byte_length": 12)", R"("byte_length": 16)"), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "expected byte_length 12"));

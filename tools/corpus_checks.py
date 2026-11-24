@@ -459,7 +459,7 @@ def mesh_completeness_result(manifest):
         return None
     lod = manifest["resources"]["geometry"].get("lod", {})
     levels = [("mesh", mesh)] + [(f"lod{i}", level) for i, level in enumerate(lod.get("levels", []))]
-    material_count = len(manifest["resources"].get("materials", []))
+    material_ids = {m["id"] for m in manifest["resources"].get("materials", [])}
     missing_uv, bad_material = [], []
     for name, level in levels:
         uv_sets = level.get("uv_sets", [])
@@ -467,9 +467,9 @@ def mesh_completeness_result(manifest):
             missing_uv.append(f"{name}: positions {level['positions']['count']}, "
                               f"uv_sets[0] {uv_sets[0]['count'] if uv_sets else 'absent'}")
         for pi, prim in enumerate(level.get("primitives", [])):
-            index = prim.get("material_index")
-            if index is None or not 0 <= index < material_count:
-                bad_material.append(f"{name}/prim{pi}: material_index {index}, {material_count} materials")
+            material = prim.get("material")
+            if material not in material_ids:
+                bad_material.append(f"{name}/prim{pi}: material {material}, {len(material_ids)} materials")
     return TestResult("mesh_completeness", [
         AssertResult("uv_set_0_covers_vertices", not missing_uv,
                      detail="" if not missing_uv else "; ".join(missing_uv[:10])),

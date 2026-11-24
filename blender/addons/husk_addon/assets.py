@@ -18,7 +18,7 @@ ASSETS_NAME = "Assets"
 def _material(doc, doc_dir, mat_json):
     mat = bpy.data.materials.new(doc["subject"].get("name", "asset"))
     bsdf = mat.node_tree.nodes["Principled BSDF"]
-    textures = doc["resources"].get("textures", [])
+    textures = docs.by_id(doc["resources"].get("textures", []))
     for layer in mat_json.get("layers", []):
         tex = textures[layer["texture"]]
         if tex["state"] != "resolved" or "payload" not in tex:
@@ -54,11 +54,13 @@ def _mesh(doc, doc_dir, name):
         uv = docs.read_slice(doc_dir, mj["uv_sets"][0]).astype(np.float32)
         uv[:, 1] = 1.0 - uv[:, 1]
         mesh.uv_layers.new(name="uv0").data.foreach_set("uv", uv[faces].ravel())
+    slot_of = {}
     for mat_json in doc["resources"].get("materials", []):
+        slot_of[mat_json["id"]] = len(mesh.materials)
         mesh.materials.append(_material(doc, doc_dir, mat_json))
     material = np.zeros(len(faces) // 3, dtype=np.int32)
     for prim in mj.get("primitives", []):
-        material[prim["index_start"] // 3:(prim["index_start"] + prim["index_count"]) // 3] = prim["material_index"]
+        material[prim["index_start"] // 3:(prim["index_start"] + prim["index_count"]) // 3] = slot_of[prim["material"]]
     mesh.polygons.foreach_set("material_index", material)
     return mesh
 

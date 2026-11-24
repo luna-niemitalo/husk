@@ -148,7 +148,7 @@ void writePrimitives(json::Writer& w, const canon::Model& model, const std::vect
         // bundle format has no way to represent (a bundle-external material
         // reference, not implemented anywhere yet) -- an interior invariant
         // violation for this writer's own current scope, so it throws
-        // rather than silently writing a wrong index (FOREIGN_DATA policy:
+        // rather than silently writing a wrong id (FOREIGN_DATA policy:
         // the interior trusts an already-validated canon::Model, it doesn't
         // limp past a shape it can't handle).
         auto matIdx = materialOf(i);
@@ -157,8 +157,8 @@ void writePrimitives(json::Writer& w, const canon::Model& model, const std::vect
                                       "'s material reference isn't a local RecordIndex -- bundle writer has no "
                                       "way to represent a bundle-external material reference yet");
         }
-        w.key("material_index");
-        w.value(static_cast<int64_t>(*matIdx));
+        w.key("material");
+        w.value(materialId(model, *matIdx));
         if (prim.part) {
             w.key("part");
             w.value(partId(model, *prim.part));
@@ -173,6 +173,17 @@ void writePrimitives(json::Writer& w, const canon::Model& model, const std::vect
 std::string partId(const canon::Model& model, size_t part) {
     uint32_t source = std::get<canon::RecordIndex>(model.mesh.parts.at(part).ref.id).value;
     return nameUuid("part/" + identityKey(model.subject) + "/" + std::to_string(source));
+}
+
+std::string materialId(const canon::Model& model, size_t material) {
+    return nameUuid("material/" + identityKey(model.subject) + "/" + identityKey(model.materials.at(material).ref));
+}
+
+std::string staticLightId(const canon::Model& model, size_t light) {
+    const canon::LocalLight& l = model.scene.localLights.at(light);
+    std::string key = "static_light/" + identityKey(model.subject) + "/" + l.origin.table + "/" + std::to_string(l.origin.index);
+    if (l.part) key += "/part/" + std::to_string(std::get<canon::RecordIndex>(model.mesh.parts.at(*l.part).ref.id).value);
+    return nameUuid(key);
 }
 
 MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<uint8_t>& meshBin) {
@@ -213,7 +224,7 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
         if (!part.lights.empty()) {
             w.key("lights");
             w.beginArray();
-            for (uint32_t light : part.lights) w.value(static_cast<int64_t>(light));
+            for (uint32_t light : part.lights) w.value(staticLightId(model, light));
             w.endArray();
         }
         if (!part.lightSets.empty()) {
@@ -221,7 +232,7 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
             w.beginArray();
             for (const std::vector<uint32_t>& set : part.lightSets) {
                 w.beginArray();
-                for (uint32_t light : set) w.value(static_cast<int64_t>(light));
+                for (uint32_t light : set) w.value(staticLightId(model, light));
                 w.endArray();
             }
             w.endArray();
@@ -482,8 +493,8 @@ void writeLiquids(json::Writer& w, const canon::Model& model, std::vector<uint8_
         w.beginObject();
         w.key("part");
         w.value(partId(model, l.part));
-        w.key("material_index");
-        w.value(static_cast<int64_t>(std::get<canon::RecordIndex>(l.material).value));
+        w.key("material");
+        w.value(materialId(model, std::get<canon::RecordIndex>(l.material).value));
         w.key("liquid_type");
         writeRef(w, l.liquidType);
         writeVec3Field(w, "corner", l.corner);

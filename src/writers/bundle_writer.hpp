@@ -20,8 +20,9 @@
 //   layers, the short curves of a material, light or emitter) is inline
 //   JSON; BufferSlice is for large uniform arrays (vertices, keyframes,
 //   bind data).
-// - `primitives[i].material_index` is canon::resolveMaterialIndex(model,
-//   i): materials are deduplicated, not one per primitive.
+// - `primitives[i].material` is the id of material
+//   canon::resolveMaterialIndex(model, i): materials are deduplicated, not
+//   one per primitive.
 // - Animation is sparse: a clip lists only joints with curves, and its
 //   curves are writers::composeJointCurves's bind-pose-composed local
 //   transforms, not the raw keyframes (writer_common.hpp).
@@ -30,7 +31,7 @@
 //   1.0 to that joint.
 // - Owned placement sets are written as sets/<i>.json, or inline in the
 //   reference's `document` (an M2's effects), and are the document's first
-//   references, set i being reference i.
+//   references, each set naming its reference by id.
 // - Mesh attribute channels written today: "wmo.poly_flags" (face, u16,
 //   MOPY/MPY2 flags raw; WMO.md's isCollidable is 0x08, or 0x20 without
 //   0x04; MPY2 0x100 takes the face's ground type from MOQG),

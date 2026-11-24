@@ -60,11 +60,6 @@ void collectBufferSlices(const nlohmann::json& node, std::vector<nlohmann::json>
     }
 }
 
-// A texture a document uses by index, from its resources.textures.
-const nlohmann::json& textureAt(const nlohmann::json& document, const nlohmann::json& index) {
-    return document["resources"]["textures"][index.get<size_t>()];
-}
-
 canon::Joint makeJoint(int parent, canon::Vec3 pos, std::string name) {
     canon::Joint j;
     j.parent = parent;
@@ -83,6 +78,8 @@ canon::Joint makeJoint(int parent, canon::Vec3 pos, std::string name) {
 // -- the sparse case).
 canon::Model buildSyntheticModel() {
     canon::Model model;
+    // Material and light ids are keyed by the model's identity.
+    model.subject = canon::Ref{canon::FileDataId{1}, "synthetic", canon::NameSource::Synthesized};
 
     model.skeleton.joints.push_back(makeJoint(-1, {0.0f, 0.0f, 0.0f}, "root"));
     model.skeleton.joints.push_back(makeJoint(0, {1.0f, 2.0f, 3.0f}, "child"));

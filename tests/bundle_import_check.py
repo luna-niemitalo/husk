@@ -55,6 +55,7 @@ def build_materials(bundle_dir, materials_json, textures_json):
     wiring yet (canon::MaterialLayer::blendIntoPrevious is a texture-
     combiner op, not an alpha mode, and this probe checks import counts,
     not shading correctness)."""
+    textures_by_id = {t["id"]: t for t in textures_json}
     materials = []
     for i, mat_json in enumerate(materials_json):
         mat = bpy.data.materials.new("husk_bundle_material_%d" % i)
@@ -67,7 +68,7 @@ def build_materials(bundle_dir, materials_json, textures_json):
         # back into `layers` by identity), so this probe takes the
         # simplest real answer: the first resolved-with-bytes layer.
         for layer in mat_json.get("layers", []):
-            texture = textures_json[layer["texture"]]
+            texture = textures_by_id[layer["texture"]]
             if texture.get("state") != "resolved" or "payload" not in texture:
                 continue
             image_path = os.path.join(bundle_dir, texture["payload"]["uri"])
@@ -82,7 +83,7 @@ def build_materials(bundle_dir, materials_json, textures_json):
     return materials
 
 
-def build_mesh(bundle_dir, mesh_json, materials):
+def build_mesh(bundle_dir, mesh_json, materials, materials_json):
     positions = read_slice(bundle_dir, mesh_json["positions"])
     indices = read_slice(bundle_dir, mesh_json["indices"])
     faces = [tuple(indices[i:i + 3]) for i in range(0, len(indices), 3)]
@@ -94,16 +95,17 @@ def build_mesh(bundle_dir, mesh_json, materials):
     for mat in materials:
         mesh.materials.append(mat)
 
-    # Each primitive's own "material_index" (src/writers/bundle_writer.hpp's
+    # Each primitive's own "material" (src/writers/bundle_writer.hpp's
     # header comment) is already resolved via canon::resolveMaterialIndex into
-    # resources.materials -- a plain per-face-range assignment, one
+    # the id of a resources.materials entry -- a plain per-face-range assignment, one
     # contiguous polygon range per primitive (index_start/index_count are
     # in units of the flat triangle-index buffer, /3 for polygon indices).
+    slot_of = {m["id"]: i for i, m in enumerate(materials_json)}
     for prim in mesh_json["primitives"]:
         first_poly = prim["index_start"] // 3
         poly_count = prim["index_count"] // 3
         for p in range(first_poly, first_poly + poly_count):
-            mesh.polygons[p].material_index = prim["material_index"]
+            mesh.polygons[p].material_index = slot_of[prim["material"]]
 
     obj = bpy.data.objects.new("husk_bundle_mesh", mesh)
     bpy.context.scene.collection.objects.link(obj)
@@ -173,7 +175,7 @@ def main():
 
     resources = manifest["resources"]
     materials = build_materials(bundle_dir, resources.get("materials", []), resources.get("textures", []))
-    build_mesh(bundle_dir, resources["geometry"]["mesh"], materials)
+    build_mesh(bundle_dir, resources["geometry"]["mesh"], materials, resources.get("materials", []))
     armature_obj = build_armature(bundle_dir, resources["rig"]["skeleton"])
 
     armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']

@@ -127,9 +127,14 @@ def reference(kind, asset, **more):
     return dict({"id": reference_id(kind, asset), "kind": kind, "asset": asset}, **more)
 
 
+def by_id(entries):
+    """Array entries keyed by their stable id, for the pointers that name them."""
+    return {e["id"]: e for e in entries}
+
+
 def references_by_id(doc):
     """A document's references keyed by id: everything points at them by id."""
-    return {r["id"]: r for r in doc["references"]}
+    return by_id(doc["references"])
 
 
 def relative_uris(value, doc_dir):

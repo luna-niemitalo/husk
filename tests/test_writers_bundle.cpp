@@ -415,7 +415,7 @@ TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set fil
 }
 
 TEST_CASE(
-    "writeBundle: real fixture -- primitives[i].material_index resolves via canon::resolveMaterialIndex, "
+    "writeBundle: real fixture -- primitives[i].material resolves via canon::resolveMaterialIndex, "
     "not positionally" *
     doctest::skip(test::testM2().empty() || test::testSkin().empty())) {
     m2::Model m2model = m2::loadModel(readFile(test::testM2()));
@@ -444,7 +444,7 @@ TEST_CASE(
     for (size_t i = 0; i < primitives.size(); ++i) {
         auto expected = canon::resolveMaterialIndex(model, i);
         REQUIRE(expected.has_value());
-        if (primitives[i]["material_index"] != *expected && !firstMismatch) {
+        if (primitives[i]["material"] != manifest["resources"]["materials"][*expected]["id"] && !firstMismatch) {
             firstMismatch = i;
         }
     }

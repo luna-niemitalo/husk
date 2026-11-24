@@ -230,7 +230,7 @@
     },
     "resources": {
       "type": "object",
-      "description": "Data the instances use by index.",
+      "description": "Data the instances use by id.",
       "properties": {
         "textures": {
           "type": "array",
