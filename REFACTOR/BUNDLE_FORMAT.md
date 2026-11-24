@@ -1085,7 +1085,15 @@ and is not per zone.
   preset source's values (`CreatureDisplayInfo.CreatureModelScale`,
   `CreatureModelData.ModelScale`) so the catalog alone can size a
   creature. A display the client's table lacks (an encrypted section)
-  keeps only its id and source.
+  keeps only its id and source. `size_class` is
+  `CreatureDisplayInfo.SizeClass` as stored (no table names it); the
+  rows the display layers on its model are unnamed refs, absent at 0:
+  `object_effect_package` (ObjectEffectPackageID),
+  `state_spell_visual_kit` (StateSpellVisualKitID, a standing visual),
+  `anim_replacement_set` (AnimReplacementSetID), `dissolve_effect`
+  (DissolveEffectID) and `mount_poof_spell_visual_kit`
+  (MountPoofSpellVisualKitID). husk reads none of those tables yet, so a
+  consumer resolves them or ignores them.
 - **Stable ids.** Creatures, displays and model references carry
   `nameUuid` ids (`creature/Creature/<row>`,
   `creature_display/CreatureDisplayInfo/<row>`,

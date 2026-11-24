@@ -206,6 +206,30 @@
             "description": "The model data row's scale; the same value as the preset source's base_scale in the model document.",
             "x-unit": "1"
           },
+          "size_class": {
+            "type": "integer",
+            "description": "CreatureDisplayInfo.SizeClass as stored: the client's size category for the display (no client table names its values). Absent when the display's row is not in the client's table."
+          },
+          "object_effect_package": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "CreatureDisplayInfo.ObjectEffectPackageID: the ObjectEffectPackage row of effects the display carries, unnamed (husk doesn't read that table). Absent when stored as 0."
+          },
+          "state_spell_visual_kit": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "CreatureDisplayInfo.StateSpellVisualKitID: the SpellVisualKit row the display plays as a standing state (an aura-like visual), unnamed. Absent when stored as 0."
+          },
+          "anim_replacement_set": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "CreatureDisplayInfo.AnimReplacementSetID: the AnimReplacementSet row that swaps some of the model's animations for this display, unnamed. Absent when stored as 0."
+          },
+          "dissolve_effect": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "CreatureDisplayInfo.DissolveEffectID: the DissolveEffect row the display fades in with, unnamed. Absent when stored as 0."
+          },
+          "mount_poof_spell_visual_kit": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "CreatureDisplayInfo.MountPoofSpellVisualKitID: the SpellVisualKit row played when the display is summoned as a mount, unnamed. Absent when stored as 0."
+          },
           "source": {
             "type": "object",
             "description": "Source-specific raw values.",

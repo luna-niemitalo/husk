@@ -188,6 +188,10 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **More named refs.** With `--db2-dir`, a tile's
   `resources.terrain.chunks.areas[]` carry AreaTable names and a zone
   light's `skybox.ref` its LightSkybox name; identities unchanged.
+- **Creature display fields.** A catalog display gains `size_class` (raw)
+  and unnamed row refs `object_effect_package`, `state_spell_visual_kit`,
+  `anim_replacement_set`, `dissolve_effect`, `mount_poof_spell_visual_kit`
+  (CreatureDisplayInfo columns of the same names), each absent at 0.
 - **Character model names.** A customization option's `chr_model` ref
   is named "<race> <sex>" from ChrRaces and ChrRaceXChrModel ("Human
   male"); match on the ChrModel row, show the name.

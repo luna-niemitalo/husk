@@ -66,6 +66,9 @@ creaturedb::Data syntheticRows() {
     data.creatures.push_back({3, "Mystery", "Guard", 99, 0, 1, {200, 101, 0, 0}, {1, 1, 0, 0}});
     data.creatures.push_back({10, "Wolf", "", 1, 1, 0, {100, 0, 100, 0}, {1, 0, 0.5f, 0}});
     data.displays = {{100, {7, 1.5f}}, {101, {8, 1}}};
+    data.displays[100].sizeClass = 2;
+    data.displays[100].stateSpellVisualKit = 555;
+    data.displays[100].dissolveEffect = 9;
     data.models = {{7, {1234, 0.8f}}};
     return data;
 }
@@ -125,6 +128,15 @@ TEST_CASE("creature catalog: shared displays, stable ids, and rows the tables la
     CHECK(doc["displays"][0]["model"] == doc["references"][0]["id"]);
     CHECK(doc["creatures"][0]["classification"] == 1);
     CHECK(doc["displays"][0]["preset"] == 2);
+    CHECK(doc["displays"][0]["size_class"] == 2);
+    CHECK(doc["displays"][0]["state_spell_visual_kit"]["id"]["table"] == "SpellVisualKit");
+    CHECK(doc["displays"][0]["state_spell_visual_kit"]["id"]["row"] == 555);
+    CHECK(doc["displays"][0]["dissolve_effect"]["id"]["table"] == "DissolveEffect");
+    CHECK_FALSE(doc["displays"][0].contains("object_effect_package"));
+    CHECK(doc["displays"][1]["size_class"] == 0);
+    CHECK_FALSE(doc["displays"][1].contains("dissolve_effect"));
+    // A display the client's table lacks has no row values at all.
+    CHECK_FALSE(doc["displays"][2].contains("size_class"));
     CHECK_FALSE(doc["displays"][1].contains("model"));
     CHECK(doc["creatures"][1]["displays"][0]["display"] == doc["displays"][0]["id"]);
     CHECK(doc["creatures"][1]["family"]["name"] == "Wolf");
