@@ -171,6 +171,7 @@ add_library(husk-lib STATIC
   src/wmo_effects_input.cpp
   src/wdt_volumes.cpp
   src/map_scene_input.cpp
+  src/zone_fog_extinction.cpp
   src/bundle_schema.cpp
   src/schema_paths.cpp
   src/version.cpp
@@ -334,6 +335,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_db2table.cpp
     tests/test_liquid_db2.cpp
     tests/test_light_db2.cpp
+    tests/test_zone_fog_extinction.cpp
     tests/test_place_db2.cpp
     tests/test_creature_options.cpp
     tests/test_sources_catalog.cpp

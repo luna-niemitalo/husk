@@ -1,5 +1,7 @@
 #include "map_scene_input.hpp"
 
+#include "zone_fog_extinction.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -228,6 +230,10 @@ canon::LightKey lightKey(const MapSceneInputs& in, const lightdb::Key& k) {
     f.height = k.fogHeight;
     f.heightScaler = k.fogHeightScaler;
     f.heightDensity = k.fogHeightDensity;
+    fog::ZoneFogExtinction extinction =
+        fog::densityToExtinction(k.fogDensity, k.fogHeightDensity, k.fogEnd, k.fogScaler, k.fogHeightScaler);
+    f.extinction = extinction.main;
+    f.heightExtinction = extinction.height;
     f.zScalar = k.fogZScalar;
     f.curveStart = k.mainFogStartDist;
     f.curveEnd = k.mainFogEndDist;

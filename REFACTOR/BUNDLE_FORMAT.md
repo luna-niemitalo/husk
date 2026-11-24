@@ -914,6 +914,10 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   appearances' `shown_geosets`; the packed group * 100 + variant stays
   only as the source's number, a primitive's `source.skin_section_id` and
   a choice's `source.geoset`.
+- Zone fog keys carry `extinction` and `height_extinction` in 1/yard,
+  derived by `fog_density_to_extinction` (`EFFECTS.md` "Derivation
+  rules", grade ref); the client's `density` and `height_density` moved
+  to the fog's `source`.
 
 ## Embed or reference — one rule
 

@@ -23,10 +23,13 @@ namespace husk::canon {
 struct ZoneFogValues {
     float end = 0;
     float scaler = 0;
-    float density = 0;
+    float extinction = 0;  // 1/yard, fog::densityToExtinction
     float startOffset = 0;
     float height = 0;
     float heightScaler = 0;
+    float heightExtinction = 0;  // 1/yard
+    // FogDensity and FogHeightDensity as stored: the client's parameters.
+    float density = 0;
     float heightDensity = 0;
     float zScalar = 0;
     float curveStart = 0;

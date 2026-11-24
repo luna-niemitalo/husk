@@ -476,6 +476,9 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_conditions, each 
     lightdb::Key noon;
     noon.time = 1440;
     noon.directColor = 0x01FF8000u;
+    noon.fogDensity = 9;
+    noon.fogHeightScaler = 0.5f;
+    noon.fogHeightDensity = 2;
     noon.colorGradingFileDataId = 1140733;
     noon.field_12_0_0_63854_043 = 1;
     lights.keysByParams[12] = {noon};
@@ -525,6 +528,10 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_conditions, each 
     CHECK(key["time"] == 43200.0);
     CHECK(key["direct_color"][0].get<double>() == doctest::Approx(1.0));
     CHECK(key["unresolved"]["fields"][0]["field"] == "LightData DirectColor high byte");
+    CHECK(key["fog"]["extinction"].get<double>() == doctest::Approx(0.0045));
+    CHECK(key["fog"]["height_extinction"].get<double>() == doctest::Approx(0.001));
+    CHECK(key["fog"]["source"] == nlohmann::json{{"density", 9.0}, {"height_density", 2.0}});
+    CHECK_FALSE(key["fog"].contains("density"));
     const auto& texture = textureAt(set, key["color_grading"]);
     CHECK(texture["identity"]["name"] == "colorgrading_identity");
     CHECK(fs::exists(dir / "effects" / "classic_zone_light.json"));
