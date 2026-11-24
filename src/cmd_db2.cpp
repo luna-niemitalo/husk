@@ -725,8 +725,16 @@ int db2Info(int argc, char** args) {
     printHeader(file.header);
     printSections(file);
     printFields(file);
+    // Records decode lazily, so a record the decoder rejects surfaces here,
+    // after parse() accepted the file.
     if (rowLimit > 0) {
-        printRows(file, bytes, rowLimit);
+        try {
+            printRows(file, bytes, rowLimit);
+        } catch (const std::exception& e) {
+            std::cout.flush();
+            std::cerr << "\nhusk: db2-info: couldn't decode a row of '" << path << "': " << e.what() << "\n";
+            return 1;
+        }
     }
 
     return 0;
