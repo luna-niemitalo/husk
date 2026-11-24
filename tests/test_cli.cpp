@@ -411,6 +411,39 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: a joint carries its raw bone flags and the named bits, kinematic_bone included") {
+    auto m2 = tinyValidM2();
+    uint32_t boneOff = static_cast<uint32_t>(m2.size());
+    uint32_t boneCount = 1;
+    std::memcpy(m2.data() + 0x02C, &boneCount, 4);
+    std::memcpy(m2.data() + 0x030, &boneOff, 4);
+    m2.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(m2.data() + boneOff + 0x00, &keyBoneId, 4);
+    uint32_t flags = 0x400 | 0x4 | 0x8 | 0x2000;  // kinematic, ignore parent rotation, billboard, unnamed
+    std::memcpy(m2.data() + boneOff + 0x04, &flags, 4);
+    int16_t parentBone = -1;
+    std::memcpy(m2.data() + boneOff + 0x08, &parentBone, 2);
+    fillTrack(m2, boneOff + 0x10, {0}, {vec3Bytes(0, 0, 0)});
+    fillTrack(m2, boneOff + 0x24, {0}, {identityQuatBytes()});
+    fillTrack(m2, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto dir = defaultsDir("boneflags");
+    writeFile(dir / "flags.m2", m2);
+    writeFile(dir / "flags00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "flags.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "flags.bundle");
+    const nlohmann::json& joint = m["resources"]["rig"]["skeleton"]["joints"][0];
+    CHECK(joint["source"]["flags"] == "0x240c");
+    CHECK(joint["flags"] == nlohmann::json::array({"ignore_parent_rotation", "kinematic_bone"}));
+    CHECK(joint["billboard"] == "spherical");
+
+    fs::remove_all(dir);
+}
+
     fs::remove_all(dir);
 }
 

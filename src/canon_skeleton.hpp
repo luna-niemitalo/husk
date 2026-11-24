@@ -48,6 +48,11 @@ struct Joint {
 
     BillboardMode billboard = BillboardMode::None;
 
+    // M2CompBone.flags as stored, and its named non-billboard bits
+    // (m2::boneFlagNames): kinematic_bone marks a bone physics drives.
+    uint32_t sourceFlags = 0;
+    std::vector<std::string> flagNames;
+
     // id = RecordIndex{bone index} via boneRef; name/source are
     // NameSource::M2Embedded (m2::keyBoneName table hit) or
     // NameSource::Synthesized ("bone_<index>" fallback) -- the exact

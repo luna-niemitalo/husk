@@ -5,6 +5,7 @@
 // body bone references. See TEST_DESIGN.md#Four-tier-architecture for how
 // this tier relates to the others.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
@@ -189,6 +190,34 @@ TEST_CASE("husk export: a PFID not found locally leaves physics out and marks th
 
     fs::remove_all(root);
 }
+
+// Real-data-gated: catmount.m2 keeps its physics in PFDC (the listfile's
+// catmount.phys isn't in the build), and its physics bones carry 0x400.
+TEST_CASE("husk export: real catmount.m2 gets its PFDC physics on kinematic joints" *
+          doctest::skip(!fs::exists("/media/luna/wow_export/live/creature/catmount/catmount.m2"))) {
+    auto dir = defaultsDir("physcatmount");
+    auto bundle = dir / "catmount.bundle";
+    auto result = runHusk("export /media/luna/wow_export/live/creature/catmount/catmount.m2 -o " + bundle.string() +
+                          " --listfile-root /media/luna/wow_export/live --anim none");
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(bundle);
+    REQUIRE(m["resources"].contains("physics"));
+    const nlohmann::json& bodies = m["resources"]["physics"]["bodies"];
+    CHECK(bodies.size() > 0);
+    CHECK((*physSource(m))["detail"] == "PFDC chunk");
+    const nlohmann::json& joints = m["resources"]["rig"]["skeleton"]["joints"];
+    for (const nlohmann::json& body : bodies) {
+        if (body["type"] == 0) continue;  // type 0 bodies follow their bone; only dynamic ones need physics to drive it
+        const nlohmann::json& joint = joints[body["joint"].get<size_t>()];
+        INFO(joint.dump());
+        REQUIRE(joint.contains("flags"));
+        CHECK(std::find(joint["flags"].begin(), joint["flags"].end(), "kinematic_bone") != joint["flags"].end());
+    }
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: a .phys body referencing a bone index out of range for the model's "
           "skeleton fails the export with a clear message, naming the offending file/index") {
     auto m2Path = tempPath("phys-oor.m2");

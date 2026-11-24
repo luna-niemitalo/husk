@@ -362,6 +362,17 @@ void writeSkeletonSection(json::Writer& w, const canon::Skeleton& skeleton, std:
         writeRef(w, joint.ref);
         w.key("structural_label");
         w.value(joint.structuralLabel);
+        if (!joint.flagNames.empty()) {
+            w.key("flags");
+            w.beginArray();
+            for (const std::string& name : joint.flagNames) w.value(name);
+            w.endArray();
+        }
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(joint.sourceFlags));
+        w.endObject();
         w.endObject();
     }
     w.endArray();

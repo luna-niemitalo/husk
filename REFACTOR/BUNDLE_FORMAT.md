@@ -524,6 +524,12 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   curves with `sequence_kind: global_sequence` index. A `.skel` model's
   joint clips index the `.skel`'s table, so the clip's own `duration` is
   the one to use for them.
+- **Joint flags (0.4.0).** `skeleton.joints[].source.flags` is
+  `M2CompBone.flags` as stored; `flags` names the bits wowdev.wiki names
+  (`ignore_parent_translate`/`_scale`/`_rotation`, `transformed`,
+  `kinematic_bone`, `helmet_anim_scaled`), billboard bits stay
+  `billboard`. `kinematic_bone` (0x400) marks the joints physics drives:
+  in the 12.1.5 corpus it occurs exactly on models with physics.
 - **Material tracks.** Layer `tint`/`alpha_fade` and `uv_maps[].transform`:
   a constant tint, alpha, texture weight or UV transform is a one-key
   `step` curve; identity values stay absent; a constant weight of 0 is

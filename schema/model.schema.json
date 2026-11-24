@@ -1165,6 +1165,35 @@
                       "structural_label": {
                         "type": "string",
                         "description": "Label derived from the hierarchy."
+                      },
+                      "flags": {
+                        "type": "array",
+                        "description": "The joint's named flag bits, absent when none is set. kinematic_bone: physics drives the joint (a resources.physics body follows it). ignore_parent_*: the joint doesn't inherit that part of its parent's transform. transformed, helmet_anim_scaled: named by the source, effect not established. Billboard bits are billboard.",
+                        "items": {
+                          "enum": [
+                            "ignore_parent_translate",
+                            "ignore_parent_scale",
+                            "ignore_parent_rotation",
+                            "transformed",
+                            "kinematic_bone",
+                            "helmet_anim_scaled"
+                          ],
+                          "description": "One flag."
+                        }
+                      },
+                      "source": {
+                        "type": "object",
+                        "description": "Source-specific raw values.",
+                        "properties": {
+                          "flags": {
+                            "$ref": "common.schema.json#/definitions/flags",
+                            "description": "M2: the bone's flag word (M2CompBone.flags), every bit."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "flags"
+                        ]
                       }
                     },
                     "additionalProperties": false,

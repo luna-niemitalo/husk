@@ -62,6 +62,8 @@ canon::Skeleton assembleSkeleton(const std::vector<m2::Bone>& bones) {
         j.parent = b.parentBone;
         j.globalPosition = {b.pivot.x, b.pivot.y, b.pivot.z};
         j.billboard = toBillboardMode(b.flags);
+        j.sourceFlags = b.flags;
+        j.flagNames = m2::boneFlagNames(b.flags);
         if (const char* name = m2::keyBoneName(b.keyBoneId)) {
             j.ref = canon::boneRef(static_cast<uint32_t>(i), name, canon::NameSource::M2Embedded);
         } else {
