@@ -106,7 +106,8 @@
               "tile": {
                 "$ref": "common.schema.json#/definitions/uuid",
                 "description": "The id of the reference to the tile model placed in the cell, at origin + (i * axis_i + j * axis_j) * cell_size.",
-                "x-id-in": "/references"
+                "x-id-in": "/references",
+                "x-source": [{"format": true}]
               },
               "bounds_min": {
                 "$ref": "common.schema.json#/definitions/vec3",
@@ -146,7 +147,8 @@
       "items": {
         "$ref": "common.schema.json#/definitions/uuid",
         "description": "The id of a placement set document's reference.",
-        "x-id-in": "/references"
+        "x-id-in": "/references",
+        "x-source": [{"format": true}]
       },
       "x-layer": "resource"
     },
@@ -168,12 +170,14 @@
           },
           "id": {
             "$ref": "common.schema.json#/definitions/uuid",
+            "x-source": [{"format": true}],
             "description": "This zone's stable id, unique among the world's zones."
           },
           "parent": {
             "$ref": "common.schema.json#/definitions/uuid",
             "description": "The id of the zone this one lies in; absent for a top-level zone.",
-            "x-id-in": "/zones"
+            "x-id-in": "/zones",
+            "x-source": [{"format": true}]
           },
           "cells": {
             "type": "array",

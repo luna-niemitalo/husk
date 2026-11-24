@@ -64,6 +64,7 @@
         "properties": {
           "id": {
             "$ref": "common.schema.json#/definitions/uuid",
+            "x-source": [{"format": true}],
             "description": "This reference's stable id, derived from the model's file id."
           },
           "kind": {
@@ -93,6 +94,7 @@
         "properties": {
           "id": {
             "$ref": "common.schema.json#/definitions/uuid",
+            "x-source": [{"format": true}],
             "description": "This creature's stable id, unique among the catalog's creatures."
           },
           "name": {
@@ -132,7 +134,8 @@
                 "display": {
                   "$ref": "common.schema.json#/definitions/uuid",
                   "description": "The id of the display.",
-                  "x-id-in": "/displays"
+                  "x-id-in": "/displays",
+                  "x-source": [{"format": true}]
                 },
                 "weight": {
                   "type": "number",
@@ -189,12 +192,14 @@
         "properties": {
           "id": {
             "$ref": "common.schema.json#/definitions/uuid",
+            "x-source": [{"format": true}],
             "description": "This display's stable id, unique among the catalog's displays."
           },
           "model": {
             "$ref": "common.schema.json#/definitions/uuid",
             "description": "The id of the model reference that draws it. Absent when the source names no model for it.",
-            "x-id-in": "/references"
+            "x-id-in": "/references",
+            "x-source": [{"format": true}]
           },
           "preset": {
             "type": "integer",

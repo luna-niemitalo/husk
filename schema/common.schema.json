@@ -397,6 +397,7 @@
       "properties": {
         "id": {
           "$ref": "#/definitions/uuid",
+          "x-source": [{"format": true}],
           "description": "This reference's stable id, unique among the document's references: derived from the kind and the referenced document's identity (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"), so a document named by file id or data-table row has the same id wherever it is referenced."
         },
         "kind": {
@@ -575,6 +576,7 @@
       "properties": {
         "id": {
           "$ref": "#/definitions/uuid",
+          "x-source": [{"format": true}],
           "description": "This entry's stable id, unique in the document's texture table: derived from the texture's identity and what else tells two entries of one file apart (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"). In a material document's own table, absent: its layers point by index."
         },
         "state": {
@@ -636,7 +638,8 @@
     "texture_id": {
       "$ref": "#/definitions/uuid",
       "description": "A texture: the id of an entry of the document's resources.textures, where each texture is listed once.",
-      "x-id-in": "/resources/textures"
+      "x-id-in": "/resources/textures",
+      "x-source": [{"format": true}]
     },
     "liquid_type": {
       "type": "object",
@@ -2314,7 +2317,8 @@
     "light_params_id": {
       "$ref": "#/definitions/uuid",
       "description": "A light parameter set: the id of an entry of the document's resources.light_params, where each set is listed once.",
-      "x-id-in": "/resources/light_params"
+      "x-id-in": "/resources/light_params",
+      "x-source": [{"format": true}]
     },
     "light_key": {
       "type": "object",
@@ -2686,6 +2690,7 @@
       "properties": {
         "id": {
           "$ref": "#/definitions/uuid",
+          "x-source": [{"format": true}],
           "description": "This set's stable id, derived from its LightParams row (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); zone lights name it by this id."
         },
         "ref": {

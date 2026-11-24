@@ -79,7 +79,8 @@
           "reference": {
             "$ref": "common.schema.json#/definitions/uuid",
             "description": "The id of the placed model's or effect's reference.",
-            "x-id-in": "/references"
+            "x-id-in": "/references",
+            "x-source": [{"format": true}]
           },
           "anchor": {
             "$ref": "common.schema.json#/definitions/ref",
