@@ -104,9 +104,11 @@
         "name": {
           "type": "string",
           "description": "Display name; absent when there is none.",
-          "minLength": 1
+          "minLength": 1,
+          "x-source": [{"stated_by": "name_source"}]
         },
         "name_source": {
+          "x-source": [{"format": true}],
           "enum": [
             "m2_embedded",
             "adt_embedded",
@@ -144,7 +146,8 @@
         "name": {
           "type": "string",
           "description": "Display name; absent when there is none.",
-          "minLength": 1
+          "minLength": 1,
+          "x-source": [{"stated_by": "name_source"}]
         },
         "name_source": {
           "$ref": "#/definitions/ref/properties/name_source",
@@ -152,7 +155,8 @@
         },
         "uri": {
           "type": "string",
-          "description": "Path of the referenced document's manifest or file, relative to this document."
+          "description": "Path of the referenced document's manifest or file, relative to this document.",
+          "x-source": [{"format": true}]
         }
       },
       "required": [
@@ -302,6 +306,7 @@
     "space": {
       "type": "object",
       "description": "The frame every position, direction and angle in the document is expressed in.",
+      "x-source": [{"format": true}],
       "properties": {
         "length_unit": {
           "const": "yard",
@@ -336,6 +341,7 @@
     "provenance": {
       "type": "object",
       "description": "Who wrote the document, from what input, and which data sources could be consulted. No export time: a document's bytes depend only on its inputs and the producer, so identical content is stored once (REFACTOR/CORPUS_EXPORT.md).",
+      "x-source": [{"format": true}],
       "properties": {
         "producer": {
           "type": "string",
@@ -402,7 +408,8 @@
             "material",
             "technique"
           ],
-          "description": "Kind of the referenced document."
+          "description": "Kind of the referenced document.",
+          "x-source": [{"format": true}]
         },
         "asset": {
           "$ref": "#/definitions/asset_ref",
@@ -410,7 +417,8 @@
         },
         "document": {
           "type": "object",
-          "description": "The referenced document itself, written inline instead of as its own file; checked like a file of its kind."
+          "description": "The referenced document itself, written inline instead of as its own file; checked like a file of its kind.",
+          "x-source": [{"format": true}]
         }
       },
       "required": [

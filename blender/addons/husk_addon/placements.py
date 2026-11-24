@@ -158,6 +158,7 @@ def set_document(name, placements, frame_corner, doc_dir, schema_version, source
         inst.update(_shift_distant(json.loads(json.dumps(p.rest)), -frame_corner))
         instances.append(inst)
     doc = {
+        "$schema": docs.schema_id("placement_set"),
         "format": "husk-bundle", "kind": "placement_set", "schema_version": schema_version,
         "subject": {"id": {"kind": "none"}, "name": name, "name_source": "synthesized"},
         "space": docs.SPACE, "provenance": docs.provenance(source_detail),

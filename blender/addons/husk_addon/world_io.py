@@ -203,6 +203,7 @@ def _tile_document(name_ref, cell, result, areas_global, chunk_area, G, sets, ou
     prov["sources"] += [{"name": n, "role": r, "available": False, "detail": "not baked by the Blender addon"}
                         for n, r in _NOT_BAKED]
     doc = {
+        "$schema": docs.schema_id("model"),
         "format": "husk-bundle", "kind": "model", "schema_version": schema_version,
         "subject": name_ref, "space": docs.SPACE, "provenance": prov,
         "definition": {"placement_sets": [{"reference": ref["id"], "always_on": True, "instance_count": n}
@@ -348,6 +349,7 @@ def export_world(context, root, out_root, keep_source_tiles=None, log=print):
         world_places.append(refs[-1]["id"])
 
     world = {
+        "$schema": docs.schema_id("world"),
         "format": "husk-bundle", "kind": "world", "schema_version": schema_version,
         "subject": src_world["subject"], "space": docs.SPACE, "provenance": docs.provenance(src_dir),
         "definition": {}, "selection": {}, "references": refs,

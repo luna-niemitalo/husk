@@ -31,7 +31,27 @@ struct Problem {
 // The document kinds schema/ defines.
 std::vector<std::string> kinds();
 
+// The `$id` of `kind`'s schema: what a document of that kind carries as
+// `$schema`.
+std::string schemaId(const std::string& kind);
+
 std::vector<Problem> lintSchemas();
+
+// Leaf properties of any kind's documents with no x-source, own or
+// inherited (REFACTOR/BUNDLE_FORMAT.md "Where values come from: x-source"):
+// one per schema location, sorted by it, each naming a document path that
+// reaches it. The annotation pass's worklist.
+std::vector<Problem> sourceGaps();
+
+// Whether a source gap fails the lint. False while the annotation pass is
+// under way: until then validate-bundle --lint-schema lists the gaps as
+// warnings and counts them per schema file.
+inline constexpr bool kSourceRequired = false;
+
+// One Markdown reference of every kind's document paths: description,
+// type, allowed values, unit, index/id targets, x-source (inherited
+// resolved) and whether required. Deterministic: schema order is key order.
+std::string schemaDoc();
 
 // Lints one kind schema given as text, against the embedded common
 // definitions; how the lint rules themselves are tested.

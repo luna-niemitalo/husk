@@ -18,6 +18,11 @@ HUSK_UUID_NAMESPACE = uuid.UUID("6f0f3a52-8d1c-4b7e-9a42-5c3e1d7b2f10")
 # documents are read as long as nothing they lack is needed.
 SCHEMA_VERSION = "0.4.0"
 
+
+def schema_id(kind):
+    """The `$schema` a document of `kind` carries: its schema's `$id` (schema/<kind>.schema.json)."""
+    return "https://husk.invalid/schema/%s.schema.json" % kind
+
 SPACE = {
     "length_unit": "yard",
     "angle_unit": "radian",
