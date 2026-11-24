@@ -46,14 +46,16 @@
       "description": "A placement set defines nothing beyond its instances.",
       "properties": {},
       "additionalProperties": false,
-      "x-layer": "definition"
+      "x-layer": "definition",
+      "x-source": [{"format": true}]
     },
     "selection": {
       "type": "object",
       "description": "A placement set selects nothing; each instance carries its own selection.",
       "properties": {},
       "additionalProperties": false,
-      "x-layer": "selection"
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
     },
     "references": {
       "type": "array",
@@ -73,8 +75,9 @@
         "properties": {
           "id": {
             "type": "integer",
-            "description": "Stable within the set; how a runtime addresses the instance. The same id in two sets of one world is one object.",
-            "minimum": 0
+            "description": "The instance's id, stable within the set: a tile's or WDT's placement uniqueId, a map volume's or zone light's own id, a WMO doodad's MODD index, else a count husk assigns in placement order. It is how a runtime addresses, moves or deletes the instance and how a saved layout names it again; uniqueIds are map-wide, so the same id in two sets of one world is one object to load once.",
+            "minimum": 0,
+            "x-source": [{"file": "adt_obj0", "field": "MDDF.uniqueId"}, {"file": "adt_obj0", "field": "MODF.uniqueId"}, {"file": "wdt", "field": "MODF.uniqueId"}, {"file": "wdt_fogs", "field": "VFOG.id"}, {"file": "wdt_mpv", "field": "PVMI.id"}, {"table": "Light"}, {"file": "wmo", "field": "MODD"}, {"format": true}]
           },
           "reference": {
             "$ref": "common.schema.json#/definitions/uuid",
@@ -88,32 +91,37 @@
           },
           "translation": {
             "$ref": "common.schema.json#/definitions/vec3",
-            "description": "Position in the set's parent frame.",
-            "x-unit": "yard"
+            "description": "Position in the set's parent frame; the frame's origin for a record that states no position. Transforms are local to the parent frame, never a pre-composed world matrix, so sets nest and a consumer composes the chain at runtime (REFACTOR/PLACEMENT_SETS.md invariant 3).",
+            "x-unit": "yard",
+            "x-source": [{"file": "adt_obj0", "field": "MDDF.position"}, {"file": "adt_obj0", "field": "MODF.position"}, {"file": "wdt", "field": "MODF.position"}, {"file": "wmo", "field": "MODD.position"}, {"file": "wmo", "field": "MFOG.position"}, {"file": "wmo", "field": "MAVD.position"}, {"file": "wmo", "field": "MPVD.position"}, {"file": "m2", "field": "M2Particle.position"}, {"file": "m2", "field": "M2Ribbon.position"}, {"file": "wdt_fogs", "field": "VFOG.position"}, {"file": "wdt_mpv", "field": "PVMI.position"}, {"table": "Light", "column": "GameCoords"}, {"format": true}]
           },
           "rotation": {
             "$ref": "common.schema.json#/definitions/quat",
-            "description": "Orientation in the set's parent frame.",
-            "x-unit": "1"
+            "description": "Orientation in the set's parent frame; identity for a record that states none.",
+            "x-unit": "1",
+            "x-source": [{"file": "adt_obj0", "field": "MDDF.rotation"}, {"file": "adt_obj0", "field": "MODF.rotation"}, {"file": "wdt", "field": "MODF.rotation"}, {"file": "wmo", "field": "MODD.rotation"}, {"file": "wdt_fogs", "field": "VFOG.rotation"}, {"format": true}]
           },
           "scale": {
             "type": "number",
-            "description": "Uniform scale.",
-            "x-unit": "1"
+            "description": "Uniform scale; 1 for a record that states none.",
+            "x-unit": "1",
+            "x-source": [{"file": "adt_obj0", "field": "MDDF.scale"}, {"file": "adt_obj0", "field": "MODF.scale"}, {"file": "wdt", "field": "MODF.scale"}, {"file": "wmo", "field": "MODD.scale"}, {"format": true}]
           },
           "tint": {
             "type": "object",
-            "description": "Colour sampled at the authored spot; stale once moved.",
+            "description": "A WMO doodad's colour, the light sampled at its authored spot. It goes stale once the instance moves, and is kept labelled rather than dropped: a runtime may recompute it or ignore it.",
             "properties": {
               "rgba": {
                 "$ref": "common.schema.json#/definitions/rgba",
                 "description": "Colour.",
-                "x-unit": "1"
+                "x-unit": "1",
+                "x-source": [{"file": "wmo", "field": "MODD.color"}]
               },
               "multiplier": {
                 "type": "number",
-                "description": "Intensity factor.",
-                "x-unit": "1"
+                "description": "Intensity factor; 1 when the WMO has no multipliers.",
+                "x-unit": "1",
+                "x-source": [{"file": "wmo", "field": "MDDI"}, {"format": true}]
               }
             },
             "additionalProperties": false,
@@ -124,7 +132,8 @@
           },
           "distant": {
             "type": "object",
-            "description": "Present when the source lists the instance for drawing at range (a terrain tile's distant-object list); absent when it doesn't, so a renderer drawing the tile from afar leaves the instance out. Whether the list was read at all is the tile's provenance (source obj1).",
+            "description": "Present when the source lists the instance for drawing at range (a terrain tile's distant-object list); a renderer drawing the tile from afar leaves out every instance without it. Whether the list was read at all is the tile's provenance (source obj1).",
+            "x-source": [{"file": "adt_obj1", "field": "MLDX"}, {"file": "adt_obj1", "field": "MLMX"}],
             "properties": {
               "bounds_min": {
                 "$ref": "common.schema.json#/definitions/vec3",
@@ -148,7 +157,8 @@
                   "band": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Which of the source's three bands lists the instance; what a band means is not established. Absent when the source has no bands."
+                    "description": "Which of the source's three bands lists the instance, absent when the source has no bands; what a band means is not established.",
+                    "x-source": [{"file": "adt_obj1", "field": "MLFD"}]
                   }
                 },
                 "additionalProperties": false,
@@ -170,7 +180,8 @@
             "properties": {
               "placement_sets": {
                 "type": "array",
-                "description": "The placed model's owned sets shown beyond its always-on ones: indices into its definition.placement_sets.",
+                "description": "The placed model's owned sets shown beyond its always-on ones: indices into its definition.placement_sets, the WMO doodad sets a map object turns on (MWDR/MWDS already resolved); empty for any other instance.",
+                "x-source": [{"file": "adt_obj0", "field": "MODF.doodadSet"}, {"file": "adt_obj0", "field": "MWDR"}, {"file": "adt_obj0", "field": "MWDS"}, {"file": "wdt", "field": "MODF.doodadSet"}],
                 "items": {
                   "type": "integer",
                   "minimum": 0,
@@ -185,7 +196,8 @@
           },
           "inputs": {
             "type": "object",
-            "description": "A placed effect's inputs by name: only the names the effect declares, each of its declared kind."
+            "description": "A placed effect's inputs by name: only the names the effect declares, each of its declared kind.",
+            "x-source": [{"stated_by": "provenance"}]
           },
           "style": {
             "$ref": "common.schema.json#/definitions/style",
@@ -193,7 +205,8 @@
           },
           "priority": {
             "$ref": "common.schema.json#/definitions/priority",
-            "description": "A placed effect's priority; absent: not stated."
+            "description": "A placed effect's priority; absent: not stated.",
+            "x-source": [{"stated_by": "provenance"}]
           },
           "provenance": {
             "$ref": "common.schema.json#/definitions/provenance_fields",
@@ -209,7 +222,8 @@
             "properties": {
               "flags": {
                 "$ref": "common.schema.json#/definitions/flags",
-                "description": "The source's placement flags, or a placed effect's record flags."
+                "description": "The source's placement flags, or a placed effect's record flags; 0 for a record that has none.",
+                "x-source": [{"file": "adt_obj0", "field": "MDDF.flags"}, {"file": "adt_obj0", "field": "MODF.flags"}, {"file": "wdt", "field": "MODF.flags"}, {"file": "wmo", "field": "MODD.flags"}, {"file": "wmo", "field": "MFOG.flags"}, {"file": "wmo", "field": "MAVG.flags"}, {"file": "wmo", "field": "MAVD.flags"}, {"file": "wmo", "field": "MBVD.flags"}, {"file": "wmo", "field": "MPVD.flags"}, {"file": "m2", "field": "M2Particle.flags"}, {"file": "wdt_fogs", "field": "VFOG.flags"}, {"file": "wdt_mpv", "field": "PVMI.flags"}, {"format": true}]
               },
               "record": {
                 "$ref": "common.schema.json#/definitions/source_record",
