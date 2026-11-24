@@ -1,5 +1,6 @@
 #include "itemappearance_db2.hpp"
 
+#include <algorithm>
 #include <filesystem>
 
 #include "db2table.hpp"
@@ -35,15 +36,17 @@ std::vector<Appearance> loadAppearances(const std::string& db2Dir, const std::st
 
 std::vector<DisplayInfo> loadDisplayInfos(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::vector<DisplayInfo> result;
-    // "ModelResourcesID" resolves to the real field's element 0 when the
-    // current live layout stores it as a 2-entry array (db2table.cpp's own
-    // decodeField-first-element behavior, same one chrmodel_db2.hpp's
-    // texture-layer reader already relies on) -- see this file's own doc
-    // comment for why only element 0 is used.
-    auto rows = db2table::readNamedColumns(joinPath(db2Dir, "itemdisplayinfo.db2"), dbdDir,
-                                            {"ID", "ModelResourcesID"}, err);
+    auto rows = db2table::readNamedArrayColumns(joinPath(db2Dir, "itemdisplayinfo.db2"), dbdDir,
+                                                 {"ID", "ModelResourcesID"}, err);
     if (!rows) return result;
-    for (const auto& row : *rows) result.push_back({orZero(row[0]), orZero(row[1])});
+    for (const auto& row : *rows) {
+        DisplayInfo info;
+        info.id = row[0] && !row[0]->empty() ? row[0]->front() : 0;
+        if (row[1]) {
+            for (size_t i = 0; i < std::min<size_t>(2, row[1]->size()); ++i) info.modelResourcesIds[i] = (*row[1])[i];
+        }
+        result.push_back(info);
+    }
     return result;
 }
 
@@ -118,9 +121,9 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
     // data -- e.g. a real "Hidden Shoulder"/"Hidden Tabard" appearance's
     // ItemAppearance row has ItemDisplayInfoID=0 verbatim, not an absent
     // row husk failed to find). Same "0 is a real value, not unresolved"
-    // convention assembleEquippedItems' modelResourcesId==0 check applies
+    // convention assembleEquippedItems' ModelResourcesID 0 check applies
     // one hop downstream (canon_item_builder.cpp). Returning here
-    // (materials/sectionMaterials/modelResourcesId left unset) gives the
+    // (materials/sectionMaterials/modelResourcesIds left unset) gives the
     // item no components -- correct, since Hidden has nothing to attach --
     // without the misleading "dangling reference" log.
     if (appearance->itemDisplayInfoId == 0) return result;
@@ -137,7 +140,7 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
             << appearance->itemDisplayInfoId << " matched no row in ItemDisplayInfo -- dangling reference\n";
         return result;
     }
-    result.modelResourcesId = displayInfo->modelResourcesId;
+    result.modelResourcesIds = displayInfo->modelResourcesIds;
 
     for (const auto& m : data.modelMatRes) {
         if (m.itemDisplayInfoId == displayInfo->id) result.materials.push_back(m);

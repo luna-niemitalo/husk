@@ -97,12 +97,18 @@ struct ChoiceCorrectionSet {
 // model bundle beside this one, `uri` set when written), the textures
 // those models take (ItemDisplayInfoModelMatRes), and the textures it
 // draws onto the wearer's body sections (ItemDisplayInfoMaterialRes).
+// `position`: ItemDisplayInfo.ModelResourcesID index (shoulders: 0 left,
+// 1 right). `ref` absent: no file was picked for the wearer, see
+// `unresolved`.
 struct ItemModel {
-    Ref ref;          // id = FileDataId of the item's .m2
-    std::string uri;  // the item model bundle's manifest, relative; empty = not exported
+    uint32_t position = 0;
+    std::optional<Ref> ref;  // id = FileDataId of the item's .m2
+    std::string uri;         // the item model bundle's manifest, relative; empty = not exported
+    std::string unresolved;
 };
 struct ItemTexture {
-    uint32_t textureType = 0;  // the item model's M2 texture type it fills
+    uint32_t textureType = 0;    // the item model's M2 texture type it fills
+    uint32_t modelPosition = 0;  // the ItemModel::position it textures
     TextureRef texture;
 };
 struct ItemOverlay {

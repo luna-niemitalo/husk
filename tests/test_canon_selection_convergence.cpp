@@ -99,11 +99,11 @@ TEST_CASE("canon::assembleCharacterSelection: a realistic composition -- several
     itemappearance::Data data;
     data.modifiedAppearances.push_back({15, 154});
     data.appearances.push_back({154, 1542});
-    data.displayInfos.push_back({1542, /*modelResourcesId=*/160});
+    data.displayInfos.push_back({1542, /*modelResourcesIds=*/{160, 0}});
     data.modelMatRes.push_back({1542, /*materialResourcesId=*/22758, /*textureType=*/2, 0});
     std::ostringstream err;
     std::vector<appearance::GearEntry> gear = {{"MAINHAND", 15}};
-    std::vector<canon::Item> items = canon::assembleEquippedItems(data, std::nullopt, std::nullopt, gear, err);
+    std::vector<canon::Item> items = canon::assembleEquippedItems(data, {}, gear, err);
     REQUIRE(items.size() == 1);
 
     std::vector<uint32_t> chosenChoiceIds = {101, 202, 303};
@@ -151,7 +151,7 @@ TEST_CASE("canon::assembleCharacterSelection: EquippedItem genuinely drops canon
     item.identity.id = canon::Db2Row{"ItemModifiedAppearance", 15};
     item.slots = {"MAINHAND", "OFFHAND"};
     canon::GeometryComponent geometry;
-    geometry.modelFileDataIds = {370361};
+    geometry.models.push_back({0, 160, 370361u, ""});
     item.components.push_back(geometry);
     REQUIRE(!item.components.empty());  // precondition: this Item really does carry component data
 

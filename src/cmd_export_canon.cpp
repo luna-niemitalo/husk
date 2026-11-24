@@ -407,9 +407,8 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
 
 // --appearance as one preset: its customization choices (as indices into
 // the model's catalogs) and its gear, each item appended to Model::items
-// with what it draws. Its model is the first of ModelResourcesID's files,
-// whatever race or sex that file is for (ComponentModelFileData isn't read).
-// The schema's preset item slot names (model.schema.json); an --appearance
+// with what it draws: the models and textures picked for the wearer
+// (canon_item_builder.hpp), or why none was. The schema's preset item slot names (model.schema.json); an --appearance
 // slot token names one only when it lowercases to it.
 constexpr std::array<std::string_view, 15> kPresetSlotNames = {
     "head", "neck", "shoulder", "shirt", "chest", "waist", "legs", "feet",
@@ -438,21 +437,35 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
         preset.customization.push_back(pick->second);
     }
 
+    auto itemTexture = [&](uint32_t fdid, const std::string& unresolved) {
+        canon::TextureRef texture = textureFor(fdid);
+        if (fdid == 0) texture.unresolvedReason = unresolved;
+        return texture;
+    };
     for (size_t i = 0; i < sidecars.gear.size(); ++i) {
         const canon::Item& item = sidecars.gear[i];
         canon::ItemEntry entry;
         entry.ref = item.identity;
         for (const canon::Component& component : item.components) {
             if (const auto* geometry = std::get_if<canon::GeometryComponent>(&component)) {
-                if (!geometry->modelFileDataIds.empty()) {
-                    entry.models.push_back({canon::Ref{canon::FileDataId{geometry->modelFileDataIds.front()}, "",
-                                                       canon::NameSource::None},
-                                            sidecars.gearModelUris[i]});
+                for (size_t m = 0; m < geometry->models.size(); ++m) {
+                    const canon::GeometryComponent::Model& model = geometry->models[m];
+                    canon::ItemModel itemModel;
+                    itemModel.position = model.position;
+                    if (model.fileDataId) {
+                        itemModel.ref = canon::Ref{canon::FileDataId{*model.fileDataId}, "", canon::NameSource::None};
+                        itemModel.uri = sidecars.gearModelUris[i][m];
+                    } else {
+                        itemModel.unresolved = model.unresolved;
+                    }
+                    entry.models.push_back(std::move(itemModel));
                 }
-                for (const auto& m : geometry->materials) entry.textures.push_back({m.textureType, textureFor(m.fileDataId)});
+                for (const auto& m : geometry->materials) {
+                    entry.textures.push_back({m.textureType, m.modelIndex, itemTexture(m.fileDataId, m.unresolved)});
+                }
             } else {
                 for (const auto& s : std::get<canon::SectionOverlayComponent>(component).sections) {
-                    entry.overlays.push_back({s.componentSection, textureFor(s.fileDataId)});
+                    entry.overlays.push_back({s.componentSection, itemTexture(s.fileDataId, s.unresolved)});
                 }
             }
         }

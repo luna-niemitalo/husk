@@ -154,9 +154,11 @@ TEST_CASE("husk export --appearance: a standalone-geometry gear entry resolves t
     CHECK(items[0]["ref"]["id"]["table"] == "ItemModifiedAppearance");
     CHECK(items[0]["ref"]["id"]["row"] == 15);
     REQUIRE(items[0]["models"].size() == 1);
-    CHECK(items[0]["models"][0]["id"]["value"] == 370361);
+    CHECK(items[0]["models"][0]["position"] == 0);
+    CHECK(items[0]["models"][0]["model"]["id"]["value"] == 370361);
     REQUIRE(items[0]["textures"].size() == 1);
     CHECK(items[0]["textures"][0]["texture_type"] == 2);
+    CHECK(items[0]["textures"][0]["model_position"] == 0);
     CHECK(textureFileDataId(m, items[0]["textures"][0]["texture"]) == 148134);
     CHECK((!items[0].contains("overlays") || items[0]["overlays"].empty()));
 
@@ -196,7 +198,7 @@ TEST_CASE("husk export --appearance: a gear item whose model --listfile/--listfi
     nlohmann::json m = parseManifest(bundle);
     INFO(m["definition"]["items"].dump());
     INFO(m["references"].dump());
-    CHECK(m["definition"]["items"][0]["models"][0]["uri"] == uri);
+    CHECK(m["definition"]["items"][0]["models"][0]["model"]["uri"] == uri);
     bool referenced = false;
     for (const auto& r : m["references"]) {
         referenced = referenced || (r.contains("asset") && r["asset"].value("uri", "") == uri);

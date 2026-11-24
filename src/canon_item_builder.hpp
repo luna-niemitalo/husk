@@ -1,11 +1,11 @@
 #pragma once
 
-#include <optional>
 #include <ostream>
 #include <vector>
 
 #include "appearance_string.hpp"
 #include "canon_item.hpp"
+#include "component_file_db2.hpp"
 #include "itemappearance_db2.hpp"
 #include "modelfiledata_db2.hpp"
 #include "texturefiledata_db2.hpp"
@@ -26,11 +26,17 @@
 // occurrence.
 namespace husk::canon {
 
-// `modelData`/`textureData` are each independently optional: a missing
-// table just leaves that hop's FileDataID unresolved, never a hard failure.
-std::vector<Item> assembleEquippedItems(const itemappearance::Data& data,
-                                         const std::optional<modelfiledata::Data>& modelData,
-                                         const std::optional<texturefiledata::Data>& textureData,
+// The tables past ItemDisplayInfo, each optional: a missing one leaves its
+// files unpicked, never a hard failure. `wearers`: who wears the gear
+// (componentfile::pick); empty when unknown.
+struct GearSources {
+    const modelfiledata::Data* models = nullptr;
+    const texturefiledata::Candidates* textures = nullptr;
+    const componentfile::Data* components = nullptr;
+    std::vector<componentfile::Wearer> wearers;
+};
+
+std::vector<Item> assembleEquippedItems(const itemappearance::Data& data, const GearSources& sources,
                                          const std::vector<appearance::GearEntry>& gear, std::ostream& err);
 
 }  // namespace husk::canon

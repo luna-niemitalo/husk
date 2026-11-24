@@ -205,8 +205,8 @@ TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: a real gear ItemModifiedA
     auto result = runHusk(cmd.str());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("gear MAINHAND:15 -> ItemDisplayInfoID=1542") != std::string::npos);
-    CHECK(result.output.find("model=370361") != std::string::npos);
-    CHECK(result.output.find("texture(type=2)=148134") != std::string::npos);
+    CHECK(result.output.find("model[0]=370361") != std::string::npos);
+    CHECK(result.output.find("texture(type=2,model=0)=148134") != std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -268,6 +268,7 @@ TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: an ItemModifiedAppearance
     cmd << "appearance-string --validate \"husk-appearance/1 gear=MAINHAND:999\""
         << " --db2-dir " << db2Dir.string() << " --dbd-dir " << dbdDir.string();
     auto result = runHusk(cmd.str());
+    INFO(result.output);
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("gear MAINHAND:999 -- unresolved") != std::string::npos);
 
@@ -305,13 +306,13 @@ TEST_CASE("husk appearance-string --db2-dir none / --dbd-dir none: overrides a c
     auto configHonored =
         runHusk("appearance-string --validate \"husk-appearance/1 gear=MAINHAND:15\"" + configArg);
     CHECK(configHonored.exitCode == 0);
-    CHECK(configHonored.output.find("model=370361") != std::string::npos);
+    CHECK(configHonored.output.find("model[0]=370361") != std::string::npos);
 
     auto explicitNone = runHusk("appearance-string --validate \"husk-appearance/1 gear=MAINHAND:15\"" +
                                  configArg + " --db2-dir none --dbd-dir none");
     CHECK(explicitNone.exitCode == 0);
     CHECK(explicitNone.output.find("gear entries not resolved") != std::string::npos);
-    CHECK(explicitNone.output.find("model=370361") == std::string::npos);
+    CHECK(explicitNone.output.find("model[0]=370361") == std::string::npos);
 
     fs::remove_all(dir);
 }

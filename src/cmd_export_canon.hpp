@@ -35,12 +35,12 @@ struct BundleSidecars {
     std::string bonesDir;  // tried first for '<fdid>.bone'; the listfile/store follow
     const ListfileIndex* listfile = nullptr;
     // --appearance: its customization choices and gear become one preset.
-    // `gearModelUris[i]` is gear[i]'s exported model bundle manifest,
-    // relative to the bundle; empty = not exported.
+    // `gearModelUris[i][m]` is gear[i]'s GeometryComponent model m's
+    // exported bundle manifest, relative to the bundle; empty = not exported.
     std::string appearance;
     std::vector<uint32_t> appearanceChoiceIds;
     std::vector<canon::Item> gear;
-    std::vector<std::string> gearModelUris;
+    std::vector<std::vector<std::string>> gearModelUris;
     std::string leanGlbPath;  // --glb: also write the lean glTF projection here; empty = none
     bool noAnimation = false;  // --anim none: drop every clip
     // AnimationData id -> Name, for naming sequence clips; empty = none known.

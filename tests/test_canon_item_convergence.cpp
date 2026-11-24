@@ -3,7 +3,7 @@
 // assembleEquippedItems reuses itemappearance::resolve directly
 // rather than re-walking itemappearance::Data itself, so these checks
 // derive an independent expectation straight from the already-loaded
-// itemappearance::Data/modelfiledata::Data/texturefiledata::Data structs,
+// itemappearance::Data/modelfiledata::Data/texturefiledata::Candidates structs,
 // not by calling assembleEquippedItems to produce its own expected values --
 // same discipline test_canon_definition_convergence.cpp/
 // test_canon_selection_convergence.cpp already establish.
@@ -33,7 +33,7 @@ itemappearance::Data makeFullyResolvableData(uint32_t appearanceId, uint32_t ite
     itemappearance::Data data;
     data.modifiedAppearances.push_back({appearanceId, itemAppearanceId});
     data.appearances.push_back({itemAppearanceId, itemDisplayInfoId});
-    data.displayInfos.push_back({itemDisplayInfoId, modelResourcesId});
+    data.displayInfos.push_back({itemDisplayInfoId, {modelResourcesId, 0}});
     data.modelMatRes.push_back({itemDisplayInfoId, /*materialResourcesId=*/22758, /*textureType=*/2, 0});
     data.materialRes.push_back({itemDisplayInfoId, /*componentSection=*/6, /*materialResourcesId=*/34187});
     return data;
@@ -41,11 +41,16 @@ itemappearance::Data makeFullyResolvableData(uint32_t appearanceId, uint32_t ite
 
 std::vector<canon::Item> assemble(const itemappearance::Data& data,
                                    const std::optional<modelfiledata::Data>& modelData,
-                                   const std::optional<texturefiledata::Data>& textureData,
+                                   const std::optional<texturefiledata::Candidates>& textureData,
                                    const std::vector<appearance::GearEntry>& gear) {
     std::ostringstream err;
-    return canon::assembleEquippedItems(data, modelData, textureData, gear, err);
+    canon::GearSources sources;
+    sources.models = modelData ? &*modelData : nullptr;
+    sources.textures = textureData ? &*textureData : nullptr;
+    return canon::assembleEquippedItems(data, sources, gear, err);
 }
+
+const texturefiledata::Candidates kTextures{{22758, {148134}}, {34187, {500001}}};
 
 }  // namespace
 
@@ -54,10 +59,9 @@ TEST_CASE("canon::assembleEquippedItems: a single gear entry carrying both case-
           "SectionOverlayComponent, each resolved against the independently-derived expectation") {
     itemappearance::Data data = makeFullyResolvableData(15, 154, 1542, 160);
     modelfiledata::Data modelData{{160, {370361}}};
-    texturefiledata::Data textureData{{22758, 148134}, {34187, 500001}};
 
     std::vector<appearance::GearEntry> gear = {{"MAINHAND", 15}};
-    std::vector<canon::Item> result = assemble(data, modelData, textureData, gear);
+    std::vector<canon::Item> result = assemble(data, modelData, kTextures, gear);
 
     REQUIRE(result.size() == 1);
     const canon::Item& item = result[0];
@@ -78,7 +82,9 @@ TEST_CASE("canon::assembleEquippedItems: a single gear entry carrying both case-
 
     REQUIRE(std::holds_alternative<canon::GeometryComponent>(item.components[1]));
     const auto& geometry = std::get<canon::GeometryComponent>(item.components[1]);
-    CHECK(geometry.modelFileDataIds == std::vector<uint32_t>{370361});
+    REQUIRE(geometry.models.size() == 1);
+    CHECK(geometry.models[0].position == 0);
+    CHECK(geometry.models[0].fileDataId == 370361u);
     REQUIRE(geometry.materials.size() == 1);
     CHECK(geometry.materials[0].textureType == 2);
     CHECK(geometry.materials[0].materialResourcesId == 22758);
@@ -90,10 +96,9 @@ TEST_CASE("canon::assembleEquippedItems: I7's own payoff -- two GearEntrys shari
           "slots, its components resolved once, not duplicated") {
     itemappearance::Data data = makeFullyResolvableData(15, 154, 1542, 160);
     modelfiledata::Data modelData{{160, {370361}}};
-    texturefiledata::Data textureData{{22758, 148134}, {34187, 500001}};
 
     std::vector<appearance::GearEntry> gear = {{"MAINHAND", 15}, {"OFFHAND", 15}};
-    std::vector<canon::Item> result = assemble(data, modelData, textureData, gear);
+    std::vector<canon::Item> result = assemble(data, modelData, kTextures, gear);
 
     REQUIRE(result.size() == 1);
     const canon::Item& item = result[0];
@@ -143,7 +148,7 @@ TEST_CASE("canon::assembleEquippedItems: a real ModelResourcesID of 0 with no ma
     itemappearance::Data data;
     data.modifiedAppearances.push_back({367, 495});
     data.appearances.push_back({495, 233});
-    data.displayInfos.push_back({233, /*modelResourcesId=*/0});
+    data.displayInfos.push_back({233, /*modelResourcesIds=*/{0, 0}});
     // Case-2 only: a real ItemDisplayInfoMaterialRes row, no ModelMatRes at all.
     data.materialRes.push_back({233, 6, 34187});
 
@@ -167,24 +172,25 @@ TEST_CASE("canon::assembleEquippedItems: a gear entry whose resolve() doesn't pr
     CHECK(result.empty());
 }
 
-TEST_CASE("canon::assembleEquippedItems: modelData absent leaves modelFileDataIds empty, "
+TEST_CASE("canon::assembleEquippedItems: modelData absent leaves the model unpicked, "
           "materials' fileDataId stay resolvable independently via textureData") {
     itemappearance::Data data = makeFullyResolvableData(15, 154, 1542, 160);
-    texturefiledata::Data textureData{{22758, 148134}, {34187, 500001}};
 
     std::vector<appearance::GearEntry> gear = {{"MAINHAND", 15}};
-    std::vector<canon::Item> result = assemble(data, std::nullopt, textureData, gear);
+    std::vector<canon::Item> result = assemble(data, std::nullopt, kTextures, gear);
 
     REQUIRE(result.size() == 1);
     REQUIRE(result[0].components.size() == 2);
     const auto& geometry = std::get<canon::GeometryComponent>(result[0].components[1]);
-    CHECK(geometry.modelFileDataIds.empty());
+    REQUIRE(geometry.models.size() == 1);
+    CHECK_FALSE(geometry.models[0].fileDataId);
+    CHECK(geometry.models[0].unresolved == "ModelFileData lists no file for this resource");
     REQUIRE(geometry.materials.size() == 1);
     CHECK(geometry.materials[0].fileDataId == 148134);  // still resolved -- textureData was given
 }
 
 TEST_CASE("canon::assembleEquippedItems: textureData absent leaves every fileDataId unresolved "
-          "(0), modelFileDataIds still resolve independently via modelData") {
+          "(0), the model still resolves independently via modelData") {
     itemappearance::Data data = makeFullyResolvableData(15, 154, 1542, 160);
     modelfiledata::Data modelData{{160, {370361}}};
 
@@ -194,7 +200,8 @@ TEST_CASE("canon::assembleEquippedItems: textureData absent leaves every fileDat
     REQUIRE(result.size() == 1);
     REQUIRE(result[0].components.size() == 2);
     const auto& geometry = std::get<canon::GeometryComponent>(result[0].components[1]);
-    CHECK(geometry.modelFileDataIds == std::vector<uint32_t>{370361});
+    REQUIRE(geometry.models.size() == 1);
+    CHECK(geometry.models[0].fileDataId == 370361u);
     REQUIRE(geometry.materials.size() == 1);
     CHECK(geometry.materials[0].fileDataId == 0);
     const auto& overlay = std::get<canon::SectionOverlayComponent>(result[0].components[0]);

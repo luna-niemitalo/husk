@@ -3,6 +3,7 @@
 // sequential process" exception, in one file -- REFACTOR/README.md's
 // canon/writers split is expected to eventually separate the two.
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <cstring>
@@ -23,6 +24,7 @@
 #include "appearance_string.hpp"
 #include "canon_item_builder.hpp"
 #include "character_texture_context.hpp"
+#include "chrrace_db2.hpp"
 #include "chunk.hpp"
 #include "cli_args.hpp"
 #include "cmd_export_canon.hpp"
@@ -367,8 +369,9 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "items, each (SLOT, ItemModifiedAppearanceID) resolved to the item's models "
                     "(exported as bundles under 'items/'), textures and body-section overlays. "
                     "Mutually exclusive with --customization-choice-ids; requires --db2-dir/"
-                    "--dbd-dir. 'race'/'sex' are informational only -- --chr-model-id's derivation "
-                    "decides the character")
+                    "--dbd-dir. 'race'/'sex' pick each gear file's race/sex variant (else the "
+                    "model file name's race and sex do); --chr-model-id's derivation still decides "
+                    "the character")
         ->group("Appearance / gear");
     app.add_option("--chr-model-id", opts.chrModelIdArg,
                     "a real ChrModelID (see ChrModel.db2 / `husk db2-export`), the literal 'auto' to "
@@ -431,11 +434,31 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
         ->group("Game data");
 }
 
+// Who wears --appearance gear: its race and sex when given; otherwise the
+// races and sex the character model's file name names (chrrace_db2.hpp:
+// "pandarenmale" is three ChrRaces rows). Empty when neither says.
+std::vector<componentfile::Wearer> gearWearers(int raceId, int sexId, const std::string& modelPath,
+                                               const std::string& db2Dir, const std::string& dbdDir) {
+    if (raceId != 0) return {{static_cast<uint32_t>(raceId), static_cast<uint32_t>(sexId)}};
+    std::optional<chrrace::ParsedName> parsed = chrrace::parseModelBasename(modelPath);
+    if (!parsed) return {};
+    std::optional<chrrace::Data> races = chrrace::load(db2Dir, dbdDir, std::cerr);
+    if (!races) return {};
+    std::vector<componentfile::Wearer> wearers;
+    for (const chrrace::Race& race : races->races) {
+        std::string token = race.clientFileString;
+        std::transform(token.begin(), token.end(), token.begin(), [](unsigned char c) { return std::tolower(c); });
+        if (token == parsed->raceToken) wearers.push_back({race.id, parsed->sex});
+    }
+    return wearers;
+}
+
 // --appearance gear as canon items (ItemModifiedAppearance -> display ->
-// models, model textures, body-section overlays). Empty, with a note,
-// without the DB2 tables.
+// the wearer's models, model textures, body-section overlays). Empty, with
+// a note, without the DB2 tables.
 std::vector<canon::Item> resolveGearItems(const std::string& db2Dir, const std::string& dbdDir,
-                                          const std::vector<appearance::GearEntry>& gear) {
+                                          const std::vector<appearance::GearEntry>& gear,
+                                          std::vector<componentfile::Wearer> wearers) {
     if (gear.empty()) return {};
     if (db2Dir.empty() || dbdDir.empty()) {
         std::cerr << "husk: note: --appearance gear needs --db2-dir and --dbd-dir -- no items\n";
@@ -443,58 +466,87 @@ std::vector<canon::Item> resolveGearItems(const std::string& db2Dir, const std::
     }
     std::optional<itemappearance::Data> items = itemappearance::load(db2Dir, dbdDir, std::cerr);
     if (!items) return {};
-    return canon::assembleEquippedItems(*items, modelfiledata::load(db2Dir, dbdDir, std::cerr),
-                                        texturefiledata::load(db2Dir, dbdDir, std::cerr), gear, std::cerr);
+    std::optional<modelfiledata::Data> models = modelfiledata::load(db2Dir, dbdDir, std::cerr);
+    std::optional<texturefiledata::Candidates> textures = texturefiledata::loadCandidates(db2Dir, dbdDir, std::cerr);
+    std::optional<componentfile::Data> components = componentfile::load(db2Dir, dbdDir, std::cerr);
+    canon::GearSources sources;
+    sources.models = models ? &*models : nullptr;
+    sources.textures = textures ? &*textures : nullptr;
+    sources.components = components ? &*components : nullptr;
+    sources.wearers = std::move(wearers);
+    if (sources.wearers.empty()) {
+        std::cerr << "husk: note: --appearance names no race and the model's file name names none -- gear files "
+                     "with race/sex variants stay unpicked\n";
+    }
+    return canon::assembleEquippedItems(*items, sources, gear, std::cerr);
 }
 
-// Each gear item's model as a bundle of its own, `items/<fdid>.bundle/`
-// inside the character's bundle, textured with the item's object-skin
-// texture (type 2) when it has one. Returns each item's manifest uri
-// relative to the character bundle; empty where the model has no local
-// file or its export failed (both reported).
-std::vector<std::string> exportGearItemBundles(const std::vector<canon::Item>& gear, const ListfileIndex& listfile,
-                                               const std::string& listfileRoot, const std::string& bundleDir,
-                                               const writers::StoreLink* textureStore) {
-    std::vector<std::string> uris(gear.size());
+// One picked gear model as `items/<fdid>.bundle/`; its manifest uri, or
+// nullopt (reported) when it has no local file or fails to export.
+std::optional<std::string> exportGearModel(const canon::GeometryComponent& geometry,
+                                           const canon::GeometryComponent::Model& model, const ListfileIndex& listfile,
+                                           const std::string& listfileRoot, const std::string& bundleDir,
+                                           const writers::StoreLink* textureStore) {
+    uint32_t fdid = *model.fileDataId;
+    std::optional<std::filesystem::path> path = sources::localFileForFileDataId(listfile, listfileRoot, fdid);
+    if (!path) {
+        std::cerr << "husk: note: gear model FileDataID " << fdid << " has no local file -- not exported\n";
+        return std::nullopt;
+    }
+
+    // CLI11 takes a vector argv last-argument-first.
+    std::vector<std::string> reversedArgv;
+    for (const auto& m : geometry.materials) {
+        if (m.textureType == 2 && m.modelIndex == model.position && m.fileDataId != 0) {
+            reversedArgv = {std::to_string(m.fileDataId), "--object-skin-texture-id"};
+        }
+    }
+    // The item's own defaults, never the character's flags: its
+    // --appearance would recurse, and its textures sit beside it.
+    ExportOptions itemOpts;
+    CLI::App itemApp{"husk export (gear item model)", "husk export"};
+    addExportOptions(itemApp, itemOpts);
+    try {
+        itemApp.parse(reversedArgv);
+    } catch (const CLI::ParseError& e) {
+        std::cerr << "husk: note: gear model FileDataID " << fdid << ": " << e.what() << " -- not exported\n";
+        return std::nullopt;
+    }
+
+    std::string uri = "items/" + std::to_string(fdid) + ".bundle";
+    std::string itemDir = (std::filesystem::path(bundleDir) / uri).string();
+    if (exportOneModel(itemOpts, itemApp, path->string(), itemDir, true, listfile, fdid, nullptr, textureStore) != 0) {
+        std::cerr << "husk: note: gear model FileDataID " << fdid << " failed to export\n";
+        return std::nullopt;
+    }
+    return uri + "/manifest.json";
+}
+
+// Each gear item's picked models as bundles of their own,
+// `items/<fdid>.bundle/` inside the character's bundle, each textured with
+// its own object-skin texture (type 2, ModelMatRes.ModelIndex = its
+// position) when it has one. Returns, per item and per GeometryComponent
+// model, the manifest uri relative to the character bundle; empty where the
+// model is unpicked, has no local file or failed to export (reported).
+std::vector<std::vector<std::string>> exportGearItemBundles(const std::vector<canon::Item>& gear,
+                                                            const ListfileIndex& listfile,
+                                                            const std::string& listfileRoot,
+                                                            const std::string& bundleDir,
+                                                            const writers::StoreLink* textureStore) {
+    std::vector<std::vector<std::string>> uris(gear.size());
     for (size_t i = 0; i < gear.size(); ++i) {
         const canon::GeometryComponent* geometry = nullptr;
         for (const canon::Component& c : gear[i].components) {
             if (const auto* g = std::get_if<canon::GeometryComponent>(&c)) geometry = g;
         }
-        if (!geometry || geometry->modelFileDataIds.empty()) continue;
-        uint32_t fdid = geometry->modelFileDataIds.front();
-        std::optional<std::filesystem::path> path = sources::localFileForFileDataId(listfile, listfileRoot, fdid);
-        if (!path) {
-            std::cerr << "husk: note: gear model FileDataID " << fdid << " has no local file -- not exported\n";
-            continue;
-        }
-
-        // CLI11 takes a vector argv last-argument-first.
-        std::vector<std::string> reversedArgv;
-        for (const auto& m : geometry->materials) {
-            if (m.textureType == 2 && m.fileDataId != 0) {
-                reversedArgv = {std::to_string(m.fileDataId), "--object-skin-texture-id"};
+        if (!geometry) continue;
+        uris[i].resize(geometry->models.size());
+        for (size_t m = 0; m < geometry->models.size(); ++m) {
+            const canon::GeometryComponent::Model& model = geometry->models[m];
+            if (!model.fileDataId) continue;
+            if (auto uri = exportGearModel(*geometry, model, listfile, listfileRoot, bundleDir, textureStore)) {
+                uris[i][m] = *uri;
             }
-        }
-        // The item's own defaults, never the character's flags: its
-        // --appearance would recurse, and its textures sit beside it.
-        ExportOptions itemOpts;
-        CLI::App itemApp{"husk export (gear item model)", "husk export"};
-        addExportOptions(itemApp, itemOpts);
-        try {
-            itemApp.parse(reversedArgv);
-        } catch (const CLI::ParseError& e) {
-            std::cerr << "husk: note: gear model FileDataID " << fdid << ": " << e.what() << " -- not exported\n";
-            continue;
-        }
-
-
-        std::string uri = "items/" + std::to_string(fdid) + ".bundle";
-        std::string itemDir = (std::filesystem::path(bundleDir) / uri).string();
-        if (exportOneModel(itemOpts, itemApp, path->string(), itemDir, true, listfile, fdid, nullptr, textureStore) == 0) {
-            uris[i] = uri + "/manifest.json";
-        } else {
-            std::cerr << "husk: note: gear model FileDataID " << fdid << " failed to export\n";
         }
     }
     return uris;
@@ -647,6 +699,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     std::string customizationChoiceIdsArg =
         app.count("--customization-choice-ids") ? opts.customizationChoiceIdsArg : "";
     std::vector<appearance::GearEntry> gearEntries;
+    int appearanceRaceId = 0;
+    int appearanceSexId = 0;
     if (appearanceGiven) {
         // Mutual exclusivity with --customization-choice-ids already
         // enforced above -- customizationChoiceIdsArg is still empty here,
@@ -670,6 +724,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             customizationChoiceIdsArg = ids.str();
         }
         gearEntries = parsed.gear;
+        appearanceRaceId = parsed.raceId;
+        appearanceSexId = parsed.sexId;
     }
     std::string chrModelIdArg = app.count("--chr-model-id") ? opts.chrModelIdArg : "";
     // One catalog per model export: every texture slot and LOD level shares
@@ -781,7 +837,13 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             for (std::string id; std::getline(ids, id, ',');) {
                 sidecars.appearanceChoiceIds.push_back(static_cast<uint32_t>(std::stoul(id)));
             }
-            sidecars.gear = resolveGearItems(db2Dir, dbdDirForChr, gearEntries);
+            if (!gearEntries.empty() && !db2Dir.empty() && !dbdDirForChr.empty()) {
+                sidecars.gear = resolveGearItems(
+                    db2Dir, dbdDirForChr, gearEntries,
+                    gearWearers(appearanceRaceId, appearanceSexId, modelPath, db2Dir, dbdDirForChr));
+            } else {
+                sidecars.gear = resolveGearItems(db2Dir, dbdDirForChr, gearEntries, {});
+            }
             sidecars.gearModelUris = exportGearItemBundles(sidecars.gear, listfile, listfileRoot, outputPath, textureStore);
         }
         writeCanonBundleOnly(model, skinsToExport.front().second, lodSkins, catalog, modelPath,
