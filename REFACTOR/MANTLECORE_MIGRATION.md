@@ -130,9 +130,14 @@ changes:
   `layers[].texture_weight` (M2TextureWeight). Both are written when the
   source sets both; the consumer combines them (`BUNDLE_FORMAT.md`
   "Material tracks", table in "`Model()`" below).
-- *(Reserved: `definition.items[]` models become `{position, model |
-  unresolved_reason}` and textures gain `model_position`; lands on its
-  own branch.)*
+- **Item models and textures are the wearer's files.** A
+  `definition.items[].models[]` entry is `{position, model}` or
+  `{position, unresolved_reason}`, no longer an asset ref: `position` is
+  the ItemDisplayInfo.ModelResourcesID index (shoulders: 0 left, 1
+  right). `textures[]` entries gain a required `model_position`, the
+  model they dress. Each model and texture is the file for the wearer's
+  race and sex (ComponentModelFileData / ComponentTextureFileData); an
+  unpicked texture is `known_unresolved` with the reason.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Zone flags.** With `--db2-dir`, a world zone's `source` carries
