@@ -83,6 +83,9 @@ std::string join(const std::vector<std::string>& parts, const std::string& sep) 
 // both --config wiring and an optional (non-required) flag, so 'none' is
 // real there too (DESIGN.md's "Three-state resolution, not two").
 bool noneOptOutSupported(const std::string& subName, const std::string& longName) {
+    if (longName == "--anim-names") {
+        return subName == "export" || subName == "export-world" || subName == "export-corpus" || subName == "snapshot";
+    }
     if (subName == "export") {
         return longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile" ||
                longName == "--listfile-root";
@@ -110,7 +113,8 @@ std::string bashValueCompletion(const std::string& longName, const std::string& 
         return "COMPREPLY=($(compgen -W \"auto inline none\" -- \"$cur\")); compopt -o "
                "filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root";
+    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root" ||
+                   longName == "--anim-names";
     bool fileFlag = longName == "--listfile";
     bool noneOk = noneOptOutSupported(subName, longName);
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" ||
@@ -226,7 +230,8 @@ const std::vector<ZshHelper>& zshHelpers() {
 std::string zshValueAction(const std::string& longName, const std::string& subName) {
     if (longName == "--skin") return "_husk_skin_value";
     if (longName == "--anim") return "_husk_anim_value";
-    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root";
+    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root" ||
+                   longName == "--anim-names";
     bool fileFlag = longName == "--listfile";
     bool noneOk = noneOptOutSupported(subName, longName);
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" || (dirFlag && noneOk))
@@ -261,6 +266,7 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--customization-choice-ids") return "comma-separated ChrCustomizationChoiceID(s)";
     if (longName == "--listfile") return "community-listfile.csv snapshot, for FileDataID names";
     if (longName == "--listfile-root") return "corpus root the listfile paths are relative to";
+    if (longName == "--anim-names") return "wow.export checkout, for clip names, or none";
     if (longName == "--json") return "print structured JSON instead of prose";
     if (longName == "--help") return "print help and exit";
     return longName;
@@ -350,12 +356,17 @@ struct AllSubcommandOpts {
     husk::commands::ExportWmoOptions exportWmoOpts;
     husk::commands::ExportMapOptions exportMapOpts;
     husk::commands::ValidateBundleOptions validateBundleOpts;
+    husk::commands::GarmentsCheckOptions garmentsCheckOpts;
+    husk::commands::SchemaDocOptions schemaDocOpts;
     husk::commands::StoreAddOptions storeAddOpts;
     husk::commands::StorePruneOptions storePruneOpts;
     husk::commands::MountOptions mountOpts;
     husk::commands::ExportCorpusOptions exportCorpusOpts;
     husk::commands::IndexTreeOptions indexTreeOpts;
+    husk::commands::ExportCreaturesOptions exportCreaturesOpts;
+    husk::commands::ExportAppearancesOptions exportAppearancesOpts;
     husk::commands::SnapshotOptions snapshotOpts;
+    husk::commands::UvFootprintOptions uvFootprintOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -411,6 +422,14 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
         root.add_subcommand("validate-bundle", "check bundle documents against the format's schema");
     husk::commands::addValidateBundleOptions(*validateBundleSub, opts.validateBundleOpts);
 
+    CLI::App* garmentsCheckSub =
+        root.add_subcommand("garments-check", "list garment conflicts and kind deviations of a model bundle's presets");
+    husk::commands::addGarmentsCheckOptions(*garmentsCheckSub, opts.garmentsCheckOpts);
+
+    CLI::App* schemaDocSub =
+        root.add_subcommand("schema-doc", "print every document value the format defines as one Markdown file");
+    husk::commands::addSchemaDocOptions(*schemaDocSub, opts.schemaDocOpts);
+
     CLI::App* exportWorldSub =
         root.add_subcommand("export-world", "export every ADT tile of every map to a canonical scene");
     husk::commands::addExportWorldOptions(*exportWorldSub, opts.exportWorldOpts);
@@ -433,8 +452,20 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* indexTreeSub = root.add_subcommand("index-tree", "(re)build an export tree's index/ lookup tables");
     husk::commands::addIndexTreeOptions(*indexTreeSub, opts.indexTreeOpts);
 
+    CLI::App* exportCreaturesSub =
+        root.add_subcommand("export-creatures", "write an export tree's creature catalog (creatures.json)");
+    husk::commands::addExportCreaturesOptions(*exportCreaturesSub, opts.exportCreaturesOpts);
+
+    CLI::App* exportAppearancesSub =
+        root.add_subcommand("export-appearances", "move an export tree's appearance lists into one shared appearances.json");
+    husk::commands::addExportAppearancesOptions(*exportAppearancesSub, opts.exportAppearancesOpts);
+
     CLI::App* mountSub = root.add_subcommand("mount", "browse the canonical store as a read-only filesystem");
     husk::commands::addMountOptions(*mountSub, opts.mountOpts);
+
+    CLI::App* uvFootprintSub =
+        root.add_subcommand("uv-footprint", "rasterize a body model's geosets onto its composite skin texture");
+    husk::commands::addUvFootprintOptions(*uvFootprintSub, opts.uvFootprintOpts);
 }
 
 std::string generateCompletionScript(const std::string& shell) {
@@ -612,6 +643,9 @@ int main(int argc, char** argv) {
         "                               export one map's world document: tile grid and map-wide volumes\n"
         "  validate-bundle <path>... [--lint-schema]\n"
         "                               check documents against the bundle format's schema\n"
+        "  garments-check <bundle> [--preset ID]\n"
+        "                               garment conflicts and kind deviations of a model's presets\n"
+        "  schema-doc [-o FILE]         every document value the format defines, as one Markdown file\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
         "                               every tile of every map, parallel, resumable\n"
         "  store-add <tree> --store DIR --game LABEL|--game-from DIR [--tag NAME]...\n"
@@ -623,6 +657,10 @@ int main(int argc, char** argv) {
         "  snapshot [--listfile-root D/live] [--store DIR]\n"
         "                               record the source mount's current game build in the store\n"
         "  index-tree <tree>            (re)build an export tree's index/ lookup tables\n"
+        "  export-creatures <tree>      write an export tree's creature catalog (creatures.json)\n"
+        "  export-appearances <tree>    move a tree's appearance lists into one shared appearances.json\n"
+        "  uv-footprint <body.m2> --layout-id N [--group G]... [--png-dir D]\n"
+        "                               a body model's geoset footprints on its composite skin texture\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -678,6 +716,12 @@ int main(int argc, char** argv) {
     if (command == "validate-bundle") {
         return husk::commands::validateBundle(restArgc, rest);
     }
+    if (command == "garments-check") {
+        return husk::commands::garmentsCheck(restArgc, rest);
+    }
+    if (command == "schema-doc") {
+        return husk::commands::schemaDoc(restArgc, rest);
+    }
     if (command == "store-add") {
         return husk::commands::storeAdd(restArgc, rest);
     }
@@ -687,6 +731,12 @@ int main(int argc, char** argv) {
     if (command == "index-tree") {
         return husk::commands::indexTree(restArgc, rest);
     }
+    if (command == "export-creatures") {
+        return husk::commands::exportCreatures(restArgc, rest);
+    }
+    if (command == "export-appearances") {
+        return husk::commands::exportAppearances(restArgc, rest);
+    }
     if (command == "export-corpus") {
         return husk::commands::exportCorpus(restArgc, rest);
     }
@@ -695,6 +745,9 @@ int main(int argc, char** argv) {
     }
     if (command == "mount") {
         return husk::commands::mount(restArgc, rest);
+    }
+    if (command == "uv-footprint") {
+        return husk::commands::uvFootprint(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

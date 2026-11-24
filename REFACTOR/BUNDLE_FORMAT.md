@@ -147,8 +147,10 @@ This is the rule that makes the bundle traceable — see `CANONICAL_FORMAT.md`
 §5 for the JSON shape of a resource entry (`id`/`name`/`name_source`, plus
 `uri` when the payload is external rather than inline).
 
-`name_source` is one of `m2_embedded` / `adt_embedded` / `wmo_embedded` / `listfile` / `db2` / `synthesized`
-(I6). A ref with no name (most DB2 rows) carries only its `id`: `name` and
+`name_source` is one of `m2_embedded` / `adt_embedded` / `wmo_embedded` / `listfile` / `db2` / `community` / `synthesized`
+(I6). `community` is a community-maintained name table outside the client
+(today: clip names from `--anim-names`, wow.export's list), as opposed to
+`db2`, the client's own data. A ref with no name (most DB2 rows) carries only its `id`: `name` and
 `name_source` appear together or not at all (2026-10-11). It exists because most naming in this project comes from the
 community listfile — unreliable at best — or is invented by husk. A consumer
 reading `"scalpupperhair00_08"` must be able to tell whether that came from the
@@ -162,7 +164,7 @@ alongside for exactly that reason.
 
 ## Document kinds and the contract header — agreed 2026-10-10
 
-Every husk document is one of six **kinds**, decided by what the document
+Every husk document is one of eight **kinds**, decided by what the document
 has to do, not by which WoW file it came from:
 
 | Kind | What it is | Examples |
@@ -173,6 +175,8 @@ has to do, not by which WoW file it came from:
 | `effect` | A behaviour with declared inputs, placed by placement-set instances that supply them (`EFFECTS.md`). | a WMO's fog spheres (`classic_local_fog`) |
 | `material` | How a surface looks: image inputs, layers combined by named functions, and textures that may be composites (`MATERIALS.md`). | a character's skin atlas canvas |
 | `technique` | How the source game computes one drawing step, as data (below, "Techniques"). | `m2_pixel_shader/Combiners_Mod_Add`, `framebuffer_blend/alpha` |
+| `creatures` | A corpus's catalog of creatures: what kind each is and which model and preset draws each of its looks (below, "Creature catalogs"). | `creatures.json` of an export tree |
+| `appearances` | A list of bodies presets point at (above, "Appearances"): one model's, inline in its `appearances` reference, or a tree's shared list. | `appearances.json` of an export tree; a model's inline list |
 
 A character, an item, a WMO and a doodad are all models; they differ in
 content, not kind. A WMO's doodad sets are its definition (what furniture
@@ -188,8 +192,9 @@ belong to the world, since a volume can span many tiles.
 Every document opens with the same header, then its data:
 
 ```
+$schema         the kind's schema `$id`: "https://husk.invalid/schema/<kind>.schema.json"
 format          "husk-bundle", constant
-kind            "model" | "placement_set" | "world" | "effect"
+kind            "model" | "placement_set" | "world" | "effect" | "material" | "technique" | "creatures" | "appearances"
 schema_version  version of the schema/ definitions the document conforms to
 subject         Ref: what this document describes
 space           length/angle units, up axis, handedness of every position in it
@@ -202,7 +207,28 @@ model: resources {geometry, rig, materials, scene}
 placement_set: instances
 world: grid, placements, scene
 effect: sources
+creatures: creatures, displays
+appearances: appearances
 ```
+
+`$schema` (schema 0.4.0) names the schema a document follows, so a
+consumer holding only the document knows which definition to open. It
+is the schema's `$id`, not a path, because:
+- a document's place in a tree varies (bundle manifests, `sets/`,
+  `effects/`, `techniques/`, store objects deduplicated across trees), so
+  a relative path to a shipped `schema/` copy would differ per document
+  and break whenever a document is moved or mounted elsewhere;
+- exports don't ship the schemas: they are embedded in the husk binary,
+  and the pair (`$schema`, `schema_version`) names one file at one version
+  of husk's `schema/` exactly, and `husk schema-doc` renders that set as
+  one Markdown reference (below, "One reference file: `husk schema-doc`");
+- `$schema` is the key editors and JSON Schema tools already read: mapping
+  `https://husk.invalid/schema/*` to a checkout's `schema/` gives
+  completion and validation in an editor. The `.invalid` host never
+  resolves, so the id can't be mistaken for a download location.
+
+`validate-bundle` requires `$schema` to equal the `$id` of the schema its
+`kind` selects, and reports the expected and actual id when it doesn't.
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
 "Settled"): per table, because the real failure is one empty table among
@@ -222,12 +248,7 @@ source of truth; prose like this file explains it but does not define it.
   `x-id-in` references (the id must belong to an entry of the named array,
   and the array's ids must be unique), and referenced placement sets,
   validated recursively.
-- **Stable ids** (Luna, 2026-10-28): an array that can hold more than about
-  50-100 entries gets an `id` per entry (a `uuid`, `common.schema.json`),
-  and references use `x-id-in`, not `x-index-into`. Only `zones` has been
-  converted; the other large arrays (`references`, mesh `parts`,
-  `light_params`, `surface_types`, `textures`) still use indices until
-  each is audited.
+- **Stable ids**: see "Stable ids" below.
 - **Schema lint** (a test over `schema/` itself) rejects known antipatterns:
   - no storage opinions: a key, enum value or constant naming a container
     or API (`dds`, `png`, `blp`, `glb`, `gltf`, `vk`, `bpy`, ...) fails.
@@ -244,6 +265,178 @@ source of truth; prose like this file explains it but does not define it.
     written by a writer fails validation.
   - `uri` appears only in the shared `Payload` and asset-reference
     definitions.
+  - kind-local `definitions` and object-valued `additionalProperties`
+    (maps) are held to the same rules as properties.
+
+### Where values come from: `x-source`
+
+`x-source` says where a value's data is found: an array of one or more
+origins, each an object of exactly one form.
+
+| Origin | Meaning |
+|---|---|
+| `{"table": "AreaTable", "column": "Flags[0]"}` | a DB2 table's column (`column` optional when the whole row is meant, e.g. its id) |
+| `{"file": "m2", "field": "M2Particle.gravity"}` | a field of a source file; `file` is one of `m2`, `skin`, `skel`, `bone`, `anim`, `phys`, `wmo`, `wmo_group`, `adt`, `adt_obj0`, `adt_obj1`, `adt_tex0`, `adt_lod`, `wdt`, `wdt_fogs`, `wdt_mpv`, `wdt_lgt`, `wdt_occ`, `blp`; `field` optional |
+| `{"derived": "<rule>"}` | computed by husk by a named rule: the same snake_case vocabulary as `provenance_fields` (rules in `EFFECTS.md`, or named in the property's description) |
+| `{"listfile": true}` | the community file list (names, path lookups) |
+| `{"authored": "effects/<name>.json"}` | husk's own authored data, a path in its repository (effect and technique definitions) |
+| `{"stated_by": "name_source"}` | the origin differs per value, and the named sibling property states it |
+| `{"format": true}` | pure structure: header, ids, indices, counts the format itself defines |
+
+`derived` rules that are not effect rules (`EFFECTS.md` "Derivation
+rules") are named here:
+
+| Rule | Computes | From |
+|---|---|---|
+| `texture_resolution` | a texture entry's state, identity, unresolved reason and candidates: the literal FileDataID, then the `--listfile` path, then same-basename candidates (`src/sources/texture_resolution.cpp`) | whatever names the texture (M2, WMO, ADT, DB2 column) |
+| `m2_gravity_to_vector` | particle `gravity` as a vector: a scalar `g` becomes `[0, 0, -g]`, a packed direction key is unpacked (`m2::decodeParticleGravity`) | `M2Particle.gravity` track |
+| `mfog_start_scalar_to_start` | linear fog `start` = `end` × start scalar | WMO `MFOG` layer |
+
+Several origins mean the value combines them, or comes from whichever one
+the source has. The lint rejects any other form, an unknown file kind or a
+rule that isn't snake_case.
+
+Rules `x-source` names outside `EFFECTS.md`:
+
+| Rule | Computes | From |
+|---|---|---|
+| `map_tile_grid` | world `grid` `origin`, `cell_size`, `axis_i`, `axis_j`: the client's 64 x 64 tile map, tiles 533.33 yd, centred on the world origin, tile x stepping -Y and y stepping -X (`canon_terrain.hpp` `terrainTileCorner`) | the map layout every ADT assumes; no file stores it |
+| `tile_terrain_bounds` | a world cell's `bounds_min`/`bounds_max`: chunk footprints from their origins, heights from the vertices and liquids | the tile's `MCNK` positions and heights, its liquid heights |
+| `chunk_area_coverage` | a zone cell's `coverage`: chunks naming the area / 256 | `MCNK.areaid` |
+| `skin_canvas_material` | a texture-layout canvas's material: one `base` layer, texture 0 (the composite), `uv_set_0`, `replace`; lit, opaque | none: the canvas is drawn flat, as is |
+| `compositor_case_by_number` | a composite layer's `blend`: the compositor case whose number is the layer's `BlendMode`, and `blend_mapping: unverified` while the client is not shown to select cases that way | `ChrModelTextureLayer.BlendMode` |
+| `always_on_set` | an owned placement set is always on when it is a WMO's first doodad set (MODS[0], additive by WMO.md), an M2's effects set, or either of a terrain tile's two sets (its own content) | the set's kind |
+| `m2_effect_set` | an M2's ribbon and particle emitters placed as one owned set, `effects`, on their anchor joints | M2Ribbon, M2Particle |
+| `structural_bone_label` | a label for every joint from its place in the hierarchy (`canon_bone_naming.hpp`): unique, deterministic, with a mirror axis checked against real skeletons | the joint hierarchy |
+| `layer_role` | M2: `env` for an environment-mapped layer, else its M2Texture.type's wiki name, else `diffuse` for a batch's first layer and `unknown` after it. WMO: `diffuse` for the shader's base unit (t0; t1 for shader 23, t2 for 22), `unknown` for the rest. A material's `diffuse_layer` is the layer this calls diffuse | M2Texture.type, M2Batch, MOMT shader |
+| `wmo_layer_uv` | the uv set a WMO shader samples texture unit n with: set n, except shader 23 (t0 environment-mapped, layer i at set i - 1) and 22 (t1 environment-mapped, the others by its parallax table) (WMO.md "Shader types") | MOMT shader |
+| `wmo_liquid_type` | the LiquidType row of a WMO group's MLIQ by WMO.md "how to determine LiquidTypeRec to use": MOGP groupLiquid under the root's MOHD flag 0x4 (basic types 1-20 mapped to the WMO water/ocean/magma/slime rows), legacy green lava (15) by its tiles' liquid nibbles; undecided when the rules give no row | MOGP groupLiquid, MOHD flags, MLIQ |
+| `texture_slot_name` | a texture slot's name: the wiki's name for its M2 texture type (`monster_1`, `skin`, ...), `type_<n>` for a type without one, `variation_4` for CreatureDisplayInfo's fourth texture variation, which no type takes | M2Texture.type |
+| `component_file_pick` | the one file of a ModelFileData/TextureFileData resource the wearer draws: by ComponentModelFileData/ComponentTextureFileData race, sex and side tags, with the race's model fallbacks (ChrRaces); unresolved with a reason when the wearer is unknown, several files fit equally, or none fits | ComponentModelFileData, ComponentTextureFileData, ChrRaces |
+| `appearance_file` | values read from the `--appearance` file the export was given (chosen customization choices, gear slot tokens), not from the client's files | the `--appearance` file |
+| `garment_split` | a source item's garments and their kinds (REFACTOR/GARMENTS.md stage 1): by slot, chest → `tunic` (`robe` with a skirt geoset), legs → `leggings` plus a `skirt` garment for its skirt geoset, shirt, waist, feet, wrist, hands, back, tabard, head, shoulder, weapons → one garment each; overlays, geometry and models become its pieces; head, shoulder and weapon models are `attached`, every other slot's model `skinned` | ItemDisplayInfo, ItemDisplayInfoMaterialRes, ItemDisplayInfoModelMatRes, the gear's slot |
+| `garment_layer` | a garment's layer: its kind's default (`x-preset-kinds`), order 0 | the kind |
+| `source_slot_priority` | a garment cut from a source item: order = its slot's rank in the body composite's draw order (shirt 1, legs 2, head 3, feet 4, shoulder 5, chest 6, tabard 7, waist 8, wrist 9, hands 10, main hand and ranged 11, off hand 12, back 13); layer = the kind's default, except feet → `mid`, under the chest; not a layer or order deviation (`REFACTOR/GARMENTS.md` "Source slot priority") | **ref**: wow.export `EquipmentSlots.js` `SLOT_LAYER` (ties in slot-id order) and `DBItemGeosets.js` `GEOSET_PRIORITY`; the item's slot |
+| `garment_vocabulary` | body region names for SectionType 0-7 (`arm_upper` … `foot`, else `section_<n>`), part names for the geoset groups `WIKI_FINDINGS/M2.md` reads visually (else `group_<n>`), attachment point names after wowdev.wiki's attachment table | CharComponentTextureSections, geoset groups, M2Attachment ids |
+| `item_geoset` | a slot's GeosetGroup[i] value v > 0 shows body geoset group × 100 + 1 + v of the slot's i-th group (`WIKI_FINDINGS/GARMENTS.md` "Slot → GeosetGroup table", verified structurally); an item model shows group × 100 + 1 + AttachmentGeosetGroup[i] for v ≥ 0 (wow.export, unverified against the client) | ItemDisplayInfo GeosetGroup, AttachmentGeosetGroup |
+| `hem_body_geoset` | the body hem geoset 1102 a legs item switches on (GeosetGroup[0] = 1) is a hem piece, not the leggings' | ItemDisplayInfo GeosetGroup |
+| `hem_uv_footprint` | the hem's paint: the legs item's LegUpper overlay masked to 1102's UV footprint on the wearing body, rasterized at the layout's composite size and cut to the region's rectangle (`src/garment_footprint.hpp`); the leggings keep the whole texture | the body mesh's 1102 triangles, the layout's rectangles |
+| `hem_join_set` / `hem_own_garment` | a legs item's hem pieces join the tunic of a chest item sharing a TransmogSet; with none, they are a `hem` garment of their own (an NPC equipment display's always are: its source item is the display worn alone) | TransmogSetItem |
+| `hem_join_outfit` | NPC equipment: an NPC whose own chest garment is a tunic wears one joined tunic per chest and legs display pair, the tunic's pieces plus the legs' hem pieces (an item-model hem mesh the chest already shows is left out); listed under neither source item (`REFACTOR/GARMENTS.md` "NPC equipment: the hem by the NPC's own outfit") | NPCModelItemSlotDisplayInfo, ItemDisplayInfo |
+| `npc_display_draws_nothing` | an NPC equipment display with no model, model texture, overlay or geoset makes no garment; its source item lists none (NPC ItemSlot 11's only display, 185704, is one) | ItemDisplayInfo, ItemDisplayInfoMaterialRes, ItemDisplayInfoModelMatRes |
+| `item_model_hem` | an item model's shown group-13 geoset of a chest or legs item is a hem piece of its own; one shown by a set's chest and legs (same model file and geoset) is one piece, on the chest's garment | ItemDisplayInfo AttachmentGeosetGroup, the model files picked |
+
+**Inheritance.** A property without its own `x-source` takes its `$ref`
+target's (the use site's wins when both have one), else the nearest
+annotated ancestor's along the document path, across `$ref`s, array
+entries, map values and `oneOf` branches. One annotation on an object
+therefore covers everything inside it that doesn't say otherwise. A
+constant needs none: its origin is the format.
+
+**Coverage.** Every leaf property (one with nothing below it) of every
+kind must resolve an `x-source`; one that doesn't is a lint error
+(`husk validate-bundle --lint-schema`, and the schema lint test).
+`bundle_schema::sourceGaps()` lists them, once per schema location, with
+every document path that reaches it, so a new key names where to annotate. A
+shared definition's leaves usually take their origin from the use site:
+`creatures[].source.id` annotates the `identity` it `$ref`s with
+`Creature.ID`, and that covers each `oneOf` branch's `value`, `table` and
+`row`. `bundle_schema::kSourceRequired` (`bundle_schema.hpp`) can turn the
+error back into a warning for a bulk annotation pass; the command then
+prints each gap and a count per schema file.
+
+### Descriptions: what, then why
+
+A `description`'s first sentence says what the value is; the sentences
+after it say why it is so (the decision, the source behaviour it follows,
+what a consumer must not assume). There is no separate `x-why` keyword:
+one text keeps the what and the why together where a schema editor
+writes them, and the 883 existing descriptions already mostly read that
+way. A sentence ends at ". " followed by a capital letter or a backtick.
+`husk schema-doc` shows the split: the first sentence, then "*Why:*" and
+the rest. A description whose later sentences are more "what" rather than
+"why" is rewritten into one sentence when the annotation pass touches it.
+
+### One reference file: `husk schema-doc`
+
+`husk schema-doc [-o FILE]` renders the embedded schemas as one Markdown
+file: per kind, every document path (`$ref`s, array entries `[]`, map
+values `.<name>` and `oneOf` variants `{kind=x}` expanded; a recursive
+definition is listed once and marked) with its description, type, allowed
+values (const, enum, bounds, pattern), unit, `x-index-into`/`x-id-in`
+target, resolved `x-source` (and the path it is inherited from), and
+whether it is required. Output is deterministic (keys in sorted order), so
+it can be diffed between versions. It is generated, not checked in: the
+schemas are the source.
+
+## Stable ids
+
+**Rule** (Luna, 2026-10-28; applied to every large array 2026-11-24): an
+array that holds or can hold more than about 50-100 entries, or that other
+documents point into, gives each entry an `id` (`common.schema.json`
+`uuid`), and every pointer into it holds that id (`x-id-in`), never a
+position. Positions renumber whenever an array is filtered, merged or
+re-sorted; an id survives that and a re-export. Positions (`x-index-into`)
+stay where position *is* the identity: intrinsic geometry and small,
+fixed-scale tables.
+
+**Ids come from source identity, never from output position.** Each is
+`husk::nameUuid` (UUID v3 in husk's namespace, `src/uuid.hpp`) of a key
+string. Most keys are `<space>/<identity key>` (`writers::stableId`), the
+identity key being `file_data_id/<value>`, `db2_row/<table>/<row>`,
+`record_index/<value>` (plus `/name/<name>` when the ref has a name: a
+record index is a position in a list only the name tells apart, e.g. a
+WMO's doodad set 0 and its effects set), or `name/<name>` for an entry
+with no identity of its own. The Blender addon mirrors it
+(`docs.identity_key`, `docs.reference_id`).
+
+| Array | Key | Why that key |
+|---|---|---|
+| `references` (every kind) | `<kind>/<identity key of asset>` | The referenced document's identity: a model by file id has the same id in every document that references it, the creature catalog's included. A reference without identity (owned sets, effects, techniques) is keyed by its name. |
+| world `zones` | `zone/<map>/AreaTable/<row>` | AreaTable row, per map. |
+| model `selection.presets` | `preset/<identity key of the model>/<body key><outfit key>` | The source values that make the look ("Appearances"); a character model lists thousands, and the creature catalog points at them. |
+| appearances `appearances` | `appearance/<identity key of the model>/<body key>` | The same, body only; the model's identity keeps ids unique in a tree's shared list. |
+| garments `items` (source items), `garments`, `outfits` | `source_item/db2_row/<table>/<row>`; `garment/` + that key + `/<kind>` (`/hem`, `/skirt` for split-off garments; NPC equipment `/garment`); `outfit/db2_row/TransmogSet/<row>` | The source rows the garment was cut from: the same garment has one id in every model and tree, so a shared list dedups by id. |
+| animation_fallbacks `fallbacks` | `animation_fallback/<identity key of the animation>` | The animation's AnimationData row; the table is one per client build, so the row alone is unique and the same in every tree. |
+| creatures `creatures`, `displays` | `creature/Creature/<row>`, `creature_display/CreatureDisplayInfo/<row>` | Their DB2 rows. |
+| mesh `parts` | `part/<identity key of the model>/<source index>` | A WMO group's index in its root file; the model's identity makes it unique across documents. |
+| `light_conditions` | `light_condition/db2_row/LightParams/<row>` | The LightParams row. |
+| `resources.textures` (model, terrain tile, placement set) | `texture/<identity key or none>[/named/<name>/<name_source>]/<state>` + `/payload/<uri>` (resolved with a payload), `/reason/<reason>` (known_unresolved), `/candidates/<identity key>/<category>…` (ambiguous) | The table lists each distinct entry once, and one file can have two: an own payload and the shared store's, two unresolved reasons, or one name synthesized by one producer and read from a DB2 by another. The identity alone would give both one id, so the key adds what the entry says beyond it. The writer (`TextureTable`) throws when two different entries still share a key. |
+| `resources.materials` | `material/<identity key of the model>/<identity key of the material's ref>` | The ref names the material's source record: its position in the source's material list (M2 batch material, WMO MOMT). |
+| `resources.scene.static_lights` | `static_light/<identity key of the model>/<record table>/<record index>`, plus `/part/<part source index>` for MOLS/MOLP | The light's source record (MNLD, MOLT, MOLS, MOLP); a group's own lights count from 0 in every group, so the group's index is part of the key. |
+
+One reference per id: two placements of one file under different names
+are one reference, and a model's item models are deduplicated the same
+way. Checked-in technique bodies (`techniques/`) carry their references'
+ids as text; the writer checks each against the derived one.
+
+**Classification of every pointer** (2026-11-24):
+
+| Pointer | Target | |
+|---|---|---|
+| model `definition.placement_sets[].reference`, `texture_slots[].composite`, customization choice `textures[].material`, material `techniques[]`; placement_set `instances[].reference`; world `grid.cells[].tile`, `placements[]` | `/references` | id |
+| part `portals[].to_part`, liquid `part`, static light `part`, primitive `part`, LOD `part_levels[].part` | `/resources/geometry/mesh/parts` | id |
+| zone light `clear` / `clear_underwater` / `storm` / `storm_underwater` / `death` | `/resources/light_conditions` | id |
+| `texture_id` (material layers, slot options, item/choice textures, liquid frames, light cookies, terrain ground `diffuse`/`height`, LOD `diffuse`/`normal`, `liquid_flow`, effect image inputs) | `/resources/textures` | id: a WMO or character model can list hundreds |
+| material document layer and composite layer `texture` | the material document's `/resources/textures` | index, kept: a material document lists a handful, and composites have no identity of their own |
+| primitive / liquid `material` | `/resources/materials` | id: a WMO's materials reach ~100-200 |
+| part `lights[]`, `light_sets[][]` | `/resources/scene/static_lights` | id: a WMO's lights reach the hundreds |
+| `surface_type_index` | `/resources/surface_types` | index, kept: the face channel `surface_type` (a binary attribute) indexes the same table, and a document lists only the few surfaces it uses |
+| part `portals[].portal` | `/resources/geometry/mesh/portals` | index, kept: portal polygons are geometry, paired with the parts' links |
+| `joint_index` | `/resources/rig/skeleton/joints` | index, kept: vertex joint buffers index joints |
+| layer `uv_map` | `/resources/uv_maps` | index, kept: a handful per model |
+| choice `correction_set` | `/resources/rig/correction_sets` | index, kept: a few .bone sets per model |
+| `instance_ref.set`, `selection.placement_sets[]`, light `placement_set`, instance `selection.placement_sets[]` | `/definition/placement_sets` | index, kept: a model owns a few sets (WMO doodad sets, terrain's two) |
+| `slot` | `/definition/texture_slots` | index, kept: a dozen replaceable texture types at most |
+| preset `particle_colors` | `/definition/particle_colors` | index, kept: a few per model |
+| preset `appearance` | the entries of the document the model's `appearances` reference holds | id ("Appearances") |
+| creatures display `preset` | the model document's `/selection/presets` | id, not checked: the validator doesn't open the model |
+| appearance/customization `option` | `/definition/customization/options` | index, kept: options are a few dozen per model |
+| preset `garments[]`, bake `covers_garments[]` | the garments of the document the model's `garments` reference holds | id, like preset `appearance` |
+| garments piece `item`, source item / outfit `garments[]` | the garments document's `/items`, `/garments` | id: a shared list holds a corpus's items |
+| physics `shapes[]`, joint `body_a`/`body_b` | `/resources/physics/*` | index, kept: a few bodies per model |
+| terrain layer `texture_index`, `ground_effect_index` | the tile's `textures`, `ground_effects` | index, kept: per-tile tables of a few dozen |
+| terrain chunk arrays (`area_index`, layers, per-chunk slices) | per-chunk position | index, kept: chunk position in the 16×16 tile is its identity |
 
 ## Attribute channels — per-element data without a dedicated key
 
@@ -274,13 +467,16 @@ drawing step of the source game (an M2 pixel shader, the M2 pipeline every
 pixel shader feeds, a framebuffer blend, a WMO shader) as data: its inputs
 (texture units, per-draw constants, vertex values), named `terms`, and
 `outputs` as expression trees (`input`, `term`, `const`, or `op` over
-`args`; ops add, sub, mul, div, max, lerp, saturate, luma, channels,
-lit). A texture input is the material layer with that `texture_unit`;
+`args`; ops add, sub, mul, div, max, min, dot, lerp, saturate, luma,
+channels, lit, tangent_frame; each op's definition is in
+`schema/technique.schema.json`'s `expression`). A texture input is the material layer with that `texture_unit`;
 its optional `coordinate` is an expression over the other inputs and
 terms (offset or generated coordinates), else it samples at the layer's
-`uv_map`. Values a renderer computes (sphere-mapped coordinates, a
-screen-derivative tangent frame) are `renderer_value` inputs whose
-description states the formula. Each
+`uv_map`. Values a renderer computes (sphere-mapped coordinates, the
+view-space position and normal) are `renderer_value` inputs whose
+description states the formula. Two ops need the renderer too: `lit`
+(its lighting) and `tangent_frame` (screen derivatives of its operands,
+which a per-texel evaluator can't take). Each
 states its `status` (verified from the client's shaders, inferred,
 partial, or from the wiki) and its `evidence`, and what an expression
 can't capture goes in `notes`. The checked-in `techniques/<family>/<name>.json`
@@ -401,7 +597,7 @@ the same as customization choices.
 
 - `texture_slots`: textures the model takes from outside
   (`{name, source: {texture_type}, options}`; M2: one per distinct
-  nonzero texture type; `options` are indices into `resources.textures`).
+  nonzero texture type; `options` are ids of `resources.textures` entries).
   A layer that reads one names it as `slot`; its own `texture` is the
   default, and any of the slot's `options` may replace it. A slot no
   layer reads still lists its options; one husk tied to the model by
@@ -428,14 +624,15 @@ of a character model) is a preset too: its baked skin is an option of
 the lowest-type slot (`skin`). A character model's
 `definition.customization` lists its options and choices (with each
 choice's geoset), one catalog per ChrModel that draws the file, each
-option naming its `chr_model` (a race's alternate form shares another's
+option naming its `body` (a race's alternate form shares another's
 mesh: `humanmale_hd` is ChrModel 1 and 45). A preset's `customization`
 is `{option, choice}` indices into that list; a choice from a catalog
 that doesn't draw the file is the preset's `unresolved`. Its equipment
 indexes `definition.items` (`ItemDisplayInfo` refs, each once) as `{slot,
 item, source: {item_slot}}`, standing in until item documents exist. Options never swap the
 model: a creature that alternates between models is a level above the
-model document and isn't represented yet. Options that are only valid
+model document, in the creature catalog, whose displays name different
+models ("Creature catalogs"). Options that are only valid
 together ("this texture only with these geosets") would need a
 constraint form; none is known for creatures. For characters the plan
 is to make such pieces separate options instead (a tunic's skirt as its
@@ -446,13 +643,16 @@ own selectable piece, CANONICAL_MODEL.md "Items by identity, not slot").
 On a character model (`humanmale_hd` etc.), `selection.presets` holds one
 entry per distinct humanoid NPC look the client data defines: thousands of
 complete, Blizzard-authored appearances (`humanmale_hd`, 12.1.5: 5,748
-presets from 6,384 displays, 4,617 distinct customization sets, about
-800 B each). None is marked default and the order means nothing. Any of
-them is a real look rather than a guessed one: pick one as a starting
+presets from 6,384 displays over 4,745 bodies, "Appearances" below).
+None is marked default and the order means nothing. Any of them is a
+real look rather than a guessed one: pick one as a starting
 point, or let a user scroll through them. Creature models get the same
 list from their texture-variation displays.
 
-To apply preset `p` (indices are into this document unless stated):
+To apply preset `p` (indices are into this document unless stated): take
+its `appearance` from the model's `appearances` reference (next section)
+and apply the appearance's fields, then the preset's own `textures` and
+`items`:
 
 - `textures[]` `{slot, option}`: every layer naming `slot` draws
   `definition.texture_slots[slot].options[option]` (a `resources.textures`
@@ -476,26 +676,170 @@ To apply preset `p` (indices are into this document unless stated):
 Choices from another ChrModel's catalog, and values husk can't place, are
 in the preset's `unresolved`. Skip or flag them; never guess them.
 
+### Appearances: what a preset points at, inline or external (0.4.0)
+
+**Current** (Luna 2026-11-24: "presets should be references, same as other
+references so they can be either inline or external … external would
+refer to a bigger appearance list table … but we also want to support
+inline for self contained bundles"). A preset no longer carries the
+body's look itself: it points at an **appearance**, an entry of an
+`appearances` document (`schema/appearances.schema.json`).
+
+- **An appearance is the body, without what it wears**: `customization`
+  `{option, choice}` picks, and for a creature display its texture
+  variations (`textures` `{slot, option}`), `shown_geosets`,
+  `particle_colors` and `opacity`; values of those the source names but
+  husk can't place (`ChrCustomizationChoiceID`, `ParticleColorID`) are the
+  appearance's `unresolved`. These are what make two looks the same body.
+- **Invariant: an appearance holds only body-chosen state** (customization
+  picks, a creature display's variations). Nothing gear-derived goes into
+  an appearance: geosets an item shows or hides (a robe's skirt, trousers
+  hidden under it, gloves or boots hiding body parts; ItemDisplayInfo
+  `GeosetGroup`/`AttachmentGeosetGroup`, `HelmetGeosetVis`) belong to the
+  item's components, never to `shown_geosets`. Why: swapping one garment
+  must not change the body (REFACTOR/README.md I7), and a gear-derived
+  value in the body would split one body into one appearance per outfit,
+  undoing the dedup. `shown_geosets` today comes only from
+  `CreatureDisplayInfoGeosetData`, the display's own choice.
+- **The preset keeps the outfit and the users**: `id`, `appearance` (an
+  appearance id), the humanoid NPC's baked skin (`textures`, the bake slot:
+  the bake draws the gear in, and each bake choice lists the garments it
+  was made for, `covers_garments`, so a consumer that swaps a garment knows
+  the bake no longer applies and composites instead), `garments` (garment
+  ids of the model's garments document, each once; REFACTOR/GARMENTS.md),
+  `sources` (rows, scales, `users`)
+  and the outfit's `unresolved` (`ExtendedDisplayInfoID`,
+  `BakeMaterialResourcesID`). A wolf's preset is a pointer and its
+  sources; a humanoid NPC's is a pointer plus bake and gear.
+  `export --appearance` puts its `cust` choices in the appearance and its
+  gear on the preset. A preset whose body chooses nothing has no
+  `appearance`.
+- **Indices stay the model's.** An appearance's `slot`, `option`,
+  `particle_colors` and customization indices index the definition of the
+  model whose preset points at it, wherever the appearance is stored.
+- **Ids from source identity.** Appearance: `nameUuid("appearance/<identity
+  key of the model>/<body key>")`, the body key being the source values
+  (choice rows ascending, texture FileDataIDs by display slot, geoset ids,
+  ParticleColor row, alpha), so renumbered options or a re-export keep
+  it. Choices are sorted because extras list one choice set in different
+  `CreatureDisplayInfoOption` row orders, and an `--appearance` string in
+  any `cust` order; `customization` is written in that order too. Preset: `preset/<identity key of the model>/<body key><outfit
+  key>` (bake FileDataID, item rows by slot); an `--appearance` preset adds
+  the appearance string. Presets get ids because a character model holds
+  thousands, and the creature catalog points at them.
+- **Dedup**: one appearance per distinct body per model, so the body list
+  is stated once and scrolling bodies needs no reader-side dedup.
+  Measured on live 12.1.5 (2026-11-24):
+
+  | model | displays | presets | presets with a body | appearances |
+  |---|---|---|---|---|
+  | `wolf` | 71 | 15 | 15 | 15 |
+  | `humanmale_hd` (ChrModel 1) | 6,384 | 5,748 | 5,747 | 4,745 |
+  | `humanfemale_hd` (ChrModel 2) | 3,976 | 3,646 | 3,645 | 3,104 |
+
+  A creature display's preset is its body, so wolf's counts match; on the
+  human models bake and garments split one body into several presets
+  (1.2 presets per body). Every appearance is pointed at, no two have
+  equal content, and the bodies' `unresolved` is only
+  `ChrCustomizationChoiceID` (`humanmale_hd`: 26 bodies, 18 of them with
+  no choice resolved; which catalog those rows belong to is unchecked).
+  The garments
+  bodies wear: `humanmale_hd` 5,743 bakes, each one's `covers_garments`
+  equal to its preset's `garments`, all 39,348 ids resolving in the
+  model's 13,021 garments; `humanfemale_hd` 3,640 bakes, 25,199 ids,
+  9,994 garments. A tree of these three plus two pvpzone04 doodads
+  (`export-appearances`): 7,866 shared entries, the sum of the five
+  lists; per model the same ids and bodies as inline.
+- **Determinism** (2026-11-24, the three models above): two exports are
+  byte-identical, two `export-appearances` runs over copies of one tree
+  are, and a rerun over the external tree changes no byte.
+
+**The reference.** Presets reach their appearances through the model's
+one `references` entry of kind `appearances`, the same `reference` shape
+as every other: `asset` names the list (`{kind: none}`, name
+`appearances`), and the document is in one of the two forms every
+reference already has:
+
+- **inline** (`document`): the appearances document itself, holding this
+  model's appearances only. `husk export` writes this: the bundle stays
+  self-contained.
+- **external** (`asset.uri`): a shared appearance list, `<tree>/
+  appearances.json`, holding every model's appearances. Each entry then
+  names its model as the id of one of the list's own `model` references
+  (`model`, `x-id-in: /references`); inline entries leave `model` out (the
+  model is the one embedding them). `export-corpus` writes this form.
+
+The reference id is the same in both forms (`appearances/name/appearances`),
+so turning a bundle from inline to external changes no pointer: only
+`document` is replaced by `asset.uri`. `selection.presets[].appearance` is
+a plain id; which document holds it is the model's `appearances`
+reference, whichever form it takes. This is no new mechanism: `document`
+vs `asset.uri` is "Embed or reference — one rule" for every reference
+kind (placement sets, effects, materials and techniques already use it);
+appearances are the first kind pointed into by entry id.
+
+**Who writes the shared list.** `husk export-appearances <tree>` (and
+`export-corpus` after `index-tree`): reads every model manifest under
+`<tree>/models/`, moves each inline appearances document's entries into
+`<tree>/appearances.json` (adding `model`), and rewrites the manifest's
+reference to the external form (`uri` `../../appearances.json`; the
+manifest is replaced, never written through, since `--link-store` trees
+hardlink into the store). The rewrite replaces only that reference's
+text, with the bytes the model writer writes for the external form
+(`writers::beginListReference`, shared by both forms and by the
+`animation_fallbacks` reference, REFACTOR/ANIMATION.md "Fallbacks"): store
+objects are content-addressed, so the same inputs give the same bytes and
+nothing else in the manifest is re-encoded. A manifest already external
+keeps its entries from the existing list, so a rerun is idempotent.
+Entries are ordered by model reference, then id.
+
+**Validation.** `validate-bundle` validates the referenced appearances
+document like any referenced document (inline or by `uri`, each file
+once), checks that every `selection.presets[].appearance` is an id of an
+entry there (across the external file too), and range-checks that entry's
+indices against the pointing model's definition. An external list's
+entries of other models are checked when those models are validated.
+
+Rejected: a preset naming both the list reference and the entry
+(`{reference, entry}`): a model has one appearance list, so the second
+id only restates it. Appearances keyed by content hash of the indices:
+indices renumber when a definition changes, source identity doesn't.
+Model-independent appearances (choices by ChrCustomizationChoice row,
+textures by FileDataID) would dedup across a race's models, but every
+consumer reads options by index today; a later step, not this one.
+
 ### Items, physics and bone corrections (2026-11-09, schema 0.3.0)
 
 - **Items.** `definition.items[]` is `{ref, models?, textures?, overlays?}`.
   `export --appearance` adds one preset: its customization choices and
   its gear, each gear entry an `ItemModifiedAppearance` item that carries
-  `models` (the item's `.m2`, exported as its own model bundle at
-  `items/<fdid>.bundle/` and listed in `references`), `textures` (by the
-  item model's texture type; type 2 also textures the item bundle) and
-  `overlays` (textures for the wearer's body sections, by
-  `component_section`). Preset item `source` is `item_slot` (NPC slot
-  number) or `slot_token` (the appearance string's own slot name);
-  `slot` is set when the name is a known one. Known limits: the item
-  model is the first of its `ModelResourcesID` files whatever race or
-  sex it is for (`ComponentModelFileData` isn't read), and a second model
-  (`ModelResourcesID[1]`, the right shoulder) isn't read.
-- **Physics.** `resources.physics`: the `.phys` beside the model (or
-  `--phys`) as `bodies` (joint, position, shape indices), `shapes`
-  (capsule and polytope geometry; box and sphere layouts unverified, so
-  under `source`) and `joints` (kind, bodies, the kind's record under
-  `source`: its angle unit isn't established).
+  `models` (one per `position`, the `ModelResourcesID` index: on
+  shoulders 0 is the left model, 1 the right; `model` is the `.m2`
+  exported as its own model bundle at `items/<fdid>.bundle/` and listed in
+  `references`), `textures` (by the item model's texture type and the
+  `model_position` it textures; type 2 also textures that item bundle)
+  and `overlays` (textures for the wearer's body sections, by
+  `component_section`). Every model and texture is the file the wearer's
+  race and sex draw (CHARACTER_RENDERING.md §6). Where none could be
+  picked (the wearer is unknown, several files fit equally, none fits) a
+  model has `unresolved_reason` instead of `model`, and a texture is
+  `known_unresolved` with the reason. Class-specific files (demon hunter,
+  death knight) are never picked: the wearer's class isn't known. Preset
+  item `source` is `item_slot` (NPC slot number) or `slot_token` (the
+  appearance string's own slot name); `slot` is set when the name is a
+  known one.
+- **Physics.** `resources.physics`: the model's physics as `bodies`
+  (joint, position, shape indices), `shapes` (capsule and polytope
+  geometry; box and sphere layouts unverified, so under `source`) and
+  `joints` (kind, bodies, the kind's record under `source`: its angle unit
+  isn't established). Read from, first hit wins (0.4.0): `--phys`, the
+  model's `PFDC` chunk (an inline `.phys`; where 12.x keeps nearly all of
+  it), the `PFID` FileDataID (store `_by_fdid`, then the listfile path),
+  a same-basename `.phys` beside the model. The manifest's provenance
+  source `phys` says which (`detail`: `PFDC chunk`, `PFID <fdid>: <path>`,
+  `--phys <path>`, `beside the model: <path>`); `available: false` when a
+  `PFID` wasn't found locally or `--phys none` was given, so absent physics
+  is unknown rather than "has none".
 - **Bone corrections.** `resources.rig.correction_sets`: each `.bone`
   file the model or `.skel` names (`<bones-dir>/<fdid>.bone`, else the
   listfile/store), a 4x4 matrix per corrected joint. A customization
@@ -510,6 +854,37 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   `blend_out`, and the raw `source{flags, variation_next}`
   (`variation_next` −1 = last variation). `M2Sequence` bounds and replay
   range are not written.
+- **Global sequences (0.4.0).** A `global_sequence` clip's `duration` is
+  its loop length (`M2Loop`), the period its curves repeat with; the last
+  keyframe can come before it. `resources.rig.global_sequences[i].duration`
+  is the model file's own loop table, which material, scene and effect
+  curves with `sequence_kind: global_sequence` index. A `.skel` model's
+  joint clips index the `.skel`'s table, so the clip's own `duration` is
+  the one to use for them.
+- **Community clip names (0.4.0).** Where the client's AnimationData has no
+  name for a clip's id (every 12.x clip), `export --anim-names <wow.export
+  checkout>` names it from wow.export's list, `name_source: community`; a
+  client name (`db2`) wins. The model document's provenance gains a source
+  `animation names` (repo, file, commit), `available: false` without the
+  flag. Detail: `REFACTOR/ANIMATION.md` "Which animation a clip is".
+- **Animation fallbacks (0.4.0).** An `animation_fallbacks` document
+  (`schema/animation_fallbacks.schema.json`) the model reaches through its
+  one reference of that kind, inline (`husk export`) or the tree's shared
+  `animation_fallbacks.json` by `asset.uri` (`export-world`,
+  `export-corpus`), the same two forms as appearances ("Appearances").
+  Entries `{id, animation, fallback}` name animations by a clip's
+  `animation` ref; `otherwise` is what an unlisted animation falls back
+  to. One table per client build: AnimationData rows have no model key.
+  Detail and the grouping evidence: `REFACTOR/ANIMATION.md` "Fallbacks".
+- **Joint flags (0.4.0).** `skeleton.joints[].source.flags` is
+  `M2CompBone.flags` as stored. Bits with an established meaning are
+  canonical fields: `inherit: {translation, rotation, scale}` (false where
+  wowdev.wiki's ignore-parent bits 0x1/0x4/0x2 are set), `billboard`
+  (0x8-0x40) and `driven_by: "physics"` (0x400, the wiki's
+  `kinematic_bone`; in the 12.1.5 corpus it occurs exactly on models with
+  physics, `WIKI_FINDINGS/M2.md` "Cloth"). Every other bit (the wiki's
+  `transformed` 0x200 and `helmet_anim_scaled` 0x1000 among them, effects
+  not established) is only in `source.flags`.
 - **Material tracks.** Layer `tint`, `color_alpha`, `texture_weight` and
   `uv_maps[].transform`: a constant tint, alpha, texture weight or UV
   transform is a one-key `step` curve; identity values stay absent; a
@@ -527,6 +902,77 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
 - **Option category.** `definition.customization` options' `category` is
   optional: absent when the option has none (`CategoryID` 0), never a
   reference to row 0.
+
+### Schema 0.4.0 (breaking)
+
+The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
+
+- `particle_system.gravity` is an `animated_vec3`: per keyframe the
+  acceleration vector `[x, y, z]` in the emitter's frame (the model's
+  axes, z up), yard/second^2; it rotates with the emitter. A plain M2
+  gravity g is `[0, 0, -g]`; an emitter with particle flag `0x800000`
+  stores a packed vector, which husk decodes (`WIKI_FINDINGS/M2.md`, 80 %
+  of sampled emitters); a packed key with no direction is dropped with a
+  warning. No scalar form and no raw bits remain. `ribbon_system.gravity`
+  stays a scalar.
+- WMO mesh parts: `portals[].side` (+1/-1, the part's half-space of the
+  portal plane) is a resolved field; `interior_fogs` (was `fog_volumes`)
+  lists the fogs a viewer inside the part sees.
+- WMO mesh parts: `areas` (optional, additive; with `--db2-dir`) names
+  where a player inside the part is: one entry per WMOAreaTable name set,
+  because a placement picks among them (one building, two towns). Every
+  map-object placement carries `selection.name_set` (from MODF
+  `nameSet`), and the entry whose `name_set` equals it applies: the same
+  definition/selection pair as `definition.placement_sets` and
+  `selection.placement_sets`. Rows are keyed by the root's MOHD wmoID, the name set and
+  the group's MOGP groupID; a part without a row of its own under a name
+  set gets the model-wide row (WMOGroupID -1), marked `whole_model`.
+  `ref` is the WMOAreaTable row named from `AreaName_lang`, `area` the
+  AreaTable row it counts as, named. `nsabbey.wmo` (WMOID 59): part 0,
+  "Main Hall", has rows under name sets 0-3, counting as Northshire Abbey
+  under set 1 and Tyr's Hand under sets 2 and 3. The client's
+  own lookup order for a missing part row is not checked; the
+  `whole_model` flag lets a consumer choose.
+- Names on refs that were written as identities only (additive, with
+  `--db2-dir`): a tile's chunk `areas` (AreaTable `AreaName_lang`) and a
+  zone light's `skybox.ref` (`LightSkybox.Name`, the sky model's old
+  path). A tile liquid's `liquid_type` was already named; a
+  `liquid_setting` stays unnamed, as LiquidObject has no name column.
+- A customization option's `body` ref is named `"<race> <sex>"`
+  (additive): the ChrRaces `Name_lang` of the lowest-row race using the
+  model (ChrModel 1 is also used by "TBD NPC Race 1" and "2"), then the
+  ChrRaceXChrModel `Sex` (0 male, 1 female) when the rows agree on it.
+  ChrModel 1 is "Human male". Without the race tables the ref stays
+  unnamed.
+- Raw values left canonical keys for `source` objects (CANONICAL_FORMAT.md
+  §2): liquid settings' flow speed, fishable and reflection, physics
+  bodies' `type`, light parameters' celestial-sphere and sun-position
+  overrides, the world `map`'s `directory`, `instance_type` and
+  `map_type`, creatures' `classification` and displays' `size_class`. The
+  schema lint rejects keys named after DB2 tables or columns and keys
+  described "as stored" outside `source`/`unresolved`, with no exemption.
+- Items are garments: a `garments` document (`schema/garments.schema.json`)
+  the model reaches through its one reference of that kind, inline or
+  external like appearances, with `garments` (kind, layer, order, pieces:
+  `overlay`, `geometry`, `attached`, `skinned`, `hides`), `items` (the source items)
+  and `outfits`; the body vocabulary the pieces name is the model's
+  `definition.body` (regions with their rectangles, parts, attachment
+  points). Presets wear `garments` (ids); bakes cover `covers_garments`;
+  `definition.items` and `selection.equipped` are gone. Design and the
+  split rules: REFACTOR/GARMENTS.md; derived rules in the table above.
+- Keys named after the source renamed to say what they are: an option's
+  `body` (was `chr_model`), a placement set's `light_conditions` (was
+  `light_params`; stable-id key `light_condition/...`), a tile's
+  `liquid_settings` and a liquid's `liquid_setting` (were
+  `liquid_objects`/`liquid_object`). A geoset is `{group, variant}`
+  (common.schema.json `geoset`) on primitives, customization choices and
+  appearances' `shown_geosets`; the packed group * 100 + variant stays
+  only as the source's number, a primitive's `source.skin_section_id` and
+  a choice's `source.geoset`.
+- Zone fog keys carry `extinction` and `height_extinction` in 1/yard,
+  derived by `fog_density_to_extinction` (`EFFECTS.md` "Derivation
+  rules", grade ref); the client's `density` and `height_density` moved
+  to the fog's `source`.
 
 ## Embed or reference — one rule
 
@@ -735,7 +1181,11 @@ export-world` (every tile of a map or world). A tile is a `model` document
 whose content is `resources.terrain`, a heightfield; it has no mesh, rig
 or scene. `schema/model.schema.json` defines it key by key; this section is
 what a consumer needs on top of it. The subject is the root ADT (its
-FileDataID when the listfile knows it, named `<map>_<x>_<y>`).
+FileDataID when the listfile knows it, named `<map>_<x>_<y>`). With
+`--db2-dir`, `definition.terrain.map` (optional, since 0.4.0) is the
+tile's map as a `Map` row ref named from `MapName_lang`, the same row the
+world document's `map` block describes, so a tile read alone knows its
+place.
 
 ### Layout
 
@@ -808,12 +1258,14 @@ layout). These are `resources.terrain.liquids`, not the WMO-shaped
 `resources.geometry.liquids`.
 
 Every liquid names a `LiquidType`, and a terrain liquid also its
-`LiquidObject` (absent when the instance stored a vertex format instead).
+`liquid_setting`, a `LiquidObject` row (absent when the instance stored a
+vertex format instead).
 With the liquid DB2s, `resources.liquid_types` (terrain and WMO documents
 alike) lists each named type once: its name, material and texture slots,
 each slot's frames in animation order as ordinary texture entries. A
-terrain's `resources.terrain.liquid_objects` gives each object's flow and
-flags. Without the DB2s both tables hold identities only. A liquid's own
+terrain's `resources.terrain.liquid_settings` gives each setting's flow direction,
+and under `source` its raw flow speed (unit unverified), fishable and
+reflection values. Without the DB2s both tables hold identities only. A liquid's own
 arrays (`depth`, `uv`) say what it stores: Ocean's material claims height
 and depth, but its liquids store depth only. Per chunk,
 `liquid_fishable_rows`/`liquid_deep_rows` (same shape as `hole_rows`) mark
@@ -914,7 +1366,126 @@ its `MAID` (the listfile only without one).
   `--db2-dir` (unnamed without). azeroth: 785 zones; Northshire is its
   three subzones over 31_48, 32_48, 32_49 (and slivers of 33_48/33_49).
   It exists so work can be loaded by zone: a zone is a workable size.
+  With `--db2-dir`, a zone's `source` also carries its AreaTable flag
+  words as stored (optional, since 0.4.0): `flags` (Flags[0],
+  Flags[1]), `mount_flags` (MountFlags), and `flag_names`, the names of
+  the set bits from wowdev.wiki DB/AreaTable's 10.2 tables (Area Flags,
+  Area Flags2, Area Mount Flags; WoWDBDefs names columns, not bits). A set
+  bit the wiki doesn't name is only in the raw words. The names are
+  WoW's, so they stay under `source`.
+- No graveyards. The client carries no graveyard positions:
+  `WorldSafeLocs.db2` (FileDataID 1369425) is absent from every local
+  build (12.0.7 through 12.1.5 and Forever 1.60.1; no WoWDBDefs layout for
+  it names a build after 8.x), so graveyards are server data, like which
+  zones a graveyard serves. The only client table mentioning
+  WorldSafeLocs ids is `WaypointSafeLocs` (467 rows in 12.1.5,
+  `ID`/`Pos`/`MapID`), and every row of it is a `WaypointNode`'s point:
+  portals, boats, trams, instance entrances (`Take the portal from
+  Wizard's Sanctum to Jade Forest`), not graveyards. `AreaPOI.PortLocID`
+  references WorldSafeLocs ids without positions. What the client does
+  say about graveyards is three AreaTable flags
+  (`DontEvaluateGraveyardFromClient`, `UseMapTransferLocsForCemeteries`,
+  `DontUseParentMapForCemeteries`), exported with the zone flags above.
   `export-map --tiles-from <tree>/maps/<map>` rewrites a map's world
   document linked to an existing export's tiles (seconds, not a
   re-export).
+- `map` (optional, since 0.4.0; written with `--db2-dir`): the map's
+  `Map` row, found by `Map.Directory` matching the WDT's directory (case
+  ignored), because the WDT's file stem names a folder, not the place.
+  `ref` is the row named from `MapName_lang` (azeroth: Map 0, "Eastern
+  Kingdoms"); `expansion` (ExpansionID) and `max_players`;
+  `instance_type_name` only for the five values WoWDBDefs' Map.dbd
+  comment names (none, party, raid, pvp, arena); under `source`, the
+  raw `directory`, `instance_type` and `map_type`; `parent` (ParentMapID) and `cosmetic_parent`
+  (CosmeticParentMapID) as named Map refs, absent when stored as -1;
+  `area` (AreaTableID) as an AreaTable ref named from AreaName_lang.
+  Nothing from UiMap: the map's UI region tree is not exported yet.
+
+## Creature catalogs
+
+**Current** (Luna 2026-11-24, for schema 0.4.0): one `creatures` document
+per export tree, `<tree>/creatures.json`, `schema/creatures.schema.json`.
+It answers "what creatures exist, what kind is each, and what does each
+look like" without opening a model or reading DB2. Which creatures live
+where is server data, not in the client, so the catalog places nothing
+and is not per zone.
+
+```json
+{ "kind": "creatures", "references": [
+    { "id": "93ed63c9…", "kind": "model",
+      "asset": { "id": { "kind": "file_data_id", "value": 123418 },
+                 "name": "ridingdirewolf", "name_source": "listfile",
+                 "uri": "models/123418.canon.bundle/manifest.json" } } ],
+  "creatures": [
+    { "id": "54d39895…", "name": "Kor'kron Battlewolf", "name_source": "db2",
+      "type":   { "id": { "kind": "db2_row", "table": "CreatureType",   "row": 1 }, "name": "Beast", "name_source": "db2" },
+      "family": { "id": { "kind": "db2_row", "table": "CreatureFamily", "row": 1 }, "name": "Wolf",  "name_source": "db2" },
+      "displays": [ { "display": "d0fd2799…", "weight": 1 }, { "display": "691ce215…", "weight": 1 } ],
+      "source": { "id": { "kind": "db2_row", "table": "Creature", "row": 71116 }, "classification": 0 } } ],
+  "displays": [
+    { "id": "d0fd2799…", "model": "93ed63c9…", "preset": "5be1c0de…", "scale": 1.2, "base_scale": 1,
+      "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 17408 } } },
+    { "id": "691ce215…", "model": "93ed63c9…", "preset": "0a7f33e2…", "scale": 1.2, "base_scale": 1,
+      "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 247 } } } ] }
+```
+
+- **One document, not one per creature.** The client's `Creature` table
+  holds ~20k of the game's creatures (18,639 rows in 12.1.5.70961, 5 of
+  them in encrypted sections; a full catalog is 18,634 creatures, 16,807
+  displays, 3,050 models, written in 0.5 s); one file
+  of entries is what a consumer loads to pick from, and per-creature
+  files would only be loaded together.
+- **`creatures`**: every `Creature` row, ascending by row. `type` and
+  `family` are the `CreatureType`/`CreatureFamily` row refs with their
+  names, so a consumer maps them onto its own archetypes without DB2;
+  absent when the row is 0. `title` is the line under the name.
+  `source.classification` is `Creature.Classification` as stored, a plain
+  integer: it is a client enum with no table to name it (community
+  documentation reads 0 normal, 1 elite, 2 rare elite, 3 boss, 4 rare,
+  5 trivial, 6 minus; not checked here).
+  `displays` are the row's nonzero `DisplayID` slots in slot order, each
+  with its `DisplayProbability` as `weight`, raw: a creature's only look
+  can carry 0, and how the client picks among weights is not
+  established.
+- **`displays`**: every display a creature names, once, ascending by
+  row; creatures share them. `model` is the `id` of a `references`
+  entry: one `model` reference per distinct FileDataID, ascending, named
+  from `--listfile` when given (`name_source: listfile`), `uri` when the
+  tree holds that model's bundle, identity only otherwise. `preset` is the
+  `id` of the entry of that model document's `selection.presets` whose
+  `sources` list this display ("Options and presets"). `scale`/`base_scale` repeat that
+  preset source's values (`CreatureDisplayInfo.CreatureModelScale`,
+  `CreatureModelData.ModelScale`) so the catalog alone can size a
+  creature. A display the client's table lacks (an encrypted section)
+  keeps only its id and source. `source.size_class` is
+  `CreatureDisplayInfo.SizeClass` as stored (no table names it); the
+  rows the display layers on its model are unnamed refs, absent at 0:
+  `object_effect_package` (ObjectEffectPackageID),
+  `state_spell_visual_kit` (StateSpellVisualKitID, a standing visual),
+  `anim_replacement_set` (AnimReplacementSetID), `dissolve_effect`
+  (DissolveEffectID) and `mount_poof_spell_visual_kit`
+  (MountPoofSpellVisualKitID). husk reads none of those tables yet, so a
+  consumer resolves them or ignores them.
+- **Stable ids.** Creatures, displays and model references carry
+  `nameUuid` ids (`creature/Creature/<row>`,
+  `creature_display/CreatureDisplayInfo/<row>`,
+  `model/file_data_id/<fdid>`); a creature names its displays and a
+  display its model by id (`x-id-in`), so filtering or reordering any of
+  the three arrays never breaks a reference and a re-export keeps them.
+  The catalog's reference items are its own (`kind` fixed to `model`),
+  with the same id key as every document's references ("Stable ids"
+  above), so a model has one id across the catalog and the documents that
+  place it.
+- **Written by `husk export-creatures <tree>`**, which `export-corpus`
+  runs after `index-tree` whenever it has `--db2-dir` and `--dbd-dir`.
+  Not part of `index-tree`: `index/` is derived from the tree alone, and
+  the catalog needs the creature tables. Not part of `export-world`: the
+  presets are what the model documents chose, so the catalog is written
+  from the finished tree's `index/creature_displays.tsv`, and a row there
+  whose model isn't the one the DB2 chain names fails the run (the tree
+  was exported from other tables).
+- **Validation**: the schema (every reference is a `model` one) and
+  `x-id-in` for display and model ids. Whether `preset` is one of the
+  model's presets is not checked (the validator doesn't open model
+  references).
 

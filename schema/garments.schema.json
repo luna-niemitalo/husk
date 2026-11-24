@@ -1,0 +1,478 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/garments.schema.json",
+  "title": "garments",
+  "description": "What bodies wear, as garments a person would name (tunic, leggings, boots), each the body geometry it switches on plus the textures it samples, with the source items they were cut from and named outfits (REFACTOR/GARMENTS.md). Source items are packaging: one item can make several garments and one garment can draw pieces from several items. Inline in one model's garments reference it lists what that model's presets wear.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/garments.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "garments",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.4.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The list; it has no identity of its own.",
+      "x-layer": "contract",
+      "x-source": [{"format": true}]
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "A list defines nothing beyond its entries; the body vocabulary its pieces name is the wearing model's definition.body.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "definition",
+      "x-source": [{"format": true}]
+    },
+    "selection": {
+      "type": "object",
+      "description": "A list selects nothing; a model's presets choose the garments they wear.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
+    },
+    "references": {
+      "type": "array",
+      "description": "Documents the entries point at; empty in an inline list, whose piece models are the embedding model's references.",
+      "x-source": [{"format": true}],
+      "maxItems": 0,
+      "items": {
+        "type": "object",
+        "description": "Unused.",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "x-layer": "contract"
+    },
+    "garments": {
+      "type": "array",
+      "description": "The garments, each once.",
+      "items": {
+        "type": "object",
+        "description": "One garment: what it is, where it stacks, and its pieces.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "Stable id from the source identity the garment was cut from and its kind (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); presets, source items and outfits point at it.",
+            "x-source": [{"format": true}]
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What a person would call it. An open string: x-preset-kinds lists the validated kinds with their default layer, and a kind off that list is a warning, a known one when the garment says `deviates`.",
+            "x-preset-kinds": {
+              "shirt": "base", "leggings": "base", "socks": "base",
+              "tunic": "mid", "robe": "mid", "dress": "mid", "skirt": "mid", "trousers": "mid", "overalls": "mid", "hem": "mid",
+              "tabard": "outer", "belt": "outer", "bracers": "outer", "gloves": "outer", "boots": "outer",
+              "cloak": "over", "pauldrons": "over", "helm": "over", "weapon": "over", "necklace": "over"
+            },
+            "x-source": [{"derived": "garment_split"}]
+          },
+          "layer": {
+            "enum": ["skin", "underwear", "base", "mid", "outer", "over"],
+            "description": "Stacking layer, bottom up in the listed order. Overlays composite bottom-up by layer, then by order, and where two garments set the same body part the higher layer, then order, wins; this replaces the source's slot priorities.",
+            "x-source": [{"stated_by": "layer_rule"}]
+          },
+          "order": {
+            "type": "integer",
+            "description": "Stacking order within the layer, lower first. Garments of one layer and order that overlap in coverage are a conflict a consumer resolves by giving one another order; the format never picks.",
+            "x-source": [{"stated_by": "layer_rule"}]
+          },
+          "layer_rule": {
+            "enum": ["garment_layer", "source_slot_priority"],
+            "description": "The rule that set layer and order (REFACTOR/BUNDLE_FORMAT.md derived-rule table); absent: garment_layer, the kind's default. source_slot_priority: a garment cut from a source item, stacked by its slot's draw rank (REFACTOR/GARMENTS.md \"Source slot priority\"), so its layer and order are no deviation.",
+            "x-source": [{"format": true}]
+          },
+          "deviates": {
+            "type": "boolean",
+            "description": "True: the kind, layer or order differs from the kind's preset on purpose, so the validator reports it as a known warning.",
+            "x-source": [{"derived": "garment_layer"}]
+          },
+          "pieces": {
+            "type": "array",
+            "description": "What the garment consists of. Every piece of every source item lands in exactly one garment, so wearing a source item's garments reproduces it.",
+            "items": {
+              "type": "object",
+              "description": "One piece: exactly one of overlay, geometry, attached, skinned, hides.",
+              "properties": {
+                "item": {
+                  "$ref": "common.schema.json#/definitions/uuid",
+                  "description": "The id of the source item the piece was cut from.",
+                  "x-id-in": "/items",
+                  "x-source": [{"format": true}]
+                },
+                "rule": {
+                  "enum": ["garment_split", "hem_body_geoset", "hem_uv_footprint", "hem_join_set", "hem_join_outfit", "hem_own_garment", "item_model_hem"],
+                  "description": "The derivation rule that put the piece in this garment (REFACTOR/BUNDLE_FORMAT.md derived-rule table).",
+                  "x-source": [{"format": true}]
+                },
+                "overlay": {
+                  "type": "object",
+                  "description": "A texture painted onto a body region of the composited skin.",
+                  "properties": {
+                    "region": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The body region, a name of the wearing model's definition.body.regions.",
+                      "x-source": [{"derived": "garment_split"}]
+                    },
+                    "texture": {
+                      "$ref": "common.schema.json#/definitions/texture_id",
+                      "description": "The texture, the wearer's race and sex file (rule component_file_pick), drawn into the region's rectangle.",
+                      "x-source": [{"table": "ItemDisplayInfoMaterialRes", "column": "MaterialResourcesID"}, {"table": "TextureFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}]
+                    },
+                    "mask": {
+                      "$ref": "common.schema.json#/definitions/texture_id",
+                      "description": "Which of the texture's pixels belong to this garment, white on black at the region's rectangle size; absent: all of them. A body hem's mask is the hem geoset's UV footprint (rule hem_uv_footprint).",
+                      "x-source": [{"derived": "hem_uv_footprint"}]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": ["region", "texture"]
+                },
+                "geometry": {
+                  "type": "object",
+                  "description": "A body part variant the garment switches on.",
+                  "properties": {
+                    "part": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The body part, a name of the wearing model's definition.body.parts.",
+                      "x-source": [{"derived": "garment_split"}]
+                    },
+                    "geoset": {
+                      "$ref": "common.schema.json#/definitions/geoset",
+                      "description": "The variant shown: group * 100 + 1 + the display's value for the slot's group index (rule item_geoset).",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "GeosetGroup"}, {"derived": "item_geoset"}]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": ["part", "geoset"]
+                },
+                "attached": {
+                  "type": "object",
+                  "description": "A rigid model hung at an attachment point (helm, pauldron, weapon).",
+                  "properties": {
+                    "point": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The attachment point, a name of the wearing model's definition.body.attachment_points.",
+                      "x-source": [{"derived": "garment_split"}]
+                    },
+                    "model": {
+                      "$ref": "common.schema.json#/definitions/asset_ref",
+                      "description": "The picked model (rule component_file_pick); uri, when set, is its bundle, also listed in the model's references.",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "ModelResourcesID"}, {"table": "ModelFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}]
+                    },
+                    "unresolved_reason": {
+                      "type": "string",
+                      "description": "Why no file was picked: the wearer is unknown, several files fit equally, or none fits.",
+                      "x-source": [{"derived": "component_file_pick"}]
+                    },
+                    "textures": {"$ref": "#/definitions/piece_textures", "description": "The model's textures."}
+                  },
+                  "additionalProperties": false,
+                  "required": ["point", "textures"],
+                  "oneOf": [{"required": ["model"]}, {"required": ["unresolved_reason"]}]
+                },
+                "skinned": {
+                  "type": "object",
+                  "description": "A model deformed by the body skeleton (a collection model), showing some of its own geosets.",
+                  "properties": {
+                    "model": {
+                      "$ref": "common.schema.json#/definitions/asset_ref",
+                      "description": "The picked model (rule component_file_pick); uri, when set, is its bundle, also listed in the model's references.",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "ModelResourcesID"}, {"table": "ModelFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}]
+                    },
+                    "unresolved_reason": {
+                      "type": "string",
+                      "description": "Why no file was picked: the wearer is unknown, several files fit equally, or none fits.",
+                      "x-source": [{"derived": "component_file_pick"}]
+                    },
+                    "textures": {"$ref": "#/definitions/piece_textures", "description": "The model's textures."},
+                    "shown_geosets": {
+                      "type": "array",
+                      "description": "The model's geosets this piece shows; every other geoset of the model is hidden. A model's group-13 geoset is a hem piece of its own (rule item_model_hem), so the rest of the model is shown without it.",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "AttachmentGeosetGroup"}, {"derived": "item_geoset"}],
+                      "items": {"$ref": "common.schema.json#/definitions/geoset", "description": "A geoset."}
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": ["textures", "shown_geosets"],
+                  "oneOf": [{"required": ["model"]}, {"required": ["unresolved_reason"]}]
+                },
+                "hides": {
+                  "type": "object",
+                  "description": "A body part the garment hides (a helm's hair and ears).",
+                  "properties": {
+                    "part": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The body part.",
+                      "x-source": [{"table": "HelmetGeosetData"}]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": ["part"]
+                },
+                "source": {
+                  "type": "object",
+                  "description": "The piece in the source's terms, as stored.",
+                  "properties": {
+                    "section_type": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The body section, as stored.",
+                      "x-source": [{"table": "ItemDisplayInfoMaterialRes", "column": "ComponentSection"}]
+                    },
+                    "geoset_group_index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The GeosetGroup index the variant comes from, as stored.",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "GeosetGroup"}]
+                    },
+                    "value": {
+                      "type": "integer",
+                      "description": "That index's value, as stored.",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "GeosetGroup"}]
+                    },
+                    "model_position": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "The ModelResourcesID index, as stored; on shoulders 0 is the left model, 1 the right.",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "ModelResourcesID"}]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false,
+              "required": ["item", "rule"],
+              "oneOf": [
+                {"required": ["overlay"]},
+                {"required": ["geometry"]},
+                {"required": ["attached"]},
+                {"required": ["skinned"]},
+                {"required": ["hides"]}
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": ["id", "kind", "layer", "order", "pieces"]
+      },
+      "x-layer": "resource"
+    },
+    "items": {
+      "type": "array",
+      "description": "The source items the garments were cut from (the source's packaging), each once: wearing an item's garments is wearing the item exactly.",
+      "items": {
+        "type": "object",
+        "description": "One source item.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "Stable id from the item's source row; for NPC equipment, the display row and the slot it is worn in (one display is worn in several slots, and the slot decides its garments).",
+            "x-source": [{"format": true}]
+          },
+          "ref": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "The item: an ItemModifiedAppearance row (--appearance gear) or an ItemDisplayInfo row (NPC equipment).",
+            "x-source": [{"table": "ItemModifiedAppearance"}, {"table": "ItemDisplayInfo"}]
+          },
+          "garments": {
+            "type": "array",
+            "description": "The garments holding the item's pieces: what wearing this item exactly means.",
+            "x-source": [{"derived": "garment_split"}],
+            "items": {
+              "$ref": "common.schema.json#/definitions/uuid",
+              "description": "A garment id.",
+              "x-id-in": "/garments"
+            }
+          },
+          "source": {
+            "type": "object",
+            "description": "The item's place in the source, as stored.",
+            "properties": {
+              "slot": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The equipment slot's name, lower case.",
+                "x-source": [{"table": "NpcModelItemSlotDisplayInfo", "column": "ItemSlot"}, {"derived": "appearance_file"}]
+              },
+              "item_slot": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The source's slot number, as stored (NPC equipment).",
+                "x-source": [{"table": "NpcModelItemSlotDisplayInfo", "column": "ItemSlot"}]
+              },
+              "slot_token": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The --appearance file's own slot name, as given.",
+                "x-source": [{"derived": "appearance_file"}]
+              },
+              "item_display_info": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The display row the item resolved to, as stored.",
+                "x-source": [{"table": "ItemAppearance", "column": "ItemDisplayInfoID"}]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "required": ["id", "ref", "garments", "source"]
+      },
+      "x-layer": "resource"
+    },
+    "outfits": {
+      "type": "array",
+      "description": "Named groups of garments (a transmog set); wearing an outfit is wearing its garments, and a consumer can swap one and keep the rest.",
+      "items": {
+        "type": "object",
+        "description": "One outfit.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "Stable id from the outfit's source row.",
+            "x-source": [{"format": true}]
+          },
+          "garments": {
+            "type": "array",
+            "description": "The garments of the outfit's source items that this list holds.",
+            "x-source": [{"table": "TransmogSetItem", "column": "ItemModifiedAppearanceID"}],
+            "items": {
+              "$ref": "common.schema.json#/definitions/uuid",
+              "description": "A garment id.",
+              "x-id-in": "/garments"
+            }
+          },
+          "source": {
+            "type": "object",
+            "description": "The outfit in the source's terms.",
+            "properties": {
+              "ref": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "The source row: a TransmogSet.",
+                "x-source": [{"table": "TransmogSet"}]
+              }
+            },
+            "additionalProperties": false,
+            "required": ["ref"]
+          }
+        },
+        "additionalProperties": false,
+        "required": ["id", "garments", "source"]
+      },
+      "x-layer": "resource"
+    },
+    "resources": {
+      "type": "object",
+      "description": "Data the pieces use by id.",
+      "properties": {
+        "textures": {
+          "type": "array",
+          "description": "Every texture a piece uses, each once.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/texture_entry",
+            "description": "One texture."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "x-layer": "resource"
+    }
+  },
+  "definitions": {
+    "piece_textures": {
+      "type": "array",
+      "description": "An item model's textures, each the wearer's race and sex file (rule component_file_pick).",
+      "x-source": [{"table": "ItemDisplayInfoModelMatRes"}, {"table": "TextureFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}],
+      "items": {
+        "type": "object",
+        "description": "One texture.",
+        "properties": {
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The model texture slot it fills, named as texture slots are (rule texture_slot_name).",
+            "x-source": [{"derived": "texture_slot_name"}]
+          },
+          "texture": {
+            "$ref": "common.schema.json#/definitions/texture_id",
+            "description": "The texture."
+          },
+          "source": {
+            "type": "object",
+            "description": "The texture in the source's terms, as stored.",
+            "properties": {
+              "texture_type": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The item model's M2 texture type it fills, as stored.",
+                "x-source": [{"table": "ItemDisplayInfoModelMatRes", "column": "TextureType"}]
+              },
+              "model_position": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "The model position it textures, as stored.",
+                "x-source": [{"table": "ItemDisplayInfoModelMatRes", "column": "ModelIndex"}]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "required": ["role", "texture", "source"]
+      }
+    }
+  },
+  "required": [
+    "$schema",
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "garments",
+    "items",
+    "outfits",
+    "resources"
+  ],
+  "additionalProperties": false
+}

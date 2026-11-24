@@ -98,6 +98,14 @@ int exportMap(int argc, char** args);
 // (bundle_schema.hpp), and with --lint-schema the schema itself.
 int validateBundle(int argc, char** args);
 
+// `garments-check` -- a model bundle's garment conflicts and kind
+// deviations (bundle_schema::checkGarments, REFACTOR/GARMENTS.md).
+int garmentsCheck(int argc, char** args);
+
+// `schema-doc` -- the embedded schema/ as one Markdown reference
+// (bundle_schema::schemaDoc).
+int schemaDoc(int argc, char** args);
+
 // `export-world` -- every tile of every (or the selected) map, plus one
 // shared set of model bundles and terrain textures; parallel, resumable,
 // failures logged and skipped (cmd_export_terrain.cpp).
@@ -121,6 +129,14 @@ int exportCorpus(int argc, char** args);
 int snapshot(int argc, char** args);
 // `index-tree` -- (re)builds an export tree's index/ lookup tables (corpus_index.hpp).
 int indexTree(int argc, char** args);
+// `export-creatures` -- writes an export tree's creatures.json, the corpus's
+// creature catalog, from the creature DB2s and the tree's index
+// (cmd_export_creatures.cpp).
+int exportCreatures(int argc, char** args);
+// `export-appearances` -- moves the inline appearance lists of an export
+// tree's model manifests into the tree's shared appearances.json and points
+// the manifests at it (cmd_export_appearances.cpp).
+int exportAppearances(int argc, char** args);
 
 // Every struct/addXOptions pair below is the same single-source-of-truth
 // split `ExportOptions`/`addExportOptions` established: the flag surface is
@@ -279,6 +295,17 @@ struct ValidateBundleOptions {
 };
 void addValidateBundleOptions(CLI::App& app, ValidateBundleOptions& opts);
 
+struct GarmentsCheckOptions {
+    std::string bundle;
+    std::string preset;  // empty = every preset
+};
+void addGarmentsCheckOptions(CLI::App& app, GarmentsCheckOptions& opts);
+
+struct SchemaDocOptions {
+    std::string output;  // empty: stdout
+};
+void addSchemaDocOptions(CLI::App& app, SchemaDocOptions& opts);
+
 struct ExportWorldOptions {
     std::string mapsRoot;
     std::string output;
@@ -287,6 +314,7 @@ struct ExportWorldOptions {
     std::string listfileRoot;
     std::string db2Dir;
     std::string dbdDir;
+    std::string animNames;  // export's --anim-names, forwarded to the model pass
     unsigned jobs = 0;
     bool skipModels = false;
     bool allAssets = false;
@@ -319,6 +347,7 @@ struct ExportCorpusOptions {
     std::string listfileRoot;
     std::string db2Dir;
     std::string dbdDir;
+    std::string animNames;
     unsigned jobs = 0;
     std::vector<std::string> maps;
     size_t sample = 0;
@@ -333,6 +362,7 @@ struct SnapshotOptions {
     std::string source;  // the source mount's tag link, e.g. /media/luna/wow_export/live
     std::string listfile;
     std::string dbdDir;
+    std::string animNames;
     std::string store;
     unsigned jobs = 0;
     std::string tag = "live";
@@ -344,6 +374,36 @@ struct IndexTreeOptions {
     std::string tree;
 };
 void addIndexTreeOptions(CLI::App& app, IndexTreeOptions& opts);
+
+struct ExportCreaturesOptions {
+    std::string tree;
+    std::string db2Dir;
+    std::string dbdDir;
+    std::string listfile;
+};
+void addExportCreaturesOptions(CLI::App& app, ExportCreaturesOptions& opts);
+
+struct ExportAppearancesOptions {
+    std::string tree;
+};
+void addExportAppearancesOptions(CLI::App& app, ExportAppearancesOptions& opts);
+
+// `uv-footprint` -- a body model's geosets rasterized in UV space onto its
+// composite skin texture (cmd_uv_footprint.cpp, garment_footprint.hpp).
+struct UvFootprintOptions {
+    std::string model;
+    uint32_t layoutId = 0;
+    std::vector<uint16_t> geosets;
+    std::vector<unsigned> groups;
+    std::string db2Dir;
+    std::string dbdDir;
+    std::string listfileRoot;
+    std::string pngDir;
+    std::string texture;
+    uint32_t textureSection = 0;
+};
+void addUvFootprintOptions(CLI::App& app, UvFootprintOptions& opts);
+int uvFootprint(int argc, char** args);
 
 struct MountOptions {
     std::string mountpoint;
@@ -379,6 +439,7 @@ struct ExportOptions {
     std::string knowledgeDbArg;
     std::string listfileArg;
     std::string listfileRootArg;
+    std::string animNamesArg;
     std::string fromListArg;
     std::string outputDirArg;
     std::string glbArg;
@@ -398,12 +459,14 @@ void addExportOptions(CLI::App& app, ExportOptions& opts);
 // --from-list's loop and export-world's model pass call per model. Only
 // reads `app` (count()), so concurrent calls may share it. A caller that
 // knows the model's FileDataID passes it; otherwise the bundle's subject
-// looks it up (store name, else a listfile scan).
+// looks it up (store name, else a listfile scan). `fallbacksUri`, when not
+// empty, is the tree's shared animation_fallbacks document relative to the
+// bundle: the model references it instead of reading AnimationData itself.
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
                     const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
                     std::optional<uint32_t> modelFileDataId = std::nullopt,
                     const creaturedisplay::Data* creatures = nullptr,
-                    const writers::StoreLink* textureStore = nullptr);
+                    const writers::StoreLink* textureStore = nullptr, const std::string& fallbacksUri = "");
 
 // The creature display tables for a model bundle's options, loaded once
 // per run from --db2-dir/--dbd-dir; nullopt without them.

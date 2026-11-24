@@ -17,15 +17,11 @@
 #include <nlohmann/json.hpp>
 
 #include "bundle_schema_embedded.hpp"
+#include "bundle_schema_internal.hpp"
 
 namespace husk::bundle_schema {
 
-namespace {
-
-using json = nlohmann::json;
-namespace fs = std::filesystem;
-
-constexpr const char* kSchemaSuffix = ".schema.json";
+namespace internal {
 
 const std::map<std::string, json>& schemas() {
     static const std::map<std::string, json> parsed = [] {
@@ -36,7 +32,6 @@ const std::map<std::string, json>& schemas() {
     return parsed;
 }
 
-// "common.schema.json" or a full https://husk.invalid/schema/... uri -> "common".
 std::string schemaStem(const std::string& location) {
     std::string file = location.substr(location.find_last_of('/') + 1);
     if (file.size() > std::string(kSchemaSuffix).size() && file.ends_with(kSchemaSuffix)) {
@@ -50,6 +45,13 @@ const json& schemaFor(const std::string& stem) {
     if (it == schemas().end()) throw std::runtime_error("no embedded schema '" + stem + "'");
     return it->second;
 }
+
+}  // namespace internal
+
+namespace {
+
+using namespace internal;
+namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------- lint
 
@@ -75,13 +77,13 @@ const std::set<std::string> kSourceJargon = {
 
 const std::set<std::string> kLayers = {"contract", "definition", "selection", "resource"};
 
-const std::vector<std::string> kHeader = {"format", "kind", "schema_version", "subject", "space",
+const std::vector<std::string> kHeader = {"$schema", "format", "kind", "schema_version", "subject", "space",
                                           "provenance", "definition", "selection", "references"};
 
 // Definitions that are real-valued and so need a unit where they are used.
 const std::set<std::string> kRealValuedDefinitions = {"vec2", "vec3", "vec4", "quat", "rgb", "rgba",
-                                                      "animated", "lifetime_curve", "inline_curve",
-                                                      "bound_number", "bound_vec3"};
+                                                      "animated", "animated_vec3", "lifetime_curve", "inline_curve",
+                                                      "vec3_curve", "bound_number", "bound_vec3"};
 
 // Keys that hold file paths: only the shared link definitions may have them.
 const std::set<std::string> kPathKeys = {"uri", "file"};
@@ -102,6 +104,71 @@ std::vector<std::string> tokens(const std::string& s) {
     return out;
 }
 
+// "ItemDisplayInfo" -> {item, display, info}; "ModelResourcesID" -> {model, resources, id}.
+std::vector<std::string> camelTokens(const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (size_t i = 0; i < s.size(); ++i) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (!std::isalnum(c)) {
+            if (!cur.empty()) out.push_back(cur);
+            cur.clear();
+            continue;
+        }
+        bool upper = std::isupper(c);
+        bool afterLower = i > 0 && (std::islower(static_cast<unsigned char>(s[i - 1])) || std::isdigit(static_cast<unsigned char>(s[i - 1])));
+        bool acronymEnd = i > 0 && std::isupper(static_cast<unsigned char>(s[i - 1])) && i + 1 < s.size() && std::islower(static_cast<unsigned char>(s[i + 1]));
+        if (upper && (afterLower || acronymEnd) && !cur.empty()) {
+            out.push_back(cur);
+            cur.clear();
+        }
+        cur += static_cast<char>(std::tolower(c));
+    }
+    if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+
+bool containsRun(const std::vector<std::string>& haystack, const std::vector<std::string>& run) {
+    return std::search(haystack.begin(), haystack.end(), run.begin(), run.end()) != haystack.end();
+}
+
+// DB2 table names the schemas cite in x-source, as snake tokens. Only
+// names of three or more words: shorter ones are often plain English a
+// canonical key may use for its meaning (liquid type, light params).
+struct SourceNames {
+    std::set<std::vector<std::string>> tables;
+
+    void collect(const json& node) {
+        if (node.is_array()) {
+            for (const json& v : node) collect(v);
+            return;
+        }
+        if (!node.is_object()) return;
+        if (node.contains("x-source") && node["x-source"].is_array()) {
+            for (const json& origin : node["x-source"]) {
+                if (!origin.is_object()) continue;
+                std::vector<std::string> t = camelTokens(origin.value("table", ""));
+                if (t.size() >= 3) tables.insert(t);
+            }
+        }
+        for (const auto& [key, sub] : node.items()) collect(sub);
+    }
+};
+
+// Keys shaped like DB2 columns: a value only DB2 can resolve. Columns in
+// general are not listed, since many name their meaning plainly
+// (SunColor, MaxPlayers) and the canonical key may share the name.
+const std::vector<std::vector<std::string>> kColumnRuns = {
+    {"resources", "id"}, {"file", "data", "id"}, {"display", "info", "id"},
+};
+const std::set<std::string> kColumnKeys = {
+    "component_section", "texture_type", "section_type",
+};
+
+// Common definitions that are themselves raw values (an `unresolved`
+// object's entries), walked as if beneath one.
+const std::set<std::string> kRawDefinitions = {"unresolved", "unresolved_field"};
+
 std::string refTarget(const json& node) {
     if (!node.is_object() || !node.contains("$ref")) return {};
     std::string ref = node["$ref"];
@@ -114,6 +181,8 @@ bool isRealValued(const json& node) {
     if (node.value("type", "") == "number") return true;
     if (node.value("type", "") == "array" && node.contains("items")) {
         const json& items = node["items"];
+        // A tuple's `items` is an array of per-position schemas.
+        if (!items.is_object()) return false;
         return items.value("type", "") == "number" || kRealValuedDefinitions.count(refTarget(items)) > 0;
     }
     return false;
@@ -121,16 +190,22 @@ bool isRealValued(const json& node) {
 
 // Follows a schema node through a property path, resolving $refs, to see
 // whether an x-index-into pointer names an array the document can hold.
-const json* followSchema(const std::string& stem, const json* node, const std::vector<std::string>& path) {
-    for (const std::string& step : path) {
-        for (int hops = 0; node && node->contains("$ref") && hops < 8; ++hops) {
+const json* followSchema(std::string stem, const json* node, const std::vector<std::string>& path) {
+    auto resolve = [&] {
+        for (int hops = 0; node->contains("$ref") && hops < 8; ++hops) {
             std::string ref = (*node)["$ref"];
             size_t hash = ref.find('#');
-            std::string target = hash == 0 ? stem : schemaStem(ref.substr(0, hash));
-            node = &schemaFor(target).at(json::json_pointer(ref.substr(hash + 1)));
+            if (hash != 0) stem = schemaStem(ref.substr(0, hash));
+            node = &schemaFor(stem).at(json::json_pointer(ref.substr(hash + 1)));
         }
-        if (!node) return nullptr;
-        if (node->value("type", "") == "array" && node->contains("items")) node = &(*node)["items"];
+    };
+    for (const std::string& step : path) {
+        resolve();
+        // An array's items are often a shared definition: resolve that too.
+        if (node->value("type", "") == "array" && node->contains("items")) {
+            node = &(*node)["items"];
+            resolve();
+        }
         if (!node->contains("properties") || !(*node)["properties"].contains(step)) return nullptr;
         node = &(*node)["properties"][step];
     }
@@ -148,6 +223,7 @@ struct Linter {
     std::string stem;
     const json& root;
     std::vector<Problem>& problems;
+    const SourceNames& names;
 
     void fail(const std::string& pointer, const std::string& message) {
         problems.push_back({stem + kSchemaSuffix + "#" + pointer, message});
@@ -169,6 +245,7 @@ struct Linter {
         if (node.contains("const") && node["const"].is_string()) checkWords(pointer + "/const", node["const"], "constant");
         if (node.contains("x-index-into")) checkIndex(pointer, node["x-index-into"], objects);
         if (node.contains("x-id-in")) checkIdTarget(pointer, node["x-id-in"]);
+        if (node.contains("x-source")) checkSource(pointer + "/x-source", node["x-source"]);
         if (node.contains("properties")) {
             if (node.value("additionalProperties", true) != false) {
                 fail(pointer, "object is open: set additionalProperties to false so an undocumented key fails validation");
@@ -178,6 +255,9 @@ struct Linter {
             objects.pop_back();
         }
         if (node.contains("items")) walk(node["items"], pointer + "/items", objects, definition);
+        if (node.contains("additionalProperties") && node["additionalProperties"].is_object()) {
+            walk(node["additionalProperties"], pointer + "/additionalProperties", objects, definition);
+        }
         for (const char* combinator : {"oneOf", "anyOf", "allOf"}) {
             if (!node.contains(combinator)) continue;
             for (size_t i = 0; i < node[combinator].size(); ++i) {
@@ -188,15 +268,45 @@ struct Linter {
 
     // Set while walking the direct properties of a `source`/`unresolved` object.
     bool rawParent = false;
+    // Set anywhere beneath a `source`/`unresolved` object: raw values may
+    // keep the source's names and be described as stored.
+    bool underRaw = false;
+
+    // Keys a consumer of another source could not read unchanged
+    // (CANONICAL_FORMAT.md §2): DB2 table and column names, and values
+    // described as kept "as stored".
+    void checkSourceTerms(const std::string& pointer, const std::string& key, const json& sub) {
+        if (underRaw || key == "source" || key == "unresolved") return;
+        std::vector<std::string> keyTokens = tokens(key);
+        for (const auto& table : names.tables) {
+            if (!containsRun(keyTokens, table)) continue;
+            std::string name;
+            for (const std::string& t : table) name += (name.empty() ? "" : "_") + t;
+            fail(pointer, "key '" + key + "' contains the DB2 table name '" + name + "'; describe the meaning, and put raw values under 'source'");
+        }
+        bool columnNamed = kColumnKeys.count(key) > 0 ||
+                           std::any_of(kColumnRuns.begin(), kColumnRuns.end(), [&](const auto& run) { return containsRun(keyTokens, run); });
+        if (columnNamed) fail(pointer, "key '" + key + "' is a DB2 column name; describe the meaning, and put raw values under 'source'");
+        std::string description = sub.is_object() ? sub.value("description", "") : "";
+        std::string lower;
+        for (char c : description) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower.find("as stored") != std::string::npos) {
+            fail(pointer, "key '" + key + "' is described as kept as stored; a raw value goes under a 'source' or 'unresolved' object");
+        }
+    }
 
     void checkProperty(const std::string& pointer, const std::string& key, const json& sub, std::vector<const json*>& objects, const std::string& definition) {
         static const std::regex snake("^[a-z][a-z0-9_]*$");
-        if (!std::regex_match(key, snake)) fail(pointer, "key '" + key + "' is not lowercase snake_case");
+        // `$schema` keeps the name editors and validators already look for.
+        bool schemaPointer = key == "$schema" && pointer == "/properties/$schema";
+        if (!schemaPointer && !std::regex_match(key, snake)) fail(pointer, "key '" + key + "' is not lowercase snake_case");
         for (const std::string& t : tokens(key)) {
             if (kSourceJargon.count(t)) fail(pointer, "key '" + key + "' contains source-format name '" + t + "'; describe the meaning, and put raw values under 'source'");
         }
         checkWords(pointer, key, "key");
-        if (kPathKeys.count(key) && !kPathDefinitions.count(definition)) {
+        // A `file` that is a Ref names a file by identity, not by path.
+        bool isRef = refTarget(sub) == "ref";
+        if (kPathKeys.count(key) && !kPathDefinitions.count(definition) && !isRef) {
             fail(pointer, "key '" + key + "' holds a path outside the shared link definitions (asset_ref, payload, buffer_slice)");
         }
         if (!rawParent && (key.starts_with("source_") || key.starts_with("unknown") || key.starts_with("raw"))) {
@@ -204,10 +314,60 @@ struct Linter {
         }
         if (!sub.is_object() || !sub.contains("description")) fail(pointer, "property '" + key + "' has no description");
         if (isRealValued(sub) && !sub.contains("x-unit")) fail(pointer, "real-valued property '" + key + "' has no x-unit");
+        checkSourceTerms(pointer, key, sub);
         bool savedRaw = rawParent;
+        bool savedUnderRaw = underRaw;
         rawParent = key == "source" || key == "unresolved";
+        underRaw = underRaw || rawParent;
         walk(sub, pointer, objects, definition);
         rawParent = savedRaw;
+        underRaw = savedUnderRaw;
+    }
+
+    // The origin forms BUNDLE_FORMAT.md "Where values come from: x-source"
+    // defines; anything else is a typo the coverage count would hide.
+    void checkSource(const std::string& pointer, const json& source) {
+        if (!source.is_array() || source.empty()) {
+            fail(pointer, "expected a non-empty array of origins, got " + source.dump());
+            return;
+        }
+        static const std::regex snake("^[a-z][a-z0-9_]*$");
+        static const std::set<std::string> files = {"m2", "skin", "skel", "bone", "anim", "phys", "wmo", "wmo_group",
+                                                    "adt", "adt_obj0", "adt_obj1", "adt_tex0", "adt_lod", "wdt",
+                                                    "wdt_fogs", "wdt_mpv", "wdt_lgt", "wdt_occ", "blp"};
+        // Each form: its key, what the key's value must be, and the optional key beside it.
+        auto isString = [](const json& v) { return v.is_string() && !v.get<std::string>().empty(); };
+        auto isTrue = [](const json& v) { return v == true; };
+        struct Form {
+            const char* key;
+            std::function<bool(const json&)> valid;
+            const char* expected;
+            const char* optional;
+        };
+        static const std::vector<Form> forms = {
+            {"table", isString, "a DB2 table name", "column"},
+            {"file", [](const json& v) { return v.is_string() && files.count(v.get<std::string>()) > 0; }, "a source file kind", "field"},
+            {"derived", [](const json& v) { return v.is_string() && std::regex_match(v.get<std::string>(), snake); }, "a snake_case rule name", nullptr},
+            {"authored", isString, "a path in the husk repository", nullptr},
+            {"stated_by", isString, "the sibling property that states each value's origin", nullptr},
+            {"listfile", isTrue, "true", nullptr},
+            {"format", isTrue, "true", nullptr},
+        };
+        for (size_t i = 0; i < source.size(); ++i) {
+            const json& o = source[i];
+            std::string at = pointer + "/" + std::to_string(i);
+            auto form = std::find_if(forms.begin(), forms.end(), [&](const Form& f) { return o.is_object() && o.contains(f.key); });
+            if (form == forms.end()) {
+                fail(at, "expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got " + o.dump());
+                continue;
+            }
+            if (!form->valid(o[form->key])) fail(at, std::string("expected '") + form->key + "' to be " + form->expected + ", got " + o[form->key].dump());
+            for (const auto& [key, value] : o.items()) {
+                bool optional = form->optional && key == form->optional;
+                if (key != form->key && !optional) fail(at, std::string("expected only '") + form->key + "'" + (form->optional ? std::string(" and '") + form->optional + "'" : "") + " in this origin, got '" + key + "'");
+                if (optional && !isString(value)) fail(at, "expected '" + key + "' to be a name, got " + value.dump());
+            }
+        }
     }
 
     // x-id-in names an array of objects that each carry an `id`, so it is
@@ -224,8 +384,7 @@ struct Linter {
             fail(pointer, "x-id-in '" + t + "' names no array in the " + stem + " schema");
             return;
         }
-        const json& item = (*found)["items"];
-        if (!item.contains("properties") || !item["properties"].contains("id")) {
+        if (!followSchema(stem, &root, splitPointer(t + "/id"))) {
             fail(pointer, "x-id-in '" + t + "' names an array whose items have no 'id'");
         }
     }
@@ -265,6 +424,10 @@ void lintKindHeader(const std::string& stem, const json& schema, std::vector<Pro
         }
     }
     if (schema.value("x-status", "") != "implemented") fail("x-status must be 'implemented'");
+    json pointer = props.contains("$schema") ? props["$schema"].value("const", json()) : json();
+    if (pointer != schema.value("$id", json())) {
+        fail("'$schema' must be the constant " + schema.value("$id", json()).dump() + " (the schema's $id), got " + pointer.dump());
+    }
 }
 
 // ---------------------------------------------------------------- validation
@@ -338,8 +501,9 @@ struct DocumentChecker {
         }
     }
 
-    // Ids already checked unique, by target: each array is scanned once.
-    std::set<std::string> uniqueChecked;
+    // Each target array's ids, gathered (and checked unique) on its first
+    // lookup: a creature catalog makes ~30k lookups into arrays of ~17k.
+    std::map<std::string, std::set<std::string>> idsOf;
 
     void checkId(const json& value, const std::string& target, const std::string& pointer) {
         if (!value.is_string()) return;
@@ -348,18 +512,17 @@ struct DocumentChecker {
             fail(pointer, "expected an id of an entry of '" + target + "', which the document doesn't hold");
             return;
         }
-        const json& array = document.at(p);
-        if (uniqueChecked.insert(target).second) {
-            std::set<std::string> seen;
+        auto [ids, first] = idsOf.try_emplace(target);
+        if (first) {
+            const json& array = document.at(p);
             for (size_t i = 0; i < array.size(); ++i) {
                 if (!array[i].contains("id")) continue;
                 std::string id = array[i]["id"];
-                if (!seen.insert(id).second) fail(target + "/" + std::to_string(i) + "/id", "expected a unique id, '" + id + "' repeats");
+                if (!ids->second.insert(id).second) fail(target + "/" + std::to_string(i) + "/id", "expected a unique id, '" + id + "' repeats");
             }
         }
         std::string wanted = value;
-        bool found = std::any_of(array.begin(), array.end(), [&](const json& e) { return e.contains("id") && e["id"] == wanted; });
-        if (!found) fail(pointer, "expected the id of an entry of '" + target + "', got '" + wanted + "'");
+        if (!ids->second.contains(wanted)) fail(pointer, "expected the id of an entry of '" + target + "', got '" + wanted + "'");
     }
 
     void checkIndex(const json& value, const std::string& target, const std::string& pointer, const std::vector<const json*>& objects) {
@@ -412,7 +575,8 @@ struct DocumentChecker {
             fail(pointer, "expected a relative uri, got '" + uri + "'");
             return;
         }
-        if (!fs::exists(file.parent_path() / uri)) fail(pointer, "expected '" + uri + "' to exist relative to the document");
+        fs::path target = (file.parent_path() / uri).lexically_normal();
+        if (!fs::exists(target)) fail(pointer, "expected '" + uri + "' to exist relative to the document, got no file at " + target.string());
     }
 
 };
@@ -444,7 +608,7 @@ bool isNumbers(const json& value, size_t count) {
 // specs themselves.
 struct InputChecker {
     std::function<void(const std::string& pointer, const std::string& message)> fail;
-    size_t textureCount = 0;  // entries in the document's resources.textures
+    std::set<std::string> textureIds;  // ids of the document's resources.textures
 
     void check(const json& spec, const json& value, const std::string& pointer, const std::string& name) {
         std::string kind = spec["kind"];
@@ -473,8 +637,8 @@ struct InputChecker {
         } else if (kind == "rotation" || kind == "color_alpha") {
             expect(isNumbers(value, 4), "4 numbers");
         } else if (kind == "image") {
-            expect(value.is_number_unsigned() && value.get<size_t>() < textureCount,
-                   "an index into resources.textures (" + std::to_string(textureCount) + " entries)");
+            expect(value.is_string() && textureIds.count(value.get<std::string>()),
+                   "the id of an entry of resources.textures (" + std::to_string(textureIds.size()) + " entries)");
         } else if (kind == "mesh") {
             expect(value.is_object() && value.contains("id"), "an asset reference");
         } else if (kind == "spline") {
@@ -548,8 +712,9 @@ void checkExpression(const json& node, const json& definition, const std::string
     }
     if (!node.contains("op")) return;
     static const std::map<std::string, std::pair<size_t, size_t>> arity = {
-        {"add", {2, 99}}, {"sub", {2, 2}},      {"mul", {2, 99}},      {"div", {2, 2}},  {"max", {2, 99}},
-        {"lerp", {3, 3}}, {"saturate", {1, 1}}, {"luma", {1, 1}}, {"channels", {1, 1}}, {"lit", {1, 1}}};
+        {"add", {2, 99}},  {"sub", {2, 2}},      {"mul", {2, 99}},  {"div", {2, 2}},      {"max", {2, 99}},
+        {"min", {2, 99}},  {"dot", {2, 2}},      {"lerp", {3, 3}},  {"saturate", {1, 1}}, {"luma", {1, 1}},
+        {"channels", {1, 1}}, {"lit", {1, 1}}, {"tangent_frame", {4, 4}}};
     std::string op = node["op"];
     size_t n = node.contains("args") ? node["args"].size() : 0;
     auto [lo, hi] = arity.at(op);
@@ -655,6 +820,95 @@ void checkEffect(const json& effect, const std::function<void(const std::string&
     }
 }
 
+// ---------------------------------------------------------------- garments
+
+// What a garment covers: its overlays' regions, its geometry's parts and
+// its attached pieces' points, each a key two garments can fight over.
+std::set<std::string> garmentCoverage(const json& garment) {
+    std::set<std::string> out;
+    for (const json& piece : garment["pieces"]) {
+        if (piece.contains("overlay")) out.insert("region " + piece["overlay"]["region"].get<std::string>());
+        if (piece.contains("geometry")) out.insert("part " + piece["geometry"]["part"].get<std::string>());
+        if (piece.contains("attached")) out.insert("point " + piece["attached"]["point"].get<std::string>());
+    }
+    return out;
+}
+
+// The garments document's preset kinds: schema/garments.schema.json
+// `x-preset-kinds`, the one list (canon_garment_builder.cpp presetKinds()
+// is its writer-side counterpart).
+const json& presetKinds() {
+    return schemaFor("garments")["properties"]["garments"]["items"]["properties"]["kind"]["x-preset-kinds"];
+}
+
+std::vector<GarmentFinding> garmentFindings(const json& garments, const json& presets, const std::string& presetId) {
+    std::vector<GarmentFinding> out;
+    std::map<std::string, const json*> byId;
+    for (const json& g : garments["garments"]) byId.emplace(g["id"].get<std::string>(), &g);
+    const json& kinds = presetKinds();
+    for (const json& g : garments["garments"]) {
+        std::string kind = g["kind"];
+        std::string id = g["id"];
+        bool deviates = g.value("deviates", false);
+        auto deviation = [&](const std::string& message) {
+            out.push_back({deviates ? GarmentFinding::Kind::KnownDeviation : GarmentFinding::Kind::UnexpectedDeviation,
+                           "", {id}, message});
+        };
+        if (!kinds.contains(kind)) {
+            deviation("garment " + id + ": kind '" + kind + "' is not a preset kind");
+            continue;
+        }
+        // The source's slot priority sets layer and order instead of the kind (REFACTOR/GARMENTS.md).
+        if (g.value("layer_rule", "garment_layer") == "source_slot_priority") continue;
+        if (g["layer"] != kinds[kind]) {
+            deviation("garment " + id + " (" + kind + "): expected layer " + kinds[kind].get<std::string>() + ", got " +
+                      g["layer"].get<std::string>());
+        }
+        if (g["order"] != 0) deviation("garment " + id + " (" + kind + "): expected order 0, got " + g["order"].dump());
+    }
+    for (const json& preset : presets) {
+        std::string pid = preset["id"];
+        if (!presetId.empty() && pid != presetId) continue;
+        // Garments by layer and order, then joined when they share a coverage key.
+        std::map<std::pair<std::string, int64_t>, std::vector<std::string>> stacks;
+        for (const json& worn : preset.value("garments", json::array())) {
+            auto g = byId.find(worn.get<std::string>());
+            if (g == byId.end()) continue;  // the id check reports it
+            stacks[{(*g->second)["layer"], (*g->second)["order"]}].push_back(g->first);
+        }
+        for (const auto& [stack, members] : stacks) {
+            std::map<std::string, std::vector<std::string>> byKey;
+            for (const std::string& id : members) {
+                for (const std::string& key : garmentCoverage(*byId[id])) byKey[key].push_back(id);
+            }
+            std::map<std::string, std::string> parent;
+            for (const std::string& id : members) parent[id] = id;
+            std::function<std::string(const std::string&)> root = [&](const std::string& x) {
+                return parent[x] == x ? x : parent[x] = root(parent[x]);
+            };
+            for (const auto& [key, ids] : byKey) {
+                for (size_t i = 1; i < ids.size(); ++i) parent[root(ids[i])] = root(ids[0]);
+            }
+            std::map<std::string, std::pair<std::set<std::string>, std::set<std::string>>> groups;
+            for (const auto& [key, ids] : byKey) {
+                if (ids.size() < 2) continue;
+                auto& group = groups[root(ids[0])];
+                group.first.insert(ids.begin(), ids.end());
+                group.second.insert(key);
+            }
+            for (const auto& [_, group] : groups) {
+                std::string message = std::to_string(group.first.size()) + " garments at layer " + stack.first + " order " +
+                                      std::to_string(stack.second) + " overlap on";
+                for (const std::string& key : group.second) message += " " + key + ";";
+                message.pop_back();
+                out.push_back({GarmentFinding::Kind::Conflict, pid,
+                               std::vector<std::string>(group.first.begin(), group.first.end()), message});
+            }
+        }
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------- traversal
 
 struct Validation {
@@ -691,6 +945,15 @@ struct Validation {
             problems.push_back({path.string() + "#" + prefix + "/kind", "expected one of the document kinds schema/ defines, got '" + kind + "'"});
             return false;
         }
+        // Checked before the schema so a mismatch says which schema the kind
+        // needs, not only that a constant differs.
+        const json& expected = schemaFor(kind)["$id"];
+        json declared = document.value("$schema", json());
+        if (declared != expected) {
+            problems.push_back({path.string() + "#" + prefix + "/$schema",
+                                "expected " + expected.dump() + " for kind '" + kind + "', got " + (declared.is_null() ? "none" : declared.dump())});
+            return false;
+        }
         size_t before = problems.size();
         nlohmann::json_schema::json_validator validator(loadEmbedded);
         validator.set_root_schema(schemaFor(kind));
@@ -715,7 +978,120 @@ struct Validation {
         if (kind == "placement_set") checkEffectInstances(document, referenced, checker);
         if (kind == "model") checkMaterialBindings(document, referenced, checker);
         if (kind == "model") checkLevels(document, checker);
+        if (kind == "model") checkPresetAppearances(document, referenced, checker);
+        if (kind == "model") listReferences(document, "animation_fallbacks", checker);
+        if (kind == "model") checkPresetGarments(document, referenced, checker);
         return true;
+    }
+
+    // A preset's garments and its bake's covers_garments are entries of the
+    // document the model's one garments reference holds (inline or by uri).
+    void checkPresetGarments(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
+        std::vector<size_t> lists = listReferences(model, "garments", checker);
+        const json& presets = model["selection"].value("presets", json::array());
+        std::vector<std::pair<std::string, std::string>> pointers;  // json pointer, id
+        for (size_t p = 0; p < presets.size(); ++p) {
+            std::string at = "/selection/presets/" + std::to_string(p);
+            const json& worn = presets[p].value("garments", json::array());
+            for (size_t g = 0; g < worn.size(); ++g) pointers.push_back({at + "/garments/" + std::to_string(g), worn[g]});
+            const json& textures = presets[p].value("textures", json::array());
+            for (size_t t = 0; t < textures.size(); ++t) {
+                const json& covers = textures[t].value("covers_garments", json::array());
+                for (size_t c = 0; c < covers.size(); ++c) {
+                    pointers.push_back({at + "/textures/" + std::to_string(t) + "/covers_garments/" + std::to_string(c), covers[c]});
+                }
+            }
+        }
+        if (pointers.empty()) return;
+        if (lists.empty()) {
+            checker.fail("/selection/presets", "expected a garments reference holding the presets' garments, got none");
+            return;
+        }
+        const json* list = referenced[lists[0]];
+        if (!list) return;  // unexported or failed: reported or not checkable
+        std::set<std::string> ids;
+        for (const json& entry : (*list)["garments"]) ids.insert(entry["id"].get<std::string>());
+        for (const auto& [pointer, id] : pointers) {
+            if (!ids.count(id)) checker.fail(pointer, "expected the id of a garment of the garments reference's document, got '" + id + "'");
+        }
+        // A conflict is a selection's state, not a malformed document: the
+        // consumer resolves it by an order (REFACTOR/GARMENTS.md), so it warns.
+        if (!warnings) return;
+        for (const GarmentFinding& f : garmentFindings(*list, presets, "")) {
+            const char* label = f.kind == GarmentFinding::Kind::Conflict        ? "garment conflict"
+                                : f.kind == GarmentFinding::Kind::KnownDeviation ? "known garment deviation"
+                                                                                  : "unexpected garment deviation";
+            std::string where = f.preset.empty() ? "/references" : "/selection/presets (" + f.preset + ")";
+            warnings->push_back({checker.file.string() + "#" + checker.prefix + where, std::string(label) + ": " + f.message});
+        }
+    }
+
+    // Positions of the model's references of a list kind (appearances,
+    // animation_fallbacks): a model has one list of each, so a second one
+    // would leave which list holds an entry undecided.
+    static std::vector<size_t> listReferences(const json& model, const char* kind, DocumentChecker& checker) {
+        const json& refs = model["references"];
+        std::vector<size_t> lists;
+        for (size_t i = 0; i < refs.size(); ++i) {
+            if (refs[i]["kind"] == kind) lists.push_back(i);
+        }
+        if (lists.size() > 1) {
+            checker.fail("/references", std::string("expected at most one ") + kind + " reference, got " + std::to_string(lists.size()));
+        }
+        return lists;
+    }
+
+    // A preset's appearance is an entry of the document the model's one
+    // appearances reference holds (inline or by uri), and that entry's
+    // indices fit this model's definition: the appearances schema can't say
+    // so, because its indices index whichever model points at the entry.
+    void checkPresetAppearances(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
+        std::vector<size_t> lists = listReferences(model, "appearances", checker);
+        const json& presets = model["selection"].value("presets", json::array());
+        bool pointing = std::any_of(presets.begin(), presets.end(), [](const json& p) { return p.contains("appearance"); });
+        if (!pointing) return;
+        if (lists.empty()) {
+            checker.fail("/selection/presets", "expected an appearances reference holding the presets' appearances, got none");
+            return;
+        }
+        const json* list = referenced[lists[0]];
+        if (!list) return;  // unexported (identity only) or failed: reported or not checkable
+        std::map<std::string, const json*> byId;
+        for (const json& entry : (*list)["appearances"]) byId.emplace(entry["id"].get<std::string>(), &entry);
+
+        const json& definition = model["definition"];
+        auto count = [&](const json* array) { return array && array->is_array() ? array->size() : size_t(0); };
+        const json* slots = definition.contains("texture_slots") ? &definition["texture_slots"] : nullptr;
+        const json* colors = definition.contains("particle_colors") ? &definition["particle_colors"] : nullptr;
+        const json* options = definition.contains("customization") ? &definition["customization"]["options"] : nullptr;
+        auto inRange = [&](const json& value, size_t size, const std::string& pointer, const char* what) {
+            if (value.get<size_t>() < size) return true;
+            checker.fail(pointer, std::string("expected an index < ") + std::to_string(size) + " into the model's " + what + ", got " + value.dump());
+            return false;
+        };
+        std::set<std::string> checked;
+        for (size_t p = 0; p < presets.size(); ++p) {
+            if (!presets[p].contains("appearance")) continue;
+            std::string id = presets[p]["appearance"];
+            std::string pointer = "/selection/presets/" + std::to_string(p) + "/appearance";
+            auto found = byId.find(id);
+            if (found == byId.end()) {
+                checker.fail(pointer, "expected the id of an entry of the appearances reference's document, got '" + id + "'");
+                continue;
+            }
+            if (!checked.insert(id).second) continue;
+            const json& entry = *found->second;
+            std::string at = pointer + " -> appearance " + id;
+            for (const json& choice : entry.value("textures", json::array())) {
+                if (!inRange(choice["slot"], count(slots), at + "/textures/slot", "texture_slots")) continue;
+                inRange(choice["option"], count(&(*slots)[choice["slot"].get<size_t>()]["options"]), at + "/textures/option", "slot's options");
+            }
+            if (entry.contains("particle_colors")) inRange(entry["particle_colors"], count(colors), at + "/particle_colors", "particle_colors");
+            for (const json& pick : entry.value("customization", json::array())) {
+                if (!inRange(pick["option"], count(options), at + "/customization/option", "customization options")) continue;
+                inRange(pick["choice"], count(&(*options)[pick["option"].get<size_t>()]["choices"]), at + "/customization/choice", "option's choices");
+            }
+        }
     }
 
     // A level chain's max_level is its last index, and mesh level 0 is the
@@ -779,13 +1155,23 @@ struct Validation {
         }
     }
 
+    // Each reference's position by its id; a repeated id is the id check's
+    // to report.
+    static std::map<std::string, size_t> referenceIndices(const json& refs) {
+        std::map<std::string, size_t> out;
+        for (size_t i = 0; i < refs.size(); ++i) out.emplace(refs[i]["id"].get<std::string>(), i);
+        return out;
+    }
+
     // A model's slot composites and choice textures name material
     // references, and each bound input is one that material declares.
     void checkMaterialBindings(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
         const json& refs = model["references"];
-        auto material = [&](const json& index, const std::string& pointer) -> const json* {
-            size_t i = index;
-            if (i >= refs.size()) return nullptr;  // the index check reports it
+        std::map<std::string, size_t> byId = referenceIndices(refs);
+        auto material = [&](const json& id, const std::string& pointer) -> const json* {
+            auto found = byId.find(id.get<std::string>());
+            if (found == byId.end()) return nullptr;  // the id check reports it
+            size_t i = found->second;
             if (refs[i]["kind"] != "material") {
                 checker.fail(pointer, "expected a material reference, got a " + refs[i]["kind"].get<std::string>());
                 return nullptr;
@@ -827,15 +1213,19 @@ struct Validation {
         for (size_t i = 0; i < refs.size(); ++i) {
             const json& r = refs[i];
             std::string kind = r.value("kind", "");
-            if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique") {
+            if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique" &&
+                kind != "appearances" && kind != "animation_fallbacks" && kind != "garments") {
                 out.push_back(nullptr);
                 continue;
             }
+            std::string at = prefix + "/references/" + std::to_string(i);
             if (r.contains("document")) {
-                bool ok = validate(r["document"], path, prefix + "/references/" + std::to_string(i) + "/document");
+                bool ok = validate(r["document"], path, at + "/document");
                 out.push_back(ok ? &r["document"] : nullptr);
             } else if (r["asset"].contains("uri")) {
-                out.push_back(file(path.parent_path() / r["asset"]["uri"].get<std::string>()));
+                fs::path target = path.parent_path() / r["asset"]["uri"].get<std::string>();
+                // checkUri reports a missing file once, with the path expected.
+                out.push_back(fs::exists(target) ? file(target) : nullptr);
             } else {
                 out.push_back(nullptr);
             }
@@ -845,11 +1235,13 @@ struct Validation {
 
     void checkEffectInstances(const json& set, const std::vector<const json*>& referenced, DocumentChecker& checker) {
         const json& instances = set["instances"];
+        std::map<std::string, size_t> byId = referenceIndices(set["references"]);
         for (size_t i = 0; i < instances.size(); ++i) {
             const json& instance = instances[i];
             std::string pointer = "/instances/" + std::to_string(i);
-            size_t reference = instance["reference"];
-            if (reference >= referenced.size()) continue;  // the index check has reported it
+            auto found = byId.find(instance["reference"].get<std::string>());
+            if (found == byId.end()) continue;  // the id check has reported it
+            size_t reference = found->second;
             if (set["references"][reference]["kind"] != "effect") {
                 for (const char* key : {"inputs", "style", "unresolved"}) {
                     if (instance.contains(key)) checker.fail(pointer + "/" + key, std::string("expected '") + key + "' only on an effect instance");
@@ -859,8 +1251,9 @@ struct Validation {
             const json* effect = referenced[reference];
             if (!effect) continue;  // the effect's own problem is already reported
             const json& resources = set.value("resources", json::object());
-            size_t textureCount = resources.contains("textures") ? resources["textures"].size() : 0;
-            InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }, textureCount};
+            std::set<std::string> textureIds;
+            for (const json& texture : resources.value("textures", json::array())) textureIds.insert(texture.value("id", ""));
+            InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }, textureIds};
             inputs.checkFields((*effect)["definition"]["inputs"], instance.value("inputs", json::object()), pointer + "/inputs", "");
             // A source repeated per list element has one style block per element.
             std::map<std::string, std::string> repeatedOver;
@@ -918,29 +1311,53 @@ std::vector<std::string> kinds() {
 }
 
 void lintOne(const std::string& stem, const json& schema, std::vector<Problem>& problems) {
-    Linter linter{stem, schema, problems};
+    SourceNames names;
+    for (const auto& [_, embedded] : schemas()) names.collect(embedded);
+    names.collect(schema);
+    Linter linter{stem, schema, problems, names};
     std::vector<const json*> objects;
     if (stem == "common") {
         for (const auto& [name, def] : schema["definitions"].items()) {
             std::string pointer = "/definitions/" + name;
             if (!def.contains("description")) problems.push_back({stem + kSchemaSuffix + "#" + pointer, "definition '" + name + "' has no description"});
+            linter.underRaw = kRawDefinitions.count(name) > 0;
             linter.walk(def, pointer, objects, name);
         }
+        linter.underRaw = false;
         return;
     }
     lintKindHeader(stem, schema, problems);
     linter.walk(schema, "", objects, "");
+    for (const auto& [name, def] : schema.value("definitions", json::object()).items()) {
+        std::string pointer = "/definitions/" + name;
+        if (!def.contains("description")) problems.push_back({stem + kSchemaSuffix + "#" + pointer, "definition '" + name + "' has no description"});
+        // Empty: the shared link definitions that may hold paths live in common only.
+        linter.walk(def, pointer, objects, "");
+    }
+}
+
+std::string schemaId(const std::string& kind) {
+    return schemaFor(kind).at("$id");
 }
 
 std::vector<Problem> lintSchemas() {
     std::vector<Problem> problems;
     for (const auto& [stem, schema] : schemas()) lintOne(stem, schema, problems);
+    if (kSourceRequired) {
+        for (Problem& gap : sourceGaps()) problems.push_back(std::move(gap));
+    }
     return problems;
 }
 
 std::vector<Problem> lintSchemaText(const std::string& stem, const std::string& text) {
     std::vector<Problem> problems;
-    lintOne(stem, json::parse(text), problems);
+    json schema = json::parse(text);
+    lintOne(stem, schema, problems);
+    if (kSourceRequired) {
+        SourceGapPaths gaps;
+        collectSourceGaps(stem, schema, gaps);
+        for (Problem& gap : sourceGapProblems(gaps)) problems.push_back(std::move(gap));
+    }
     return problems;
 }
 
@@ -953,6 +1370,25 @@ std::vector<Problem> validateDocument(const fs::path& path, std::vector<fs::path
     validation.file(file);
     if (checked) *checked = seen;
     return problems;
+}
+
+std::vector<GarmentFinding> checkGarments(const fs::path& path, const std::string& presetId) {
+    fs::path file = fs::is_directory(path) ? path / "manifest.json" : path;
+    auto read = [](const fs::path& p) {
+        std::ifstream in(p, std::ios::binary);
+        json document = json::parse(in, nullptr, false);
+        if (!in || document.is_discarded()) throw std::runtime_error("expected a readable JSON document at '" + p.string() + "'");
+        return document;
+    };
+    json manifest = read(file);
+    json garments;
+    for (const json& r : manifest.value("references", json::array())) {
+        if (r.value("kind", "") != "garments") continue;
+        if (r.contains("document")) garments = r["document"];
+        else garments = read(file.parent_path() / r["asset"]["uri"].get<std::string>());
+    }
+    if (garments.is_null()) throw std::runtime_error("expected a garments reference in '" + file.string() + "', got none");
+    return garmentFindings(garments, manifest["selection"].value("presets", json::array()), presetId);
 }
 
 }  // namespace husk::bundle_schema

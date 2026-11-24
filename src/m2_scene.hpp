@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -129,7 +130,7 @@ struct ParticleEmitter {
     uint32_t speedVariationTrackOffset = 0;     // M2Track<float>
     uint32_t verticalRangeTrackOffset = 0;      // M2Track<float>
     uint32_t horizontalRangeTrackOffset = 0;    // M2Track<float>
-    uint32_t gravityTrackOffset = 0;            // M2Track<float>
+    uint32_t gravityTrackOffset = 0;            // M2Track of 4-byte keys, see decodeParticleGravity
     uint32_t lifespanTrackOffset = 0;           // M2Track<float>
     float lifespanVariation = 0;
     uint32_t emissionRateTrackOffset = 0;       // M2Track<float>
@@ -169,6 +170,18 @@ struct ParticleEmitter {
     float multiTexScrollMid[4] = {0, 0, 0, 0};
     float multiTexScrollRange[4] = {0, 0, 0, 0};
 };
+
+constexpr uint32_t kParticleCompressedGravityFlag = 0x800000;
+
+// One 4-byte key of an M2Particle's gravity track as an acceleration
+// vector in the model's frame (yard/second^2), per wowdev.wiki
+// M2#Compressed_Particle_Gravity. Without kParticleCompressedGravityFlag
+// the key is a float g pulling along -z: (0, 0, -g). With it the key is
+// {int8 x, int8 y, int16 z}: direction (x/128, y/128, +-sqrt(1 - x^2 - y^2))
+// with z's sign, magnitude |z| * 0.04238648. A packed x, y outside the unit
+// disc has no direction (the client's sqrt would yield NaN there): nullopt,
+// and the caller decides what to do with the key.
+std::optional<Vec3> decodeParticleGravity(uint32_t key, uint32_t particleFlags);
 
 // M2ExtendedParticle (wowdev.wiki M2#EXP2, >= 7.3.0), 28 (0x1C) bytes on
 // disk -- effectively supersedes M2Particle's own zSource/colorMult/

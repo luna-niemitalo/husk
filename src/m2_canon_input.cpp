@@ -225,9 +225,12 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     // Animations, pass 2: one AnimationClip per distinct global sequence
     // actually referenced by any bone track (globalSequenceIndices above),
     // independent of any M2Sequence (per-bone gating: assembleBoneAnimationGlobal).
+    const std::vector<uint32_t>& globalLoops = externalSkeleton ? externalSkeleton->globalLoops : model.globalLoops;
     for (uint16_t gs : globalSequenceIndices(blob, bones)) {
         canon::AnimationClip clip;
         clip.sequence = canon::SequenceRef::globalSequence(gs);
+        // A track naming a loop the table lacks keeps its keys, without a length.
+        if (gs < globalLoops.size()) clip.loopDuration = static_cast<float>(globalLoops[gs]) / 1000.0f;
         clip.boneCurves.reserve(skeleton.joints.size());
         bool anyBoneAnimated = false;
         for (size_t bi = 0; bi < bones.size(); ++bi) {
@@ -333,6 +336,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
                                                std::move(scene), std::move(sets), {}, buildCollision(model));
     canon::setMeshLevels(result, std::move(levels));
     result.textureSlots = textureSlots(model.textures);
+    for (uint32_t ms : model.globalLoops) result.globalSequenceDurations.push_back(static_cast<float>(ms) / 1000.0f);
     return result;
 }
 

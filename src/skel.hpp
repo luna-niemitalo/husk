@@ -84,6 +84,11 @@ std::vector<uint8_t> boneTrackBlob(const std::vector<uint8_t>& fileBytes);
 // SKS1 chunk's payload.
 std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes);
 
+// SKS1's `global_loops` (M2Loop, milliseconds), the table the .skel bones'
+// global-sequence tracks index. Throws as parseSequences does, or
+// m2::ParseError if the array runs past the SKS1 payload.
+std::vector<uint32_t> parseGlobalLoops(const std::vector<uint8_t>& fileBytes);
+
 // Reads the .skel's own AFID chunk, if present -- same shape as
 // husk::m2::Header::animFileIds, but this table's FileDataIDs are this
 // .skel file's own, not the owning M2's (see this file's doc comment).

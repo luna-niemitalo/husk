@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <string>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_fixtures.hpp"
 
@@ -28,7 +29,7 @@ TEST_CASE("husk export: brewfestmount.m2's texture transforms -- global-loop scr
           "a constant rotation, a trivial scaling -- are each carried as uv_map curves" *
           doctest::skip(testTextureTransformRotationM2().empty() ||
                          testTextureTransformRotationSkin().empty())) {
-    auto bundle = fs::temp_directory_path() / "husk-test-texture-transform-rot.bundle";
+    auto bundle = husk::test::testRunDir() / "husk-test-texture-transform-rot.bundle";
     fs::remove_all(bundle);
 
     auto result = runHusk("export \"" + testTextureTransformRotationM2() + "\" -o \"" + bundle.string() +

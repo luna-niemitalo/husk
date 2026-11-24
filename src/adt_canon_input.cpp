@@ -44,7 +44,7 @@ std::array<uint8_t, 8> expandLowResHoles(uint16_t bits) {
     return rows;
 }
 
-canon::TerrainChunk buildChunk(const adt::MapChunk& mc, canon::Vec2 corner) {
+canon::TerrainChunk buildChunk(const adt::MapChunk& mc, canon::Vec2 corner, const areadb::Data* areas) {
     canon::TerrainChunk out;
     out.gridX = mc.indexX;
     out.gridY = mc.indexY;
@@ -55,6 +55,12 @@ canon::TerrainChunk buildChunk(const adt::MapChunk& mc, canon::Vec2 corner) {
     }
     out.holeRows = (mc.flags & kMcnkHighResHoles) ? mc.holesHighRes : expandLowResHoles(mc.holesLowRes);
     out.area = canon::Ref{canon::Db2Row{"AreaTable", mc.areaId}, "", canon::NameSource::None};
+    if (areas) {
+        if (auto row = areas->find(mc.areaId); row != areas->end() && !row->second.name.empty()) {
+            out.area.name = row->second.name;
+            out.area.source = canon::NameSource::Db2;
+        }
+    }
     return out;
 }
 
@@ -217,6 +223,7 @@ canon::PlacedInstance placeMapObject(const adt::MapObjectPlacement& m, canon::Re
     std::vector<canon::Ref> sets;
     for (uint16_t set : activeSets) sets.push_back(canon::Ref{canon::RecordIndex{set}, "", canon::NameSource::None});
     out.activeSets = std::move(sets);
+    out.nameSet = m.nameSet;
     return out;
 }
 
@@ -422,7 +429,7 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
     out.tileX = sources.tileX;
     out.tileY = sources.tileY;
     canon::Vec2 corner = canon::terrainTileCorner(sources.tileX, sources.tileY);
-    for (const adt::MapChunk& mc : root.chunks) out.chunks.push_back(buildChunk(mc, corner));
+    for (const adt::MapChunk& mc : root.chunks) out.chunks.push_back(buildChunk(mc, corner, resolutions.areas));
     out.lod = buildLod(sources, resolutions);
     if (sources.liquidFlowTexture) {
         // Unlike the map textures, an unresolved flow map is dropped: the WDT

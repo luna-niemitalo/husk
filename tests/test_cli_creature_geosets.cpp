@@ -63,11 +63,89 @@ TEST_CASE("husk export --db2-dir/--dbd-dir: a creature display's CreatureDisplay
     INFO(m["selection"].dump());
     nlohmann::json presets = m["selection"]["presets"];
     REQUIRE(presets.size() == 1);
-    CHECK(presets[0]["shown_geosets"] == std::vector<int>{0, 401});
+    CHECK(appearanceOf(m, presets[0])["shown_geosets"] ==
+          nlohmann::json::parse(R"([{"group": 0, "variant": 0}, {"group": 4, "variant": 1}])"));
     REQUIRE(presets[0]["sources"].size() == 1);
     CHECK(presets[0]["sources"][0]["ref"]["id"]["table"] == "CreatureDisplayInfo");
     CHECK(presets[0]["sources"][0]["ref"]["id"]["row"] == 42);
 
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export-appearances: a tree's inline lists move into one appearances.json the manifests point at; "
+          "ids stay, and a rerun keeps them") {
+    auto dir = defaultsDir("appearances-tree");
+    fs::path model = writeGeosetModel(dir);
+    db2fx::Tables tables(dir / "db2", dir / "dbd");
+    db2fx::CharacterTables rows;
+    rows.creatureModelData = {{kModelData, kModelFdid, db2fx::f32(1.0f), 1}};
+    rows.creatureDisplayInfo = {display(42), display(43)};
+    rows.displayGeosets = {{42, 3, 1}};
+    db2fx::writeCharacterTables(tables, rows);
+
+    fs::path tree = dir / "tree";
+    fs::path bundle = tree / "models" / (std::to_string(kModelFdid) + ".canon.bundle");
+    auto exported = runHusk(exportArgs(dir, model, bundle) + tables.flags());
+    INFO(exported.output);
+    REQUIRE(exported.exitCode == 0);
+    nlohmann::json before = parseManifest(bundle);
+    REQUIRE(before["selection"]["presets"].size() == 2);
+    std::string pointer = before["selection"]["presets"][0]["appearance"];
+    fs::path manifestPath = bundle / "manifest.json";
+    std::string inlineText = readTextFile(manifestPath);
+    fs::path copy = dir / "tree-copy";
+    fs::copy(tree, copy, fs::copy_options::recursive);
+    std::vector<std::string> outputs;
+
+    for (int run = 0; run < 2; ++run) {
+        auto moved = runHusk("export-appearances " + tree.string());
+        INFO(moved.output);
+        REQUIRE(moved.exitCode == 0);
+        CHECK(moved.output.find("appearances.json: 2 appearances of 1 models") != std::string::npos);
+
+        nlohmann::json after = parseManifest(bundle);  // validates the pointers across the shared file
+        CHECK(after["selection"]["presets"] == before["selection"]["presets"]);
+        const nlohmann::json* list = nullptr;
+        for (const auto& r : after["references"]) {
+            if (r["kind"] == "appearances") list = &r;
+        }
+        REQUIRE(list);
+        CHECK_FALSE(list->contains("document"));
+        CHECK((*list)["asset"]["uri"] == "../../appearances.json");
+
+        std::vector<husk::bundle_schema::Problem> problems = husk::bundle_schema::validateDocument(tree / "appearances.json");
+        CHECK(problems.empty());
+        nlohmann::json shared = nlohmann::json::parse(readTextFile(tree / "appearances.json"));
+        REQUIRE(shared["references"].size() == 1);
+        CHECK(shared["references"][0]["asset"]["uri"] == "models/" + std::to_string(kModelFdid) + ".canon.bundle/manifest.json");
+        nlohmann::json entry = entryById(shared["appearances"], pointer);
+        CHECK(entry["model"] == shared["references"][0]["id"]);
+        CHECK(entry["shown_geosets"] == nlohmann::json::parse(R"([{"group": 0, "variant": 0}, {"group": 4, "variant": 1}])"));
+        outputs.push_back(readTextFile(manifestPath) + readTextFile(tree / "appearances.json"));
+    }
+
+    // Bundles are content-addressed in the store: the rewrite is the one
+    // reference's text and nothing else, and a rerun or a fresh copy writes
+    // the same bytes.
+    std::string externalText = readTextFile(manifestPath);
+    size_t prefix = 0;
+    while (prefix < externalText.size() && externalText[prefix] == inlineText[prefix]) ++prefix;
+    size_t suffix = 0;
+    while (suffix < externalText.size() - prefix &&
+           externalText[externalText.size() - 1 - suffix] == inlineText[inlineText.size() - 1 - suffix]) {
+        ++suffix;
+    }
+    std::string changed = externalText.substr(prefix, externalText.size() - prefix - suffix);
+    INFO(changed);
+    CHECK(changed.find("\"uri\": \"../../appearances.json\"") != std::string::npos);
+    CHECK(changed.size() < 64);
+    CHECK(inlineText.substr(prefix, inlineText.size() - prefix - suffix).find("\"document\"") != std::string::npos);
+    CHECK(outputs[0] == outputs[1]);
+    auto fresh = runHusk("export-appearances " + copy.string());
+    REQUIRE(fresh.exitCode == 0);
+    CHECK(readTextFile(copy / "models" / (std::to_string(kModelFdid) + ".canon.bundle") / "manifest.json") +
+              readTextFile(copy / "appearances.json") ==
+          outputs[0]);
     fs::remove_all(dir);
 }
 
@@ -90,7 +168,7 @@ TEST_CASE("husk export --db2-dir/--dbd-dir: a display with no geoset rows, on a 
     nlohmann::json m = parseManifest(bundle);
     nlohmann::json presets = m["selection"]["presets"];
     REQUIRE(presets.size() == 1);
-    CHECK(presets[0]["shown_geosets"] == std::vector<int>{0});
+    CHECK(appearanceOf(m, presets[0])["shown_geosets"] == nlohmann::json::parse(R"([{"group": 0, "variant": 0}])"));
 
     fs::remove_all(dir);
 }
@@ -114,7 +192,8 @@ TEST_CASE("husk export --db2-dir/--dbd-dir: a model whose CreatureModelData pick
     nlohmann::json m = parseManifest(bundle);
     nlohmann::json presets = m["selection"]["presets"];
     REQUIRE(presets.size() == 1);
-    CHECK_FALSE(presets[0].contains("shown_geosets"));
+    // No geosets and no textures: the body chooses nothing, so no appearance.
+    CHECK_FALSE(presets[0].contains("appearance"));
 
     fs::remove_all(dir);
 }

@@ -33,10 +33,10 @@ void writeTexturesSection(json::Writer& w, const std::vector<canon::TerrainTextu
     for (const canon::TerrainTexture& t : textures) {
         w.beginObject();
         w.key("diffuse");
-        w.value(static_cast<int64_t>(table.add(t.diffuse)));
+        w.value(table.add(t.diffuse));
         if (t.height) {
             w.key("height");
-            w.value(static_cast<int64_t>(table.add(*t.height)));
+            w.value(table.add(*t.height));
         }
         w.key("repeats_per_chunk");
         w.value(static_cast<double>(t.repeatsPerChunk));
@@ -188,12 +188,15 @@ void writeLiquidObjects(json::Writer& w, const std::vector<canon::LiquidObject>&
         if (o.row) {
             w.key("flow_direction");
             w.value(static_cast<double>(o.row->flowDirection));
+            w.key("source");
+            w.beginObject();
             w.key("flow_speed");
             w.value(static_cast<double>(o.row->flowSpeed));
             w.key("fishable");
             w.value(static_cast<int64_t>(o.row->fishable));
             w.key("reflection");
             w.value(static_cast<int64_t>(o.row->reflection));
+            w.endObject();
         }
         w.endObject();
     }
@@ -209,7 +212,7 @@ void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uin
     w.key("liquid_type");
     writeRef(w, l.liquidType);
     if (!std::holds_alternative<canon::None>(l.liquidObject.id)) {
-        w.key("liquid_object");
+        w.key("liquid_setting");
         writeRef(w, l.liquidObject);
     }
     w.key("quad_rect");
@@ -266,11 +269,11 @@ void writeLodSection(json::Writer& w, const canon::TerrainLod& lod, TextureTable
         writeBufferSlice(w, appendArray(bin, kTerrainBin, level.skirtIndices, 1, "u32"));
         if (lod.diffuse) {
             w.key("diffuse");
-            w.value(static_cast<int64_t>(table.add(*lod.diffuse)));
+            w.value(table.add(*lod.diffuse));
         }
         if (lod.normal) {
             w.key("normal");
-            w.value(static_cast<int64_t>(table.add(*lod.normal)));
+            w.value(table.add(*lod.normal));
         }
         w.key("source");
         w.beginObject();
@@ -311,6 +314,10 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.beginObject();
     w.key("edge_vertices");
     w.value("duplicated");
+    if (std::holds_alternative<canon::Db2Row>(terrain.map.id)) {
+        w.key("map");
+        writeRef(w, terrain.map);
+    }
     w.endObject();
     w.endObject();
     writeOwnedSetSelectionAndReferences(w, sets);
@@ -351,7 +358,7 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     writeChunksSection(w, terrain.chunks, terrainBin);
     w.key("lod");
     writeLodSection(w, terrain.lod, table, terrainBin);
-    w.key("liquid_objects");
+    w.key("liquid_settings");
     writeLiquidObjects(w, terrain.liquidObjects);
     w.key("liquids");
     w.beginArray();
@@ -359,7 +366,7 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.endArray();
     if (terrain.liquidFlow) {
         w.key("liquid_flow");
-        w.value(static_cast<int64_t>(table.add(*terrain.liquidFlow)));
+        w.value(table.add(*terrain.liquidFlow));
     }
     w.endObject();  // terrain
     if (!terrain.surfaceTypes.empty()) {
@@ -369,7 +376,7 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     if (!terrain.liquidTypes.empty()) {
         w.key("liquid_types");
         writeLiquidTypes(w, terrain.liquidTypes, [&](const canon::TextureRef& frame) {
-            w.value(static_cast<int64_t>(table.add(frame)));
+            w.value(table.add(frame));
         });
     }
     if (!table.empty()) table.write(w);

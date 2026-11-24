@@ -8,14 +8,17 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_set>
 #include <variant>
 
+#include "canon_garment_builder.hpp"  // the body vocabulary's names
 #include "canon_terrain.hpp"  // terrainTileCorner, the world grid
 #include "json_writer.hpp"
+#include "uuid.hpp"
 #include "writers/bundle_bin_sections.hpp"
 #include "writers/bundle_common.hpp"
 #include "writers/bundle_physics.hpp"
@@ -64,15 +67,17 @@ using ChoiceTextures = std::map<std::pair<uint32_t, uint32_t>, std::vector<const
 // resources.rig.correction_sets.
 using ChoiceCorrectionSets = std::map<std::pair<uint32_t, uint32_t>, uint32_t>;
 
-// `materialBase`: the reference index of material document 0.
-void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon::Option& option, uint32_t optionIndex,
+// `materialIds[i]`: material document i's reference id.
+void writeCustomizationOption(json::Writer& w, const canon::Definition& definition, const canon::Option& option,
+                              uint32_t optionIndex,
                               const ChoiceTextures& choiceTextures, const ChoiceCorrectionSets& correctionSets,
-                              uint32_t materialBase, TextureTable& textures) {
+                              const std::vector<std::string>& materialIds, TextureTable& textures) {
     w.beginObject();
     w.key("ref");
     writeRef(w, option.ref);
-    w.key("chr_model");
-    writeRef(w, canon::Ref{canon::Db2Row{"ChrModel", chrModelId}, "", canon::NameSource::None});
+    w.key("body");
+    writeRef(w, canon::Ref{canon::Db2Row{"ChrModel", definition.chrModelId}, definition.chrModelName,
+                           definition.chrModelName.empty() ? canon::NameSource::None : canon::NameSource::Db2});
     w.key("order");
     w.value(static_cast<int64_t>(option.orderIndex));
     if (option.category) {
@@ -93,8 +98,13 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
         w.key("order");
         w.value(static_cast<int64_t>(choice.orderIndex));
         if (choice.geoset) {
-            w.key("geoset_id");
+            w.key("geoset");
+            writeGeoset(w, *choice.geoset);
+            w.key("source");
+            w.beginObject();
+            w.key("geoset");
             w.value(static_cast<int64_t>(choice.geoset->group * 100 + choice.geoset->variant));
+            w.endObject();
         }
         std::pair<uint32_t, uint32_t> pick{optionIndex, static_cast<uint32_t>(&choice - option.choices.data())};
         if (auto set = correctionSets.find(pick); set != correctionSets.end()) {
@@ -108,11 +118,11 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
             for (const canon::ChoiceTexture* t : bound->second) {
                 w.beginObject();
                 w.key("material");
-                w.value(static_cast<int64_t>(materialBase + t->material));
+                w.value(materialIds.at(t->material));
                 w.key("input");
                 w.value(t->input);
                 w.key("texture");
-                w.value(static_cast<int64_t>(textures.add(t->texture)));
+                w.value(textures.add(t->texture));
                 if (t->onlyWith) {
                     w.key("only_with");
                     w.beginObject();
@@ -132,47 +142,301 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
     w.endObject();
 }
 
-// definition.items[]: the item's identity, and what it draws when resolved.
-void writeItem(json::Writer& w, const canon::ItemEntry& item, TextureTable& textures) {
+// Garment-document ids (REFACTOR/BUNDLE_FORMAT.md "Stable ids"): keys are
+// source identity, so the same garment has one id in every model and tree.
+std::string garmentId(const canon::Garment& garment) { return nameUuid("garment/" + garment.key); }
+
+// definition.body: the vocabulary garment pieces name. Regions with the
+// layout's rectangles; parts for the geoset groups the mesh has; the
+// attachment points the garments hang models at.
+void writeBody(json::Writer& w, const canon::Model& model) {
+    std::set<uint32_t> groups;
+    for (const auto& primitive : model.mesh.primitives) groups.insert(primitive.geoset.group);
+    std::map<uint32_t, std::string> points;
+    for (const canon::Garment& garment : model.garments.garments) {
+        for (const canon::GarmentPiece& piece : garment.pieces) {
+            if (const auto* a = std::get_if<canon::AttachedPiece>(&piece.what)) points[a->attachmentId] = a->point;
+        }
+    }
+    if (!model.bodyLayout && model.garments.garments.empty()) return;
+    w.key("body");
     w.beginObject();
-    w.key("ref");
-    writeRef(w, item.ref);
-    if (!item.models.empty()) {
-        w.key("models");
+    if (model.bodyLayout) {
+        w.key("composite_size");
         w.beginArray();
-        for (const canon::ItemModel& model : item.models) writeRef(w, model.ref, model.uri);
+        w.value(static_cast<int64_t>(model.bodyLayout->width));
+        w.value(static_cast<int64_t>(model.bodyLayout->height));
         w.endArray();
-    }
-    if (!item.textures.empty()) {
-        w.key("textures");
+        w.key("regions");
         w.beginArray();
-        for (const canon::ItemTexture& t : item.textures) {
+        for (const canon::BodyRegion& region : model.bodyLayout->regions) {
             w.beginObject();
-            w.key("texture_type");
-            w.value(static_cast<int64_t>(t.textureType));
-            w.key("texture");
-            w.value(static_cast<int64_t>(textures.add(t.texture)));
+            w.key("name");
+            w.value(region.name);
+            w.key("rect");
+            w.beginArray();
+            for (uint32_t v : {region.x, region.y, region.width, region.height}) w.value(static_cast<int64_t>(v));
+            w.endArray();
+            w.key("source");
+            w.beginObject();
+            w.key("section_type");
+            w.value(static_cast<int64_t>(region.sectionType));
+            w.endObject();
             w.endObject();
         }
         w.endArray();
     }
-    if (!item.overlays.empty()) {
-        w.key("overlays");
-        w.beginArray();
-        for (const canon::ItemOverlay& o : item.overlays) {
-            w.beginObject();
-            w.key("component_section");
-            w.value(static_cast<int64_t>(o.componentSection));
-            w.key("texture");
-            w.value(static_cast<int64_t>(textures.add(o.texture)));
-            w.endObject();
-        }
-        w.endArray();
+    w.key("parts");
+    w.beginArray();
+    for (uint32_t group : groups) {
+        w.beginObject();
+        w.key("name");
+        w.value(canon::garments::partName(group));
+        w.key("group");
+        w.value(static_cast<int64_t>(group));
+        w.endObject();
     }
+    w.endArray();
+    w.key("attachment_points");
+    w.beginArray();
+    for (const auto& [id, name] : points) {
+        w.beginObject();
+        w.key("name");
+        w.value(name);
+        w.key("source");
+        w.beginObject();
+        w.key("attachment_id");
+        w.value(static_cast<int64_t>(id));
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
     w.endObject();
 }
 
-void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures, uint32_t materialBase) {
+void writePieceModel(json::Writer& w, const canon::PieceModel& model, const std::vector<canon::PieceTexture>& textures,
+                     TextureTable& table) {
+    if (model.ref) {
+        w.key("model");
+        writeRef(w, *model.ref, model.uri);
+    } else {
+        w.key("unresolved_reason");
+        w.value(model.unresolved);
+    }
+    w.key("textures");
+    w.beginArray();
+    for (const canon::PieceTexture& t : textures) {
+        w.beginObject();
+        w.key("role");
+        w.value(t.role);
+        w.key("texture");
+        w.value(table.add(t.texture));
+        w.key("source");
+        w.beginObject();
+        w.key("texture_type");
+        w.value(static_cast<int64_t>(t.textureType));
+        w.key("model_position");
+        w.value(static_cast<int64_t>(t.modelPosition));
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writePiece(json::Writer& w, const canon::GarmentPiece& piece, const canon::Garments& garments,
+                TextureTable& table) {
+    w.beginObject();
+    w.key("item");
+    w.value(nameUuid(garments.sourceItems[piece.sourceItem].key));
+    w.key("rule");
+    w.value(piece.derived.empty() ? "garment_split" : piece.derived);
+    std::visit(
+        [&](const auto& p) {
+            using T = std::decay_t<decltype(p)>;
+            if constexpr (std::is_same_v<T, canon::OverlayPiece>) {
+                w.key("overlay");
+                w.beginObject();
+                w.key("region");
+                w.value(p.region);
+                w.key("texture");
+                w.value(table.add(p.texture));
+                if (p.mask) {
+                    w.key("mask");
+                    w.value(table.add(*p.mask));
+                }
+                w.endObject();
+                w.key("source");
+                w.beginObject();
+                w.key("section_type");
+                w.value(static_cast<int64_t>(p.section));
+                w.endObject();
+            } else if constexpr (std::is_same_v<T, canon::GeometryPiece>) {
+                w.key("geometry");
+                w.beginObject();
+                w.key("part");
+                w.value(p.part);
+                w.key("geoset");
+                writeGeoset(w, canon::Geoset::fromRawId(p.group * 100 + p.variant));
+                w.endObject();
+                if (p.slotIndex) {
+                    w.key("source");
+                    w.beginObject();
+                    w.key("geoset_group_index");
+                    w.value(static_cast<int64_t>(*p.slotIndex));
+                    w.key("value");
+                    w.value(static_cast<int64_t>(p.value));
+                    w.endObject();
+                }
+            } else if constexpr (std::is_same_v<T, canon::AttachedPiece>) {
+                w.key("attached");
+                w.beginObject();
+                w.key("point");
+                w.value(p.point);
+                writePieceModel(w, p.model, p.textures, table);
+                w.endObject();
+                w.key("source");
+                w.beginObject();
+                w.key("model_position");
+                w.value(static_cast<int64_t>(p.position));
+                w.endObject();
+            } else if constexpr (std::is_same_v<T, canon::SkinnedPiece>) {
+                w.key("skinned");
+                w.beginObject();
+                writePieceModel(w, p.model, p.textures, table);
+                w.key("shown_geosets");
+                w.beginArray();
+                for (uint32_t id : p.shownGeosets) writeGeoset(w, canon::Geoset::fromRawId(id));
+                w.endArray();
+                w.endObject();
+                w.key("source");
+                w.beginObject();
+                w.key("model_position");
+                w.value(static_cast<int64_t>(p.position));
+                w.endObject();
+            } else {
+                w.key("hides");
+                w.beginObject();
+                w.key("part");
+                w.value(p.part);
+                w.endObject();
+            }
+        },
+        piece.what);
+    w.endObject();
+}
+
+// The model's garments reference with its document inline (REFACTOR/
+// GARMENTS.md "Document shape"): the same two forms as appearances, so a
+// tree can later share one list.
+void writeInlineGarments(json::Writer& w, const canon::Garments& garments, const Provenance& provenance,
+                         const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures,
+                         const AssetUris& textureUris) {
+    TextureTable table(bundleDir, writtenTextures, "", &textureUris);
+    canon::Ref list{canon::None{}, "garments", canon::NameSource::Synthesized};
+    beginListReference(w, "garments", "");
+    w.key("document");
+    w.beginObject();
+    writeContractHeader(w, "garments", list, provenance);
+    w.key("definition");
+    w.beginObject();
+    w.endObject();
+    w.key("selection");
+    w.beginObject();
+    w.endObject();
+    w.key("references");
+    w.beginArray();
+    w.endArray();
+    w.key("garments");
+    w.beginArray();
+    for (const canon::Garment& garment : garments.garments) {
+        w.beginObject();
+        w.key("id");
+        w.value(garmentId(garment));
+        w.key("kind");
+        w.value(garment.kind);
+        w.key("layer");
+        // A kind off the preset list has no default layer; `mid` keeps it
+        // wearable, and the validator warns about the kind.
+        w.value(garment.layer.empty() ? "mid" : garment.layer);
+        w.key("order");
+        w.value(static_cast<int64_t>(garment.order));
+        if (!garment.layerRule.empty()) {
+            w.key("layer_rule");
+            w.value(garment.layerRule);
+        }
+        if (garment.deviates) {
+            w.key("deviates");
+            w.value(garment.deviates);
+        }
+        w.key("pieces");
+        w.beginArray();
+        for (const canon::GarmentPiece& piece : garment.pieces) writePiece(w, piece, garments, table);
+        w.endArray();
+        w.endObject();
+    }
+    w.endArray();
+    w.key("items");
+    w.beginArray();
+    for (const canon::SourceItem& item : garments.sourceItems) {
+        w.beginObject();
+        w.key("id");
+        w.value(nameUuid(item.key));
+        w.key("ref");
+        writeRef(w, item.ref);
+        w.key("garments");
+        w.beginArray();
+        for (uint32_t g : item.garments) w.value(garmentId(garments.garments[g]));
+        w.endArray();
+        w.key("source");
+        w.beginObject();
+        if (item.slot) {
+            w.key("slot");
+            w.value(*item.slot);
+        }
+        if (item.itemSlot) {
+            w.key("item_slot");
+            w.value(static_cast<int64_t>(*item.itemSlot));
+        }
+        if (!item.slotToken.empty()) {
+            w.key("slot_token");
+            w.value(item.slotToken);
+        }
+        if (item.itemDisplayInfo) {
+            w.key("item_display_info");
+            w.value(static_cast<int64_t>(*item.itemDisplayInfo));
+        }
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
+    w.key("outfits");
+    w.beginArray();
+    for (const canon::Outfit& outfit : garments.outfits) {
+        w.beginObject();
+        w.key("id");
+        w.value(nameUuid(outfit.key));
+        w.key("garments");
+        w.beginArray();
+        for (uint32_t g : outfit.garments) w.value(garmentId(garments.garments[g]));
+        w.endArray();
+        w.key("source");
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, outfit.source);
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
+    w.key("resources");
+    w.beginObject();
+    table.write(w);
+    w.endObject();
+    w.endObject();
+    w.endObject();
+}
+
+void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures,
+                  const std::vector<std::string>& materialIds) {
     if (!model.textureSlots.empty()) {
         w.key("texture_slots");
         w.beginArray();
@@ -193,11 +457,11 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
             }
             w.key("options");
             w.beginArray();
-            for (const canon::TextureRef& option : slot.options) w.value(static_cast<int64_t>(textures.add(option)));
+            for (const canon::TextureRef& option : slot.options) w.value(textures.add(option));
             w.endArray();
             if (slot.composite) {
                 w.key("composite");
-                w.value(static_cast<int64_t>(materialBase + *slot.composite));
+                w.value(materialIds.at(*slot.composite));
             }
             w.endObject();
         }
@@ -217,19 +481,14 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
         uint32_t optionIndex = 0;
         for (const canon::Definition& definition : model.customization) {
             for (const canon::Option& option : definition.options) {
-                writeCustomizationOption(w, definition.chrModelId, option, optionIndex++, choiceTextures, correctionSets,
-                                         materialBase, textures);
+                writeCustomizationOption(w, definition, option, optionIndex++, choiceTextures, correctionSets,
+                                         materialIds, textures);
             }
         }
         w.endArray();
         w.endObject();
     }
-    if (!model.items.empty()) {
-        w.key("items");
-        w.beginArray();
-        for (const canon::ItemEntry& item : model.items) writeItem(w, item, textures);
-        w.endArray();
-    }
+    writeBody(w, model);
     if (model.particleColorOptions.empty()) return;
     w.key("particle_colors");
     w.beginArray();
@@ -255,38 +514,74 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
     w.endArray();
 }
 
-void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
-    if (presets.empty()) return;
-    w.key("presets");
+// `bakeCovers`: set for a preset's outfit textures, whose every choice is a
+// bake and names the garments (of `garments`) it draws in.
+void writeSlotChoices(json::Writer& w, const std::vector<canon::SlotChoice>& choices,
+                      const std::vector<uint32_t>* bakeCovers = nullptr, const canon::Garments* garments = nullptr) {
+    w.key("textures");
     w.beginArray();
-    for (const canon::Preset& preset : presets) {
+    for (const canon::SlotChoice& choice : choices) {
         w.beginObject();
-        w.key("textures");
-        w.beginArray();
-        for (const canon::SlotChoice& choice : preset.textures) {
-            w.beginObject();
-            w.key("slot");
-            w.value(static_cast<int64_t>(choice.slot));
-            w.key("option");
-            w.value(static_cast<int64_t>(choice.option));
-            w.endObject();
-        }
-        w.endArray();
-        if (preset.shownGeosets) {
-            w.key("shown_geosets");
+        w.key("slot");
+        w.value(static_cast<int64_t>(choice.slot));
+        w.key("option");
+        w.value(static_cast<int64_t>(choice.option));
+        if (bakeCovers) {
+            w.key("covers_garments");
             w.beginArray();
-            for (uint32_t id : *preset.shownGeosets) w.value(static_cast<int64_t>(id));
+            for (uint32_t g : *bakeCovers) w.value(garmentId(garments->garments[g]));
             w.endArray();
         }
-        if (preset.particleColors) {
-            w.key("particle_colors");
-            w.value(static_cast<int64_t>(*preset.particleColors));
+        w.endObject();
+    }
+    w.endArray();
+}
+
+std::string appearanceId(const std::string& modelKey, const canon::Appearance& appearance) {
+    return nameUuid("appearance/" + modelKey + "/" + appearance.key);
+}
+
+// The model's appearances reference with its list inline (REFACTOR/
+// BUNDLE_FORMAT.md "Appearances"): `export-appearances` later swaps the
+// `document` for a uri into a tree's shared list, keeping the id.
+void writeInlineAppearances(json::Writer& w, const canon::Model& model, const std::string& modelKey,
+                            const Provenance& provenance) {
+    canon::Ref list{canon::None{}, "appearances", canon::NameSource::Synthesized};
+    beginListReference(w, "appearances", "");
+    w.key("document");
+    w.beginObject();
+    writeContractHeader(w, "appearances", list, provenance);
+    w.key("definition");
+    w.beginObject();
+    w.endObject();
+    w.key("selection");
+    w.beginObject();
+    w.endObject();
+    w.key("references");
+    w.beginArray();
+    w.endArray();
+    w.key("appearances");
+    w.beginArray();
+    for (const canon::Appearance& appearance : model.appearances) {
+        w.beginObject();
+        w.key("id");
+        w.value(appearanceId(modelKey, appearance));
+        if (!appearance.textures.empty()) writeSlotChoices(w, appearance.textures);
+        if (appearance.shownGeosets) {
+            w.key("shown_geosets");
+            w.beginArray();
+            for (uint32_t id : *appearance.shownGeosets) writeGeoset(w, canon::Geoset::fromRawId(id));
+            w.endArray();
         }
-        if (preset.opacity) writeFloatField(w, "opacity", *preset.opacity);
-        if (!preset.customization.empty()) {
+        if (appearance.particleColors) {
+            w.key("particle_colors");
+            w.value(static_cast<int64_t>(*appearance.particleColors));
+        }
+        if (appearance.opacity) writeFloatField(w, "opacity", *appearance.opacity);
+        if (!appearance.customization.empty()) {
             w.key("customization");
             w.beginArray();
-            for (const canon::CustomizationPick& pick : preset.customization) {
+            for (const canon::CustomizationPick& pick : appearance.customization) {
                 w.beginObject();
                 w.key("option");
                 w.value(static_cast<int64_t>(pick.option));
@@ -296,30 +591,47 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
             }
             w.endArray();
         }
-        if (!preset.items.empty()) {
-            w.key("items");
+        if (!appearance.unresolved.empty()) {
+            w.key("unresolved");
+            writeUnresolved(w, appearance.unresolved);
+        }
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+    w.endObject();
+}
+
+// The model's animation_fallbacks reference: the table inline, or the
+// tree's shared file when the exporter wrote one (REFACTOR/ANIMATION.md
+// "Fallbacks").
+void writeAnimationFallbacksReference(json::Writer& w, const canon::AnimationFallbacks& fallbacks,
+                                      const Provenance& provenance) {
+    beginListReference(w, "animation_fallbacks", fallbacks.uri);
+    if (fallbacks.uri.empty()) {
+        w.key("document");
+        writeAnimationFallbacksDocument(w, fallbacks, provenance);
+    }
+    w.endObject();
+}
+
+void writePresets(json::Writer& w, const canon::Model& model, const std::string& modelKey) {
+    if (model.presets.empty()) return;
+    w.key("presets");
+    w.beginArray();
+    for (const canon::Preset& preset : model.presets) {
+        w.beginObject();
+        w.key("id");
+        w.value(nameUuid("preset/" + modelKey + "/" + preset.key));
+        if (preset.appearance) {
+            w.key("appearance");
+            w.value(appearanceId(modelKey, model.appearances[*preset.appearance]));
+        }
+        if (!preset.textures.empty()) writeSlotChoices(w, preset.textures, &preset.bakeCovers, &model.garments);
+        if (!preset.garments.empty()) {
+            w.key("garments");
             w.beginArray();
-            for (const canon::PresetItem& item : preset.items) {
-                w.beginObject();
-                if (item.slot) {
-                    w.key("slot");
-                    w.value(*item.slot);
-                }
-                w.key("item");
-                w.value(static_cast<int64_t>(item.item));
-                w.key("source");
-                w.beginObject();
-                if (item.sourceSlot) {
-                    w.key("item_slot");
-                    w.value(static_cast<int64_t>(*item.sourceSlot));
-                }
-                if (!item.sourceToken.empty()) {
-                    w.key("slot_token");
-                    w.value(item.sourceToken);
-                }
-                w.endObject();
-                w.endObject();
-            }
+            for (uint32_t g : preset.garments) w.value(garmentId(model.garments.garments[g]));
             w.endArray();
         }
         w.key("sources");
@@ -424,7 +736,7 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
     w.key("uv_map");
     w.value(static_cast<int64_t>(uvMaps.add(layer)));
     w.key("texture");
-    w.value(static_cast<int64_t>(textures.add(layer.texture)));
+    w.value(textures.add(layer.texture));
     if (layer.slot) {
         w.key("slot");
         w.value(static_cast<int64_t>(*layer.slot));
@@ -449,17 +761,19 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
     w.endObject();
 }
 
-// `techniques[i]`: material i's technique reference indices.
-void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials, TextureTable& textures,
-                           UvMapTable& uvMaps, const std::vector<std::vector<uint32_t>>& techniques) {
+// `techniques[i]`: material i's technique reference ids.
+void writeMaterialsSection(json::Writer& w, const canon::Model& model, TextureTable& textures, UvMapTable& uvMaps,
+                           const std::vector<std::vector<std::string>>& techniques) {
     w.beginArray();
-    for (size_t m = 0; m < materials.size(); ++m) {
-        const canon::Material& material = materials[m];
+    for (size_t m = 0; m < model.materials.size(); ++m) {
+        const canon::Material& material = model.materials[m];
         w.beginObject();
+        w.key("id");
+        w.value(materialId(model, m));
         if (!techniques[m].empty()) {
             w.key("techniques");
             w.beginArray();
-            for (uint32_t t : techniques[m]) w.value(static_cast<int64_t>(t));
+            for (const std::string& t : techniques[m]) w.value(t);
             w.endArray();
         }
 
@@ -599,10 +913,14 @@ void writeSourceBlock(json::Writer& w, uint32_t flags, const canon::SourceRecord
     w.endObject();
 }
 
-void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lights, TextureTable& textures) {
+void writeLocalLights(json::Writer& w, const canon::Model& model, TextureTable& textures) {
+    const std::vector<canon::LocalLight>& lights = model.scene.localLights;
     w.beginArray();
-    for (const canon::LocalLight& l : lights) {
+    for (size_t i = 0; i < lights.size(); ++i) {
+        const canon::LocalLight& l = lights[i];
         w.beginObject();
+        w.key("id");
+        w.value(staticLightId(model, i));
         w.key("ref");
         writeRef(w, l.ref);
         w.key("kind");
@@ -654,10 +972,13 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
         writeFloatField(w, "shadow_scale", l.shadowScale);
         if (l.cookie) {
             w.key("cookie");
-            w.value(static_cast<int64_t>(textures.add(*l.cookie)));
+            w.value(textures.add(*l.cookie));
         }
         if (l.placementSet) writeIntField(w, "placement_set", placementSetIndex(*l.placementSet));
-        if (l.part) writeIntField(w, "part", *l.part);
+        if (l.part) {
+            w.key("part");
+            w.value(partId(model, *l.part));
+        }
         if (!l.unresolved.empty()) {
             w.key("unresolved");
             writeUnresolved(w, l.unresolved);
@@ -671,7 +992,8 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const Provenance& provenance,
-                 const AssetUris& assetUris, const AssetUris& textureUris) {
+                 const AssetUris& assetUris, const AssetUris& textureUris,
+                 const std::vector<Provenance::Source>& manifestSources) {
     std::error_code ec;
     std::filesystem::create_directories(bundleDir, ec);
     if (ec) {
@@ -693,41 +1015,48 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     json::Writer w(manifestStream);
 
     w.beginObject();
-    writeContractHeader(w, "model", model.subject, provenance);
+    Provenance manifestProvenance = provenance;
+    manifestProvenance.sources.insert(manifestProvenance.sources.end(), manifestSources.begin(), manifestSources.end());
+    writeContractHeader(w, "model", model.subject, manifestProvenance);
 
-    // Owned placement sets are the model's first references, so set i is
-    // reference i.
     std::unordered_set<std::string> writtenTextures;
     TextureTable textures(bundleDir, writtenTextures, "", &textureUris);
+    std::vector<std::string> materialIds;
+    for (const canon::MaterialDocument& document : model.materialDocuments) {
+        materialIds.push_back(referenceId("material", document.subject));
+    }
     w.key("definition");
     w.beginObject();
     writeOwnedSetDefinitions(w, sets);
-    uint32_t materialBase = static_cast<uint32_t>(sets.size());
-    writeOptions(w, model, textures, materialBase);
+    writeOptions(w, model, textures, materialIds);
     w.endObject();
     for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
         writeMaterialDocument(model.materialDocuments[i], bundleDir / "materials" / (std::to_string(i) + ".json"), provenance,
                               bundleDir, "../", writtenTextures);
     }
-    // Techniques follow the material documents in the references.
     std::vector<std::string> techniqueNames;
-    std::vector<std::vector<uint32_t>> materialTechniqueRefs;
-    uint32_t techniqueBase = materialBase + static_cast<uint32_t>(model.materialDocuments.size());
+    std::vector<std::vector<std::string>> materialTechniqueRefs;
     for (const canon::Material& material : model.materials) {
-        std::vector<uint32_t> refs;
+        std::vector<std::string> refs;
         for (const std::string& name : materialTechniques(material)) {
-            auto at = std::find(techniqueNames.begin(), techniqueNames.end(), name);
-            if (at == techniqueNames.end()) at = techniqueNames.insert(techniqueNames.end(), name);
-            refs.push_back(techniqueBase + static_cast<uint32_t>(at - techniqueNames.begin()));
+            if (std::find(techniqueNames.begin(), techniqueNames.end(), name) == techniqueNames.end()) techniqueNames.push_back(name);
+            refs.push_back(referenceId("technique", techniqueRef(name)));
         }
         materialTechniqueRefs.push_back(std::move(refs));
     }
     writeTechniqueDocuments(techniqueNames, bundleDir, provenance);
+    // Only ids of presets and appearances use it; a subject with neither
+    // identity nor name has no key, and needs none without them.
+    std::string modelKey = model.presets.empty() && model.appearances.empty() ? "" : identityKey(model.subject);
     writeOwnedSetSelectionAndReferences(
-        w, sets, [&](json::Writer& sw) { writePresets(sw, model.presets); },
+        w, sets, [&](json::Writer& sw) { writePresets(sw, model, modelKey); },
         [&](json::Writer& rw) {
+            if (!model.appearances.empty()) writeInlineAppearances(rw, model, modelKey, provenance);
+            if (model.animationFallbacks) writeAnimationFallbacksReference(rw, *model.animationFallbacks, provenance);
             for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
                 rw.beginObject();
+                rw.key("id");
+                rw.value(materialIds[i]);
                 rw.key("kind");
                 rw.value("material");
                 rw.key("asset");
@@ -736,23 +1065,36 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
             }
             for (const std::string& name : techniqueNames) {
                 rw.beginObject();
+                rw.key("id");
+                rw.value(referenceId("technique", techniqueRef(name)));
                 rw.key("kind");
                 rw.value("technique");
                 rw.key("asset");
-                writeRef(rw, canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, techniqueUri(name));
+                writeRef(rw, techniqueRef(name), techniqueUri(name));
                 rw.endObject();
             }
-            // Item model bundles exported beside this one (definition.items[].models).
-            for (const canon::ItemEntry& item : model.items) {
-                for (const canon::ItemModel& itemModel : item.models) {
-                    if (itemModel.uri.empty()) continue;
+            // Item model bundles exported beside this one (the garments' attached and skinned pieces).
+            std::set<std::string> itemModelIds;
+            for (const canon::Garment& garment : model.garments.garments) {
+                for (const canon::GarmentPiece& piece : garment.pieces) {
+                    const canon::PieceModel* pieceModel = nullptr;
+                    if (const auto* a = std::get_if<canon::AttachedPiece>(&piece.what)) pieceModel = &a->model;
+                    if (const auto* s = std::get_if<canon::SkinnedPiece>(&piece.what)) pieceModel = &s->model;
+                    if (!pieceModel || pieceModel->uri.empty()) continue;
+                    std::string id = referenceId("model", *pieceModel->ref);
+                    if (!itemModelIds.insert(id).second) continue;
                     rw.beginObject();
+                    rw.key("id");
+                    rw.value(id);
                     rw.key("kind");
                     rw.value("model");
                     rw.key("asset");
-                    writeRef(rw, itemModel.ref, itemModel.uri);
+                    writeRef(rw, *pieceModel->ref, pieceModel->uri);
                     rw.endObject();
                 }
+            }
+            if (!model.garments.garments.empty()) {
+                writeInlineGarments(rw, model.garments, provenance, bundleDir, writtenTextures, textureUris);
             }
         });
 
@@ -780,6 +1122,16 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeSkeletonSection(w, model.skeleton, skeletonBin);
     w.key("animation");
     writeAnimationSection(w, model.skeleton, model.animations, animBin);
+    if (!model.globalSequenceDurations.empty()) {
+        w.key("global_sequences");
+        w.beginArray();
+        for (float duration : model.globalSequenceDurations) {
+            w.beginObject();
+            writeFloatField(w, "duration", duration);
+            w.endObject();
+        }
+        w.endArray();
+    }
     if (!model.correctionSets.empty()) {
         w.key("correction_sets");
         writeCorrectionSets(w, model.correctionSets);
@@ -793,7 +1145,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 
     UvMapTable uvMaps;
     w.key("materials");
-    writeMaterialsSection(w, model.materials, textures, uvMaps, materialTechniqueRefs);
+    writeMaterialsSection(w, model, textures, uvMaps, materialTechniqueRefs);
     uvMaps.write(w);
 
     w.key("scene");
@@ -805,7 +1157,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("animated_lights");
     writeLights(w, model.scene.lights);
     w.key("static_lights");
-    writeLocalLights(w, model.scene.localLights, textures);
+    writeLocalLights(w, model, textures);
     if (model.defaultFog) {
         w.key("default_fog");
         writeInstanceRef(w, *model.defaultFog);
@@ -819,7 +1171,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     if (!model.liquidTypes.empty()) {
         w.key("liquid_types");
         writeLiquidTypes(w, model.liquidTypes, [&](const canon::TextureRef& frame) {
-            w.value(static_cast<int64_t>(textures.add(frame)));
+            w.value(textures.add(frame));
         });
     }
     if (!textures.empty()) textures.write(w);
@@ -861,11 +1213,12 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     w.beginObject();
     w.endObject();
 
-    // Cell i's tile is reference i; the off-grid sets follow.
     w.key("references");
     w.beginArray();
     for (size_t i = 0; i < world.cells.size(); ++i) {
         w.beginObject();
+        w.key("id");
+        w.value(referenceId("model", world.cells[i].tile));
         w.key("kind");
         w.value("model");
         w.key("asset");
@@ -874,6 +1227,8 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     }
     for (const SetDocument& set : sets) {
         w.beginObject();
+        w.key("id");
+        w.value(referenceId("placement_set", set.ref));
         w.key("kind");
         w.value("placement_set");
         w.key("asset");
@@ -898,7 +1253,8 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
         w.beginObject();
         writeIntField(w, "i", cell.tileX);
         writeIntField(w, "j", cell.tileY);
-        writeIntField(w, "tile", static_cast<int64_t>(i));
+        w.key("tile");
+        w.value(referenceId("model", cell.tile));
         writeVec3Field(w, "bounds_min", cell.boundsMin);
         writeVec3Field(w, "bounds_max", cell.boundsMax);
         w.endObject();
@@ -908,7 +1264,7 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
 
     w.key("placements");
     w.beginArray();
-    for (size_t i = 0; i < sets.size(); ++i) w.value(static_cast<int64_t>(world.cells.size() + i));
+    for (const SetDocument& set : sets) w.value(referenceId("placement_set", set.ref));
     w.endArray();
 
     w.key("zones");
@@ -936,10 +1292,50 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
         w.beginObject();
         w.key("id");
         writeIdentity(w, zone.ref.id);
+        if (zone.sourceFlags) {
+            w.key("flags");
+            w.beginArray();
+            for (uint32_t word : zone.sourceFlags->flags) w.value(hexFlags(word));
+            w.endArray();
+            w.key("mount_flags");
+            w.value(hexFlags(zone.sourceFlags->mountFlags));
+            w.key("flag_names");
+            w.beginArray();
+            for (const std::string& name : zone.sourceFlags->names) w.value(name);
+            w.endArray();
+        }
         w.endObject();
         w.endObject();
     }
     w.endArray();
+
+    if (world.map) {
+        const canon::MapInfo& map = *world.map;
+        w.key("map");
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, map.ref);
+        if (map.instanceTypeName) {
+            w.key("instance_type_name");
+            w.value(*map.instanceTypeName);
+        }
+        writeIntField(w, "expansion", map.expansion);
+        writeIntField(w, "max_players", map.maxPlayers);
+        for (auto [key, ref] : {std::pair{"parent", &map.parent}, std::pair{"cosmetic_parent", &map.cosmeticParent},
+                                std::pair{"area", &map.area}}) {
+            if (!*ref) continue;
+            w.key(key);
+            writeRef(w, **ref);
+        }
+        w.key("source");
+        w.beginObject();
+        w.key("directory");
+        w.value(map.directory);
+        writeIntField(w, "instance_type", map.instanceType);
+        writeIntField(w, "map_type", map.mapType);
+        w.endObject();
+        w.endObject();
+    }
 
     w.endObject();
 

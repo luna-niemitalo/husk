@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "test_temp.hpp"
 #include "../src/listfile.hpp"
 
 using namespace husk;
@@ -15,7 +16,7 @@ using namespace husk;
 namespace {
 
 std::string writeTempListfile(const std::string& content) {
-    std::string path = std::filesystem::temp_directory_path() / "husk_test_listfile.csv";
+    std::string path = husk::test::testRunDir() / "husk_test_listfile.csv";
     std::ofstream f(path);
     f << content;
     f.close();

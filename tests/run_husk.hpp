@@ -6,6 +6,8 @@
 #include <doctest/doctest.h>
 #include <string>
 
+#include "test_temp.hpp"
+
 // Shared by tests/test_integration.cpp, tests/test_cli.cpp, and
 // tests/test_conformance.cpp: spawns a subprocess and captures combined
 // stdout+stderr and the exit code. Everyone wants to exercise a real CLI
@@ -78,8 +80,7 @@ inline RunResult runCommand(const std::string& command) {
 // so sharing costs nothing and avoids leaving one throwaway cache dir per
 // test case behind.
 inline RunResult runHusk(const std::string& args) {
-    static const std::string cacheDir =
-        (envOrEmpty("TMPDIR").empty() ? "/tmp" : envOrEmpty("TMPDIR")) + "/husk-test-listfile-cache";
+    static const std::string cacheDir = (testRunDir() / "listfile-cache").string();
     return runCommand("HUSK_CONFIG=/dev/null HUSK_CACHE_DIR=" + cacheDir + " " + std::string(HUSK_BINARY) + " " +
                        args);
 }

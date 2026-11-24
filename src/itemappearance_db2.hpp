@@ -1,9 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Real, typed reader for the DB2 chain that resolves a real
@@ -27,10 +29,12 @@
 //   ItemModifiedAppearanceID
 //     -> ItemModifiedAppearance.ItemAppearanceID -> ItemAppearance
 //          .ItemDisplayInfoID -> ItemDisplayInfo
-//     -> ItemDisplayInfo.ModelResourcesID (element 0 of the real 2-entry
-//        array field -- same "_0 only, never an OR across both slots"
-//        convention cmd_db2_build.cpp's own comment documents for this
-//        exact field)
+//     -> ItemDisplayInfo.ModelResourcesID[2]: the item's model resources,
+//        one per model it attaches. A shoulder lists the same resource
+//        twice; ComponentModelFileData.PositionIndex then picks the left
+//        (resource 0) and right (resource 1) file out of it
+//        (component_file_db2.hpp). ItemDisplayInfoModelMatRes.ModelIndex
+//        says which of the two a texture belongs to.
 //
 // From ItemDisplayInfoID, TWO real, structurally different sibling tables
 // branch off -- a "case 1 vs case 2" split, confirmed against
@@ -93,9 +97,21 @@ struct Appearance {
     uint32_t itemDisplayInfoId = 0;
 };
 
+// GeosetGroup[i] picks variant value + 1 of the body geoset group the
+// slot's index i drives; AttachmentGeosetGroup[i] the same on the item's
+// own model (WIKI_FINDINGS/GARMENTS.md "Slot → GeosetGroup table"). Signed:
+// -1 occurs and is not covered by that rule.
 struct DisplayInfo {
     uint32_t id = 0;
-    uint32_t modelResourcesId = 0;  // ModelResourcesID_0 only, see this file's own doc comment
+    std::array<uint32_t, 2> modelResourcesIds{};  // 0 = no model in that position
+    std::array<int32_t, 6> geosetGroups{};
+    std::array<int32_t, 6> attachmentGeosetGroups{};
+};
+
+// One TransmogSetItem row: an appearance belongs to a transmog set.
+struct TransmogSetItem {
+    uint32_t transmogSetId = 0;
+    uint32_t itemModifiedAppearanceId = 0;
 };
 
 // One ItemDisplayInfoModelMatRes row's relevant fields -- case 1 (the
@@ -122,6 +138,7 @@ struct Data {
     std::vector<DisplayInfo> displayInfos;
     std::vector<ModelMatRes> modelMatRes;
     std::vector<MaterialRes> materialRes;
+    std::vector<TransmogSetItem> transmogSetItems;  // empty when transmogsetitem.db2 is absent
 };
 
 // Loads all five tables from `db2Dir` (itemmodifiedappearance.db2/
@@ -140,7 +157,10 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 // both, or neither (e.g. a pure recolor item carries only sectionMaterials).
 struct Resolution {
     std::optional<uint32_t> itemDisplayInfoId;
-    std::optional<uint32_t> modelResourcesId;  // feed to modelfiledata::Data for the real .m2 FileDataID(s)
+    std::optional<std::array<uint32_t, 2>> modelResourcesIds;  // feed to modelfiledata::Data for the .m2 FileDataIDs
+    std::array<int32_t, 6> geosetGroups{};
+    std::array<int32_t, 6> attachmentGeosetGroups{};
+    std::vector<uint32_t> transmogSets;  // TransmogSet rows listing the appearance
     std::vector<ModelMatRes> materials;        // feed materialResourcesId to texturefiledata::Data per entry
     std::vector<MaterialRes> sectionMaterials;  // feed materialResourcesId to texturefiledata::Data per entry
 };
@@ -151,5 +171,20 @@ struct Resolution {
 // field(s) from being filled -- never fabricated, same convention as
 // chrcustomization::resolveChoice.
 Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ostream& err);
+
+// `data`'s display rows and their textures by ItemDisplayInfoID, for
+// resolving many displays (NPC equipment: ~10k per body model) without a
+// table scan each. Points into `data`, which must outlive it.
+struct DisplayIndex {
+    std::unordered_map<uint32_t, const DisplayInfo*> displays;
+    std::unordered_map<uint32_t, std::vector<const ModelMatRes*>> materials;
+    std::unordered_map<uint32_t, std::vector<const MaterialRes*>> sectionMaterials;
+};
+DisplayIndex indexDisplays(const Data& data);
+
+// One ItemDisplayInfoID resolved as resolve() resolves an appearance's
+// display; transmogSets stays empty (a display belongs to no set). A display
+// with no row is reported and leaves every field but itemDisplayInfoId unset.
+Resolution resolveDisplay(const DisplayIndex& index, uint32_t itemDisplayInfoId, std::ostream& err);
 
 }  // namespace husk::itemappearance

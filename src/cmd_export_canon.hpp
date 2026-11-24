@@ -1,18 +1,22 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "animationdata_db2.hpp"
 #include "canon_item.hpp"
+#include "canon_model.hpp"
 #include "creature_display_db2.hpp"
 #include "listfile_index.hpp"
 #include "skin_resolution.hpp"  // LodSkinPath
 #include "writers/texture_store.hpp"
 #include "m2.hpp"
 #include "m2_material_input.hpp"  // m2input::TextureResolutions
+#include "m2_sidecar_input.hpp"   // m2input::PhysicsInput
 #include "skin.hpp"
 #include "sources/catalog.hpp"
 
@@ -31,21 +35,44 @@ m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, cons
 
 // What a model bundle takes beyond the M2 itself, resolved by the caller.
 struct BundleSidecars {
-    std::string physPath;  // the .phys to read; empty = none
+    m2input::PhysicsInput physics;  // m2input::resolvePhysics; also the bundle's "phys" provenance source
     std::string bonesDir;  // tried first for '<fdid>.bone'; the listfile/store follow
     const ListfileIndex* listfile = nullptr;
     // --appearance: its customization choices and gear become one preset.
-    // `gearModelUris[i]` is gear[i]'s exported model bundle manifest,
-    // relative to the bundle; empty = not exported.
+    // `gearModelUris[i][m]` is gear[i]'s GeometryComponent model m's
+    // exported bundle manifest, relative to the bundle; empty = not exported.
     std::string appearance;
     std::vector<uint32_t> appearanceChoiceIds;
     std::vector<canon::Item> gear;
-    std::vector<std::string> gearModelUris;
+    std::vector<std::vector<std::string>> gearModelUris;
+    // Humanoid NPC equipment displays as items (creatureinput::NpcEquipmentInputs::resolve);
+    // unset = NPC equipment by identity only.
+    std::function<std::optional<canon::Item>(uint32_t itemDisplayInfo, const std::string& slot)> npcItem;
+    // The body's composite layout (--chr-model-id or the model's own), for
+    // the body regions and the hem mask; nullopt = not known.
+    std::optional<canon::BodyLayout> bodyLayout;
     std::string leanGlbPath;  // --glb: also write the lean glTF projection here; empty = none
     bool noAnimation = false;  // --anim none: drop every clip
     // AnimationData id -> Name, for naming sequence clips; empty = none known.
     std::unordered_map<uint32_t, std::string> animationNames;
+    // --anim-names: the community list, for ids animationNames lacks; its
+    // detail is the bundle's "animation names" provenance source.
+    std::unordered_map<uint32_t, std::string> communityAnimationNames;
+    std::string communityAnimationNamesDetail;  // empty = not given
+    // animationFallbacks(); its uri set when a tree holds the shared file.
+    std::optional<canon::AnimationFallbacks> animationFallbacks;
 };
+
+// AnimationData row `row` as an animation ref, named as a clip's is: the
+// client's Name, else the community list's, else unnamed.
+canon::Ref animationRef(uint32_t row, const std::unordered_map<uint32_t, std::string>& clientNames,
+                        const std::unordered_map<uint32_t, std::string>& communityNames);
+
+// The client's fallback table, inline form (empty uri). Global to the
+// client build: AnimationData rows have no model or skeleton key
+// (REFACTOR/ANIMATION.md "Fallbacks").
+canon::AnimationFallbacks animationFallbacks(const animationdata::Data& data,
+                                             const std::unordered_map<uint32_t, std::string>& communityNames);
 
 // One model bundle at `bundleDir`: the M2 assembled with the first skin
 // tier, its mesh levels from `lodSkins` (resolveLodSkinPaths), and the

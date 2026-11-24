@@ -262,12 +262,19 @@ std::vector<std::string> globalFlagNames(uint32_t flags);
 // whichever bits are actually set (see cmd_info.cpp/m2_skeleton_input.cpp
 // for where these get read).
 namespace BoneFlag {
+// wowdev.wiki M2#Bones: the joint ignores that part of its parent's transform.
+constexpr uint32_t kIgnoreParentTranslate = 0x1;
+constexpr uint32_t kIgnoreParentScale = 0x2;
+constexpr uint32_t kIgnoreParentRotation = 0x4;
 constexpr uint32_t kSphericalBillboard = 0x8;
 constexpr uint32_t kCylindricalBillboardLockX = 0x10;
 constexpr uint32_t kCylindricalBillboardLockY = 0x20;
 constexpr uint32_t kCylindricalBillboardLockZ = 0x40;
 constexpr uint32_t kBillboardMask = kSphericalBillboard | kCylindricalBillboardLockX |
                                      kCylindricalBillboardLockY | kCylindricalBillboardLockZ;
+// wowdev.wiki's kinematic_bone ("allow physics to influence this bone"):
+// set exactly on the bones of files with physics (WIKI_FINDINGS/M2.md "Cloth").
+constexpr uint32_t kPhysicsDriven = 0x400;
 }  // namespace BoneFlag
 
 // Names a bone's billboard mode ("spherical"/"cylindrical_lock_x"/"_y"/"_z"),

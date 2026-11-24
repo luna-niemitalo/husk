@@ -6,6 +6,11 @@
   "x-status": "implemented",
   "type": "object",
   "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/effect.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
     "format": {
       "const": "husk-bundle",
       "description": "Identifies a husk document.",
@@ -17,14 +22,15 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.3.0",
+      "const": "0.4.0",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The effect.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"authored": "effects/<name>.json"}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",
@@ -58,14 +64,16 @@
         "inputs"
       ],
       "additionalProperties": false,
-      "x-layer": "definition"
+      "x-layer": "definition",
+      "x-source": [{"authored": "effects/<name>.json"}]
     },
     "selection": {
       "type": "object",
       "description": "An effect selects nothing; its instances do.",
       "properties": {},
       "additionalProperties": false,
-      "x-layer": "selection"
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
     },
     "references": {
       "type": "array",
@@ -74,7 +82,8 @@
         "$ref": "common.schema.json#/definitions/reference",
         "description": "One dependency."
       },
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"authored": "effects/<name>.json"}]
     },
     "sources": {
       "type": "array",
@@ -83,10 +92,12 @@
         "$ref": "common.schema.json#/definitions/effect_source",
         "description": "One source."
       },
-      "x-layer": "resource"
+      "x-layer": "resource",
+      "x-source": [{"authored": "effects/<name>.json"}]
     }
   },
   "required": [
+    "$schema",
     "format",
     "kind",
     "schema_version",

@@ -548,8 +548,8 @@ TEST_CASE("husk export: two batches resolving to the exact same material (same m
     REQUIRE(manifest["resources"]["materials"].size() == 1);
     const Json& primitives = manifest["resources"]["geometry"]["mesh"]["primitives"];
     REQUIRE(primitives.size() == 2);
-    CHECK(primitives[0]["material_index"] == 0);
-    CHECK(primitives[1]["material_index"] == 0);
+    CHECK(primitives[0]["material"] == manifest["resources"]["materials"][0]["id"]);
+    CHECK(primitives[1]["material"] == manifest["resources"]["materials"][0]["id"]);
 
     fs::remove_all(dir);
 }

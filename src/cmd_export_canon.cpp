@@ -11,8 +11,11 @@
 #include <string_view>
 
 #include "blp.hpp"              // blp::ParseError
+#include "canon_garment_builder.hpp"
 #include "canon_model.hpp"
-#include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
+#include "garment_footprint.hpp"
+#include "m2_header.hpp"       // m2::textureTypeName
+#include "chunk.hpp"          // readChunks, findChunk (AFSB/AFM2 peek)
 #include "creature_options_input.hpp"
 #include "read_file.hpp"
 #include "m2_animation.hpp"    // m2::extractAnimBlob
@@ -332,6 +335,7 @@ struct CanonBuild {
     std::vector<m2::Sequence> effectiveSequences;
     std::vector<skin::Batch> batches;
     std::vector<skin::Submesh> submeshes;
+    std::vector<uint32_t> triangleIndices;
 };
 
 writers::Provenance m2Provenance() { return writers::Provenance{std::string("husk ") + husk::version(), "m2", {}}; }
@@ -374,6 +378,7 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
         src.blob = skel::boneTrackBlob(skelBytes);
         if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
             src.sequences = skel::parseSequences(skelBytes);
+            src.globalLoops = skel::parseGlobalLoops(skelBytes);
         }
         src.attachments = skel::findAttachments(skelBytes);
         skelSequences = src.sequences;
@@ -401,22 +406,68 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
                                                          externalAnimBlobs, textureResolutions, externalSkeleton, lodSkins);
     canonModel.subject = writers::subjectRef(modelPath, modelFileDataId);
-    return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
+    return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes),
+                      std::move(triangleIndices)};
 }
 
 
-// --appearance as one preset: its customization choices (as indices into
-// the model's catalogs) and its gear, each item appended to Model::items
-// with what it draws. Its model is the first of ModelResourcesID's files,
-// whatever race or sex that file is for (ComponentModelFileData isn't read).
-// The schema's preset item slot names (model.schema.json); an --appearance
-// slot token names one only when it lowercases to it.
-constexpr std::array<std::string_view, 15> kPresetSlotNames = {
-    "head", "neck", "shoulder", "shirt", "chest", "waist", "legs", "feet",
-    "wrist", "hands", "tabard", "back", "main_hand", "off_hand", "ranged"};
+// The body hem geoset's UV footprint inside the LegUpper region, as a
+// white-on-black PNG mask the size of that region's rectangle (rule
+// hem_uv_footprint, REFACTOR/GARMENTS.md stage 2). nullopt when the layout
+// isn't known or the body has no hem geoset.
+std::optional<canon::TextureRef> bodyHemMask(const m2::Model& model, const std::vector<uint32_t>& triangleIndices,
+                                             const std::vector<skin::Submesh>& submeshes,
+                                             const std::optional<canon::BodyLayout>& layout) {
+    if (!layout) return std::nullopt;
+    auto legUpper = std::find_if(layout->regions.begin(), layout->regions.end(),
+                                 [](const canon::BodyRegion& r) { return r.sectionType == 5; });
+    if (legUpper == layout->regions.end()) return std::nullopt;
+    auto triangles = garment::geosetTriangles(model.vertices, triangleIndices, submeshes,
+                                              static_cast<uint16_t>(canon::garments::kBodyHemGeoset));
+    if (triangles.empty()) return std::nullopt;
+    garment::Mask footprint = garment::rasterize(triangles, layout->width, layout->height);
+    blp::Image img{legUpper->width, legUpper->height, std::vector<uint8_t>(size_t(legUpper->width) * legUpper->height * 4, 0)};
+    for (uint32_t y = 0; y < legUpper->height; ++y) {
+        for (uint32_t x = 0; x < legUpper->width; ++x) {
+            size_t p = (size_t(y) * legUpper->width + x) * 4;
+            img.rgba[p + 3] = 255;
+            if (legUpper->x + x >= footprint.width || legUpper->y + y >= footprint.height) continue;
+            if (!footprint.at(legUpper->x + x, legUpper->y + y)) continue;
+            std::fill_n(img.rgba.begin() + std::ptrdiff_t(p), 3, uint8_t{255});
+        }
+    }
+    canon::TextureRef mask;
+    mask.state = canon::TextureRef::State::Resolved;
+    mask.resolved = canon::Ref{canon::None{}, "hem_mask_" + std::to_string(canon::garments::kBodyHemGeoset),
+                               canon::NameSource::Synthesized};
+    mask.payload = canon::TextureRef::Payload{blp::encodePng(img), canon::TextureEncoding::Png};
+    return mask;
+}
 
+// What the garment split takes from the export, for --appearance gear and
+// NPC equipment alike; modelUris stays empty (only --appearance exports
+// item models).
 template <typename TextureFor>
-void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, TextureFor&& textureFor) {
+canon::garments::Inputs garmentInputs(TextureFor& textureFor, const std::optional<canon::TextureRef>& bodyHemMask) {
+    canon::garments::Inputs inputs;
+    inputs.texture = [&textureFor](uint32_t fdid, const std::string& unresolved) {
+        canon::TextureRef texture = textureFor(fdid);
+        if (fdid == 0) texture.unresolvedReason = unresolved;
+        return texture;
+    };
+    inputs.textureRole = [](uint32_t type) {
+        const char* name = m2::textureTypeName(type);
+        return name ? std::string(name) : "type_" + std::to_string(type);
+    };
+    inputs.bodyHemMask = bodyHemMask;
+    return inputs;
+}
+
+// --appearance as one preset: its customization choices (as indices into
+// the model's catalogs) and its gear as garments (canon_garment_builder.hpp).
+template <typename TextureFor>
+void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, TextureFor&& textureFor,
+                         const std::optional<canon::TextureRef>& bodyHemMask) {
     canon::Preset preset;
     std::map<uint32_t, canon::CustomizationPick> pickByChoice;
     uint32_t optionBase = 0;
@@ -429,47 +480,62 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
         }
         optionBase += static_cast<uint32_t>(definition.options.size());
     }
-    for (uint32_t choiceId : sidecars.appearanceChoiceIds) {
+    // The body key is creature_options_input.cpp's (choices by row), so an
+    // NPC with the same choices shares the appearance, whatever order the
+    // appearance string lists them in.
+    canon::Appearance body;
+    std::vector<uint32_t> choiceIds = sidecars.appearanceChoiceIds;
+    std::sort(choiceIds.begin(), choiceIds.end());
+    for (uint32_t choiceId : choiceIds) {
+        body.key += "c" + std::to_string(choiceId) + ";";
         auto pick = pickByChoice.find(choiceId);
         if (pick == pickByChoice.end()) {
-            preset.unresolved.push_back({"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, double(choiceId), std::nullopt});
+            body.unresolved.push_back({"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, double(choiceId), std::nullopt});
             continue;
         }
-        preset.customization.push_back(pick->second);
+        body.customization.push_back(pick->second);
+    }
+    preset.key = "appearance-string/" + sidecars.appearance;
+    if (!body.key.empty()) {
+        auto same = std::find_if(model.appearances.begin(), model.appearances.end(),
+                                 [&](const canon::Appearance& a) { return a.key == body.key; });
+        preset.appearance = static_cast<uint32_t>(same - model.appearances.begin());
+        if (same == model.appearances.end()) model.appearances.push_back(std::move(body));
     }
 
-    for (size_t i = 0; i < sidecars.gear.size(); ++i) {
-        const canon::Item& item = sidecars.gear[i];
-        canon::ItemEntry entry;
-        entry.ref = item.identity;
-        for (const canon::Component& component : item.components) {
-            if (const auto* geometry = std::get_if<canon::GeometryComponent>(&component)) {
-                if (!geometry->modelFileDataIds.empty()) {
-                    entry.models.push_back({canon::Ref{canon::FileDataId{geometry->modelFileDataIds.front()}, "",
-                                                       canon::NameSource::None},
-                                            sidecars.gearModelUris[i]});
-                }
-                for (const auto& m : geometry->materials) entry.textures.push_back({m.textureType, textureFor(m.fileDataId)});
-            } else {
-                for (const auto& s : std::get<canon::SectionOverlayComponent>(component).sections) {
-                    entry.overlays.push_back({s.componentSection, textureFor(s.fileDataId)});
-                }
-            }
-        }
-        auto index = static_cast<uint32_t>(model.items.size());
-        model.items.push_back(std::move(entry));
-        for (const std::string& token : item.slots) {
-            std::string slot = token;
-            std::transform(slot.begin(), slot.end(), slot.begin(), [](unsigned char ch) { return std::tolower(ch); });
-            bool known = std::find(kPresetSlotNames.begin(), kPresetSlotNames.end(), slot) != kPresetSlotNames.end();
-            preset.items.push_back({known ? std::optional<std::string>(slot) : std::nullopt, std::nullopt, index, token});
-        }
-    }
+    canon::garments::Inputs inputs = garmentInputs(textureFor, bodyHemMask);
+    inputs.modelUris = sidecars.gearModelUris;
+    preset.garments = canon::garments::fromGear(sidecars.gear, inputs, model.garments);
     preset.sources.push_back(
         {canon::Ref{canon::None{}, sidecars.appearance, canon::NameSource::Synthesized}, 1.0f, 1.0f, {}});
     model.presets.push_back(std::move(preset));
 }
 }  // namespace
+
+canon::Ref animationRef(uint32_t row, const std::unordered_map<uint32_t, std::string>& clientNames,
+                        const std::unordered_map<uint32_t, std::string>& communityNames) {
+    canon::Ref ref{canon::Db2Row{"AnimationData", row}, "", canon::NameSource::None};
+    if (auto name = clientNames.find(row); name != clientNames.end()) {
+        ref.name = name->second;
+        ref.source = canon::NameSource::Db2;
+    } else if (auto community = communityNames.find(row); community != communityNames.end()) {
+        ref.name = community->second;
+        ref.source = canon::NameSource::Community;
+    }
+    return ref;
+}
+
+canon::AnimationFallbacks animationFallbacks(const animationdata::Data& data,
+                                             const std::unordered_map<uint32_t, std::string>& communityNames) {
+    std::unordered_map<uint32_t, std::string> clientNames = animationdata::toNameMap(data);
+    // 0 is the column's value on every row it doesn't list: Stand.
+    canon::AnimationFallbacks out{animationRef(0, clientNames, communityNames), {}, ""};
+    for (const auto& [animation, fallback] : animationdata::nonzeroFallbacks(data)) {
+        out.entries.push_back({animationRef(animation, clientNames, communityNames),
+                               animationRef(fallback, clientNames, communityNames)});
+    }
+    return out;
+}
 
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, const std::vector<LodSkinPath>& lodSkins,
                           sources::Catalog& catalog, const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
@@ -489,13 +555,14 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     if (sidecars.noAnimation) build.model.animations.clear();
     for (canon::AnimationClip& clip : build.model.animations) {
         if (!clip.info) continue;
-        auto name = sidecars.animationNames.find(std::get<canon::Db2Row>(clip.info->animation.id).row);
-        if (name == sidecars.animationNames.end()) continue;
-        clip.info->animation.name = name->second;
-        clip.info->animation.source = canon::NameSource::Db2;
+        uint32_t row = std::get<canon::Db2Row>(clip.info->animation.id).row;
+        clip.info->animation = animationRef(row, sidecars.animationNames, sidecars.communityAnimationNames);
     }
+    if (!build.model.animations.empty()) build.model.animationFallbacks = sidecars.animationFallbacks;
     size_t jointCount = build.model.skeleton.joints.size();
-    if (!sidecars.physPath.empty()) build.model.physics = m2input::loadPhysics(sidecars.physPath, jointCount);
+    if (!sidecars.physics.bytes.empty()) {
+        build.model.physics = m2input::loadPhysics(sidecars.physics.bytes, sidecars.physics.detail, jointCount);
+    }
     std::optional<std::vector<uint32_t>> boneFiles =
         bonesAreInline ? model.header.boneFileDataIds : (haveSkel ? skel::findBoneFileDataIds(skelBytes) : std::nullopt);
     if (boneFiles && sidecars.listfile) {
@@ -507,9 +574,14 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     auto textureFor = [&](uint32_t fdid) {
         return fdid == 0 ? canon::TextureRef{} : optionTexture(catalog, fdid, textureStore, textureUris);
     };
+    std::optional<canon::TextureRef> hemMask =
+        bodyHemMask(model, build.triangleIndices, build.submeshes, sidecars.bodyLayout);
     if (creatures && modelFileDataId) {
         creatureinput::OptionsReport report;
-        creatureinput::addCreatureOptions(*creatures, *modelFileDataId, build.model, textureFor, report);
+        std::optional<creatureinput::NpcEquipmentInputs> equipment;
+        if (sidecars.npcItem) equipment = creatureinput::NpcEquipmentInputs{sidecars.npcItem, garmentInputs(textureFor, hemMask)};
+        creatureinput::addCreatureOptions(*creatures, *modelFileDataId, build.model, textureFor, report,
+                                          equipment ? &*equipment : nullptr);
         if (!report.notes.empty()) std::cerr << report.notes;
         if (report.displays > 0) {
             std::cerr << "husk: " << build.model.presets.size() << " creature preset(s) from " << report.displays
@@ -521,11 +593,20 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
                          "the related choice isn't this model's)\n";
         }
     }
-    if (!sidecars.appearance.empty()) addAppearancePreset(sidecars, build.model, textureFor);
+    build.model.bodyLayout = sidecars.bodyLayout;
+    if (!sidecars.appearance.empty()) {
+        addAppearancePreset(sidecars, build.model, textureFor, hemMask);
+    }
     // Before externalizing: the projection embeds texture payloads.
     if (!sidecars.leanGlbPath.empty()) writers::writeLeanGlb(build.model, sidecars.leanGlbPath);
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
-    writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris);
+    writers::Provenance::Source physSource{"phys", "rigid bodies and joints (resources.physics)",
+                                           sidecars.physics.available, sidecars.physics.detail};
+    bool haveAnimNames = !sidecars.communityAnimationNamesDetail.empty();
+    writers::Provenance::Source animNamesSource{"animation names", "clip names by AnimationData id (community list)",
+                                                haveAnimNames,
+                                                haveAnimNames ? sidecars.communityAnimationNamesDetail : "not given"};
+    writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris, {physSource, animNamesSource});
 }
 
 }  // namespace husk::commands

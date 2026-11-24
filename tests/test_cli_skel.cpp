@@ -14,6 +14,7 @@
 #include <fstream>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_read.hpp"
 #include "test_cli_fixtures.hpp"
@@ -164,7 +165,7 @@ TEST_CASE("husk export: SFID LOD skins combined with a multi-root .skel skeleton
     std::memcpy(md20.data() + 0x044, &numSkinProfiles, 4);
     writeFile(m2Path, chunkedM2WithSfid(md20, {id0, id1}));
 
-    auto skinDir = fs::temp_directory_path();
+    auto skinDir = husk::test::testRunDir();
     auto skinPath0 = skinDir / (std::to_string(id0) + ".skin");
     auto skinPath1 = skinDir / (std::to_string(id1) + ".skin");
     writeFile(skinPath0, tinyMatchingSkin());

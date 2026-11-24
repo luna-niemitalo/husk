@@ -24,17 +24,31 @@ M2 particle and ribbon emitters are `classic_m2_particle_emitter`,
 `classic_m2_model_particle_emitter` and `classic_m2_ribbon` instances
 anchored to their bones (`point` region; `quad`, `mesh_instance` and
 `ribbon` looks; the simulation as `particle_system`/`ribbon_system`
-style) in an inline `effects` set the model owns. Phase 2 is done.
+style) in an inline `effects` set the model owns. `particle_system.gravity`
+is an acceleration vector track in the emitter's frame (the model's axes,
+z up): a plain `M2Particle` gravity key g is `[0, 0, -g]`; with particle
+flag `0x800000` the key is the packed vector, decoded
+(`WIKI_FINDINGS/M2.md`). Gravity rotates with the emitter: a tilted bone
+or a rotated placement turns the vector with it, so a reader transforms it
+by the emitter's world rotation, not by world down (Luna's game knowledge,
+not traced in client code). A packed key with x² + y² > 128² has no
+direction; the export drops that keyframe with a warning and goes on (none
+in the 27,758-key sample). Phase 2 is done.
 
 Phase 3 so far: `medium` content and particle `spawn` density, instance
-`priority` and `provenance`, and four rules: `linear_fog_to_extinction`
-and `fog_color_to_albedo` (WMO fog spheres), `fog_level_to_priority`
+`priority` and `provenance`, and two rules: `fog_level_to_priority`
 (map fogs), `count_to_spawn_density` (particle volumes). Each derived
 value is an optional input or the priority, named in the instance's
 provenance; `validate-bundle` checks every provenance path names a value
-the instance holds. Not yet: `fog_density_to_extinction` (its source,
-the zone light below, is keyed by time of day, and a medium is one value
-so far), the gate. A fifth rule, `blend_to_light_role`, gives each
+the instance holds. `MFOG` gets no medium: the client applies it to a
+viewer inside the parts that list it (`parts[].interior_fogs`), so its sphere is where that viewer
+sees the fog, not a fog volume (12 of 17 records mantlecore sampled have
+radii 0.28 and 2.8 yards with linear fog over 1.4 to 28 yards; a medium
+there would be a small dense ball). `fog_density_to_extinction` gives
+every zone light key its fog's `extinction` and `height_extinction` per
+yard (see the rule table). Not yet: a zone medium from them and
+`fog_color_to_albedo` (their source, the zone light below, is keyed by
+time of day, and a medium is one value so far), the gate. A third rule, `blend_to_light_role`, gives each
 WMO and map particle-volume emitter its light role (content
 `particles.light.role`): emission for `EGxBlend` Add, albedo for Alpha
 (846/846 map emitters). It replaces the planned `additive_to_emission`/
@@ -50,8 +64,8 @@ sphere fading between the falloff radii) or `classic_zone_light_global`
 through `lightdb` (`Light`, `LightData`, `LightParams`, `LightSkybox`,
 `Map`). Their style is `zone_light`: per condition the client picks
 (clear, clear underwater, storm, storm underwater, death: `LightParams`
-slots 0..4), an index into the set's `resources.light_params`, which
-lists each parameter set once: its `LightParams` settings (sky model,
+slots 0..4), the id of an entry of the set's `resources.light_conditions`,
+which lists each `LightParams` row once: its `LightParams` settings (sky model,
 glow, water opacity, sun, hidden sky bodies) and every `LightData`
 column by time of day in seconds since midnight (direct, ambient, sky,
 sun, cloud, water and shadow colours, colour-grading lookup textures,
@@ -175,7 +189,7 @@ declarations.
 | `direction` | 3 numbers, unit length | — |
 | `rotation` | quaternion x, y, z, w | — |
 | `color`, `color_alpha` | 3 or 4 numbers, linear 0..1 | — |
-| `image` | an index into the document's `resources.textures` | — |
+| `image` | the id of an entry of the document's `resources.textures` | — |
 | `mesh` | an asset reference to a model | — |
 | `spline` | a list of positions | — |
 | `curve` | keyed values: per-animation curves (`seconds`) or over age (`age`) | `of` (a value kind), `clock` |
@@ -376,8 +390,8 @@ Two inputs are kept out of the gate:
 - **`distance_fog`**: the shader fog record in blocks. Each block and field
   is optional, and absent means inherit.
   - `linear`: `start`, `end`, `color`.
-  - `exponential`: `density`.
-  - `height`: `plane`, `scale`, `density`, `falloff` (cubic), `color`
+  - `exponential`: `extinction`.
+  - `height`: `plane`, `scale`, `extinction`, `falloff` (cubic), `color`
     (near → far).
   - `color_gradient`: `near_color`, `far_color`, `start`, `length`.
   - `sun`: `color`, `angle`, `strength`.
@@ -428,7 +442,7 @@ how the value was obtained. Paths not listed are `source`:
 "provenance": {
   "classification": "ground_fog/particleemitters_groundfog",
   "fields": {
-    "content.extinction": {"kind": "derived", "rule": "linear_fog_to_extinction"},
+    "inputs.density": {"kind": "derived", "rule": "count_to_spawn_density"},
     "priority": {"kind": "derived", "rule": "fog_level_to_priority"}
   }
 }
@@ -499,15 +513,17 @@ the field stays absent.
 
 | Rule | Computes | From |
 |---|---|---|
-| `fog_density_to_extinction` | medium `extinction` = the exponential density (the shader's `exp(−d·density)`) | zone fog `exponential.density` |
-| `linear_fog_to_extinction` | `extinction` = 3 / (end − start): 95 % opacity across the band | `MFOG` linear fog |
-| `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog, `MFOG` |
+| `fog_density_to_extinction` | zone fog `extinction` and `height_extinction` per yard, the `[0].z` and `[4].x` of the shader's `exp(−e·k)` with `e` in yards past the fog start (verified, `../SHADER_FINDINGS/notes/fog.md`). `k = 0.0005 · max(D, 0.9)` for the main fog, `0.0005 · H` in the height fog; `D = 0` is filled with `1.5 + 5.5·(1 − s/500)` from the linear span `s = end·(1 − scaler)` (1.5 when `s` ≤ 0 or > 500), and `H` = the unfloored `D` when the height scaler is 0. Built (`src/zone_fog_extinction.cpp`), grade ref: the constants come from WebWowViewerCpp alone, not client code; the 500-yard span limit assumes a far clip ≥ 700 yards (inferred). Evidence and value ranges: `../WIKI_FINDINGS/RENDERING.md` "Zone fog density" | zone fog `source.density`, `source.height_density`, `end`, `scaler`, `height_scaler` |
+| `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog |
 | `fog_level_to_priority` | `priority` | `VFOG.fogLevel` |
 | `blend_to_light_role` | particle `light.role`: emission or albedo | WMO/map particle emitters' `EGxBlend` (Add, Alpha); not M2, whose blend ids are unsettled |
 | `count_to_spawn_density` | `spawn` density = count / box volume | `MPVD`/`PVMI` (once box size is verified) |
 
 **Wind response time**: husk derives none in the literal tier, since no
-WoW field informs it. A classified effect may state one as an `authored`
+WoW field informs it. The client marks only *whether* an emitter follows
+the world wind (`M2Particle` flag DynamicWind, 1.3% of emitters; static
+`windVector`/`windTime` are practically unused, `WIKI_FINDINGS/M2.md`
+"Wind on particles"); the bundle carries that flag raw. A classified effect may state one as an `authored`
 value of that effect (a leaf responds fast, a spark slowly). The judgement
 then lives in one reviewable place, not on every instance.
 
@@ -515,8 +531,8 @@ then lives in one reviewable place, not on every instance.
 
 | Source | Effect | Anchor, region | Content | Style |
 |---|---|---|---|---|
-| Zone light (`Light`/`LightParams`/`LightData`) | `classic_zone_light` | world, `everywhere`/`sphere` | medium (`base`, derived) | `zone_light` → `light_params` by `day_time` |
-| WMO `MFOG` | `classic_local_fog` | instance, `sphere` | medium (derived) | `distance_fog.linear`, `looks.underwater` |
+| Zone light (`Light`/`LightParams`/`LightData`) | `classic_zone_light` | world, `everywhere`/`sphere` | medium (`base`, derived) | `zone_light` → `light_conditions` by `day_time` |
+| WMO `MFOG` | `classic_local_fog` | instance, `sphere`: where a viewer inside the listing parts sees the fog | — (a viewer's distance fog, not a volume) | `distance_fog.linear`, `looks.underwater` |
 | `MFOG` flag 0x1 | `classic_local_fog` | instance | — | `exit_blend` |
 | `VFOG`+`VFEX`+`VFE2` | `classic_volumetric_fog` | world, `shape` | medium (`pinned`), values absent until known | `volumetric_fog` |
 | `MAVG`/`MAVD`/`MBVD` | `classic_ambient_region` | instance, `everywhere`/`sphere`/`planes` | — | `ambient_color` |
@@ -585,7 +601,7 @@ emitter float semantics, `VFOG` density.
 **Phase 4: zone lights.**
 - A `light_db2` reader (same pattern as `liquid_db2`). Done.
 - A world instance of `classic_zone_light` per `Light` zone, its
-  parameter sets in the set's `light_params`. Done.
+  light conditions in the set's `light_conditions`. Done.
 - Open: a derived `base` medium (zone fog is keyed by time of day; a
   medium is one value).
 

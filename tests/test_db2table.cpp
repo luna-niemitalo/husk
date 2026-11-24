@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "test_temp.hpp"
 #include "../src/chrcustomization_db2.hpp"
 #include "../src/chrmodel_db2.hpp"
 #include "../src/db2table.hpp"
@@ -195,7 +196,7 @@ void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
 
 struct TestDbdDir {
     fs::path dir;
-    explicit TestDbdDir(const std::string& name) : dir(fs::temp_directory_path() / name) {
+    explicit TestDbdDir(const std::string& name) : dir(husk::test::testRunDir() / name) {
         fs::remove_all(dir);
         fs::create_directories(dir / "definitions");
     }

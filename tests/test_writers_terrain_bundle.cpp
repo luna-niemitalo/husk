@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 
+#include "test_temp.hpp"
 #include "bundle_schema.hpp"
 
 #include <cstring>
@@ -17,8 +18,10 @@
 
 #include "../src/adt.hpp"
 #include "../src/adt_canon_input.hpp"
+#include "../src/uuid.hpp"
 #include "../src/writers/terrain_bundle_writer.hpp"
 #include "test_adt_fixtures.hpp"
+#include "test_bundle_read.hpp"
 
 using namespace adtfx;
 namespace adt = husk::adt;
@@ -53,7 +56,7 @@ nlohmann::json readPlacements(const fs::path& setFile) {
     REQUIRE(in.good());
     nlohmann::json set = nlohmann::json::parse(in);
     nlohmann::json instances = set["instances"];
-    for (auto& instance : instances) instance["asset"] = set["references"][instance["reference"].get<size_t>()]["asset"];
+    for (auto& instance : instances) instance["asset"] = referenceById(set, instance["reference"])["asset"];
     return instances;
 }
 
@@ -159,7 +162,7 @@ canon::Terrain sampleTerrain() {
 }
 
 fs::path freshDir(const std::string& name) {
-    fs::path dir = fs::temp_directory_path() / name;
+    fs::path dir = husk::test::testRunDir() / name;
     fs::remove_all(dir);
     return dir;
 }
@@ -188,6 +191,20 @@ TEST_CASE("writeTerrainBundle: a model document with the tile's subject, edge st
     CHECK(t["column_axis"] == nlohmann::json::array({0.0, -1.0, 0.0}));
     CHECK(t["chunk_vertex_layout"] == "interleaved_9x9_corners_8x8_centres");
     CHECK(t["chunk_topology"] == "quad_centre_fan");
+    // A map known only by its directory name has no row to write.
+    CHECK_FALSE(m["definition"]["terrain"].contains("map"));
+}
+
+TEST_CASE("writeTerrainBundle: a resolved map is written as definition.terrain.map") {
+    canon::Terrain terrain = sampleTerrain();
+    terrain.map = canon::Ref{canon::Db2Row{"Map", 0}, "Eastern Kingdoms", canon::NameSource::Db2};
+    fs::path dir = freshDir("husk-test-terrain-bundle-map");
+    writeTile(terrain, dir);
+    nlohmann::json map = readManifest(dir)["definition"]["terrain"]["map"];
+    CHECK(map["id"]["table"] == "Map");
+    CHECK(map["id"]["row"] == 0);
+    CHECK(map["name"] == "Eastern Kingdoms");
+    CHECK(map["name_source"] == "db2");
 }
 
 TEST_CASE("writeTerrainBundle: chunk slices hold exactly the canon chunk data") {
@@ -238,7 +255,7 @@ TEST_CASE("writeTerrainBundle: textures embed their payload, or state why they a
     REQUIRE(textures.size() == 2);
 
     const nlohmann::json& grass = textures[0];
-    const nlohmann::json& grassDiffuse = table[grass["diffuse"].get<size_t>()];
+    const nlohmann::json& grassDiffuse = entryById(table, grass["diffuse"]);
     CHECK(grassDiffuse["state"] == "resolved");
     CHECK(grass["repeats_per_chunk"] == 8.0);
     // The writer embeds a payload under textures/ and points at it.
@@ -247,7 +264,7 @@ TEST_CASE("writeTerrainBundle: textures embed their payload, or state why they a
     for (const auto& entry : fs::directory_iterator(dir / "textures")) anyPayloadFile |= entry.is_regular_file();
     CHECK(anyPayloadFile);
 
-    CHECK(table[textures[1]["diffuse"].get<size_t>()]["state"] == "known_unresolved");
+    CHECK(entryById(table, textures[1]["diffuse"])["state"] == "known_unresolved");
 }
 
 TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the caller's shared uri") {
@@ -258,7 +275,7 @@ TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the cal
     writeTile(terrain, dir, {}, {{1001, "../../textures/1001.dds"}});
     nlohmann::json m = readJsonFile(dir / "manifest.json");
     const nlohmann::json& table = m["resources"]["textures"];
-    nlohmann::json grass = table[m["resources"]["terrain"]["textures"][0]["diffuse"].get<size_t>()];
+    nlohmann::json grass = entryById(table, m["resources"]["terrain"]["textures"][0]["diffuse"]);
     CHECK(grass["state"] == "resolved");
     CHECK(grass["payload"]["uri"] == "../../textures/1001.dds");
     CHECK(grass["payload"]["media_type"] == "image/vnd-ms.dds");
@@ -283,7 +300,7 @@ TEST_CASE("writeTerrainBundle: the optional liquid flow map and wave spectra") {
     fs::path dir = freshDir("husk-test-terrain-bundle-flow");
     writeTile(terrain, dir);
     nlohmann::json m = readManifest(dir);
-    const nlohmann::json& flow = m["resources"]["textures"][m["resources"]["terrain"]["liquid_flow"].get<size_t>()];
+    const nlohmann::json& flow = textureAt(m, m["resources"]["terrain"]["liquid_flow"]);
     CHECK(flow["identity"]["id"]["value"] == 7792205);
     const nlohmann::json& waves = m["resources"]["liquid_types"][0]["waves"];
     REQUIRE(waves.size() == 1);
@@ -317,13 +334,13 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     REQUIRE(t["liquids"].size() == 2);
     const nlohmann::json& river = t["liquids"][0];
     CHECK(river["height_source"] == "stored");
-    CHECK(river["liquid_object"]["id"]["row"] == 100);
+    CHECK(river["liquid_setting"]["id"]["row"] == 100);
     CHECK(readSlice<float>(dir, river["heights"]) == std::vector<float>(4, 3.0f));
     CHECK(readSlice<float>(dir, river["depth"]) == std::vector<float>(4, 1.0f));
     CHECK(river["liquid_type"]["name"] == "Slow Water");
-    REQUIRE(t["liquid_objects"].size() == 1);
-    CHECK(t["liquid_objects"][0]["identity"]["id"]["row"] == 100);
-    CHECK(t["liquid_objects"][0]["flow_direction"].get<double>() == doctest::Approx(3.14159265));
+    REQUIRE(t["liquid_settings"].size() == 1);
+    CHECK(t["liquid_settings"][0]["identity"]["id"]["row"] == 100);
+    CHECK(t["liquid_settings"][0]["flow_direction"].get<double>() == doctest::Approx(3.14159265));
     const nlohmann::json& types = m["resources"]["liquid_types"];
     REQUIRE(types.size() == 2);
     CHECK(types[0]["identity"]["name"] == "Slow Water");
@@ -331,14 +348,14 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK(types[0]["source"]["flags"] == "0xf");
     REQUIRE(types[0]["textures"].size() == 2);
     const nlohmann::json& table = m["resources"]["textures"];
-    CHECK(table[types[0]["textures"][0]["frames"][0].get<size_t>()]["state"] == "resolved");
+    CHECK(entryById(table, types[0]["textures"][0]["frames"][0])["state"] == "resolved");
     CHECK(types[0]["textures"][1]["source"]["kind"] == 1);
-    CHECK(table[types[0]["textures"][1]["frames"][0].get<size_t>()]["state"] == "known_unresolved");
+    CHECK(entryById(table, types[0]["textures"][1]["frames"][0])["state"] == "known_unresolved");
     CHECK(types[1]["identity"]["id"]["row"] == 2);
     CHECK_FALSE(types[1].contains("material"));
     const nlohmann::json& ocean = t["liquids"][1];
     CHECK(ocean["height_source"] == "min_height_level");
-    CHECK_FALSE(ocean.contains("liquid_object"));
+    CHECK_FALSE(ocean.contains("liquid_setting"));
     CHECK(ocean["quad_rect"]["columns"] == 8);
     CHECK(readSlice<uint8_t>(dir, ocean["quad_exists"]) == std::vector<uint8_t>(64, 1));
 
@@ -347,7 +364,9 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK(owned[0]["always_on"] == true);
     CHECK(owned[0]["instance_count"] == 1);
     REQUIRE(m["references"].size() == 2);
-    CHECK(m["references"][owned[0]["reference"].get<size_t>()]["asset"]["name"] == "doodads");
+    CHECK(referenceById(m, owned[0]["reference"])["asset"]["name"] == "doodads");
+    // A reference's id is derived from its kind and identity, never its position.
+    CHECK(m["references"][0]["id"] == husk::nameUuid("placement_set/name/doodads"));
     CHECK(m["references"][0]["asset"]["uri"] == "sets/0.json");
     CHECK(m["references"][1]["asset"]["name"] == "map_objects");
     CHECK(m["references"][1]["asset"]["uri"] == "sets/1.json");

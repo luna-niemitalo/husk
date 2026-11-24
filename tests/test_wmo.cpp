@@ -450,6 +450,11 @@ TEST_CASE("wmo::parseRoot: MOPV/MOPT/MOPR read portal polygons and the groups' l
     CHECK(root.portalRefs[1].side == -1);
     REQUIRE(root.portalExtras.size() == 1);
     CHECK(root.portalExtras[0][15] == 0x7A);
+
+    put<int16_t>(mopr, 0x0C, 0);
+    CHECK_THROWS_WITH_AS(
+        wmo::parseRoot(minimalRoot(2, {{"MOGI", mogi}, {"MOPV", mopv}, {"MOPT", mopt}, {"MOPR", mopr}, {"MOPE", mope}})),
+        "MOPR record 1 side: expected +1 or -1, got 0", wmo::ParseError);
 }
 
 TEST_CASE("wmo::parseRoot: portal ranges and links past their tables throw with both values") {
@@ -459,6 +464,7 @@ TEST_CASE("wmo::parseRoot: portal ranges and links past their tables throw with 
                          "MOPT[0]: expected vertices [0, 4) within 1 MOPV vertices", wmo::ParseError);
     std::vector<uint8_t> mopr(8, 0);
     put<uint16_t>(mopr, 0x02, 2);
+    put<int16_t>(mopr, 0x04, 1);
     CHECK_THROWS_WITH_AS(
         wmo::parseRoot(minimalRoot(2, {{"MOGI", std::vector<uint8_t>(64, 0)}, {"MOPT", std::vector<uint8_t>(20, 0)},
                                        {"MOPR", mopr}})),

@@ -30,7 +30,7 @@ touched and why. The files below remain the tracked, canonical record.
 
 | Page | Covers | Wiki page mirror |
 |---|---|---|
-| [`WIKI_FINDINGS/M2.md`](WIKI_FINDINGS/M2.md) | `M2Sequence` size, `bounding_box`, `M2Particle`/`FBlock`, `WFV3`, `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL`, `DETL`, `aliasNext`, `EXP2`/`PFDC`/`BLP2`, `global_flags`/`textureCombinerCombos`, `M2Vertex` (client struct) | `documentation/wowdev-wiki/md/M2.md` |
+| [`WIKI_FINDINGS/M2.md`](WIKI_FINDINGS/M2.md) | `M2Sequence` size, `bounding_box`, `M2Particle`/`FBlock`, compressed particle gravity, `WFV3`, `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL`, `DETL`, `aliasNext`, `EXP2`/`PFDC`/`BLP2`, `global_flags`/`textureCombinerCombos`, `M2Vertex` (client struct) | `documentation/wowdev-wiki/md/M2.md` |
 | [`WIKI_FINDINGS/M2/anim.md`](WIKI_FINDINGS/M2/anim.md) | Chunked `.anim`'s `AFM2`/`AFSB` shape | `documentation/wowdev-wiki/md/M2/.anim.md` |
 | [`WIKI_FINDINGS/M2/skel.md`](WIKI_FINDINGS/M2/skel.md) | `.skel`'s `SKS1`/`SKB1` cross-chunk indexing, per-file `AFID` | `documentation/wowdev-wiki/md/M2/.skel.md` |
 | [`WIKI_FINDINGS/M2/skin.md`](WIKI_FINDINGS/M2/skin.md) | `.skin` multi-texture-layer arithmetic, `textureCoordCombos` | `documentation/wowdev-wiki/md/M2/.skin.md` |

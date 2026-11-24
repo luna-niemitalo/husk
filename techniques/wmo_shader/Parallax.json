@@ -45,7 +45,7 @@
                   "op": "mul",
                   "args": [
                     {
-                      "input": "tangent_view"
+                      "term": "e"
                     },
                     {
                       "const": 0.25
@@ -78,7 +78,7 @@
                   "op": "mul",
                   "args": [
                     {
-                      "input": "tangent_view"
+                      "term": "e"
                     },
                     {
                       "const": 0.5
@@ -120,10 +120,15 @@
         "status": "described",
         "description": "reflect(V, N).xy = (V - 2*dot(V, N)*N).xy, the raw x and y used as a coordinate (not sphere-mapped), with V = normalize(view-space position) and N the view-space normal; the vertex shader computes it per vertex."
       },
-      "tangent_view": {
+      "view_position": {
         "kind": "renderer_value",
         "status": "described",
-        "description": "The view direction in a tangent frame built from screen derivatives of uv1 (two components): with P the view-space position, N the view-space normal, V = normalize(P), dp1 = ddx(P), dp2 = ddy(P), du1 = ddx(uv1), du2 = ddy(uv1) (coarse derivatives), T = cross(dp2, N)*du1.x + cross(N, dp1)*du2.x and B = cross(dp2, N)*du1.y + cross(N, dp1)*du2.y, both divided by sqrt(max(dot(T, T), dot(B, B))): (dot(T, V), dot(B, V)) / dot(N, V). It needs screen derivatives, so the renderer computes it."
+        "description": "The view-space position of the pixel (v5.xyz, interpolated from the vertex shader)."
+      },
+      "view_normal": {
+        "kind": "renderer_value",
+        "status": "described",
+        "description": "The view-space normal as interpolated from the vertex shader (v6.xyz), not renormalized."
       },
       "v3w": {
         "kind": "vertex_value",
@@ -131,6 +136,39 @@
       }
     },
     "terms": {
+      "e": {
+        "op": "div",
+        "args": [
+          {
+            "op": "tangent_frame",
+            "args": [
+              {
+                "input": "view_position"
+              },
+              {
+                "input": "view_position"
+              },
+              {
+                "input": "view_normal"
+              },
+              {
+                "input": "uv1"
+              }
+            ]
+          },
+          {
+            "op": "dot",
+            "args": [
+              {
+                "input": "view_normal"
+              },
+              {
+                "input": "view_position"
+              }
+            ]
+          }
+        ]
+      },
       "layers": {
         "op": "add",
         "args": [
@@ -299,7 +337,7 @@
         "const": 1
       }
     },
-    "notes": "t17 is a control map: r scales the parallax offset of t3 and t4, g blends the parallax layers toward t2, b adds t2 to the emissive. The client samples t0 only where v3w > 0; lerp by 0 makes that the same. The simple-lighting programs (14-25) compute the same diffuse and no emissive. The emissive output is before the client's view-depth fade: after lighting it is scaled by saturate(v5.z * cb1[8].x + cb1[8].y) (SHADER_FINDINGS/notes/wmo.md). Alpha is what the shader alpha-tests (128/255, per MSAA sample)."
+    "notes": "e is the client's (dot(T, V), dot(B, V)) / dot(N, V) with V = normalize(view_position); the term passes view_position unnormalized, since the length of V cancels in the ratio. The client takes the derivatives in tangent_frame with ddx_coarse/ddy_coarse. t17 is a control map: r scales the parallax offset of t3 and t4, g blends the parallax layers toward t2, b adds t2 to the emissive. The client samples t0 only where v3w > 0; lerp by 0 makes that the same. The simple-lighting programs (14-25) compute the same diffuse and no emissive. The emissive output is before the client's view-depth fade: after lighting it is scaled by saturate(v5.z * cb1[8].x + cb1[8].y) (SHADER_FINDINGS/notes/wmo.md). Alpha is what the shader alpha-tests (128/255, per MSAA sample)."
   },
   "selection": {},
   "references": []

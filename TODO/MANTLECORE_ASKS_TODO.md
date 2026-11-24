@@ -57,10 +57,12 @@ Second round (Luna 2026-11-24), all into 0.4.0:
    floats). At integration: a MANTLECORE_MIGRATION.md line, and
    `dump-chunks`' `gravity_track` still prints packed keys as floats.
    Unchecked: whether the client rotates gravity with the emitter.
-4. **Zone fog `density` labelled `1/yard`** (`schema/common.schema.json`
-   1214, 2126, 2146; EFFECTS.md `fog_density_to_extinction`): values
-   1.8–130 are the client's exponential parameter, not extinction. Find the
-   client's formula (BLS dump), relabel, state the transform.
+4. **Zone fog `density` labelled `1/yard`**: done on
+   `format04-fog-density`. Fog keys gain `extinction`/`height_extinction`
+   (1/yard, `fog_density_to_extinction`, `0.0005 · density`, grade ref:
+   WebWowViewerCpp, not client code); raw values under `fog.source`.
+   Open: verify the constant in the client executable (needs a
+   disassembler, not in the flake) or by screenshot.
 5. **MFOG medium placed in its sphere** (`src/wmo_effects_input.cpp`
    `linear_fog_to_extinction`): the sphere is where the fog applies to a
    viewer inside, not a volume. Luna 2026-11-24: drop the derived medium;

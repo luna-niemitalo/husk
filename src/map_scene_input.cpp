@@ -1,5 +1,7 @@
 #include "map_scene_input.hpp"
 
+#include "zone_fog_extinction.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -228,6 +230,10 @@ canon::LightKey lightKey(const MapSceneInputs& in, const lightdb::Key& k) {
     f.height = k.fogHeight;
     f.heightScaler = k.fogHeightScaler;
     f.heightDensity = k.fogHeightDensity;
+    fog::ZoneFogExtinction extinction =
+        fog::densityToExtinction(k.fogDensity, k.fogHeightDensity, k.fogEnd, k.fogScaler, k.fogHeightScaler);
+    f.extinction = extinction.main;
+    f.heightExtinction = extinction.height;
     f.zScalar = k.fogZScalar;
     f.curveStart = k.mainFogStartDist;
     f.curveEnd = k.mainFogEndDist;
@@ -269,6 +275,10 @@ canon::LightSettings lightSettings(const MapSceneInputs& in, const lightdb::Para
         skybox.ref = canon::Ref{canon::Db2Row{"LightSkybox", p.lightSkyboxId}, "", canon::NameSource::None};
         auto row = in.lights->skyboxes.find(p.lightSkyboxId);
         if (row != in.lights->skyboxes.end()) {
+            if (!row->second.name.empty()) {
+                skybox.ref.name = row->second.name;
+                skybox.ref.source = canon::NameSource::Db2;
+            }
             skybox.model = modelRef(in, row->second.skyboxFileDataId);
             if (row->second.celestialSkyboxFileDataId != 0) skybox.celestialModel = modelRef(in, row->second.celestialSkyboxFileDataId);
             skybox.flags = row->second.flags;

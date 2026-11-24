@@ -13,6 +13,7 @@
 #include <set>
 #include <string>
 
+#include "test_temp.hpp"
 #include "m2.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_fixtures.hpp"
@@ -29,7 +30,7 @@ using husk::test::testWeaponPhysSkin;
 using husk::test::testWeaponRibbon;
 
 fs::path freshBundleDir(const std::string& name) {
-    fs::path dir = fs::temp_directory_path() / (name + ".bundle");
+    fs::path dir = husk::test::testRunDir() / (name + ".bundle");
     fs::remove_all(dir);
     return dir;
 }
@@ -236,7 +237,7 @@ TEST_CASE("husk export: a real weapon's layer color_alpha/texture_weight curves 
 TEST_CASE("husk export --object-skin-texture-id: fills a real fdid==0 type=2 (object_skin) "
           "slot with the supplied FileDataID's texture" *
           doctest::skip(testWeaponRibbon().empty())) {
-    auto texDir = fs::temp_directory_path() / "husk-test-object-skin-tex";
+    auto texDir = husk::test::testRunDir() / "husk-test-object-skin-tex";
     fs::remove_all(texDir);
     fs::create_directories(texDir);
     writeOnePixelPng(texDir / "999999999.png");
@@ -269,7 +270,7 @@ TEST_CASE("husk export --object-skin-texture-id: fills a real fdid==0 type=2 (ob
 TEST_CASE("husk export: a race/gender-suffixed model with no exact-basename texture falls back "
           "to its family basename (suffix stripped), same directory" *
           doctest::skip(testWeaponRibbon().empty())) {
-    auto workDir = fs::temp_directory_path() / "husk-test-race-suffix-fallback";
+    auto workDir = husk::test::testRunDir() / "husk-test-race-suffix-fallback";
     fs::remove_all(workDir);
     fs::create_directories(workDir);
 

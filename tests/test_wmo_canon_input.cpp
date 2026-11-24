@@ -113,6 +113,47 @@ TEST_CASE("buildCanonWmo: groups become parts sharing one vertex buffer, batches
     CHECK(canon::resolveMaterialIndex(model, 0) == 1u);
 }
 
+TEST_CASE("buildCanonWmo: part areas per name set, the part's own row before the model-wide one") {
+    wmo::RootFile root = syntheticRoot();
+    root.header.wmoAreaTableId = 53;  // MOHD wmoID
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {group(4, 2, 1, 2), group(3, 1, 0, 1)};
+    in.groups[0]->wmoAreaTableId = 700;  // MOGP groupID
+    in.groups[1]->wmoAreaTableId = 701;
+    wmoareadb::Data wmoAreas;
+    wmoAreas[{53, 0, -1}] = {1, "Inn", 12};
+    wmoAreas[{53, 0, 700}] = {2, "Common Room", 12};
+    wmoAreas[{53, 2, -1}] = {3, "Lion's Pride Inn", 0};
+    wmoAreas[{54, 0, 701}] = {4, "Another WMO", 40};
+    areadb::Data areas;
+    areas[12].name = "Elwynn Forest";
+    in.wmoAreas = &wmoAreas;
+    in.areas = &areas;
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+    const std::vector<canon::PartArea>& hall = model.mesh.parts[0].areas;
+    REQUIRE(hall.size() == 2);
+    CHECK(hall[0].nameSet == 0);
+    CHECK(std::get<canon::Db2Row>(hall[0].ref.id).row == 2);
+    CHECK(hall[0].ref.name == "Common Room");
+    CHECK_FALSE(hall[0].wholeModel);
+    REQUIRE(hall[0].area.has_value());
+    CHECK(hall[0].area->name == "Elwynn Forest");
+    CHECK(hall[1].nameSet == 2);
+    CHECK(hall[1].ref.name == "Lion's Pride Inn");
+    CHECK(hall[1].wholeModel);
+    CHECK_FALSE(hall[1].area.has_value());
+    // Group 701 has a row only in another WMO: the model-wide rows apply.
+    const std::vector<canon::PartArea>& other = model.mesh.parts[1].areas;
+    REQUIRE(other.size() == 2);
+    CHECK(other[0].ref.name == "Inn");
+    CHECK(other[0].wholeModel);
+
+    in.wmoAreas = nullptr;
+    CHECK(wmoinput::buildCanonWmo(in).mesh.parts[0].areas.empty());
+}
+
 TEST_CASE("buildCanonWmo: materials name their surface; MOQG overrides it per face") {
     wmo::RootFile root = syntheticRoot();
     root.materials[0].groundType = 2;  // Stone
@@ -874,16 +915,11 @@ TEST_CASE("buildCanonWmo: MFOG fogs become effect instances in the set they appl
     const canon::PlacedInstance* local = instanceById(model, model.mesh.parts[0].fogs[0]);
     REQUIRE(local);
     CHECK(local->asset.name == "classic_local_fog");
-    REQUIRE(local->effect->inputs.size() == 4);
+    // A viewer-inside fog: the radii only, no medium derived into the sphere.
+    REQUIRE(local->effect->inputs.size() == 2);
     CHECK(local->effect->inputs[0].name == "inner_radius");
     CHECK(std::get<double>(local->effect->inputs[1].value.value) == 8.0);
-    // Derived: 3 / (end 40 - start 20), and the fog colour as albedo.
-    CHECK(local->effect->inputs[2].name == "extinction");
-    CHECK(std::get<double>(local->effect->inputs[2].value.value) == doctest::Approx(0.15));
-    CHECK(std::get<canon::Vec3>(local->effect->inputs[3].value.value).x == doctest::Approx(0x33 / 255.0));
-    REQUIRE(local->effect->derived.size() == 2);
-    CHECK(local->effect->derived[0].path == "inputs.extinction");
-    CHECK(local->effect->derived[0].rule == "linear_fog_to_extinction");
+    CHECK(local->effect->derived.empty());
     const canon::StyleBlock& style = local->effect->style.at(0).blocks.at(0);
     // start = end * startScalar; BGRA bytes 99 66 33 7F -> RGB 0x33 0x66 0x99.
     CHECK(style.distanceFog->linear->start == 20.0f);

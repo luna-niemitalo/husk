@@ -420,8 +420,11 @@ uint32_t readRawIntElement(const uint8_t* data, size_t dataSize, size_t off, siz
     if (elementSize == 2) {
         return readU16(data, dataSize, off);
     }
+    if (elementSize == 4) {
+        return readU32(data, dataSize, off);
+    }
     throw ParseError("resolveRawIntTrackSequence: unsupported element size " +
-                      std::to_string(elementSize) + " (only 1 or 2 are valid)");
+                      std::to_string(elementSize) + " (expected 1, 2 or 4)");
 }
 
 }  // namespace

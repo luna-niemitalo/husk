@@ -18,6 +18,7 @@
 // transforms and blend modes. Shared byte-builder helpers live in
 // tests/test_cli_fixtures.hpp, included by all test_cli*.cpp files.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
@@ -30,6 +31,7 @@
 #include "test_bundle_fixtures.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
+#include "test_data_paths.hpp"
 
 using husk::test::runHusk;
 namespace fs = std::filesystem;
@@ -39,7 +41,7 @@ namespace fs = std::filesystem;
 // everything it reasonably can from what's already sitting next to the
 // model, rather than requiring every argument spelled out even when it's
 // exactly where the tool could have found it itself. Each fixture below
-// gets its own dedicated subdirectory (not the shared system temp root
+// gets its own dedicated subdirectory (not the run directory
 // tempPath() otherwise writes into) so directory-scan-based defaulting has
 // a clean, isolated view -- no risk of an unrelated file from a different
 // test case being picked up.
@@ -226,7 +228,7 @@ TEST_CASE("husk export: a model without collision data gets no geometry.collisio
 namespace {
 std::set<int> geosetIds(const nlohmann::json& manifest) {
     std::set<int> ids;
-    for (const auto& p : manifest["resources"]["geometry"]["mesh"]["primitives"]) ids.insert(p["geoset_id"].get<int>());
+    for (const auto& p : manifest["resources"]["geometry"]["mesh"]["primitives"]) ids.insert(p["source"]["skin_section_id"].get<int>());
     return ids;
 }
 }  // namespace
@@ -378,6 +380,17 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     // track actually under test.
     fillTrack(m2, boneOff + 0x24, {0}, {identityQuatBytes()});
     fillTrack(m2, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+    // Four global loops (M2Loop, ms); the track's loop 3 lasts 2.5 s, longer
+    // than its last key (1 s): the period isn't the last keyframe.
+    uint32_t loopOff = static_cast<uint32_t>(m2.size());
+    uint32_t loopCount = 4;
+    std::memcpy(m2.data() + 0x014, &loopCount, 4);
+    std::memcpy(m2.data() + 0x018, &loopOff, 4);
+    for (uint32_t ms : {100u, 200u, 300u, 2500u}) {
+        size_t at = m2.size();
+        m2.resize(at + 4);
+        std::memcpy(m2.data() + at, &ms, 4);
+    }
 
     auto dir = defaultsDir("globalseq");
     writeFile(dir / "glow.m2", m2);
@@ -391,6 +404,76 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     REQUIRE(clips.size() == 1);
     CHECK(clips[0]["sequence_kind"] == "global_sequence");
     CHECK(clips[0]["sequence_index"] == 3);
+    CHECK(clips[0]["duration"].get<double>() == doctest::Approx(2.5));
+    const nlohmann::json& loops = m["resources"]["rig"]["global_sequences"];
+    REQUIRE(loops.size() == 4);
+    CHECK(loops[0]["duration"].get<double>() == doctest::Approx(0.1));
+    CHECK(loops[3]["duration"].get<double>() == doctest::Approx(2.5));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a joint carries its raw bone flags, inherit from the ignore-parent bits and driven_by physics from 0x400") {
+    auto m2 = tinyValidM2();
+    uint32_t boneOff = static_cast<uint32_t>(m2.size());
+    uint32_t boneCount = 1;
+    std::memcpy(m2.data() + 0x02C, &boneCount, 4);
+    std::memcpy(m2.data() + 0x030, &boneOff, 4);
+    m2.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(m2.data() + boneOff + 0x00, &keyBoneId, 4);
+    uint32_t flags = 0x400 | 0x4 | 0x8 | 0x2000;  // kinematic, ignore parent rotation, billboard, unnamed
+    std::memcpy(m2.data() + boneOff + 0x04, &flags, 4);
+    int16_t parentBone = -1;
+    std::memcpy(m2.data() + boneOff + 0x08, &parentBone, 2);
+    fillTrack(m2, boneOff + 0x10, {0}, {vec3Bytes(0, 0, 0)});
+    fillTrack(m2, boneOff + 0x24, {0}, {identityQuatBytes()});
+    fillTrack(m2, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto dir = defaultsDir("boneflags");
+    writeFile(dir / "flags.m2", m2);
+    writeFile(dir / "flags00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "flags.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "flags.bundle");
+    const nlohmann::json& joint = m["resources"]["rig"]["skeleton"]["joints"][0];
+    CHECK(joint["source"]["flags"] == "0x240c");
+    CHECK(joint["inherit"] == nlohmann::json{{"translation", true}, {"rotation", false}, {"scale", true}});
+    CHECK(joint["driven_by"] == "physics");
+    CHECK_FALSE(joint.contains("flags"));
+    CHECK(joint["billboard"] == "spherical");
+
+    fs::remove_all(dir);
+}
+
+// Real-data-gated: 12.x AnimationData has no Name column (layout BBF66A3C),
+// which isn't worth a warning, and its Fallback column is the table a
+// consumer walks for an animation the model lacks (row 6, Dead -> 1, Death).
+TEST_CASE("husk export: real AnimationData gives clip fallbacks and no Name warning" *
+          doctest::skip(husk::test::testDbdDir().empty() ||
+                         !fs::exists("/media/luna/wow_export/live/creature/rabbit/rabbit.m2"))) {
+    auto dir = defaultsDir("animfallback");
+    auto bundle = dir / "rabbit.bundle";
+    auto result = runHusk("export /media/luna/wow_export/live/creature/rabbit/rabbit.m2 -o " + bundle.string() +
+                          " --db2-dir /media/luna/wow_export/live/dbfilesclient --dbd-dir " +
+                          husk::test::testDbdDir() + " --listfile-root /media/luna/wow_export/live");
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(result.output.find("string column 'Name'") == std::string::npos);
+    nlohmann::json m = parseManifest(bundle);
+    const nlohmann::json* reference = nullptr;
+    for (const auto& r : m["references"]) {
+        if (r["kind"] == "animation_fallbacks") reference = &r;
+    }
+    REQUIRE(reference);
+    const nlohmann::json& fallbacks = (*reference)["document"]["fallbacks"];
+    CHECK((*reference)["document"]["otherwise"]["id"]["row"] == 0);
+    auto dead = std::find_if(fallbacks.begin(), fallbacks.end(),
+                             [](const nlohmann::json& f) { return f["animation"]["id"]["row"] == 6; });
+    REQUIRE(dead != fallbacks.end());
+    CHECK((*dead)["fallback"]["id"]["row"] == 1);
 
     fs::remove_all(dir);
 }

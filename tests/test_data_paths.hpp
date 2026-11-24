@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "m2.hpp"
 #include "skel.hpp"
 
@@ -89,7 +90,7 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
     }
 
     std::error_code ec;
-    std::filesystem::path dir = std::filesystem::temp_directory_path() / "husk-test-autoskin";
+    std::filesystem::path dir = husk::test::testRunDir() / "husk-test-autoskin";
     std::filesystem::create_directories(dir, ec);
     std::filesystem::path dest = dir / (std::to_string((*header.skinFileDataIds)[0]) + ".skin");
     std::filesystem::copy_file(skinPath, dest, std::filesystem::copy_options::overwrite_existing, ec);
@@ -140,7 +141,7 @@ inline std::string autoBonesDir(const std::string& skelPath) {
     std::string base = skelPathObj.stem().string();
 
     std::error_code ec;
-    std::filesystem::path dir = std::filesystem::temp_directory_path() / "husk-test-autobones";
+    std::filesystem::path dir = husk::test::testRunDir() / "husk-test-autobones";
     std::filesystem::create_directories(dir, ec);
 
     size_t copied = 0;

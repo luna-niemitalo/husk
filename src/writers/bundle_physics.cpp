@@ -54,8 +54,6 @@ void writeBody(json::Writer& w, const phys::Body& b) {
     w.beginObject();
     w.key("joint");
     w.value(static_cast<int64_t>(b.boneIndex));
-    w.key("type");
-    w.value(static_cast<int64_t>(b.type));
     writePhysVec3(w, "position", b.position);
     w.key("shapes");
     w.beginArray();
@@ -63,6 +61,8 @@ void writeBody(json::Writer& w, const phys::Body& b) {
     w.endArray();
     w.key("source");
     w.beginObject();
+    w.key("type");
+    w.value(static_cast<int64_t>(b.type));
     writeFloatField(w, "unk0", b.unk0);
     writeFloatField(w, "x1c", b.x1c);
     writeFloatField(w, "drag", b.drag);

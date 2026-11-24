@@ -1,5 +1,6 @@
 #include "itemappearance_db2.hpp"
 
+#include <algorithm>
 #include <filesystem>
 
 #include "db2table.hpp"
@@ -35,13 +36,34 @@ std::vector<Appearance> loadAppearances(const std::string& db2Dir, const std::st
 
 std::vector<DisplayInfo> loadDisplayInfos(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::vector<DisplayInfo> result;
-    // "ModelResourcesID" resolves to the real field's element 0 when the
-    // current live layout stores it as a 2-entry array (db2table.cpp's own
-    // decodeField-first-element behavior, same one chrmodel_db2.hpp's
-    // texture-layer reader already relies on) -- see this file's own doc
-    // comment for why only element 0 is used.
-    auto rows = db2table::readNamedColumns(joinPath(db2Dir, "itemdisplayinfo.db2"), dbdDir,
-                                            {"ID", "ModelResourcesID"}, err);
+    auto rows = db2table::readNamedArrayColumns(joinPath(db2Dir, "itemdisplayinfo.db2"), dbdDir,
+                                                 {"ID", "ModelResourcesID", "GeosetGroup", "AttachmentGeosetGroup"}, err);
+    if (!rows) return result;
+    auto signedInto = [](const auto& column, std::array<int32_t, 6>& out) {
+        if (!column) return;
+        for (size_t i = 0; i < std::min<size_t>(out.size(), column->size()); ++i) {
+            out[i] = static_cast<int32_t>((*column)[i]);
+        }
+    };
+    for (const auto& row : *rows) {
+        DisplayInfo info;
+        info.id = row[0] && !row[0]->empty() ? row[0]->front() : 0;
+        if (row[1]) {
+            for (size_t i = 0; i < std::min<size_t>(2, row[1]->size()); ++i) info.modelResourcesIds[i] = (*row[1])[i];
+        }
+        signedInto(row[2], info.geosetGroups);
+        signedInto(row[3], info.attachmentGeosetGroups);
+        result.push_back(info);
+    }
+    return result;
+}
+
+std::vector<TransmogSetItem> loadTransmogSetItems(const std::string& db2Dir, const std::string& dbdDir,
+                                                  std::ostream& err) {
+    std::vector<TransmogSetItem> result;
+    auto path = joinPath(db2Dir, "transmogsetitem.db2");
+    if (!std::filesystem::exists(path)) return result;
+    auto rows = db2table::readNamedColumns(path, dbdDir, {"TransmogSetID", "ItemModifiedAppearanceID"}, err);
     if (!rows) return result;
     for (const auto& row : *rows) result.push_back({orZero(row[0]), orZero(row[1])});
     return result;
@@ -75,6 +97,7 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     data.displayInfos = loadDisplayInfos(db2Dir, dbdDir, err);
     data.modelMatRes = loadModelMatRes(db2Dir, dbdDir, err);
     data.materialRes = loadMaterialRes(db2Dir, dbdDir, err);
+    data.transmogSetItems = loadTransmogSetItems(db2Dir, dbdDir, err);
     if (data.modifiedAppearances.empty() && data.appearances.empty() && data.displayInfos.empty() &&
         data.modelMatRes.empty() && data.materialRes.empty()) {
         return std::nullopt;
@@ -111,6 +134,9 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
         return result;
     }
     result.itemDisplayInfoId = appearance->itemDisplayInfoId;
+    for (const auto& t : data.transmogSetItems) {
+        if (t.itemModifiedAppearanceId == itemModifiedAppearanceId) result.transmogSets.push_back(t.transmogSetId);
+    }
 
     // A real, common sentinel, not a dangling reference: ItemAppearance's
     // own ItemDisplayInfoID column literally stores 0 when the player has
@@ -118,9 +144,9 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
     // data -- e.g. a real "Hidden Shoulder"/"Hidden Tabard" appearance's
     // ItemAppearance row has ItemDisplayInfoID=0 verbatim, not an absent
     // row husk failed to find). Same "0 is a real value, not unresolved"
-    // convention assembleEquippedItems' modelResourcesId==0 check applies
+    // convention assembleEquippedItems' ModelResourcesID 0 check applies
     // one hop downstream (canon_item_builder.cpp). Returning here
-    // (materials/sectionMaterials/modelResourcesId left unset) gives the
+    // (materials/sectionMaterials/modelResourcesIds left unset) gives the
     // item no components -- correct, since Hidden has nothing to attach --
     // without the misleading "dangling reference" log.
     if (appearance->itemDisplayInfoId == 0) return result;
@@ -137,7 +163,9 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
             << appearance->itemDisplayInfoId << " matched no row in ItemDisplayInfo -- dangling reference\n";
         return result;
     }
-    result.modelResourcesId = displayInfo->modelResourcesId;
+    result.modelResourcesIds = displayInfo->modelResourcesIds;
+    result.geosetGroups = displayInfo->geosetGroups;
+    result.attachmentGeosetGroups = displayInfo->attachmentGeosetGroups;
 
     for (const auto& m : data.modelMatRes) {
         if (m.itemDisplayInfoId == displayInfo->id) result.materials.push_back(m);
@@ -146,6 +174,34 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
         if (m.itemDisplayInfoId == displayInfo->id) result.sectionMaterials.push_back(m);
     }
 
+    return result;
+}
+
+DisplayIndex indexDisplays(const Data& data) {
+    DisplayIndex index;
+    for (const auto& d : data.displayInfos) index.displays.emplace(d.id, &d);
+    for (const auto& m : data.modelMatRes) index.materials[m.itemDisplayInfoId].push_back(&m);
+    for (const auto& m : data.materialRes) index.sectionMaterials[m.itemDisplayInfoId].push_back(&m);
+    return index;
+}
+
+Resolution resolveDisplay(const DisplayIndex& index, uint32_t itemDisplayInfoId, std::ostream& err) {
+    Resolution result;
+    result.itemDisplayInfoId = itemDisplayInfoId;
+    auto display = index.displays.find(itemDisplayInfoId);
+    if (display == index.displays.end()) {
+        err << "husk: note: ItemDisplayInfoID " << itemDisplayInfoId << " matched no row in ItemDisplayInfo\n";
+        return result;
+    }
+    result.modelResourcesIds = display->second->modelResourcesIds;
+    result.geosetGroups = display->second->geosetGroups;
+    result.attachmentGeosetGroups = display->second->attachmentGeosetGroups;
+    if (auto m = index.materials.find(itemDisplayInfoId); m != index.materials.end()) {
+        for (const ModelMatRes* row : m->second) result.materials.push_back(*row);
+    }
+    if (auto m = index.sectionMaterials.find(itemDisplayInfoId); m != index.sectionMaterials.end()) {
+        for (const MaterialRes* row : m->second) result.sectionMaterials.push_back(*row);
+    }
     return result;
 }
 

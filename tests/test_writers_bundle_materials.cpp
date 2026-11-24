@@ -5,7 +5,13 @@
 
 #include <doctest/doctest.h>
 
+#include <fstream>
+
+#include "canon_garment_builder.hpp"
+#include "test_temp.hpp"
 #include "test_bundle_fixtures.hpp"
+#include "uuid.hpp"
+#include "writers/bundle_common.hpp"
 
 TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a real "
           "textures/<name>.<ext> file and records a real uri (AUDIT.md §7.4); a Resolved "
@@ -35,7 +41,7 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     model.primitiveMaterials.push_back(canon::Identity{canon::RecordIndex{1}});
     model.mesh.primitives.push_back(model.mesh.primitives[0]);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-payload";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-texture-payload";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
 
@@ -63,7 +69,7 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     CHECK(textureFileCount == 1);
 
     // Resolved but no payload -- no uri, no textures/ directory created at all.
-    fs::path dirNoPayload = fs::temp_directory_path() / "husk-test-bundle-texture-no-payload";
+    fs::path dirNoPayload = husk::test::testRunDir() / "husk-test-bundle-texture-no-payload";
     fs::remove_all(dirNoPayload);
     canon::Model modelNoPayload = buildSyntheticModel();
     canon::TextureRef resolvedNoPayload;
@@ -107,7 +113,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     bothPayloads.rawPayload = dds;
     model.materials[0].layers[0].texture = bothPayloads;
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-texture-rawpayload";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
 
@@ -126,7 +132,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     // payload-only (no rawPayload) -- falls back to writing the .png
     // variant (e.g. a source that was never a compressed BLP, or one where
     // DDS extraction declined).
-    fs::path dirPngOnly = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload-fallback";
+    fs::path dirPngOnly = husk::test::testRunDir() / "husk-test-bundle-texture-rawpayload-fallback";
     fs::remove_all(dirPngOnly);
     canon::Model modelPngOnly = buildSyntheticModel();
     canon::TextureRef pngOnly;
@@ -148,7 +154,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
 
     // Neither present -- no uri, no textures/ directory, same as the
     // existing no-payload case above.
-    fs::path dirNeither = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload-neither";
+    fs::path dirNeither = husk::test::testRunDir() / "husk-test-bundle-texture-rawpayload-neither";
     fs::remove_all(dirNeither);
     canon::Model modelNeither = buildSyntheticModel();
     canon::TextureRef neither;
@@ -171,7 +177,7 @@ TEST_CASE("writeBundle: a material's framebuffer blend is written by name, and o
     unknown.ref.id = canon::RecordIndex{1};
     unknown.framebufferBlend.reset();
     model.materials.push_back(unknown);
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-framebuffer-blend";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-framebuffer-blend";
     fs::remove_all(dir);
 
     writers::writeBundle(model, dir, testProvenance());
@@ -194,13 +200,21 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     model.particleColorOptions.push_back(
         {canon::Ref{canon::Db2Row{"ParticleColor", 5}, "", canon::NameSource::None},
          {{{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}}}});
+    canon::Appearance body;
+    body.key = "c30;";
+    body.textures.push_back({1, 0});
+    body.shownGeosets = std::vector<uint32_t>{0, 203};
+    body.particleColors = 0;
+    body.opacity = 0.5f;
+    body.unresolved.push_back({"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, 404.0, std::nullopt});
     canon::Preset preset;
+    preset.key = "c30;/xb123;";
+    preset.appearance = 0;
     preset.textures.push_back({0, 0});
-    preset.shownGeosets = std::vector<uint32_t>{0, 203};
-    preset.particleColors = 0;
-    preset.opacity = 0.5f;
+    preset.bakeCovers = {1};
     canon::Definition customization;
     customization.chrModelId = 45;
+    customization.chrModelName = "Human male";
     canon::Option hair;
     hair.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "Hair Style", canon::NameSource::Db2};
     hair.category = canon::Category{canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None}, 0};
@@ -210,16 +224,15 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     hair.choices = {longHair};
     customization.options = {hair};
     model.customization = {customization};
-    model.items = {{canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9000}, "", canon::NameSource::None}, {}, {}, {}},
-                   {canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9011}, "", canon::NameSource::None}, {}, {}, {}}};
-    preset.customization.push_back({0, 0});
-    preset.items.push_back({"head", 0, 0});
-    preset.items.push_back({std::nullopt, 11, 1});
+    canon::garments::NpcGarments npcGarments({}, model.garments);
+    preset.garments = npcGarments.wear({{9000, 0, std::string("head"), nullptr}, {9011, 11, std::nullopt, nullptr}});
+    body.customization.push_back({0, 0});
+    model.appearances.push_back(body);
     preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1.5f, 2});
     preset.unresolved.push_back({"TextureVariationFileDataID[3]", canon::UnresolvedField::Kind::Id, 99.0, std::nullopt});
     model.presets.push_back(preset);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-options";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-options";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -234,23 +247,57 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(definition["particle_colors"][0]["ramps"][0]["mid"] == nlohmann::json::array({0.0, 1.0, 0.0, 1.0}));
     CHECK(manifest["resources"]["materials"][0]["layers"][0]["slot"] == 0);
     const auto& p = manifest["selection"]["presets"][0];
+    CHECK(p["id"] == husk::nameUuid("preset/" + writers::identityKey(model.subject) + "/c30;/xb123;"));
     CHECK(p["textures"][0]["slot"] == 0);
     CHECK(p["textures"][0]["option"] == 0);
-    CHECK(p["shown_geosets"] == nlohmann::json::array({0, 203}));
-    CHECK(p["particle_colors"] == 0);
-    CHECK(p["opacity"] == 0.5);
-    CHECK(p["customization"][0]["option"] == 0);
-    CHECK(p["customization"][0]["choice"] == 0);
+    const nlohmann::json* garmentsRef = nullptr;
+    for (const auto& r : manifest["references"]) {
+        if (r["kind"] == "garments") garmentsRef = &r;
+    }
+    REQUIRE(garmentsRef);
+    const auto& garments = (*garmentsRef)["document"];
+    REQUIRE(garments["garments"].size() == 2);
+    CHECK(p["textures"][0]["covers_garments"] == nlohmann::json::array({garments["garments"][1]["id"]}));
+    // The body is the inline appearances document's entry the preset names.
+    const nlohmann::json* reference = nullptr;
+    for (const auto& r : manifest["references"]) {
+        if (r["kind"] == "appearances") reference = &r;
+    }
+    REQUIRE(reference);
+    CHECK((*reference)["asset"]["name"] == "appearances");
+    CHECK_FALSE((*reference)["asset"].contains("uri"));
+    const auto& list = (*reference)["document"];
+    CHECK(list["kind"] == "appearances");
+    CHECK(list["references"].empty());
+    REQUIRE(list["appearances"].size() == 1);
+    const auto& a = list["appearances"][0];
+    CHECK(a["id"] == husk::nameUuid("appearance/" + writers::identityKey(model.subject) + "/c30;"));
+    CHECK(p["appearance"] == a["id"]);
+    CHECK_FALSE(a.contains("model"));
+    CHECK(a["textures"][0]["slot"] == 1);
+    CHECK(a["shown_geosets"] == nlohmann::json::parse(R"([{"group": 0, "variant": 0}, {"group": 2, "variant": 3}])"));
+    CHECK(a["particle_colors"] == 0);
+    CHECK(a["opacity"] == 0.5);
+    CHECK(a["customization"][0]["option"] == 0);
+    CHECK(a["customization"][0]["choice"] == 0);
+    CHECK(a["unresolved"]["fields"][0]["value"] == 404);
     const auto& option = definition["customization"]["options"][0];
     CHECK(option["ref"]["name"] == "Hair Style");
-    CHECK(option["chr_model"]["id"]["row"] == 45);
+    CHECK(option["body"]["id"]["row"] == 45);
+    CHECK(option["body"]["name"] == "Human male");
+    CHECK(option["body"]["name_source"] == "db2");
     CHECK(option["choices"][0]["ref"]["id"]["row"] == 30);
-    CHECK(option["choices"][0]["geoset_id"] == 203);
-    CHECK(p["items"][0]["slot"] == "head");
-    CHECK(p["items"][1]["item"] == 1);
-    CHECK(definition["items"][1]["ref"]["id"]["row"] == 9011);
-    CHECK_FALSE(p["items"][1].contains("slot"));
-    CHECK(p["items"][1]["source"]["item_slot"] == 11);
+    CHECK(option["choices"][0]["geoset"] == nlohmann::json{{"group", 2}, {"variant", 3}});
+    CHECK(option["choices"][0]["source"]["geoset"] == 203);
+    CHECK(p["garments"] == nlohmann::json::array({garments["garments"][0]["id"], garments["garments"][1]["id"]}));
+    CHECK(garments["garments"][0]["kind"] == "helm");
+    CHECK(garments["garments"][0]["layer"] == "over");
+    const auto& sources = garments["items"];
+    CHECK(sources[0]["source"]["slot"] == "head");
+    CHECK(sources[1]["ref"]["id"]["row"] == 9011);
+    CHECK_FALSE(sources[1]["source"].contains("slot"));
+    CHECK(sources[1]["source"]["item_slot"] == 11);
+    CHECK(sources[1]["garments"] == nlohmann::json::array({garments["garments"][1]["id"]}));
     CHECK(p["sources"][0]["ref"]["id"]["row"] == 7);
     CHECK(p["sources"][0]["scale"] == 1.5);
     CHECK(p["sources"][0]["base_scale"] == 2);
@@ -291,18 +338,26 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
     model.customization = {customization};
     model.choiceCorrectionSets = {{{0, 0}, 0}};
 
-    canon::ItemEntry item;
-    item.ref = canon::Ref{canon::Db2Row{"ItemModifiedAppearance", 15}, "", canon::NameSource::None};
-    item.models.push_back({canon::Ref{canon::FileDataId{148132}, "", canon::NameSource::None}, "items/148132.bundle/manifest.json"});
-    item.textures.push_back({2, unresolvedTexture(700)});
-    item.overlays.push_back({3, unresolvedTexture(701)});
-    model.items = {item};
+    canon::Item item;
+    item.identity = canon::Ref{canon::Db2Row{"ItemModifiedAppearance", 15}, "", canon::NameSource::None};
+    item.slots = {"MAIN_HAND"};
+    canon::GeometryComponent geometry;
+    geometry.models.push_back({0, 148132, 148132u, ""});
+    geometry.models.push_back({1, 148133, std::nullopt, "files 1, 2 all fit race 0 gender 2"});
+    geometry.materials.push_back({2, 900, 700, 0, ""});
+    canon::SectionOverlayComponent overlay;
+    overlay.sections.push_back({3, 901, 701, ""});
+    item.components = {overlay, geometry};
+    canon::garments::Inputs inputs;
+    inputs.texture = [&](uint32_t fdid, const std::string&) { return unresolvedTexture(fdid); };
+    inputs.textureRole = [](uint32_t type) { return "type_" + std::to_string(type); };
+    inputs.modelUris = {{"items/148132.bundle/manifest.json", ""}};
     canon::Preset preset;
-    preset.items.push_back({"main_hand", std::nullopt, 0, "MAIN_HAND"});
+    preset.garments = canon::garments::fromGear({item}, inputs, model.garments);
     preset.sources.push_back({canon::Ref{canon::None{}, "husk-appearance/1 gear=MAIN_HAND:15", canon::NameSource::Synthesized}, 1, 1});
     model.presets.push_back(preset);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-sidecars";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-sidecars";
     fs::remove_all(dir);
     writers::writeBundle(buildSyntheticModel(), dir / "items" / "148132.bundle", testProvenance());
     writers::writeBundle(model, dir, testProvenance());
@@ -320,22 +375,36 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
     CHECK(manifest["resources"]["rig"]["correction_sets"][0]["corrections"][0]["matrix"].size() == 16);
     CHECK(manifest["definition"]["customization"]["options"][0]["choices"][0]["correction_set"] == 0);
 
-    const auto& i = manifest["definition"]["items"][0];
-    CHECK(i["models"][0]["uri"] == "items/148132.bundle/manifest.json");
-    CHECK(i["textures"][0]["texture_type"] == 2);
-    CHECK(i["overlays"][0]["component_section"] == 3);
+    const nlohmann::json* garmentsRef = nullptr;
     bool referenced = false;
-    for (const auto& r : manifest["references"]) referenced |= r["asset"].value("uri", "") == "items/148132.bundle/manifest.json";
+    for (const auto& r : manifest["references"]) {
+        referenced |= r["asset"].value("uri", "") == "items/148132.bundle/manifest.json";
+        if (r["kind"] == "garments") garmentsRef = &r;
+    }
     CHECK(referenced);
-    const auto& pi = manifest["selection"]["presets"][0]["items"][0];
-    CHECK(pi["slot"] == "main_hand");
-    CHECK(pi["source"]["slot_token"] == "MAIN_HAND");
-    CHECK_FALSE(pi["source"].contains("item_slot"));
+    REQUIRE(garmentsRef);
+    const auto& doc = (*garmentsRef)["document"];
+    REQUIRE(doc["garments"].size() == 1);
+    const auto& weapon = doc["garments"][0];
+    CHECK(weapon["kind"] == "weapon");
+    const auto& pieces = weapon["pieces"];
+    REQUIRE(pieces.size() == 3);
+    CHECK(pieces[0]["overlay"]["region"] == "torso_upper");
+    CHECK(pieces[0]["source"]["section_type"] == 3);
+    CHECK(pieces[1]["attached"]["point"] == "hand_right");
+    CHECK(pieces[1]["attached"]["model"]["uri"] == "items/148132.bundle/manifest.json");
+    CHECK(pieces[1]["attached"]["textures"][0]["source"]["texture_type"] == 2);
+    CHECK(pieces[1]["source"]["model_position"] == 0);
+    CHECK(pieces[2]["attached"]["unresolved_reason"] == "files 1, 2 all fit race 0 gender 2");
+    CHECK(manifest["selection"]["presets"][0]["garments"] == nlohmann::json::array({weapon["id"]}));
+    CHECK(doc["items"][0]["source"]["slot"] == "main_hand");
+    CHECK(doc["items"][0]["source"]["slot_token"] == "MAIN_HAND");
+    CHECK_FALSE(doc["items"][0]["source"].contains("item_slot"));
 }
 
 TEST_CASE("writeBundle: a model without options writes no texture_slots, particle_colors or presets") {
     canon::Model model = buildSyntheticModel();
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-no-options";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-no-options";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -363,7 +432,7 @@ TEST_CASE("externalizeTextures: payloads go to the shared store once; the model 
     set.set.instances = {wmoinput::particulateInstance(v, {{101, skin}}, {"MPVD", 0})};
     model.placementSets = {set};
 
-    fs::path root = fs::temp_directory_path() / "husk-test-texture-store";
+    fs::path root = husk::test::testRunDir() / "husk-test-texture-store";
     fs::remove_all(root);
     fs::create_directories(root / "textures");
     writers::TextureStore store(root / "textures");
@@ -413,16 +482,16 @@ TEST_CASE("writeBundle: material documents beside the model; a slot's composite 
     faceTexture.resolved.id = canon::FileDataId{1700};
     model.choiceTextures.push_back({{0, 0}, 0, "target_4", faceTexture, canon::CustomizationPick{0, 0}});
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-materials";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-materials";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);  // follows the material reference too
     const auto& ref = manifest["references"][0];
     CHECK(ref["kind"] == "material");
     CHECK(ref["asset"]["uri"] == "materials/0.json");
-    CHECK(manifest["definition"]["texture_slots"][0]["composite"] == 0);
+    CHECK(manifest["definition"]["texture_slots"][0]["composite"] == ref["id"]);
     const auto& bound = manifest["definition"]["customization"]["options"][0]["choices"][0]["textures"][0];
-    CHECK(bound["material"] == 0);
+    CHECK(bound["material"] == ref["id"]);
     CHECK(bound["input"] == "target_4");
     CHECK(bound["only_with"]["option"] == 0);
     CHECK(textureAt(manifest, bound["texture"])["identity"]["id"]["value"] == 1700);
@@ -456,12 +525,41 @@ TEST_CASE("validateDocument: a choice binding an input its material doesn't decl
     canon::TextureRef texture;
     model.choiceTextures.push_back({{0, 0}, 0, "target_9", texture, std::nullopt});
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-material-bad-input";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-material-bad-input";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
     REQUIRE(problems.size() == 1);
     CHECK(problems[0].message.find("target_9") != std::string::npos);
+}
+
+TEST_CASE("validateDocument: a preset's appearance must be in the appearances list, and fit the model's options") {
+    canon::Model model = buildSyntheticModel();
+    canon::Appearance body;
+    body.key = "t0:1;";
+    body.textures.push_back({0, 0});  // the model has no texture slots
+    model.appearances.push_back(body);
+    canon::Preset preset;
+    preset.key = "t0:1;/";
+    preset.appearance = 0;
+    preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1, 1});
+    model.presets.push_back(preset);
+
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-appearance-range";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, testProvenance());
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].message.find("texture_slots") != std::string::npos);
+
+    std::ifstream in(dir / "manifest.json");
+    nlohmann::json manifest = nlohmann::json::parse(in);
+    in.close();
+    manifest["selection"]["presets"][0]["appearance"] = "00000000-0000-0000-0000-000000000000";
+    std::ofstream(dir / "manifest.json") << manifest.dump();
+    problems = bundle_schema::validateDocument(dir);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].message.find("appearances reference") != std::string::npos);
 }
 
 TEST_CASE("writeBundle: layers sampling alike share one uv map; others get their own") {
@@ -473,7 +571,7 @@ TEST_CASE("writeBundle: layers sampling alike share one uv map; others get their
     environment.uv = canon::EnvironmentMapped{};
     model.materials[0].layers = {same, same, scrolled, environment};
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-uv-maps";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-uv-maps";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);

@@ -24,6 +24,7 @@
 #include <string>
 #include <tiny_gltf.h>
 
+#include "test_temp.hpp"
 #include "m2.hpp"
 #include "m2_shader_names.hpp"
 #include "run_husk.hpp"
@@ -53,7 +54,7 @@ using husk::test::testTexturesDir;
 // A fresh bundle directory under the temp dir; any previous run's output
 // is removed so a stale manifest can't satisfy a check.
 fs::path freshBundleDir(const std::string& name) {
-    fs::path dir = fs::temp_directory_path() / (name + ".bundle");
+    fs::path dir = husk::test::testRunDir() / (name + ".bundle");
     fs::remove_all(dir);
     return dir;
 }
@@ -212,7 +213,7 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a schema
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
     fs::path dir = freshBundleDir("husk-test-export");
-    auto glbPath = (fs::temp_directory_path() / "husk-test-export-lean.glb").string();
+    auto glbPath = (husk::test::testRunDir() / "husk-test-export-lean.glb").string();
     fs::remove(glbPath);
 
     auto result = runHusk("export \"" + m2Path + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() +
@@ -631,12 +632,13 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
             if (!primitiveIndexOOR) primitiveIndexOOR = where;
             continue;
         }
-        if (!primitives[pi].contains("material_index") ||
-            primitives[pi]["material_index"].get<size_t>() >= materials.size()) {
+        auto found = std::find_if(materials.begin(), materials.end(),
+                                  [&](const auto& m) { return primitives[pi].contains("material") && m["id"] == primitives[pi]["material"]; });
+        if (found == materials.end()) {
             if (!materialIndexMismatch) materialIndexMismatch = where + ": " + primitives[pi].dump();
             continue;
         }
-        const auto& material = materials[primitives[pi]["material_index"].get<size_t>()];
+        const auto& material = *found;
         const auto& layers = material["layers"];
         if (layers.size() != b.textureCount) {
             if (!layerCountMismatch) {

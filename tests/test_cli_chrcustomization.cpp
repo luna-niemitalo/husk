@@ -65,8 +65,8 @@ nlohmann::json choiceAt(const nlohmann::json& manifest, uint32_t choiceId) {
     return manifest.at("definition").at("customization").at("options").at(o).at("choices").at(c);
 }
 
-nlohmann::json textureFileDataId(const nlohmann::json& manifest, const nlohmann::json& index) {
-    nlohmann::json texture = textureAt(manifest, index);
+nlohmann::json textureFileDataId(const nlohmann::json& manifest, const nlohmann::json& id) {
+    nlohmann::json texture = textureAt(manifest, id);
     INFO(texture.dump());
     return texture["identity"]["id"]["value"];
 }
@@ -98,9 +98,11 @@ TEST_CASE("husk export --db2-dir/--dbd-dir: a choice's geoset and its --bones-di
 
     nlohmann::json narrow = choiceAt(m, 7);
     CHECK(narrow["correction_set"] == 0);
-    CHECK_FALSE(narrow.contains("geoset_id"));
+    CHECK_FALSE(narrow.contains("geoset"));
+    CHECK_FALSE(narrow.contains("source"));
     nlohmann::json wide = choiceAt(m, 9);
-    CHECK(wide["geoset_id"] == 103);
+    CHECK(wide["geoset"] == nlohmann::json{{"group", 1}, {"variant", 3}});
+    CHECK(wide["source"]["geoset"] == 103);
     CHECK_FALSE(wide.contains("correction_set"));
 
     fs::remove_all(dir);

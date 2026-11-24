@@ -10,7 +10,7 @@
 // writer_common.hpp and tinygltf.
 //
 // Deliberate scope cut, stated once here rather than at each omission site:
-// no extras of any kind are ever written (no geoset_id, no
+// no extras of any kind are ever written (no geoset, no
 // bone_correction_sets, no chr_texture_layout, ...) -- that data belongs to
 // the model bundle instead. What doesn't fit a real core glTF field is left
 // out, not smuggled back in via extras.

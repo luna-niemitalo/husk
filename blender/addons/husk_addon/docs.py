@@ -5,13 +5,23 @@ else works on numpy arrays and plain dicts.
 """
 import json
 import os
+import uuid
 
 import numpy as np
+
+# Duplicate of the namespace in src/uuid.cpp: ids made here and by the
+# exporter come from the same space.
+HUSK_UUID_NAMESPACE = uuid.UUID("6f0f3a52-8d1c-4b7e-9a42-5c3e1d7b2f10")
 
 # The schema version every document the addon writes conforms to; its
 # counterpart is writeContractHeader in src/writers/bundle_common.cpp. Older
 # documents are read as long as nothing they lack is needed.
-SCHEMA_VERSION = "0.3.0"
+SCHEMA_VERSION = "0.4.0"
+
+
+def schema_id(kind):
+    """The `$schema` a document of `kind` carries: its schema's `$id` (schema/<kind>.schema.json)."""
+    return "https://husk.invalid/schema/%s.schema.json" % kind
 
 SPACE = {
     "length_unit": "yard",
@@ -93,6 +103,85 @@ def absolute_uris(value, doc_dir):
     if isinstance(value, list):
         return [absolute_uris(v, doc_dir) for v in value]
     return value
+
+
+def identity_key(ref):
+    """Mirror of identityKey in src/writers/bundle_common.cpp: the stable-id
+    key of an asset ref's identity (BUNDLE_FORMAT.md "Stable ids")."""
+    ident = ref["id"]
+    kind = ident["kind"]
+    if kind == "file_data_id":
+        return "file_data_id/%d" % ident["value"]
+    if kind == "db2_row":
+        return "db2_row/%s/%d" % (ident["table"], ident["row"])
+    if kind == "record_index":
+        key = "record_index/%d" % ident["value"]
+        return key + "/name/" + ref["name"] if ref.get("name") else key
+    if not ref.get("name"):
+        raise FormatError("%r has neither identity nor name, so no stable id" % (ref,))
+    return "name/" + ref["name"]
+
+
+def reference_id(kind, asset):
+    """A reference's stable id; stableId/referenceId in src/writers/bundle_common.hpp."""
+    return str(uuid.uuid3(HUSK_UUID_NAMESPACE, kind + "/" + identity_key(asset)))
+
+
+def reference(kind, asset, **more):
+    """A references[] entry for `asset`, carrying its id."""
+    return dict({"id": reference_id(kind, asset), "kind": kind, "asset": asset}, **more)
+
+
+def by_id(entries):
+    """Array entries keyed by their stable id, for the pointers that name them."""
+    return {e["id"]: e for e in entries}
+
+
+def references_by_id(doc):
+    """A document's references keyed by id: everything points at them by id."""
+    return by_id(doc["references"])
+
+
+def list_document(doc, doc_dir, kind):
+    """The document `doc`'s one reference of `kind` (appearances,
+    animation_fallbacks) holds, inline (`document`) or as its own file
+    (`asset.uri`, a tree's shared list); None without such a reference or
+    for an identity-only one (BUNDLE_FORMAT.md "Appearances")."""
+    refs = [r for r in doc["references"] if r["kind"] == kind]
+    if not refs:
+        return None
+    # IN, critical: a second list would leave which one holds an entry undecided.
+    if len(refs) > 1:
+        raise FormatError("expected at most one %s reference, got %d" % (kind, len(refs)))
+    ref = refs[0]
+    if "document" in ref:
+        return ref["document"]
+    if "uri" not in ref["asset"]:
+        return None
+    path = os.path.normpath(os.path.join(doc_dir, ref["asset"]["uri"]))
+    # IN, critical: a shared list the tree doesn't hold is a broken tree, not an absent list.
+    if not os.path.exists(path):
+        raise FormatError("expected the %s document at %s, got no such file" % (kind, path))
+    return load(path)
+
+
+def fallback_animation(table, wanted, clips):
+    """The animation a model plays for `wanted`: itself when `clips` (identity
+    keys of the model's clip animations) holds it, else the first of its
+    fallback chain that does; None when the chain ends without one or comes
+    back to where it started (the source's behaviour there is unknown).
+    `table`: an animation_fallbacks document; `wanted`: an animation ref
+    (REFACTOR/ANIMATION.md "Fallbacks")."""
+    following = {identity_key(f["animation"]): identity_key(f["fallback"]) for f in table["fallbacks"]}
+    otherwise = identity_key(table["otherwise"])
+    key = identity_key(wanted)
+    seen = set()
+    while key not in clips:
+        if key in seen:
+            return None
+        seen.add(key)
+        key = following.get(key, otherwise)
+    return key
 
 
 def relative_uris(value, doc_dir):

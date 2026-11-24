@@ -60,6 +60,11 @@ canon::Skeleton assembleSkeleton(const std::vector<m2::Bone>& bones) {
         j.parent = b.parentBone;
         j.globalPosition = {b.pivot.x, b.pivot.y, b.pivot.z};
         j.billboard = toBillboardMode(b.flags);
+        j.inherit.translation = (b.flags & m2::BoneFlag::kIgnoreParentTranslate) == 0;
+        j.inherit.rotation = (b.flags & m2::BoneFlag::kIgnoreParentRotation) == 0;
+        j.inherit.scale = (b.flags & m2::BoneFlag::kIgnoreParentScale) == 0;
+        j.physicsDriven = (b.flags & m2::BoneFlag::kPhysicsDriven) != 0;
+        j.sourceFlags = b.flags;
         if (const char* name = m2::keyBoneName(b.keyBoneId)) {
             j.ref = canon::boneRef(static_cast<uint32_t>(i), name, canon::NameSource::M2Embedded);
         } else {

@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 
+#include "test_temp.hpp"
 #include "bundle_schema.hpp"
 #include "test_data_paths.hpp"
 
@@ -20,6 +21,7 @@
 
 #include "run_husk.hpp"
 #include "test_adt_fixtures.hpp"
+#include "test_bundle_read.hpp"
 
 using husk::test::runHusk;
 using namespace adtfx;
@@ -45,7 +47,7 @@ nlohmann::json readPlacements(const fs::path& setFile) {
     REQUIRE(in.good());
     nlohmann::json set = nlohmann::json::parse(in);
     nlohmann::json instances = set["instances"];
-    for (auto& instance : instances) instance["asset"] = set["references"][instance["reference"].get<size_t>()]["asset"];
+    for (auto& instance : instances) instance["asset"] = referenceById(set, instance["reference"])["asset"];
     return instances;
 }
 
@@ -79,7 +81,7 @@ struct Corpus {
 };
 
 Corpus makeCorpus(const std::string& name) {
-    Corpus c{fs::temp_directory_path() / ("husk-cli-terrain-" + name)};
+    Corpus c{husk::test::testRunDir() / ("husk-cli-terrain-" + name)};
     fs::remove_all(c.root);
 
     writeBytes(c.mapDir() / "azeroth.wdt", wdtFile(0x4));
@@ -120,7 +122,7 @@ std::vector<uint8_t> fogsFile() {
 
 // Tile ground texture i's diffuse entry, from the tile's resources.textures.
 nlohmann::json groundDiffuse(const nlohmann::json& tile, size_t i) {
-    return tile["resources"]["textures"][tile["resources"]["terrain"]["textures"][i]["diffuse"].get<size_t>()];
+    return textureAt(tile, tile["resources"]["terrain"]["textures"][i]["diffuse"]);
 }
 
 }  // namespace
@@ -156,11 +158,13 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
     REQUIRE(mapObjects.size() == 1);
     CHECK(mapObjects[0]["asset"]["name"] == "inn");
     CHECK(mapObjects[0]["selection"]["placement_sets"][0] == 0);
+    CHECK(mapObjects[0]["selection"]["name_set"] == 0);
+    CHECK_FALSE(doodads[0]["selection"].contains("name_set"));
 }
 
 TEST_CASE("husk export-terrain: a real tile's _lod.adt bands become terrain levels 1..4, finest first" *
           doctest::skip(!fs::exists(fs::path(husk::test::testAdtTile()).replace_filename("azeroth_32_49_lod.adt")))) {
-    fs::path out = fs::temp_directory_path() / "husk_terrain_lod" / "out.bundle";
+    fs::path out = husk::test::testRunDir() / "husk_terrain_lod" / "out.bundle";
     fs::remove_all(out);
     auto r = runHusk("export-terrain --config /dev/null " + q(husk::test::testAdtTile()) + " " + q(out));
     INFO(r.output);
@@ -484,12 +488,12 @@ TEST_CASE("husk export-map: a map's tiles and _fogs.wdt become a world document;
     double size = m["grid"]["cell_size"].get<double>();
     CHECK(cell["bounds_max"][0].get<double>() == doctest::Approx(m["grid"]["origin"][0].get<double>() - 48 * size));
     CHECK(cell["bounds_min"][1].get<double>() == doctest::Approx(m["grid"]["origin"][1].get<double>() - 33 * size));
-    const nlohmann::json& tile = m["references"][cell["tile"].get<size_t>()];
+    const nlohmann::json& tile = referenceById(m, cell["tile"]);
     CHECK(tile["asset"]["name"] == "azeroth_32_48");
     CHECK_FALSE(tile["asset"].contains("uri"));
     // The map's fog is an effect instance in the world's "fogs" set.
     REQUIRE(m["placements"].size() == 1);
-    CHECK(m["references"][m["placements"][0].get<size_t>()]["asset"]["name"] == "fogs");
+    CHECK(referenceById(m, m["placements"][0])["asset"]["name"] == "fogs");
     nlohmann::json fogs = readTile(out / "sets" / "0.json");
     CHECK(fogs["instances"][0]["id"] == 1659);
     bool modeCarried = false;
@@ -510,7 +514,7 @@ TEST_CASE("husk export-map: a map without terrain places its WDT's one WMO off t
     WdtSpec spec;
     spec.flags = 0x1;
     spec.tiles = {};
-    spec.mapObject = MapObjectSpec{109782, 3, {kMapHalfExtent - 100.0f, 25.0f, kMapHalfExtent - 200.0f}, {}, 0x8, 1};
+    spec.mapObject = MapObjectSpec{109782, 3, {kMapHalfExtent - 100.0f, 25.0f, kMapHalfExtent - 200.0f}, {}, 0x8, 1, 2};
     fs::path mapDir = c.root / "world" / "maps" / "dungeon";
     writeBytes(mapDir / "dungeon.wdt", wdtFile(spec));
     fs::path out = c.root / "dungeon.world.bundle";
@@ -521,13 +525,14 @@ TEST_CASE("husk export-map: a map without terrain places its WDT's one WMO off t
     nlohmann::json m = readTile(out / "manifest.json");
     CHECK(m["grid"]["cells"].empty());
     REQUIRE(m["placements"].size() == 1);
-    const nlohmann::json& set = m["references"][m["placements"][0].get<size_t>()];
+    const nlohmann::json& set = referenceById(m, m["placements"][0]);
     CHECK(set["kind"] == "placement_set");
     nlohmann::json instances = readPlacements(out / set["asset"]["uri"].get<std::string>());
     REQUIRE(instances.size() == 1);
     CHECK(instances[0]["asset"]["id"]["value"] == 109782);
     CHECK(instances[0]["translation"][0].get<double>() == doctest::Approx(200.0));
     CHECK(instances[0]["selection"]["placement_sets"] == nlohmann::json::array({1}));
+    CHECK(instances[0]["selection"]["name_set"] == 2);
 
     WdtSpec terrain;
     terrain.tiles = {};
@@ -600,4 +605,83 @@ TEST_CASE("husk export-world: a source tree that is gone stops the run instead o
     CHECK(r.exitCode == 3);  // kExitSourceGone: export-corpus waits and resumes on it
     CHECK(r.output.find("expected the source tree") != std::string::npos);
     CHECK(r.output.find("got none (unmounted?)") != std::string::npos);
+}
+
+namespace {
+
+constexpr const char* kLiveMaps = "/media/luna/wow_export/live/world/maps";
+constexpr const char* kLiveDb2Dir = "/media/luna/wow_export/live/dbfilesclient";
+
+bool haveLiveMap(const char* map) {
+    return fs::exists(fs::path(kLiveMaps) / map / (std::string(map) + ".wdt")) &&
+           fs::exists(fs::path(kLiveDb2Dir) / "map.db2") && !husk::test::testDbdDir().empty();
+}
+
+std::string liveDb2Args() { return " --db2-dir " + q(kLiveDb2Dir) + " --dbd-dir " + q(husk::test::testDbdDir()); }
+
+}  // namespace
+
+TEST_CASE("husk export-map: live moltencore names its Map row, kind and area" * doctest::skip(!haveLiveMap("moltencore"))) {
+    fs::path out = husk::test::testRunDir() / "husk-test-live-moltencore.world.bundle";
+    fs::remove_all(out);
+    auto r = runHusk("export-map " + q(fs::path(kLiveMaps) / "moltencore") + " " + q(out) + " --listfile none" +
+                     liveDb2Args());
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    nlohmann::json map = readTile(out / "manifest.json")["map"];
+    CHECK(map["ref"]["id"]["row"] == 409);
+    CHECK(map["ref"]["name"] == "Molten Core");
+    CHECK(map["source"]["directory"] == "MoltenCore");
+    CHECK(map["instance_type_name"] == "raid");
+    CHECK(map["max_players"] == 40);
+    CHECK(map["area"]["id"]["row"] == 2717);
+    CHECK(map["area"]["name"] == "Molten Core");
+    CHECK_FALSE(map.contains("parent"));
+}
+
+TEST_CASE("husk export-wmo: live Northshire Abbey's parts name the abbey under both its name sets" *
+          doctest::skip(!haveLiveMap("deadminesinstance") ||
+                        !fs::exists("/media/luna/wow_export/live/world/wmo/azeroth/buildings/nsabbey/nsabbey.wmo"))) {
+    fs::path out = husk::test::testRunDir() / "husk-test-live-nsabbey.bundle";
+    fs::remove_all(out);
+    auto r = runHusk("export-wmo /media/luna/wow_export/live/world/wmo/azeroth/buildings/nsabbey/nsabbey.wmo " + q(out) +
+                     " --listfile none" + liveDb2Args());
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    nlohmann::json parts = readTile(out / "manifest.json")["resources"]["geometry"]["mesh"]["parts"];
+    REQUIRE_FALSE(parts.empty());
+    // Part 0 has its own row under four name sets: the same building is
+    // Northshire Abbey in Elwynn and Tyr's Hand elsewhere.
+    const nlohmann::json& areas = parts[0]["areas"];
+    INFO(areas.dump());
+    REQUIRE(areas.size() == 4);
+    CHECK(areas[0]["name_set"] == 0);
+    CHECK(areas[0]["ref"]["id"]["row"] == 13748);
+    CHECK(areas[0]["ref"]["name"] == "Main Hall");
+    CHECK(areas[0]["whole_model"] == false);
+    CHECK_FALSE(areas[0].contains("area"));
+    CHECK(areas[1]["name_set"] == 1);
+    CHECK(areas[1]["area"]["id"]["row"] == 24);
+    CHECK(areas[1]["area"]["name"] == "Northshire Abbey");
+    CHECK(areas[2]["name_set"] == 2);
+    CHECK(areas[2]["area"]["name"] == "Tyr's Hand");
+}
+
+TEST_CASE("husk export-terrain: a live tile names its map"* doctest::skip(!haveLiveMap("deadminesinstance"))) {
+    fs::path out = husk::test::testRunDir() / "husk-test-live-deadmines_32_32.bundle";
+    fs::remove_all(out);
+    auto r = runHusk("export-terrain " + q(fs::path(kLiveMaps) / "deadminesinstance" / "deadminesinstance_32_32.adt") +
+                     " " + q(out) + " --listfile none" + liveDb2Args());
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    nlohmann::json m = readTile(out / "manifest.json");
+    nlohmann::json map = m["definition"]["terrain"]["map"];
+    CHECK(map["id"]["row"] == 36);
+    CHECK(map["name"] == "Deadmines");
+    const nlohmann::json& areas = m["resources"]["terrain"]["chunks"]["areas"];
+    REQUIRE_FALSE(areas.empty());
+    for (const nlohmann::json& area : areas) {
+        if (area["id"]["row"] == 0) continue;
+        CHECK(area["name_source"] == "db2");
+    }
 }

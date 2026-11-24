@@ -28,6 +28,7 @@
 #include <tiny_gltf.h>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "m2.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_fixtures.hpp"
@@ -168,8 +169,8 @@ TEST_CASE("husk export: bind-pose vertex bounds, in the bundle and in the lean p
           "inside the M2 header's own declared bounding box" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-conformance-bbox.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-conformance-bbox.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-conformance-bbox.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-conformance-bbox.glb";
     exportWithGlb(m2Path, "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
 
     // The header's bounding_box is NOT a tight fit around the bind-pose
@@ -222,8 +223,8 @@ TEST_CASE("husk export: bind-pose vertex bounds, in the bundle and in the lean p
 TEST_CASE("husk export --glb: real M2 + .skin produces a lean glb the Khronos glTF-Validator "
           "accepts with zero errors" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-conformance.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-conformance.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-conformance.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-conformance.glb";
     exportWithGlb(testM2(), "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
 
     // -a: print every issue message (not just errors), so a failure shows
@@ -253,8 +254,8 @@ TEST_CASE("husk export --glb: real M2 + .skin produces a lean glb the Khronos gl
 TEST_CASE("husk export --glb: a real multi-root-bone-forest weapon produces a lean glb the Khronos "
           "glTF-Validator accepts with zero errors" *
           doctest::skip(testWeaponParticleB().empty())) {
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-conformance-multiroot.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-conformance-multiroot.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-conformance-multiroot.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-conformance-multiroot.glb";
     exportWithGlb(testWeaponParticleB(), "", bundleDir, glbPath);
 
     auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + glbPath.string() + "\"");
@@ -278,8 +279,8 @@ TEST_CASE("husk export --glb: real M2 + .skin imports into Blender (headless) wi
           "header's collision mesh" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-blender.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-blender.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-blender.glb";
     exportWithGlb(m2Path, "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
     tinygltf::Model model = loadGlb(glbPath);
     REQUIRE(model.skins.size() == 1);
@@ -341,8 +342,8 @@ TEST_CASE("husk export --glb: a real multi-root-bone-forest weapon imports into 
     // parentBone == -1).
     REQUIRE(countRealRootBones(m2Path) > 1);
 
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender-multiroot.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-blender-multiroot.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-blender-multiroot.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-blender-multiroot.glb";
     exportWithGlb(m2Path, "", bundleDir, glbPath);
     tinygltf::Model model = loadGlb(glbPath);
     REQUIRE(model.skins.size() == 1);
@@ -415,7 +416,7 @@ TEST_CASE("writers::writeLeanGlb: a synthetic axis-probe skeleton's M2-local +X/
     model.materials = {material};
     model.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
 
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-axis-probe.glb";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-axis-probe.glb";
     fs::remove(glbPath);
     writers::writeLeanGlb(model, glbPath);
 
@@ -466,8 +467,8 @@ TEST_CASE("writers::writeLeanGlb: a synthetic axis-probe skeleton's M2-local +X/
 TEST_CASE("husk export --glb: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
           "the armature origin in Blender, not below it" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-landmark-probe.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-landmark-probe.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-landmark-probe.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-landmark-probe.glb";
     exportWithGlb(testM2(), "--skin \"" + testSkin() + "\"", bundleDir, glbPath);
 
     // This fixture is expected to have a real "_Name" bone -- if a fixture
@@ -510,8 +511,8 @@ TEST_CASE("husk export --glb: real M2 + .skin -- a real head-height key bone (\"
 TEST_CASE("husk export --glb: a real quadruped creature (wolf.m2) produces a lean glb the Khronos "
           "glTF-Validator accepts with zero errors" *
           doctest::skip(testQuadrupedM2().empty() || testQuadrupedSkin().empty())) {
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-quadruped.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-quadruped.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-quadruped.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-quadruped.glb";
     exportWithGlb(testQuadrupedM2(), "--skin \"" + testQuadrupedSkin() + "\"", bundleDir, glbPath);
 
     auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + glbPath.string() + "\"");
@@ -534,8 +535,8 @@ TEST_CASE("husk export --glb: a real quadruped creature (wolf.m2) imports into B
           "with bone/vertex counts matching tinygltf's reading and the M2 header" *
           doctest::skip(testQuadrupedM2().empty() || testQuadrupedSkin().empty())) {
     std::string m2Path = testQuadrupedM2();
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-quadruped-blender.bundle";
-    fs::path glbPath = fs::temp_directory_path() / "husk-test-quadruped-blender.glb";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-quadruped-blender.bundle";
+    fs::path glbPath = husk::test::testRunDir() / "husk-test-quadruped-blender.glb";
     exportWithGlb(m2Path, "--skin \"" + testQuadrupedSkin() + "\"", bundleDir, glbPath);
     tinygltf::Model model = loadGlb(glbPath);
     REQUIRE(model.skins.size() == 1);
@@ -571,7 +572,7 @@ TEST_CASE("husk export: the bundle's mesh/skeleton import into Blender -- with n
           "all -- matching the M2 header's own vertex/bone counts" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender-bundle.bundle";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-blender-bundle.bundle";
     fs::remove_all(bundleDir);
 
     auto exportResult =
@@ -615,7 +616,7 @@ TEST_CASE("husk export: the bundle's materials/textures import into Blender -- w
           "involved at all -- matching the manifest's own material and resolved-texture counts, "
           "with real decoded pixels" *
           doctest::skip(testFoxM2().empty() || testFoxSkin().empty())) {
-    fs::path bundleDir = fs::temp_directory_path() / "husk-test-blender-bundle-mat.bundle";
+    fs::path bundleDir = husk::test::testRunDir() / "husk-test-blender-bundle-mat.bundle";
     fs::remove_all(bundleDir);
 
     auto exportResult =

@@ -1,0 +1,212 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/appearances.schema.json",
+  "title": "appearances",
+  "description": "Bodies that model presets point at: each appearance is the choices that make a body (customization, a creature display's texture variations, geosets, particle colours, opacity), without what it wears. Inline in one model's appearances reference it lists that model's appearances; as a tree's shared list it lists every model's, each naming its model.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/appearances.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "appearances",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.4.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The list; it has no identity of its own.",
+      "x-layer": "contract",
+      "x-source": [{"format": true}]
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "A list defines nothing beyond its entries.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "definition",
+      "x-source": [{"format": true}]
+    },
+    "selection": {
+      "type": "object",
+      "description": "A list selects nothing.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
+    },
+    "references": {
+      "type": "array",
+      "description": "The models the entries belong to, each once. Empty in an inline list: its entries belong to the model embedding it.",
+      "x-source": [{"format": true}],
+      "items": {
+        "type": "object",
+        "description": "One model.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "This reference's stable id, the same as the model's reference id in any other document."
+          },
+          "kind": {
+            "const": "model",
+            "description": "Kind of the referenced document."
+          },
+          "asset": {
+            "$ref": "common.schema.json#/definitions/asset_ref",
+            "description": "The model, with the uri of its document."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "asset"
+        ],
+        "additionalProperties": false
+      },
+      "x-layer": "contract"
+    },
+    "appearances": {
+      "type": "array",
+      "description": "The appearances, each once. Their indices index the definition of the model whose presets point at them.",
+      "items": {
+        "type": "object",
+        "description": "One body.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "Stable id from the model's identity and the source values that make the body (REFACTOR/BUNDLE_FORMAT.md \"Appearances\"); presets point at it.",
+            "x-source": [{"format": true}]
+          },
+          "model": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "The id of the model reference whose definition the indices index. Absent in an inline list: the model embedding it.",
+            "x-id-in": "/references",
+            "x-source": [{"format": true}]
+          },
+          "textures": {
+            "type": "array",
+            "description": "A creature display's texture variations; a slot not listed keeps the layer's texture.",
+            "x-source": [{"table": "CreatureDisplayInfo", "column": "TextureVariationFileDataID"}],
+            "items": {
+              "type": "object",
+              "description": "One choice.",
+              "properties": {
+                "slot": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Index into the model's definition.texture_slots."
+                },
+                "option": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Index into the slot's options."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "slot",
+                "option"
+              ]
+            }
+          },
+          "shown_geosets": {
+            "type": "array",
+            "description": "Mesh geosets the body shows, as a creature display chooses them; every other geoset is hidden. Absent: the body doesn't choose geosets. Never gear-driven: geosets an item shows or hides (a robe skirt, boots) belong to the item, so a garment swap never changes the appearance.",
+            "x-source": [{"table": "CreatureDisplayInfoGeosetData", "column": "GeosetValue"}, {"file": "skin"}],
+            "items": {
+              "$ref": "common.schema.json#/definitions/geoset",
+              "description": "A geoset."
+            }
+          },
+          "particle_colors": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Index into the model's definition.particle_colors.",
+            "x-source": [{"table": "CreatureDisplayInfo", "column": "ParticleColorID"}]
+          },
+          "opacity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Whole-model opacity; absent: opaque.",
+            "x-unit": "1",
+            "x-source": [{"table": "CreatureDisplayInfo", "column": "CreatureModelAlpha"}]
+          },
+          "customization": {
+            "type": "array",
+            "description": "Customization choices the body makes: a humanoid NPC's, or the choices an `--appearance` file names (rule appearance_file).",
+            "x-source": [{"table": "CreatureDisplayInfoOption", "column": "ChrCustomizationChoiceID"}, {"derived": "appearance_file"}],
+            "items": {
+              "type": "object",
+              "description": "One choice.",
+              "properties": {
+                "option": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Index into the model's definition.customization.options."
+                },
+                "choice": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Index into that option's choices."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "option",
+                "choice"
+              ]
+            }
+          },
+          "unresolved": {
+            "$ref": "common.schema.json#/definitions/unresolved",
+            "description": "Body values the source names but husk can't place in an option (a choice from another model's catalog, an unknown particle colour).",
+            "x-source": [{"table": "CreatureDisplayInfoOption", "column": "ChrCustomizationChoiceID"}, {"table": "CreatureDisplayInfo", "column": "ParticleColorID"}, {"derived": "appearance_file"}]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ]
+      },
+      "x-layer": "resource"
+    }
+  },
+  "required": [
+    "$schema",
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "appearances"
+  ],
+  "additionalProperties": false
+}

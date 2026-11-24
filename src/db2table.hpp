@@ -66,7 +66,8 @@ using StringColumnValues = std::vector<std::optional<std::string>>;
 // requested column that isn't a real inline field at all (the file's own
 // ID column, a non-inline relation column, or simply unresolved) comes
 // back all-nullopt for that column, same "partial result over total
-// failure" convention as readNamedColumns.
+// failure" convention as readNamedColumns. It is reported on `err` only when
+// the layout declares the column; a column the layout lacks is silent.
 std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
     const std::string& path, const std::string& dbdDir, const std::vector<std::string>& columnNames,
     std::ostream& err);

@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
@@ -215,9 +217,23 @@ int exportTerrain(int argc, char** args) {
                                       lodSidecar.value ? &*lodSidecar.value : nullptr,
                                       obj1Sidecar.value ? &*obj1Sidecar.value : nullptr, tileTextures.mapTexture,
                                       tileTextures.mapNormalTexture, tileTextures.liquidFlow};
+        std::optional<areadb::Data> areas;
+        {
+            std::string note;
+            areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
+            announce(note);
+        }
         canon::Terrain terrain = adtinput::buildCanonTerrain(
-            sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
+            sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr,
+                      areas ? &*areas : nullptr});
         if (listfile) nameModelRefs(terrain, *listfile);
+        std::optional<mapdb::Data> maps;
+        {
+            std::string note;
+            maps = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
+            announce(note);
+        }
+        if (auto ref = mapRef(tile.map, maps ? &*maps : nullptr)) terrain.map = *ref;
 
         if (opts.listModels) {
             for (uint32_t fdid : referencedModels(terrain)) {
@@ -243,7 +259,8 @@ int exportTerrain(int argc, char** args) {
         writers::writeTerrainBundle(terrain, opts.output,
                                     terrainProvenance(obj.has_value(), tex.has_value(), lodSidecar.value.has_value(),
                                                       obj1Sidecar.value.has_value(), wdtFlags.has_value(), listfile.get(), listfilePath,
-                                                      !groundEffects.empty(), liquids.has_value(), surfaces.has_value()),
+                                                      !groundEffects.empty(), liquids.has_value(), surfaces.has_value(),
+                                                      maps.has_value(), areas.has_value()),
                                     modelUris);
         std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, "
                   << terrain.lod.levels.size() << " coarser levels, " << terrain.textures.size()
@@ -286,8 +303,18 @@ int exportWmo(int argc, char** args) {
         std::string surfaceNote;
         std::optional<surfacedb::Data> surfaces = loadSurfaces(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), surfaceNote);
         announce(surfaceNote);
+        std::string wmoAreaNote;
+        std::optional<wmoareadb::Data> wmoAreas = loadWmoAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), wmoAreaNote);
+        announce(wmoAreaNote);
+        std::optional<areadb::Data> areas;
+        if (wmoAreas) {
+            std::string areaNote;
+            areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), areaNote);
+            announce(areaNote);
+        }
         canon::Model model = loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot,
-                                          liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr, warn);
+                                          liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr,
+                                          wmoAreas ? &*wmoAreas : nullptr, areas ? &*areas : nullptr, warn);
 
         writers::AssetUris modelUris;
         if (!opts.modelsDir.empty()) {
@@ -300,7 +327,9 @@ int exportWmo(int argc, char** args) {
                 }
             }
         }
-        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath, liquids.has_value(), surfaces.has_value()), modelUris);
+        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath, liquids.has_value(), surfaces.has_value(),
+                                                                    wmoAreas.has_value()),
+                            modelUris);
         size_t instances = 0;
         for (const auto& owned : model.placementSets) instances += owned.set.instances.size();
         std::cout << "wrote " << opts.output << ": " << model.mesh.parts.size() << " parts, "
@@ -341,9 +370,81 @@ int validateBundle(int argc, char** args) {
     }
     for (const bundle_schema::Problem& p : problems) std::cout << p.where << ": " << p.message << "\n";
     for (const bundle_schema::Problem& p : warnings) std::cout << p.where << ": warning: " << p.message << "\n";
+    // Without kSourceRequired the gaps are the annotation pass's worklist,
+    // apart from the warnings --release fails on.
+    if (opts.lintSchema && !bundle_schema::kSourceRequired) {
+        std::map<std::string, size_t> perFile;
+        for (const bundle_schema::Problem& p : bundle_schema::sourceGaps()) {
+            std::cout << p.where << ": warning: " << p.message << "\n";
+            ++perFile[p.where.substr(0, p.where.find('#'))];
+        }
+        for (const auto& [file, count] : perFile) std::cout << file << ": " << count << " leaf properties without x-source\n";
+    }
     std::cout << documents << " documents checked, " << problems.size() << " problems, " << warnings.size()
               << " warnings" << (opts.release && !warnings.empty() ? " (--release: warnings fail)" : "") << "\n";
     return problems.empty() && (!opts.release || warnings.empty()) ? 0 : 1;
+}
+
+void addGarmentsCheckOptions(CLI::App& app, GarmentsCheckOptions& opts) {
+    app.add_option("bundle", opts.bundle, "a model bundle directory or its manifest")->required();
+    app.add_option("--preset", opts.preset, "only this preset's conflicts (its id)");
+}
+
+int garmentsCheck(int argc, char** args) {
+    CLI::App app{"husk garments-check -- conflicts among the garments a model's presets wear, and kind deviations",
+                 "husk garments-check"};
+    GarmentsCheckOptions opts;
+    addGarmentsCheckOptions(app, opts);
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
+    std::vector<bundle_schema::GarmentFinding> findings;
+    try {
+        findings = bundle_schema::checkGarments(opts.bundle, opts.preset);
+    } catch (const std::exception& e) {
+        std::cerr << "husk: garments-check: " << e.what() << "\n";
+        return 2;
+    }
+    size_t conflicts = 0;
+    size_t known = 0;
+    size_t unexpected = 0;
+    for (const bundle_schema::GarmentFinding& f : findings) {
+        if (f.kind == bundle_schema::GarmentFinding::Kind::Conflict) {
+            ++conflicts;
+            std::cout << "conflict in preset " << f.preset << ": " << f.message << "\n";
+            for (const std::string& id : f.garments) std::cout << "  garment " << id << "\n";
+        } else if (f.kind == bundle_schema::GarmentFinding::Kind::KnownDeviation) {
+            ++known;
+            std::cout << "known deviation: " << f.message << "\n";
+        } else {
+            ++unexpected;
+            std::cout << "unexpected deviation: " << f.message << "\n";
+        }
+    }
+    std::cout << conflicts << " conflicts, " << known << " known deviations, " << unexpected
+              << " unexpected deviations\n";
+    return conflicts == 0 ? 0 : 1;
+}
+
+void addSchemaDocOptions(CLI::App& app, SchemaDocOptions& opts) {
+    app.add_option("-o,--output", opts.output, "write the Markdown to this file instead of stdout");
+}
+
+int schemaDoc(int argc, char** args) {
+    CLI::App app{"husk schema-doc -- every document value the bundle format defines, as one Markdown file", "husk schema-doc"};
+    SchemaDocOptions opts;
+    addSchemaDocOptions(app, opts);
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
+    std::string markdown = bundle_schema::schemaDoc();
+    if (opts.output.empty()) {
+        std::cout << markdown;
+        return 0;
+    }
+    std::ofstream out(opts.output, std::ios::binary);
+    out << markdown;
+    if (!out) {
+        std::cerr << "husk: schema-doc: cannot write " << opts.output << "\n";
+        return 1;
+    }
+    return 0;
 }
 
 int exportMap(int argc, char** args) {
@@ -384,6 +485,10 @@ int exportMap(int argc, char** args) {
         canon::World world = loadWorld(mapDir, wdt, tiles, listfile.get(), unlessNone(opts.listfileRoot),
                                        lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
                                        areas ? &*areas : nullptr, std::max(1u, std::thread::hardware_concurrency()));
+        std::string mapNote;
+        std::optional<mapdb::Data> maps = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), mapNote);
+        std::cerr << "husk: note: " << mapNote << "\n";
+        world.map = mapInfo(map, maps ? &*maps : nullptr, areas ? &*areas : nullptr);
         if (world.cells.empty() && !placesModels(world.placements)) {
             throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() +
                                      " or a map-wide WMO in " + map + ".wdt, found neither");
@@ -403,7 +508,7 @@ int exportMap(int argc, char** args) {
         }
         writers::writeWorldBundle(world, opts.output,
                                   worldProvenance(mapDir, listfile.get(), listfilePath, lights.has_value(),
-                                                  conditions.has_value(), areas.has_value()),
+                                                  conditions.has_value(), areas.has_value(), maps.has_value()),
                                   tileUris);
         std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles (" << linked << " linked), "
                   << world.zones.size() << " zones, " << world.placements.size() << " off-grid placement sets\n";

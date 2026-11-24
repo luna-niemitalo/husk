@@ -104,15 +104,15 @@ TEST_CASE("husk export --chr-model-id <id>: the lowest-OrderIndex choice per opt
     INFO(options.dump());
     REQUIRE(options.size() == 2);
     CHECK(options[0]["ref"]["name"] == "Face");
-    CHECK(options[0]["chr_model"]["id"]["row"] == 42);
+    CHECK(options[0]["body"]["id"]["row"] == 42);
     REQUIRE(options[0]["choices"].size() == 2);
     CHECK(options[0]["choices"][0]["ref"]["name"] == "Short");
-    CHECK(options[0]["choices"][0]["geoset_id"] == 205);
+    CHECK(options[0]["choices"][0]["geoset"] == nlohmann::json{{"group", 2}, {"variant", 5}});
     CHECK(options[0]["choices"][1]["ref"]["name"] == "Long");
     CHECK(options[1]["ref"]["name"] == "Hair");
     REQUIRE(options[1]["choices"].size() == 1);
     CHECK(options[1]["choices"][0]["ref"]["name"] == "Braid");
-    CHECK(options[1]["choices"][0]["geoset_id"] == 301);
+    CHECK(options[1]["choices"][0]["geoset"] == nlohmann::json{{"group", 3}, {"variant", 1}});
 
     fs::remove_all(dir);
 }
@@ -249,9 +249,9 @@ TEST_CASE("husk export --chr-model-id auto: the FileDataID chain (via --listfile
     nlohmann::json options = m["definition"]["customization"]["options"];
     INFO(options.dump());
     REQUIRE(options.size() == 1);
-    CHECK(options[0]["chr_model"]["id"]["row"] == 127);
+    CHECK(options[0]["body"]["id"]["row"] == 127);
     CHECK(options[0]["choices"][0]["ref"]["name"] == "Short Fin");
-    CHECK(options[0]["choices"][0]["geoset_id"] == 205);
+    CHECK(options[0]["choices"][0]["geoset"] == nlohmann::json{{"group", 2}, {"variant", 5}});
 
     fs::remove_all(dir);
 }
@@ -304,7 +304,7 @@ TEST_CASE("husk export --db2-dir/--dbd-dir alone: 'auto' is --chr-model-id's def
     INFO(options.dump());
     REQUIRE(options.size() == 1);
     CHECK(options[0]["choices"][0]["ref"]["name"] == "Short Fin");
-    CHECK(options[0]["choices"][0]["geoset_id"] == 205);
+    CHECK(options[0]["choices"][0]["geoset"] == nlohmann::json{{"group", 2}, {"variant", 5}});
 
     fs::remove_all(dir);
 }

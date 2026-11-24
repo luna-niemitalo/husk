@@ -5,6 +5,9 @@
 
 #include <doctest/doctest.h>
 
+#include <cmath>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 
@@ -92,6 +95,16 @@ TEST_CASE("assembleEffects: weapon emitters become bone-anchored instances keepi
         checkSamePoint(instance.translation, model.bones[source.boneId].pivot);
         const canon::ParticleSystem& p = *instance.effect->style.at(0).blocks.at(0).particleSystem;
         CHECK(p.emissionRate.size() == sequencesWithKeys(model.blob, source.emissionRateTrackOffset, sequenceCount));
+        CHECK(p.gravity.size() == sequencesWithKeys(model.blob, source.gravityTrackOffset, sequenceCount));
+        for (const auto& curve : p.gravity) {
+            for (const auto& [time, g] : curve.keyframes) {
+                CHECK(std::isfinite(g.x));
+                CHECK(std::isfinite(g.y));
+                CHECK(std::isfinite(g.z));
+                // Real particle gravity stays well under 100 yd/s^2 (WIKI_FINDINGS/M2.md).
+                CHECK(std::sqrt(g.x * g.x + g.y * g.y + g.z * g.z) < 200.0f);
+            }
+        }
         CHECK(p.color.keyframes.size() == m2::resolveFBlockVec3(model.blob, source.colorTrackBlockOffset).size());
         CHECK(p.scale.keyframes.size() == m2::resolveFBlockVec2(model.blob, source.scaleTrackBlockOffset).size());
         size_t layers = m2input::particleTextureIndices(source).size();
@@ -119,6 +132,63 @@ TEST_CASE("assembleEffects: weapon emitters become bone-anchored instances keepi
     CHECK(modelEmitter.asset.name == "classic_m2_model_particle_emitter");
     REQUIRE(modelEmitter.effect->inputs.size() == 1);
     CHECK(std::get<canon::Ref>(modelEmitter.effect->inputs[0].value.value).name == "spells/ember.m2");
+}
+
+// Absent when the corpus mount is (development/REFERENCES.md).
+constexpr const char* kCompressedGravityM2 = "/media/luna/wow_export/live/spells/8fx_generic_water_impactlow_chest.m2";
+
+TEST_CASE("assembleEffects: a compressed-gravity emitter's packed keys decode to a downward vector" *
+          doctest::skip(!std::filesystem::exists(kCompressedGravityM2))) {
+    m2::Model model = m2::loadModel(readFile(kCompressedGravityM2));
+    REQUIRE(model.particleEmitters.size() > 2);
+    REQUIRE((model.particleEmitters[2].flags & m2::kParticleCompressedGravityFlag) != 0);
+
+    canon::PlacementSet effects =
+        m2input::assembleEffects(model, static_cast<uint32_t>(model.sequences.size()), {}, {});
+
+    // Raw key 00 00 15 fe: z -491, straight down at 491 * 0.04238648; as a
+    // float the same bits are -4.95e37.
+    const canon::ParticleSystem& p = *effects.instances[2].effect->style.at(0).blocks.at(0).particleSystem;
+    REQUIRE(!p.gravity.empty());
+    REQUIRE(!p.gravity[0].keyframes.empty());
+    const canon::Vec3& g = p.gravity[0].keyframes[0].second;
+    CHECK(g.x == 0.0f);
+    CHECK(g.y == 0.0f);
+    CHECK(g.z == doctest::Approx(-491 * 0.04238648f));
+}
+
+TEST_CASE("assembleEffects: a packed gravity key outside the unit disc is dropped, the rest kept" *
+          doctest::skip(!std::filesystem::exists(kCompressedGravityM2))) {
+    m2::Model model = m2::loadModel(readFile(kCompressedGravityM2));
+    REQUIRE(model.particleEmitters.size() > 2);
+    const uint32_t sequenceCount = static_cast<uint32_t>(model.sequences.size());
+    canon::PlacementSet beforeSet = m2input::assembleEffects(model, sequenceCount, {}, {});
+    const canon::ParticleSystem& before = *beforeSet.instances[2].effect->style.at(0).blocks.at(0).particleSystem;
+    REQUIRE(!before.gravity.empty());
+    const size_t keysBefore = before.gravity[0].keyframes.size();
+
+    // M2Track: values M2Array at +12 -> per-sequence M2Array {count, offset}
+    // -> the 4-byte keys. Overwrite the first sequence's first key.
+    auto u32At = [&](size_t off) {
+        uint32_t v;
+        std::memcpy(&v, model.blob.data() + off, sizeof(v));
+        return v;
+    };
+    const uint32_t trackOffset = model.particleEmitters[2].gravityTrackOffset;
+    uint32_t firstSequence = 0;
+    while (u32At(u32At(trackOffset + 16) + firstSequence * 8) == 0) ++firstSequence;
+    const uint32_t keyOffset = u32At(u32At(trackOffset + 16) + firstSequence * 8 + 4);
+    const uint32_t outOfDisc = 0x00018080u;  // x = y = -128
+    std::memcpy(model.blob.data() + keyOffset, &outOfDisc, sizeof(outOfDisc));
+
+    canon::PlacementSet afterSet = m2input::assembleEffects(model, sequenceCount, {}, {});
+    const canon::ParticleSystem& after = *afterSet.instances[2].effect->style.at(0).blocks.at(0).particleSystem;
+    if (keysBefore == 1) {
+        CHECK(after.gravity.size() == before.gravity.size() - 1);
+    } else {
+        REQUIRE(after.gravity.size() == before.gravity.size());
+        CHECK(after.gravity[0].keyframes.size() == keysBefore - 1);
+    }
 }
 
 TEST_CASE("assembleScene: lights resolve every animated property per sequence" *

@@ -54,6 +54,21 @@ Transcribed from the wiki only, never observed in the sample: `BDY2`,
 `BOXS`, `WLJ3`, `SHOJ` (0x6c)/`SHJ2`, `REV2`, `SPHJ`, `PRSJ`/`PRS2`,
 `DSTJ`. husk parses these too; their offsets are the wiki's, unverified.
 
+## Where current models keep physics, and what the bundle gets (12.1.5, 2026-11-24)
+
+In the 12.1.5 corpus most physics is inline: the model's `PFDC` chunk holds
+a whole `.phys` (version 6, `PHYT` 3; `husk dump-chunks` decodes it). 39 of
+263 cape object components, 2 of a 300-file world/spell sample and
+`creature/catmount/catmount.m2` carry `PFDC`; 2 arena flags carry `PFID`.
+The listfile still names 964 `.phys` paths, but `catmount.phys` (one of
+them) is not in the build: `catmount.m2` has `PFDC` instead.
+
+`husk export` writes `resources.physics` only from `--phys <path>` or a
+same-basename `.phys` beside the model. It reads neither `PFDC` nor the
+`PFID` FileDataID, so none of the models above gets physics in its bundle
+(checked: `catmount`'s bundle has no `physics`). Survey and cloth reading:
+`M2.md` "Cloth".
+
 ## Not resolved by this investigation
 
 What several `unk`-tagged fields actually mean (`SHOJ`'s `motorMode`,

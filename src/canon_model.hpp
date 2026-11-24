@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "canon_animation.hpp"  // BoneAnimationCurves
@@ -18,6 +19,7 @@
 #include "canon_scene.hpp"      // Scene
 #include "canon_skeleton.hpp"   // Skeleton
 #include "canon_options.hpp"    // TextureSlot, ParticleColorOption, Preset
+#include "canon_garment.hpp"    // Garments, BodyLayout
 
 // husk::canon: canon::Model, the whole-model composition root -- where
 // every canon:: piece (Skeleton, Mesh, Material, per-bone animation curves)
@@ -65,6 +67,25 @@ struct AnimationClip {
     SequenceRef sequence;
     std::vector<std::optional<BoneAnimationCurves>> boneCurves;
     std::optional<ClipInfo> info;
+    // Global-sequence clips: the loop's length (M2Loop), seconds, from the
+    // loop table the bones' tracks index (the .skel's for a .skel model).
+    std::optional<float> loopDuration;
+};
+
+// What plays when a requested animation has no clip: the source's one
+// table for all its models (WoW: AnimationData.Fallback, global to a client
+// build). Refs carry ClipInfo::animation's identity and naming.
+struct AnimationFallback {
+    Ref animation;
+    Ref fallback;
+};
+
+struct AnimationFallbacks {
+    Ref otherwise;  // what an animation without an entry falls back to
+    std::vector<AnimationFallback> entries;  // ordered by animation identity
+    // The tree's shared document, relative to the bundle; empty = written
+    // inline into the model's reference.
+    std::string uri;
 };
 
 // The whole model: one bind-pose skeleton, one flat mesh (positions +
@@ -91,6 +112,12 @@ struct Model {
     std::vector<Material> materials;
     std::vector<Identity> primitiveMaterials;  // one per mesh.primitives entry, see above
     std::vector<AnimationClip> animations;
+    // The model file's own global loops (M2Loop), seconds: what a material
+    // or scene curve's GlobalSequence index names.
+    std::vector<float> globalSequenceDurations;
+    // The source's one fallback table (REFACTOR/ANIMATION.md "Fallbacks");
+    // nullopt when it wasn't read or the model has no clips.
+    std::optional<AnimationFallbacks> animationFallbacks;
     Scene scene;  // attachments, events, lights, emitters
 
     // Placement sets this model owns (a WMO's doodad sets). An always-on set
@@ -122,14 +149,16 @@ struct Model {
     std::vector<TextureSlot> textureSlots;
     std::vector<ParticleColorOption> particleColorOptions;
     // A character model's customization: one catalog per ChrModel that
-    // draws the file, in ChrModelID order. Presets index their options as
+    // draws the file, in ChrModelID order. Appearances index their options as
     // one list, in that order.
     std::vector<Definition> customization;
     std::vector<ChoiceTexture> choiceTextures;
     std::vector<ChoiceCorrectionSet> choiceCorrectionSets;
     // Materials described as documents of their own (REFACTOR/MATERIALS.md).
     std::vector<MaterialDocument> materialDocuments;
-    std::vector<ItemEntry> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
+    Garments garments;  // what the model can wear; written as its garments document, inline
+    std::optional<BodyLayout> bodyLayout;  // the composite's regions; nullopt = the layout isn't known
+    std::vector<Appearance> appearances;  // the bodies presets point at, each once
     std::vector<Preset> presets;
 };
 

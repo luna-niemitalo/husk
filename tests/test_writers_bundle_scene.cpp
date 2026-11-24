@@ -5,7 +5,10 @@
 
 #include <doctest/doctest.h>
 
+#include "test_temp.hpp"
+#include "area_db2.hpp"
 #include "test_bundle_fixtures.hpp"
+#include "uuid.hpp"
 
 TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with inline and lifetime curves") {
     canon::Model model = buildSyntheticModel();
@@ -30,6 +33,11 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
                      {"frames", {int64_t{4}}}};
     canon::ParticleSystem system;
     system.headCell.keyframes = {{0, 4}, {32767, 9}};
+    canon::Curve<canon::Vec3> gravity;
+    gravity.sequence = canon::SequenceRef::sequence(0);
+    gravity.interpolation = canon::Interpolation::Linear;
+    gravity.keyframes = {{0.0f, canon::Vec3{0.0f, -0.5f, -9.5f}}};
+    system.gravity.push_back(gravity);
     canon::StyleBlock style;
     style.particleSystem = system;
     effect.style = {{"particles", {style}}};
@@ -42,7 +50,7 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     effects.inlineDocument = true;
     model.placementSets = {effects};
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-scene";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-scene";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -77,6 +85,9 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     const auto& written = p["style"]["particles"]["particle_system"];
     CHECK(written["head_cell"] == nlohmann::json::array({{0, 4}, {32767, 9}}));
     CHECK(written["emission_rate"].empty());
+    REQUIRE(written["gravity"].size() == 1);
+    CHECK(written["gravity"][0]["keyframes"][0] == nlohmann::json::array({0.0, {0.0, -0.5, -9.5}}));
+    CHECK(bundle_schema::validateDocument(dir).empty());
 }
 
 TEST_CASE("writeBundle: local lights write their optional blocks only when present") {
@@ -102,8 +113,10 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     spot.origin = {"MNLD", 4};
     model.scene.localLights = {spot, omni};
     model.placementSets.resize(2);
+    model.placementSets[0].set.ref = canon::Ref{canon::RecordIndex{0}, "Set_A", canon::NameSource::WmoEmbedded};
+    model.placementSets[1].set.ref = canon::Ref{canon::RecordIndex{1}, "Set_B", canon::NameSource::WmoEmbedded};
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-local-lights";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-local-lights";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -119,7 +132,9 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     CHECK(s["cone"]["outer_angle"] == 1.5);
     CHECK(s["flicker"]["mode"] == 2);
     CHECK(s["casts_shadows"] == true);
-    CHECK(manifest["resources"]["textures"][s["cookie"].get<size_t>()]["identity"]["id"]["value"] == 9001);
+    CHECK(textureAt(manifest, s["cookie"])["identity"]["id"]["value"] == 9001);
+    CHECK(s["id"].is_string());
+    CHECK(s["id"] != lights[1]["id"]);
     CHECK(s["placement_set"] == 1);
     CHECK(s["source"]["flags"] == "0x3");
     CHECK(s["source"]["record"]["table"] == "MNLD");
@@ -160,7 +175,7 @@ TEST_CASE("writeBundle: a particulate instance writes its emitter images into th
     set.alwaysOn = true;
     set.set.instances = {instance};
     model.placementSets = {set};
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-particulate";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-particulate";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);  // validates the set against the effect too
@@ -203,7 +218,7 @@ TEST_CASE("writeBundle: an ambient box instance writes list and record inputs an
     set.alwaysOn = true;
     set.set.instances = {box};
     model.placementSets = {set};
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-ambient";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-ambient";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     parseManifest(dir);  // validates the set's inputs against the effect too
@@ -242,15 +257,15 @@ TEST_CASE("writeBundle: fog instances in an owned set, the effects they place, a
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0, {}, {},
                                 {canon::InstanceRef{0, 7}}});
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{1}, "", canon::NameSource::None}, 0, {}, {}, {}});
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-fogs";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-fogs";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
 
     CHECK(manifest["resources"]["scene"]["default_fog"] == nlohmann::json({{"set", 0}, {"id", 7}}));
     const auto& parts = manifest["resources"]["geometry"]["mesh"]["parts"];
-    CHECK(parts[0]["fog_volumes"] == nlohmann::json::array({{{"set", 0}, {"id", 7}}}));
-    CHECK_FALSE(parts[1].contains("fog_volumes"));
+    CHECK(parts[0]["interior_fogs"] == nlohmann::json::array({{{"set", 0}, {"id", 7}}}));
+    CHECK_FALSE(parts[1].contains("interior_fogs"));
 
     nlohmann::json setDoc = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     CHECK(setDoc["references"][0]["kind"] == "effect");
@@ -298,7 +313,7 @@ TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets wit
     in.assetNames.emplace(1728356, "fogvolume_sphere");
     world.placements = mapinput::buildMapEffects(in);
 
-    fs::path root = fs::temp_directory_path() / "husk-test-world";
+    fs::path root = husk::test::testRunDir() / "husk-test-world";
     fs::remove_all(root);
     fs::create_directories(root / "azeroth_32_49.bundle");
     std::ofstream(root / "azeroth_32_49.bundle" / "manifest.json") << "{}";
@@ -322,15 +337,15 @@ TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets wit
     CHECK(grid["cells"][0]["i"] == 32);
     CHECK(grid["cells"][0]["j"] == 49);
     CHECK(grid["cells"][0]["bounds_max"][2] == 90.0);
-    const auto& tile = manifest["references"][grid["cells"][0]["tile"].get<size_t>()];
+    const auto& tile = referenceById(manifest, grid["cells"][0]["tile"]);
     CHECK(tile["kind"] == "model");
     CHECK(tile["asset"]["uri"] == "../azeroth_32_49.bundle/manifest.json");
     CHECK_FALSE(manifest["references"][1]["asset"].contains("uri"));
 
-    // The off-grid sets follow the tiles: fogs, then particulate volumes.
+    // The off-grid sets: fogs, then particulate volumes.
     REQUIRE(manifest["placements"].size() == 2);
-    CHECK(manifest["references"][2]["asset"]["name"] == "fogs");
-    CHECK(manifest["references"][3]["asset"]["name"] == "particulate_volumes");
+    CHECK(referenceById(manifest, manifest["placements"][0])["asset"]["name"] == "fogs");
+    CHECK(referenceById(manifest, manifest["placements"][1])["asset"]["name"] == "particulate_volumes");
     nlohmann::json fogSet = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     const auto& f = fogSet["instances"][0];
     CHECK(f["id"] == 1659);
@@ -360,9 +375,10 @@ TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id"
     northshire.ref = canon::Ref{canon::Db2Row{"AreaTable", 9}, "Northshire", canon::NameSource::Db2};
     northshire.parent = 0;
     northshire.cells.push_back({32, 49, 0.5f});
+    northshire.sourceFlags = canon::ZoneFlags{{0x40000040, 0x80}, 0x1, areadb::flagNames({0x40000040, 0x80}, 0x1)};
     world.zones = {elwynn, northshire};
 
-    fs::path root = fs::temp_directory_path() / "husk-test-world-zones";
+    fs::path root = husk::test::testRunDir() / "husk-test-world-zones";
     fs::remove_all(root);
     fs::path dir = root / "azeroth.world.bundle";
     writers::writeWorldBundle(world, dir, testProvenance(), {""});
@@ -373,6 +389,18 @@ TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id"
     CHECK(zones[0]["id"] == nameUuid("zone/azeroth/AreaTable/12"));
     CHECK_FALSE(zones[0].contains("parent"));
     CHECK(zones[1]["parent"] == zones[0]["id"]);
+    CHECK_FALSE(zones[0]["source"].contains("flags"));
+    CHECK(zones[1]["source"]["flags"] == nlohmann::json::array({"0x40000040", "0x80"}));
+    CHECK(zones[1]["source"]["mount_flags"] == "0x1");
+    CHECK(zones[1]["source"]["flag_names"] ==
+          nlohmann::json::array({"AllowDueling", "IsSubzone", "NotExplorable", "AllowGroundMounts"}));
+    CHECK(bundle_schema::validateDocument(dir).empty());
+
+    // mount_flags and flag_names come with flags, never alone.
+    nlohmann::json partial = manifest;
+    partial["zones"][1]["source"].erase("flags");
+    std::ofstream(dir / "manifest.json") << partial.dump();
+    CHECK_FALSE(bundle_schema::validateDocument(dir).empty());
 
     // A parent that names no zone's id fails validation, wherever it sits in the array.
     manifest["zones"][1]["parent"] = nameUuid("zone/azeroth/AreaTable/999");
@@ -380,6 +408,46 @@ TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id"
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
     REQUIRE_FALSE(problems.empty());
     CHECK(problems[0].where.find("/zones/1/parent") != std::string::npos);
+}
+
+TEST_CASE("writeWorldBundle: the map block names the Map row, its parents and area; absent without one") {
+    canon::World world;
+    world.subject = canon::Ref{canon::FileDataId{775971}, "gilneasphase1", canon::NameSource::Listfile};
+    world.cells.push_back({32, 49, canon::Ref{canon::None{}, "gilneasphase1_32_49", canon::NameSource::Listfile}, {}, {}});
+    fs::path root = husk::test::testRunDir() / "husk-test-world-map";
+    fs::remove_all(root);
+    writers::writeWorldBundle(world, root / "none.bundle", testProvenance(), {""});
+    CHECK_FALSE(parseManifest(root / "none.bundle").contains("map"));
+
+    canon::MapInfo map;
+    map.ref = canon::Ref{canon::Db2Row{"Map", 655}, "GilneasPhase1", canon::NameSource::Db2};
+    map.directory = "GilneasPhase1";
+    map.instanceType = 0;
+    map.instanceTypeName = "none";
+    map.mapType = 1;
+    map.expansion = 3;
+    map.parent = canon::Ref{canon::Db2Row{"Map", 654}, "Gilneas", canon::NameSource::Db2};
+    map.area = canon::Ref{canon::Db2Row{"AreaTable", 4714}, "Gilneas", canon::NameSource::Db2};
+    world.map = map;
+    fs::path dir = root / "gilneasphase1.world.bundle";
+    writers::writeWorldBundle(world, dir, testProvenance(), {""});
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& out = manifest["map"];
+    CHECK(out["ref"]["id"]["table"] == "Map");
+    CHECK(out["ref"]["id"]["row"] == 655);
+    CHECK(out["ref"]["name"] == "GilneasPhase1");
+    CHECK(out["source"]["directory"] == "GilneasPhase1");
+    CHECK(out["instance_type_name"] == "none");
+    CHECK(out["expansion"] == 3);
+    CHECK(out["max_players"] == 0);
+    CHECK(out["parent"]["name"] == "Gilneas");
+    CHECK_FALSE(out.contains("cosmetic_parent"));
+    CHECK(out["area"]["id"]["table"] == "AreaTable");
+    CHECK(bundle_schema::validateDocument(dir).empty());
+
+    manifest["map"]["instance_type_name"] = "scenario";
+    std::ofstream(dir / "manifest.json") << manifest.dump();
+    CHECK_FALSE(bundle_schema::validateDocument(dir).empty());
 }
 
 TEST_CASE("nameUuid: deterministic version-3 UUID text") {
@@ -392,7 +460,7 @@ TEST_CASE("nameUuid: deterministic version-3 UUID text") {
     CHECK(std::string("89ab").find(a[19]) != std::string::npos);
 }
 
-TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set written once") {
+TEST_CASE("writeWorldBundle: zone lights index the set's light_conditions, each written once") {
     canon::World world;
     world.subject = canon::Ref{canon::FileDataId{775971}, "azeroth", canon::NameSource::Listfile};
     lightdb::Data lights;
@@ -408,6 +476,9 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     lightdb::Key noon;
     noon.time = 1440;
     noon.directColor = 0x01FF8000u;
+    noon.fogDensity = 9;
+    noon.fogHeightScaler = 0.5f;
+    noon.fogHeightDensity = 2;
     noon.colorGradingFileDataId = 1140733;
     noon.field_12_0_0_63854_043 = 1;
     lights.keysByParams[12] = {noon};
@@ -429,7 +500,7 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     in.textures.emplace(1140733, lut);
     world.placements = mapinput::buildMapEffects(in);
 
-    fs::path root = fs::temp_directory_path() / "husk-test-world-lights";
+    fs::path root = husk::test::testRunDir() / "husk-test-world-lights";
     fs::remove_all(root);
     fs::create_directories(root / "deathskybox.bundle");
     std::ofstream(root / "deathskybox.bundle" / "manifest.json") << "{}";
@@ -441,19 +512,27 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     nlohmann::json set = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     CHECK(set["subject"]["name"] == "zone_lights");
     REQUIRE(set["instances"].size() == 2);
-    CHECK(set["instances"][1]["style"]["light"]["zone_light"] == nlohmann::json{{"clear", 0}, {"clear_underwater", 0}});
-    const auto& table = set["resources"]["light_params"];
+    const auto& table = set["resources"]["light_conditions"];
     REQUIRE(table.size() == 1);
+    CHECK(set["instances"][1]["style"]["light"]["zone_light"] ==
+          nlohmann::json{{"clear", table[0]["id"]}, {"clear_underwater", table[0]["id"]}});
+    CHECK(table[0]["id"] == husk::nameUuid("light_condition/db2_row/LightParams/" + table[0]["ref"]["id"]["row"].dump()));
     const auto& settings = table[0]["settings"];
     CHECK(settings["hide_sun"] == true);
     CHECK(settings["skybox"]["model"]["uri"] == "../../deathskybox.bundle/manifest.json");
     CHECK(settings["skybox"]["source"]["flags"] == "0x2");
+    CHECK(settings["skybox"]["ref"]["name"] == "ENVIRONMENTS\\Stars\\DeathSkybox.mdx");
+    CHECK(settings["skybox"]["ref"]["name_source"] == "db2");
     CHECK_FALSE(settings.contains("unresolved"));
     const auto& key = table[0]["keys"][0];
     CHECK(key["time"] == 43200.0);
     CHECK(key["direct_color"][0].get<double>() == doctest::Approx(1.0));
     CHECK(key["unresolved"]["fields"][0]["field"] == "LightData DirectColor high byte");
-    const auto& texture = set["resources"]["textures"][key["color_grading"].get<size_t>()];
+    CHECK(key["fog"]["extinction"].get<double>() == doctest::Approx(0.0045));
+    CHECK(key["fog"]["height_extinction"].get<double>() == doctest::Approx(0.001));
+    CHECK(key["fog"]["source"] == nlohmann::json{{"density", 9.0}, {"height_density", 2.0}});
+    CHECK_FALSE(key["fog"].contains("density"));
+    const auto& texture = textureAt(set, key["color_grading"]);
     CHECK(texture["identity"]["name"] == "colorgrading_identity");
     CHECK(fs::exists(dir / "effects" / "classic_zone_light.json"));
     CHECK(fs::exists(dir / "effects" / "classic_zone_light_global.json"));

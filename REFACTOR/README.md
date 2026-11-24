@@ -13,7 +13,7 @@ glTF is `export --glb`, a lean projection of the bundle.
 |---|---|---|
 | 1–2. parsing, resolution | Built: `m2::Model`, `sources::Catalog` (texture and skin resolution under `src/sources/`), `husk resolve` | The attributed before/after diff on the four fixtures is not recorded |
 | 3. `canon::` | Built and format-free in its assembly (`m2input::`, `m2_*_input.*` hold the M2 side) | `canon_policy.*` still sits in `husk::canon` taking `m2::` types. The whole-corpus structural gate against the legacy pipeline never ran, and can't now: that pipeline is deleted |
-| 4. writers | The bundle writer is the output of `export`, `export-terrain`, `export-wmo`, `export-map`, `export-world` and `export-corpus`; six document kinds defined by `schema/` and checked by `validate-bundle`; textures DDS in a shared store. `--glb` writes the lean projection. Retiring the glTF pipeline: done (bdec5ce..1e4b766) | — |
+| 4. writers | The bundle writer is the output of `export`, `export-terrain`, `export-wmo`, `export-map`, `export-world`, `export-corpus` and `export-creatures`; seven document kinds defined by `schema/` and checked by `validate-bundle`; textures DDS in a shared store. `--glb` writes the lean projection. Retiring the glTF pipeline: done (bdec5ce..1e4b766) | — |
 | 5. Blender addon | `tests/bundle_import_check.py` reads mesh, skeleton and base-colour materials | The packaged addon; options, presets, material documents, animation, geosets |
 | 6. CLI, structured output, corpus tasks | Grouped options and generated completions/flag tables for the newer commands; one argument parser and one `--config` for all | Most `tools/corpus_scan_tasks/` still parse text; the input/output module registry stays deferred until a second format exists |
 
@@ -22,7 +22,7 @@ sets (`PLACEMENT_SETS.md`), effects (`EFFECTS.md`, Phases 2–4; classification
 open), creature options and presets and character customization
 (`BUNDLE_FORMAT.md` "Options and presets"), material documents
 (`MATERIALS.md`), and the corpus store with its mount (`CORPUS_EXPORT.md`).
-The format is at schema_version 0.3.0 (`schema/*.schema.json`).
+The format is at schema_version 0.4.0 (`schema/*.schema.json`).
 
 `src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
 (as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never
@@ -246,6 +246,7 @@ drifting implementations into one exposes *why* things look wrong today.
 | `EFFECTS.md` | Fog, volumes and particles in the canonical format: effects as behaviours with inputs, instances that place them, world content vs classic style, a literal tier now and per-item classification later, an evidence ladder for unknown fields, and the implementation plan | Phases 2–4 built; Phase 5 classification open |
 | `CORPUS_EXPORT.md` | A full canonical export of a game build: the tree, a content-addressed store versioned like casc-tool's (`/media/luna/work/canonical_storage`), mounted by `husk mount` at `/media/luna/canonical_export` | Built; first full run in progress |
 | `MATERIALS.md` | Material documents: surface layers and composite textures with named blend functions; character skin composites first | Slice 1 built |
+| `ANIMATION.md` | Consumer guide to the model bundle's clips: AnimationData ids, variations, inline/external/alias sequences, global sequences, LODs, picking walk/run/death | Reference doc, not a stage |
 | `CHARACTER_RENDERING.md` | Map of what a game-identical character render needs (old/HD bodies, customization, composite, shading, items, bones, lighting): source of truth, husk/bundle/MantleCore state and evidence status per layer, ranked ways to close the unknowns | Research map (2026-11-09); ordered work list in §11 |
 | `MANTLECORE_MIGRATION.md` | What MantleCore must change to read the current format | Scratch; delete once MantleCore has migrated |
 | `SIMULATION.md` | Living creatures and NPCs: navmeshes per body type, affordances, temperature, species, individuals, the decision layer | Proposal; reference folded in (tiers, density); planner open |

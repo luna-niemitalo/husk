@@ -25,6 +25,10 @@ namespace husk::corpus {
 
 namespace {
 
+// The preset column held positions before 0.4.0; the new header name
+// makes an index built by an older husk fail at its first line.
+const std::string kCreatureDisplaysHeader = "display\tmodel\tpreset_id";
+
 // Only selection and definition: a model's resources (a character's rig
 // is ~100 MB of JSON) would cost memory on every worker for nothing.
 json readIndexedParts(const fs::path& manifest) {
@@ -45,23 +49,22 @@ std::optional<uint32_t> db2Row(const json& ref, const std::string& table) {
 }
 
 struct Rows {
-    std::set<std::tuple<uint32_t, std::string, uint32_t>> displays;  // display, model, preset
-    std::set<std::pair<uint32_t, std::string>> chrModels;             // chr_model, model
+    std::set<std::tuple<uint32_t, std::string, std::string>> displays;  // display, model, preset id
+    std::set<std::pair<uint32_t, std::string>> chrModels;                // chr_model, model
 };
 
 void indexManifest(const json& doc, const std::string& model, Rows& rows) {
     if (doc.contains("selection") && doc["selection"].contains("presets")) {
-        const json& presets = doc["selection"]["presets"];
-        for (uint32_t i = 0; i < presets.size(); i++) {
-            if (!presets[i].contains("sources")) continue;
-            for (const json& source : presets[i]["sources"]) {
-                if (auto display = db2Row(source["ref"], "CreatureDisplayInfo")) rows.displays.insert({*display, model, i});
+        for (const json& preset : doc["selection"]["presets"]) {
+            if (!preset.contains("sources")) continue;
+            for (const json& source : preset["sources"]) {
+                if (auto display = db2Row(source["ref"], "CreatureDisplayInfo")) rows.displays.insert({*display, model, preset["id"]});
             }
         }
     }
     if (doc.contains("definition") && doc["definition"].contains("customization")) {
         for (const json& option : doc["definition"]["customization"]["options"]) {
-            if (auto chrModel = db2Row(option["chr_model"], "ChrModel")) rows.chrModels.insert({*chrModel, model});
+            if (auto chrModel = db2Row(option["body"], "ChrModel")) rows.chrModels.insert({*chrModel, model});
         }
     }
 }
@@ -106,7 +109,7 @@ IndexResult buildIndex(const fs::path& tree) {
     });
 
     std::ostringstream displays;
-    displays << "display\tmodel\tpreset\n";
+    displays << kCreatureDisplaysHeader << '\n';
     for (const auto& [display, model, preset] : rows.displays) displays << display << '\t' << model << '\t' << preset << '\n';
     std::ostringstream chrModels;
     chrModels << "chr_model\tmodel\n";
@@ -116,6 +119,36 @@ IndexResult buildIndex(const fs::path& tree) {
     writeTextAtomic(tree / "index" / "creature_displays.tsv", displays.str());
     writeTextAtomic(tree / "index" / "chr_models.tsv", chrModels.str());
     return {manifests.size(), rows.displays.size(), rows.chrModels.size()};
+}
+
+std::vector<CreatureDisplayRow> readCreatureDisplays(const fs::path& tree) {
+    fs::path path = tree / "index" / "creature_displays.tsv";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("expected " + path.string() + " (run husk index-tree first), got none");
+    auto fail = [&](size_t line, const std::string& expected, const std::string& actual) {
+        throw std::runtime_error(path.string() + ":" + std::to_string(line) + ": expected " + expected + ", got '" + actual + "'");
+    };
+    auto number = [&](size_t line, const std::string& field) -> uint32_t {
+        bool digits = !field.empty() && field.size() <= 10 && std::all_of(field.begin(), field.end(), ::isdigit);
+        if (!digits || std::stoull(field) > UINT32_MAX) fail(line, "an unsigned 32-bit number", field);
+        return static_cast<uint32_t>(std::stoull(field));
+    };
+    std::string text;
+    std::getline(in, text);
+    if (text != kCreatureDisplaysHeader) fail(1, "the header '" + kCreatureDisplaysHeader + "'", text);
+    std::vector<CreatureDisplayRow> out;
+    for (size_t line = 2; std::getline(in, text); ++line) {
+        std::vector<std::string> fields;
+        std::stringstream split(text);
+        for (std::string field; std::getline(split, field, '\t');) fields.push_back(field);
+        if (fields.size() != 3) fail(line, "3 tab-separated fields", text);
+        bool uuid = fields[2].size() == 36 && std::all_of(fields[2].begin(), fields[2].end(), [](char c) {
+            return c == '-' || std::isdigit(static_cast<unsigned char>(c)) || (c >= 'a' && c <= 'f');
+        });
+        if (!uuid) fail(line, "a preset id (lowercase uuid)", fields[2]);
+        out.push_back({number(line, fields[0]), fields[1], fields[2]});
+    }
+    return out;
 }
 
 }  // namespace husk::corpus

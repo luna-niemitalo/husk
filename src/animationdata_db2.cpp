@@ -1,5 +1,6 @@
 #include "animationdata_db2.hpp"
 
+#include <algorithm>
 #include <filesystem>
 
 #include "db2table.hpp"
@@ -16,7 +17,7 @@ std::string joinPath(const std::string& dir, const char* filename) {
 
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::string path = joinPath(db2Dir, "animationdata.db2");
-    auto idRows = db2table::readNamedColumns(path, dbdDir, {"ID"}, err);
+    auto idRows = db2table::readNamedColumns(path, dbdDir, {"ID", "Fallback"}, err);
     if (!idRows || idRows->empty()) return std::nullopt;
     auto nameRows = db2table::readNamedStringColumns(path, dbdDir, {"Name"}, err);
 
@@ -25,9 +26,18 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     for (size_t i = 0; i < idRows->size(); ++i) {
         uint32_t id = (*idRows)[i][0].value_or(0);
         std::string name = (nameRows && i < nameRows->size()) ? (*nameRows)[i][0].value_or("") : "";
-        data.entries.push_back({id, std::move(name)});
+        data.entries.push_back({id, std::move(name), (*idRows)[i][1].value_or(0)});
     }
     return data;
+}
+
+std::vector<std::pair<uint32_t, uint32_t>> nonzeroFallbacks(const Data& data) {
+    std::vector<std::pair<uint32_t, uint32_t>> result;
+    for (const auto& entry : data.entries) {
+        if (entry.fallback != 0) result.emplace_back(entry.id, entry.fallback);
+    }
+    std::sort(result.begin(), result.end());
+    return result;
 }
 
 std::unordered_map<uint32_t, std::string> toNameMap(const Data& data) {

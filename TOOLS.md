@@ -203,6 +203,9 @@ docstring — read the script for the real detail, not this list:
   (the multi-root synthesized-parent-node feature's source fixtures).
 - `find_m2_unknown_chunks.py` — chunk tags present in real files with no
   wowdev.wiki struct.
+- `survey_wmo_portal_sides.py` — WMO `MOPR.side` against each group's
+  side of the portal plane, on a seeded root sample (the counts behind
+  `WIKI_FINDINGS/WORLD.md`'s MOPR `side` rule).
 - `check_alias_next.py` / `check_detl_stride.py` — targeted single-field
   verifications (`M2Sequence::aliasNext`, `DETL` record stride).
 - `corpus_checks.py` (+ `corpus_checks_example.py`) — a library of

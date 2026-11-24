@@ -31,7 +31,14 @@ _NOT_BAKED = [
 
 
 def _cell_refs(world):
-    return {(c["i"], c["j"]): (c, world["references"][c["tile"]]["asset"]) for c in world["grid"]["cells"]}
+    refs = docs.references_by_id(world)
+    return {(c["i"], c["j"]): (c, refs[c["tile"]]["asset"]) for c in world["grid"]["cells"]}
+
+
+def _owned_set_refs(doc):
+    """The asset of each placement set a document owns."""
+    refs = docs.references_by_id(doc)
+    return [refs[entry["reference"]]["asset"] for entry in doc["definition"]["placement_sets"]]
 
 
 CELLS_HELP = "cells: '32_49 32_50', or a rectangle '31:33,48:50'"
@@ -88,12 +95,12 @@ def import_world(context, world_dir, wanted):
     root.children.link(place_root)
     seen = set()
     for path, doc, tile_dir, corner in tiles:
-        for entry in doc["definition"]["placement_sets"]:
-            ref = doc["references"][entry["reference"]]["asset"]
+        for ref in _owned_set_refs(doc):
             pl.import_set(os.path.normpath(os.path.join(tile_dir, ref["uri"])), ref["name"], corner, G, place_root,
                           assets, seen, world_level=False)
-    for index in world["placements"]:
-        ref = world["references"][index]["asset"]
+    world_refs = docs.references_by_id(world)
+    for ref_id in world["placements"]:
+        ref = world_refs[ref_id]["asset"]
         pl.import_set(os.path.normpath(os.path.join(world_dir, ref["uri"])), ref["name"], np.zeros(3), G,
                       place_root, assets, seen, world_level=True)
     assets.exclude_from_view(context.view_layer)
@@ -159,8 +166,7 @@ def _taken_authored_ids(src_world, src_dir, kept_cells):
             continue
         path = os.path.normpath(os.path.join(src_dir, asset["uri"]))
         doc = docs.load(path)
-        for entry in doc["definition"]["placement_sets"]:
-            ref = doc["references"][entry["reference"]]["asset"]
+        for ref in _owned_set_refs(doc):
             if ref["name"] == pl.AUTHORED:
                 set_doc = docs.load(os.path.normpath(os.path.join(os.path.dirname(path), ref["uri"])))
                 taken |= {i["id"] for i in set_doc["instances"]}
@@ -191,16 +197,17 @@ def _tile_document(name_ref, cell, result, areas_global, chunk_area, G, sets, ou
         "layers": [[] for _ in range(256)],
     }
     w.close()
-    references = [{"kind": "placement_set", "asset": {"id": {"kind": "none"}, "name": name, "name_source": "synthesized",
-                                                      "uri": "sets/%d.json" % k}} for k, (name, _) in enumerate(sets)]
+    references = [docs.reference("placement_set", {"id": {"kind": "none"}, "name": name, "name_source": "synthesized",
+                                                   "uri": "sets/%d.json" % k}) for k, (name, _) in enumerate(sets)]
     prov = docs.provenance(source)
     prov["sources"] += [{"name": n, "role": r, "available": False, "detail": "not baked by the Blender addon"}
                         for n, r in _NOT_BAKED]
     doc = {
+        "$schema": docs.schema_id("model"),
         "format": "husk-bundle", "kind": "model", "schema_version": schema_version,
         "subject": name_ref, "space": docs.SPACE, "provenance": prov,
-        "definition": {"placement_sets": [{"reference": k, "always_on": True, "instance_count": n}
-                                          for k, (_, n) in enumerate(sets)],
+        "definition": {"placement_sets": [{"reference": ref["id"], "always_on": True, "instance_count": n}
+                                          for ref, (_, n) in zip(references, sets)],
                        "terrain": {"edge_vertices": "duplicated"}},
         "selection": {"placement_sets": []},
         "references": references,
@@ -316,18 +323,19 @@ def export_world(context, root, out_root, keep_source_tiles=None, log=print):
             counts[key] = counts.get(key, 0) + 1
         baked_areas[cell] = counts
         bmin, bmax = _bounds(G, cell, result)
-        refs.append({"kind": "model", "asset": dict(subject, uri=os.path.join(tile_dir, "manifest.json"))})
-        grid_cells.append({"i": i, "j": j, "tile": len(refs) - 1, "bounds_min": bmin, "bounds_max": bmax})
+        refs.append(docs.reference("model", dict(subject, uri=os.path.join(tile_dir, "manifest.json"))))
+        grid_cells.append({"i": i, "j": j, "tile": refs[-1]["id"], "bounds_min": bmin, "bounds_max": bmax})
         written += 1
 
     for cell in sorted(kept):
         source_cell, asset = source_cells[cell]
-        refs.append({"kind": "model", "asset": docs.absolute_uris(asset, src_dir)})
-        grid_cells.append(dict(source_cell, tile=len(refs) - 1))
+        refs.append(docs.reference("model", docs.absolute_uris(asset, src_dir)))
+        grid_cells.append(dict(source_cell, tile=refs[-1]["id"]))
 
     world_places = []
-    for index in src_world["placements"]:
-        src_ref = src_world["references"][index]["asset"]
+    src_refs = docs.references_by_id(src_world)
+    for ref_id in src_world["placements"]:
+        src_ref = src_refs[ref_id]["asset"]
         set_name = src_ref["name"]
         src_set_path = os.path.normpath(os.path.join(src_dir, src_ref["uri"]))
         src_set = docs.load(src_set_path)
@@ -336,11 +344,12 @@ def export_world(context, root, out_root, keep_source_tiles=None, log=print):
         path = os.path.join(world_dir, "sets", "%d.json" % len(world_places))
         docs.write(path, pl.set_document(set_name, members, np.zeros(3), os.path.dirname(path), schema_version, src_dir,
                                          resources))
-        refs.append({"kind": "placement_set", "asset": {"id": {"kind": "none"}, "name": set_name,
-                                                        "name_source": "synthesized", "uri": path}})
-        world_places.append(len(refs) - 1)
+        refs.append(docs.reference("placement_set", {"id": {"kind": "none"}, "name": set_name,
+                                                     "name_source": "synthesized", "uri": path}))
+        world_places.append(refs[-1]["id"])
 
     world = {
+        "$schema": docs.schema_id("world"),
         "format": "husk-bundle", "kind": "world", "schema_version": schema_version,
         "subject": src_world["subject"], "space": docs.SPACE, "provenance": docs.provenance(src_dir),
         "definition": {}, "selection": {}, "references": refs,

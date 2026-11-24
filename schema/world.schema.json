@@ -6,6 +6,11 @@
   "x-status": "implemented",
   "type": "object",
   "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/world.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
     "format": {
       "const": "husk-bundle",
       "description": "Identifies a husk document.",
@@ -17,14 +22,15 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.3.0",
+      "const": "0.4.0",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The place.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"listfile": true}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",
@@ -41,14 +47,16 @@
       "description": "A world defines nothing beyond its contents.",
       "properties": {},
       "additionalProperties": false,
-      "x-layer": "definition"
+      "x-layer": "definition",
+      "x-source": [{"format": true}]
     },
     "selection": {
       "type": "object",
       "description": "A world selects nothing.",
       "properties": {},
       "additionalProperties": false,
-      "x-layer": "selection"
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
     },
     "references": {
       "type": "array",
@@ -61,7 +69,8 @@
     },
     "grid": {
       "type": "object",
-      "description": "Tiles on a regular grid; a missing cell is a hole. Neighbours of cell (i, j) are cells (i +/- 1, j +/- 1).",
+      "description": "Tiles on a regular grid; a missing cell is a hole, and the neighbours of cell (i, j) are cells (i +/- 1, j +/- 1). Adjacency is the grid's fact, so a tile names no neighbours.",
+      "x-source": [{"derived": "map_tile_grid"}],
       "properties": {
         "origin": {
           "$ref": "common.schema.json#/definitions/vec3",
@@ -92,27 +101,31 @@
             "properties": {
               "i": {
                 "type": "integer",
-                "description": "Cell column."
+                "description": "Cell column: the tile's x.",
+                "x-source": [{"file": "adt", "field": "file name <map>_<x>_<y>"}]
               },
               "j": {
                 "type": "integer",
-                "description": "Cell row."
+                "description": "Cell row: the tile's y.",
+                "x-source": [{"file": "adt", "field": "file name <map>_<x>_<y>"}]
               },
               "tile": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The tile model placed in the cell, at origin + (i * axis_i + j * axis_j) * cell_size.",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the reference to the tile model placed in the cell, at origin + (i * axis_i + j * axis_j) * cell_size.",
+                "x-id-in": "/references",
+                "x-source": [{"format": true}]
               },
               "bounds_min": {
                 "$ref": "common.schema.json#/definitions/vec3",
-                "description": "Minimum corner of the box the tile's terrain surface and liquids occupy, world frame.",
-                "x-unit": "yard"
+                "description": "Minimum corner of the box the tile's terrain surface and liquids occupy, world frame. It lets a consumer find the tile under a position without opening tiles.",
+                "x-unit": "yard",
+                "x-source": [{"derived": "tile_terrain_bounds"}]
               },
               "bounds_max": {
                 "$ref": "common.schema.json#/definitions/vec3",
                 "description": "Maximum corner of that box.",
-                "x-unit": "yard"
+                "x-unit": "yard",
+                "x-source": [{"derived": "tile_terrain_bounds"}]
               }
             },
             "additionalProperties": false,
@@ -140,16 +153,18 @@
       "type": "array",
       "description": "Placement sets the world places directly, off the grid: a map-wide building, and the map's fog and particulate volumes as effect instances.",
       "items": {
-        "type": "integer",
-        "minimum": 0,
-        "description": "A placement set document.",
-        "x-index-into": "/references"
+        "$ref": "common.schema.json#/definitions/uuid",
+        "description": "The id of a placement set document's reference.",
+        "x-id-in": "/references",
+        "x-source": [{"format": true}]
       },
-      "x-layer": "resource"
+      "x-layer": "resource",
+      "x-source": [{"format": true}]
     },
     "zones": {
       "type": "array",
-      "description": "Named regions of the world, nested (a subzone lies in its parent), each as the grid cells it covers. A cell lists only the zone its surface lies directly in: a zone's whole extent is its own cells and its descendants'.",
+      "description": "Named regions of the world, nested (a subzone lies in its parent), each as the grid cells whose surface lies directly in it, so a zone's whole extent is its own cells and its descendants'. They exist so work can be loaded by zone, a workable size; a zone is the format's own description, and its AreaTable row is only its source.id.",
+      "x-source": [{"file": "adt", "field": "MCNK.areaid"}, {"table": "AreaTable", "column": "ParentAreaID"}],
       "items": {
         "type": "object",
         "description": "One zone.",
@@ -157,42 +172,48 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "description": "Display name; absent when the source names none."
+            "description": "Display name; absent when the source names none.",
+            "x-source": [{"table": "AreaTable", "column": "AreaName_lang"}]
           },
           "name_source": {
             "$ref": "common.schema.json#/definitions/ref/properties/name_source",
-            "description": "Where the name came from. Present exactly when name is."
+            "description": "Where the name came from; present exactly when name is."
           },
           "id": {
             "$ref": "common.schema.json#/definitions/uuid",
+            "x-source": [{"format": true}],
             "description": "This zone's stable id, unique among the world's zones."
           },
           "parent": {
             "$ref": "common.schema.json#/definitions/uuid",
             "description": "The id of the zone this one lies in; absent for a top-level zone.",
-            "x-id-in": "/zones"
+            "x-id-in": "/zones",
+            "x-source": [{"format": true}]
           },
           "cells": {
             "type": "array",
-            "description": "Cells part of whose surface lies directly in this zone. Empty for a zone whose ground is all subzones.",
+            "description": "Cells part of whose surface lies directly in this zone; empty for a zone whose ground is all subzones.",
             "items": {
               "type": "object",
               "description": "One covered cell.",
               "properties": {
                 "i": {
                   "type": "integer",
-                  "description": "Cell column."
+                  "description": "Cell column: the tile's x.",
+                  "x-source": [{"file": "adt", "field": "file name <map>_<x>_<y>"}]
                 },
                 "j": {
                   "type": "integer",
-                  "description": "Cell row."
+                  "description": "Cell row: the tile's y.",
+                  "x-source": [{"file": "adt", "field": "file name <map>_<x>_<y>"}]
                 },
                 "coverage": {
                   "type": "number",
                   "minimum": 0,
                   "maximum": 1,
                   "description": "Fraction of the cell's surface lying directly in this zone.",
-                  "x-unit": "1"
+                  "x-unit": "1",
+                  "x-source": [{"derived": "chunk_area_coverage"}]
                 }
               },
               "additionalProperties": false,
@@ -210,12 +231,50 @@
               "id": {
                 "$ref": "common.schema.json#/definitions/identity",
                 "description": "The source's own record of the zone."
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/flags",
+                  "description": "One flag word."
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "AreaTable Flags[0] and Flags[1] as stored; absent when the source has no area table.",
+                "x-source": [{"table": "AreaTable", "column": "Flags"}]
+              },
+              "mount_flags": {
+                "$ref": "common.schema.json#/definitions/flags",
+                "description": "AreaTable MountFlags as stored; present exactly when flags is.",
+                "x-source": [{"table": "AreaTable", "column": "MountFlags"}]
+              },
+              "flag_names": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "One set bit's name."
+                },
+                "description": "Names of the set bits of flags[0], flags[1] and mount_flags, in that order, low bit first, from wowdev.wiki DB/AreaTable's 10.2 tables (Area Flags, Area Flags2, Area Mount Flags); a set bit those tables don't name is only in the raw words, and the names are present exactly when flags is. WoWDBDefs names columns, not bits, so husk carries the wiki's names, transcribed; they are WoW's, so they stay under source.",
+                "x-source": [{"table": "AreaTable", "column": "Flags"}, {"table": "AreaTable", "column": "MountFlags"}, {"authored": "src/area_db2.cpp"}]
               }
             },
             "additionalProperties": false,
             "required": [
               "id"
-            ]
+            ],
+            "dependencies": {
+              "flags": [
+                "mount_flags",
+                "flag_names"
+              ],
+              "mount_flags": [
+                "flags"
+              ],
+              "flag_names": [
+                "flags"
+              ]
+            }
           }
         },
         "additionalProperties": false,
@@ -234,9 +293,94 @@
         }
       },
       "x-layer": "resource"
+    },
+    "map": {
+      "type": "object",
+      "description": "The client's record of this map, its Map row matched by Map.Directory to the WDT's directory (case ignored); absent when no map table was given or no row matches. The WDT's file stem names a folder, not the place: the row says what the place is called and what kind it is.",
+      "properties": {
+        "ref": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The Map row, named from Map.MapName_lang.",
+          "x-source": [{"table": "Map"}, {"table": "Map", "column": "MapName_lang"}]
+        },
+        "instance_type_name": {
+          "enum": [
+            "none",
+            "party",
+            "raid",
+            "pvp",
+            "arena"
+          ],
+          "description": "Whether the map is an open world or an instance, and which kind: source.instance_type's name from the WoWDBDefs Map.dbd column comment (0 none, 1 party, 2 raid, 3 pvp, 4 arena), transcribed by husk; absent for a value that comment doesn't name.",
+          "x-source": [{"table": "Map", "column": "InstanceType"}, {"authored": "src/map_db2.cpp"}]
+        },
+        "expansion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The expansion the map belongs to: 0 the original game, 1 the first expansion, ...",
+          "x-source": [{"table": "Map", "column": "ExpansionID"}]
+        },
+        "max_players": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The instance's player cap; 0 on open-world maps.",
+          "x-source": [{"table": "Map", "column": "MaxPlayers"}]
+        },
+        "parent": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The map this one belongs to (Map.ParentMapID), a Map row named from its MapName_lang: e.g. a phased copy's original. Absent when stored as -1.",
+          "x-source": [{"table": "Map", "column": "ParentMapID"}, {"table": "Map", "column": "MapName_lang"}]
+        },
+        "cosmetic_parent": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The map this one looks like (Map.CosmeticParentMapID), a Map row named from its MapName_lang. Absent when stored as -1.",
+          "x-source": [{"table": "Map", "column": "CosmeticParentMapID"}, {"table": "Map", "column": "MapName_lang"}]
+        },
+        "area": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The map's own area (Map.AreaTableID), an AreaTable row named from AreaTable.AreaName_lang: what the client names the map's ground outside any zone. Absent when stored as 0.",
+          "x-source": [{"table": "Map", "column": "AreaTableID"}, {"table": "AreaTable", "column": "AreaName_lang"}]
+        },
+        "source": {
+          "type": "object",
+          "description": "Source-specific raw values.",
+          "properties": {
+            "directory": {
+              "type": "string",
+              "description": "Map.Directory as stored: the map's folder under World\\Maps\\.",
+              "x-source": [{"table": "Map", "column": "Directory"}]
+            },
+            "instance_type": {
+              "type": "integer",
+              "description": "Map.InstanceType as stored; instance_type_name names it.",
+              "x-source": [{"table": "Map", "column": "InstanceType"}]
+            },
+            "map_type": {
+              "type": "integer",
+              "description": "Map.MapType as stored; no reliable source names its values.",
+              "x-source": [{"table": "Map", "column": "MapType"}]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "directory",
+            "instance_type",
+            "map_type"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "expansion",
+        "max_players",
+        "source"
+      ],
+      "x-layer": "resource"
     }
   },
   "required": [
+    "$schema",
     "format",
     "kind",
     "schema_version",

@@ -4,7 +4,7 @@ _husk_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle export-world store-add store-prune export-corpus snapshot index-tree mount"
+    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle schema-doc export-world store-add store-prune export-corpus snapshot index-tree export-appearances export-creatures mount"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcommands" -- "$cur"))
@@ -110,9 +110,13 @@ _husk_completions() {
                     COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
                     return
                     ;;
+                --anim-names)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --glb --explain-textures --skin-dir --anim -a --skel --bones-dir --phys --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --appearance --chr-model-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --glb --explain-textures --skin-dir --anim -a --skel --bones-dir --phys --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --appearance --chr-model-id --object-skin-texture-id --knowledge-db --listfile --listfile-root --anim-names" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
@@ -133,12 +137,16 @@ _husk_completions() {
             ;;
         db2-info)
             case "$prev" in
-                --rows|--config)
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --rows)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
                     ;;
                 --dbd-dir)
-                    COMPREPLY=($(compgen -d -W "none" -- "$cur"))
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
                     return
                     ;;
             esac
@@ -411,6 +419,19 @@ _husk_completions() {
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
             ;;
+        schema-doc)
+            case "$prev" in
+                --output|-o)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --output -o" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
         export-world)
             case "$prev" in
                 --config)
@@ -437,6 +458,10 @@ _husk_completions() {
                     COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
                     return
                     ;;
+                --anim-names)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
                 --jobs)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
@@ -451,7 +476,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --map --listfile --listfile-root --db2-dir --dbd-dir --jobs --skip-models --all-assets --sample --link-store" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --map --listfile --listfile-root --db2-dir --dbd-dir --anim-names --jobs --skip-models --all-assets --sample --link-store" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
@@ -536,6 +561,10 @@ _husk_completions() {
                     compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
                     return
                     ;;
+                --anim-names)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
                 --jobs)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
@@ -558,7 +587,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --map --sample --listfile --listfile-root --db2-dir --dbd-dir --jobs --store --game --game-from --tag" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --map --sample --listfile --listfile-root --db2-dir --dbd-dir --anim-names --jobs --store --game --game-from --tag" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
@@ -581,6 +610,10 @@ _husk_completions() {
                     compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
                     return
                     ;;
+                --anim-names)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
                 --store)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
@@ -599,14 +632,39 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --listfile-root --listfile --dbd-dir --store --jobs --tag --previous-tag" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --listfile-root --listfile --dbd-dir --anim-names --store --jobs --tag --previous-tag" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
             ;;
-        index-tree)
+        index-tree|export-appearances)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--help -h" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
+        export-creatures)
+            case "$prev" in
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --db2-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --listfile)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --config --db2-dir --dbd-dir --listfile" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

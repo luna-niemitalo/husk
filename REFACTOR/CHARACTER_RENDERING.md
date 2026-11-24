@@ -34,18 +34,18 @@ Every rule below is tagged with the strongest evidence behind it:
 | 1 | Body: race/sex → ChrModel → M2 | `ChrRaceXChrModel`, `ChrModel.DisplayID` → `CreatureDisplayInfo` → `CreatureModelData` (**data**) | yes (`chrrace_db2.cpp`, `creature_display_db2.cpp:57-102`) | one catalog per ChrModel drawing the file | reads |
 | 2 | Customization menu | `ChrCustomizationOption/Choice/Element` (**data**) | Option, Choice, Element: geoset, bone set, material | `definition.customization` | skin lab reads |
 | 3 | Option gating | `ChrCustomizationReq`, `ReqChoice`, `VisReq` (**data**) | **no** | no | no |
-| 4 | Geosets | `ChrCustomizationGeoset` (Type·100+ID) (**data**); base visibility rule (**ref**) | yes; only the last geoset element per choice; `Modifier` unread | `choices[].geoset_id`, no base rule | lowest variant per group, or the first preset |
+| 4 | Geosets | `ChrCustomizationGeoset` (Type·100+ID) (**data**); base visibility rule (**ref**) | yes; only the last geoset element per choice; `Modifier` unread | `choices[].geoset`, no base rule | lowest variant per group, or the first preset |
 | 5 | Skin composite | `ChrModelMaterial` (canvases), `CharComponentTextureSections` (rects), `ChrModelTextureLayer` (layers), `ChrCustomizationMaterial` → `TextureFileData` (**data**); compositor cases 0–13 (**client**) | yes; `BitMask2`, `OverlapSectionMask`, `TargetID[1]` unread | `materials/<n>.json` composites, `blend_mapping: unverified` | CPU compose, live upload (`skin_lab.cpp`) |
 | 6 | Surface shading | M2 batch: shader ID, blend, flags, color/weight/UV tracks (**data**); combiner math (**client**) | yes | material + technique documents; with the gaps in §5 | 77% baked by technique; the rest use their first texture |
-| 7 | Items: models | `ItemModifiedAppearance` → `ItemAppearance` → `ItemDisplayInfo.ModelResourcesID[0..1]` → `ModelFileData` → `ComponentModelFileData` race/sex/class/side (**data**) | `[0]` only; `.front()` pick, no ComponentModelFileData | NPC equipment: bare `ItemDisplayInfo` refs; `--appearance` gear: `definition.items[].models`, each an item bundle under `items/` | nothing |
-| 8 | Items: body textures | `ItemDisplayInfoMaterialRes` (section 0–8) → `ComponentTextureFileData` race/sex/class (**data**) | MaterialRes yes; ComponentTextureFileData **no** | `--appearance` gear: `definition.items[].overlays` by `component_section` | nothing |
+| 7 | Items: models | `ItemModifiedAppearance` → `ItemAppearance` → `ItemDisplayInfo.ModelResourcesID[0..1]` → `ModelFileData` → `ComponentModelFileData` race/sex/class/side (**data**) | both positions; the wearer's file picked (`component_file_db2.hpp`), class-specific files skipped | NPC equipment: one piece-less garment per `ItemDisplayInfo`; `--appearance` gear: garments' `attached`/`skinned` pieces (garments document, `REFACTOR/GARMENTS.md`), each model an item bundle under `items/` or an `unresolved_reason` | nothing |
+| 8 | Items: body textures | `ItemDisplayInfoMaterialRes` (section 0–8) → `ComponentTextureFileData` race/sex/class (**data**) | yes; the wearer's file picked, as row 7 | `--appearance` gear: garments' `overlay` pieces by body `region` (number in `source.section_type`); a legs item's hem paint masked to geoset 1102's UV footprint | nothing |
 | 9 | Items: geosets / helm hiding | `ItemDisplayInfo.GeosetGroup[6]`, `AttachmentGeosetGroup[6]`, `HelmetGeosetVis[2]` → `HelmetGeosetData` (**data**); slot→group table and priorities (**ref**) | **no** | no | no |
 | 10 | Items: attachment | attachment ids per slot (**ref**, WMV table); points from M2 / `.skel` `SKA1` (**data**) | points yes | `resources.scene.attachments` | points unused |
 | 11 | Collection items (armor that skins to the body) | bone match by name CRC + pivot (**ref**) | no | no | no |
 | 12 | Bone corrections | Choice → `ChrCustomizationBoneSet` → `.bone` (**data**); how to apply (**none**) | parsed; choice → set resolved | `resources.rig.correction_sets`; a choice names its `correction_set` | no |
 | 13 | Skinned / conditional / display-info elements | `ChrCustomizationSkinnedModel`, `CondModel`, `DisplayInfo`, `ChrCustItemGeoModify`, `GeoComponentLink` (**data**) | **no** | no | no |
 | 14 | Animation | sequences, `.anim`/`.skel` (**data**) | yes | clips with AnimationData row, variation, duration, move speed, frequency, blend times, source flags | CPU pose, GPU skin |
-| 15 | Lighting / scene | lighting math (**client**); char-create / viewer light rig (**none**) | zone `light_params` only | no character scene | hand-set |
+| 15 | Lighting / scene | lighting math (**client**); char-create / viewer light rig (**none**) | zone `light_conditions` only | no character scene | hand-set |
 
 ## 2. Body selection: old and HD models
 
@@ -109,21 +109,36 @@ several).
 **NPC appearances as presets: built (2026-10-11).** Every humanoid NPC
 display is a `selection.presets` entry on its character model: `customization`
 is `{option, choice}` indices into the model's own `definition.customization`,
-plus the bake as a `skin` slot option and items as `definition.items` indices
-(`creature_options_input.cpp:300-360`, BUNDLE_FORMAT.md "Options and
+plus the bake as a `skin` slot option and the equipment as `garments` ids
+(`creature_options_input.cpp`, REFACTOR/GARMENTS.md, BUNDLE_FORMAT.md "Options and
 presets"). That is the large set of client-authored defaults a consumer can
 pick from or scroll through. Measured on `humanmale_hd` (2026-11-09, live
 12.1.5): 5,748 presets from 6,384 displays, 5,728 with customization, 30 with
-unresolved picks, **4,617 distinct customization sets**. They take 4.7 MB of
+unresolved picks; 4,745 distinct bodies (2026-11-24; current counts:
+BUNDLE_FORMAT.md "Appearances"). They take 4.7 MB of
 the minified manifest, about 800 B each; the `rig` section is 48.7 MB.
 Old bodies get none: `humanmale.m2` has no ChrModel (§2) and no humanoid
 displays.
 
+Presets point at appearances (decided Luna 2026-11-24, schema 0.4.0;
+BUNDLE_FORMAT.md "Appearances"):
+- An appearance is the body: customization picks (and a creature
+  display's texture variations, geosets, particle colours, opacity). The
+  preset keeps what is worn and who wears it: bake, items, sources and
+  users. The cut falls there because the bake and gear are what separate
+  5,748 presets over 4,745 bodies on `humanmale_hd`: scrolling bodies is
+  scrolling the appearance list, with no reader-side dedup.
+- The preset's `appearance` is a plain id; the list is the model's
+  `appearances` reference, inline (`husk export`, self-contained) or
+  external (`export-appearances`/`export-corpus`: one shared
+  `appearances.json` per tree). Inline vs external is the `document` vs
+  `asset.uri` form every reference has, not a new mechanism.
+- Indices in an appearance stay the model's own. Appearances keyed by
+  ChrCustomizationChoice rows instead would be shareable across a race's
+  models (ChrModel 1 and 45 share `humanmale_hd`); not done, consumers read
+  options by index.
+
 Open on presets:
-- A preset ties appearance, gear and bake together. Scrolling appearances
-  alone means deduplicating `customization` on the reader side (4,617 of
-  5,748). A separate appearance list that presets index would state it once.
-  This is a design call.
 - Labels: built 2026-11-09. Each source lists its `users` (Creature rows,
   name and title). The client ships only 18,639 creatures, so on
   `humanmale_hd` 607 of 5,748 presets are named (955 names). Usage guide:
@@ -161,9 +176,8 @@ mode by mode.
 Gear onto the atlas (layer 8): section types 0–8 are ARM_UPPER, ARM_LOWER,
 HAND, TORSO_UPPER, TORSO_LOWER, LEG_UPPER, LEG_LOWER, FOOT, ACCESSORY
 (**ref**, from wow.export). Texture choice per race/sex goes through
-`ComponentTextureFileData`. wow.export's cascade is exact race+sex, then
-race with sex 2 (any), then race 0, then the first candidate, ignoring
-ClassID (**ref**). Gear blend into the atlas: wow.export uses the first
+`ComponentTextureFileData`, whose GenderIndex is 0 male, 1 female, 2 none,
+3 any (models: 2 any); husk's pick is §6's. Gear blend into the atlas: wow.export uses the first
 layer whose mask has the section bit (**ref**). Guild tabard: background,
 emblem and border tables onto sections 3/4.
 
@@ -205,16 +219,26 @@ known); unlit forced by Mod/Mod2x or by flag only.
 
 husk today: the ItemModifiedAppearance → ItemDisplayInfo chain; "case 1"
 (own model + `ItemDisplayInfoModelMatRes`) and "case 2" (body overlay)
-split; Hidden (id 0) handled; `canon::Item` types exist; nothing writes
-them.
+split; Hidden (id 0) handled; `export --appearance` writes the items.
 
-Needed, all with **data** sources present locally:
+Per race/sex file (2026-11-24, `component_file_db2.hpp`): both
+`ModelResourcesID` positions are read (a shoulder lists one resource twice;
+PositionIndex 0 is the left file, 1 the right). Each model and texture is
+the wearer's file: its race, then the ChrRaces model or texture fallback
+race and sex, then race 0; within each, exact sex before "any". Class 0
+only (the wearer's class isn't known). A tie or no fit is left unpicked
+with a reason, never the first file. The wearer is `--appearance`'s race
+and sex, else the races the model's file name names (all must agree). In
+12.1.5, 3,073 model resources have several files, all but 6 of their
+59,388 files tagged; all 17,157 files of the 8,480 multi-file texture
+resources are tagged. The cascade order is **ref** (wow.export, whose
+"first file" fallbacks husk does not copy).
+
+Still needed, all with **data** sources present locally:
 
 | Piece | Source | Rule status |
 |---|---|---|
-| Second model (right shoulder) | `ModelResourcesID[1]` | **data** |
-| Per race/sex/class model | `ComponentModelFileData` (Race, Gender, Class, PositionIndex 0=L 1=R) | cascade order **ref** |
-| Per race/sex texture | `ComponentTextureFileData` | cascade **ref** |
+| Class-specific files | `Component*FileData.ClassID` (12 DH, 6 DK); needs the wearer's class | **data** |
 | Item model textures | `ModelMaterialResourcesID[0..1]` → M2 types 2–4/11–13 | **ref**; husk's "unrelated textures" finding predates the pallet fix, re-check (`cmd_db2_build.cpp:256-266`) |
 | Character geosets | `GeosetGroup[n]` by slot table; value 1+n (feet: 0→2); priority gloves>chest>shirt for sleeves, chest>pants for trousers | table and priorities **ref** (WMV `WoWItem.cpp`) |
 | Collection-model geosets | `AttachmentGeosetGroup[n]` | **ref** |
@@ -250,7 +274,7 @@ The forward lighting model is decoded (`SHADER_FINDINGS/notes/
 lighting_model.md`); its constants come from `LightData` by an **inferred**
 mapping. Nothing is known about the character-create or model-viewer light
 rig, and the bundle states no texture colour space. Matching "in game"
-needs a chosen reference scene: a zone `light_params` at a stated time of
+needs a chosen reference scene: a zone `light_conditions` entry at a stated time of
 day is the one fully data-backed option today.
 
 ## 9. Known-wrong in the reference implementation
@@ -270,8 +294,7 @@ customization.
    texel scaling, gear interleave, start canvas. §3.
 2. **DB2 data analysis** (offline): `Option.Flags` bits, Req filtering,
    `UiOrderIndex`, multi-geoset choices, `TextureFileData` UsageType ≠ 0
-   meaning, ComponentModelFileData cascade (find rows where race-0 and
-   exact-race both exist).
+   meaning.
 3. **Corpus statistics** (offline): which blend modes, flags and shader IDs
    occur together, e.g. the ready particle `blendingType` test
    (`SHADER_FINDINGS/notes/reconciliation.md:200-212`). This narrows the blend
@@ -298,14 +321,13 @@ Each step is checkable against §10 sources before the next.
 3. Per-model base geoset set in the bundle (replaces every reader's rule).
 4. NPC bake diff harness; then settle `blend_mapping` and flip it to
    verified per mode.
-5. Item documents: models via ComponentModelFileData (L/R), textures via
-   ComponentTextureFileData, geoset groups, helm hiding, attachment ids,
-   collection skinning info. Presets reference them.
+5. Item documents: geoset groups, helm hiding, attachment ids, collection
+   skinning info (models and textures per race/sex: done, §6). Presets
+   reference them.
 6. Old bodies: `ChrModelAltVariant*` from Forever (later live), an explicit
    HD↔old mapping, removing the `_hd`-strip fallback's silent reuse.
 7. Skinned/conditional model elements.
-8. If Luna wants it, an appearance list that presets index (§3 "Open on
-    presets").
+8. Appearance list that presets point at: built (§3, 0.4.0).
 
 ## 12. Stale docs found while compiling this
 

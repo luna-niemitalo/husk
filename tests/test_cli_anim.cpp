@@ -20,6 +20,7 @@
 #include <fstream>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_read.hpp"
 #include "test_cli_fixtures.hpp"
@@ -98,7 +99,7 @@ TEST_CASE("husk export: --anim <dir> resolves an external (flags without 0x20/0x
     writeFile(m2Path, file);
     auto skinPath = tempPath("external-anim.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-anim-dir";
     fs::create_directories(animDir);
     writeFile(animDir / "777.anim", tinyAnimFile());
     auto out = tempPath("external-anim.bundle");
@@ -134,7 +135,7 @@ TEST_CASE("husk export: an external sequence with no matching --anim <dir> file 
     writeFile(m2Path, file);
     auto skinPath = tempPath("external-anim-missing.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-dir-empty";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-anim-dir-empty";
     fs::create_directories(animDir);  // no 777.anim inside
     auto out = tempPath("external-anim-missing.bundle");
     fs::remove_all(out);
@@ -347,7 +348,7 @@ TEST_CASE("husk export: --anim <dir> resolves via the basename convention when t
     writeFile(m2Path, m2);
     auto skinPath = tempPath("anim-basename-no-afid.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-no-afid-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-anim-basename-no-afid-dir";
     fs::create_directories(animDir);
     writeFile(animDir / (m2Path.stem().string() + "0200-00.anim"), tinyAnimFile());
     auto out = tempPath("anim-basename-no-afid.bundle");
@@ -383,7 +384,7 @@ TEST_CASE("husk export: --anim <dir> falls back to the basename convention when 
     writeFile(m2Path, file);
     auto skinPath = tempPath("anim-basename-afid-file-missing.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-afid-file-missing-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-anim-basename-afid-file-missing-dir";
     fs::create_directories(animDir);
     writeFile(animDir / (m2Path.stem().string() + "0200-00.anim"), tinyAnimFile());
     auto out = tempPath("anim-basename-afid-file-missing.bundle");
@@ -419,7 +420,7 @@ TEST_CASE("husk export: --anim <dir> prefers the FileDataID-named file over the 
     writeFile(m2Path, file);
     auto skinPath = tempPath("anim-basename-priority.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-priority-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-anim-basename-priority-dir";
     fs::create_directories(animDir);
     writeFile(animDir / "777.anim", tinyAnimFile());  // real, resolvable data
     // Deliberately too small to hold the 1 timestamp (4 bytes) + 1 C3Vector
@@ -460,7 +461,7 @@ TEST_CASE("husk export: --anim <dir> produces no animation clip, not an error, w
     writeFile(m2Path, file);
     auto skinPath = tempPath("anim-basename-neither.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-neither-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-anim-basename-neither-dir";
     fs::create_directories(animDir);  // neither 777.anim nor the basename file exists
     auto out = tempPath("anim-basename-neither.bundle");
     fs::remove_all(out);

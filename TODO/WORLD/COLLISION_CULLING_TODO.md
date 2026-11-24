@@ -307,15 +307,14 @@ justifies it.
 
 **Current state (2026-10-10)**: portals are `resources.geometry.mesh.portals` (`canon::Portal`:
 polygon, plane, raw `MOPE`) and each group's `MOPR` range is its part's
-`portals` links (`canon::PortalLink`: portal, other part, raw side); schema
-in `schema/model.schema.json`. 200 sampled portal-bearing roots export
-cleanly (1,539 portals). Facts: `../../WIKI_FINDINGS/WORLD.md` "Collision &
-culling".
+`portals` links (`canon::PortalLink`: portal, other part, `side`, the
+owning part's half-space of the portal plane, resolved since 0.4.0);
+schema in `schema/model.schema.json`. 200 sampled portal-bearing roots
+export cleanly (1,539 portals). Facts: `../../WIKI_FINDINGS/WORLD.md`
+"Collision & culling". Source portals flipped against their geometry (14
+of 3,871 cleanly separated) stay as the source has them.
 
 Open:
-- **`side` semantics**: matches the owning group's half-space at its
-  vertex centroid in 86% of links; the wiki's culling pseudocode reads the
-  other way. Needs a client-side check before anything relies on it.
 - **`MOPE`**: kept raw; its contents look like uninitialized memory.
 - **`MOVV`/`MOVB`**: 0/71,929 real group files; not parsed.
 

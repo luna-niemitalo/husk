@@ -93,6 +93,289 @@ band meshes over the tile's baked map texture. Tile placement instances
 listed in `_obj1.adt` carry `distant`; leave the rest out when drawing a
 tile from afar. `BUNDLE_FORMAT.md` "Levels of detail" has the details.
 
+v0.4.0 (`schema_version` "0.4.0", 2026-11-24). Every document carries
+"0.4.0"; a 0.3.0 reader rejects it by the `schema_version` const, so
+re-export rather than mix. Breaking changes, each with what a reader
+changes:
+- **Every document names its schema.** A required top-level `$schema`
+  holds the `$id` of the kind's schema,
+  `https://husk.invalid/schema/<kind>.schema.json`; `validate-bundle`
+  rejects one that doesn't match `kind`. A reader that checks for an
+  unknown top-level key accepts `$schema`; one that dispatches on `kind`
+  can keep doing so (`BUNDLE_FORMAT.md` "The contract header").
+- **Particle gravity is a vector track.** `particle_system.gravity` was
+  an `animated_float` (and `null` or a meaningless float for the 80% of
+  emitters whose keys are packed vectors, M2Particle flag `0x800000`); it
+  is now an `animated_vec3`, the acceleration in yard/s² in the
+  emitter's frame (z up). A plain source value g is `[0, 0, -g]`. Apply
+  it in the emitter's frame: it turns with the emitter's bone and the
+  model's placement, it is not world down. A packed key with no
+  direction is dropped from the curve (husk warns); none occur in a
+  27,758-key sample.
+- **MFOG has no medium.** `classic_local_fog` instances lost the optional
+  inputs `extinction` and `albedo` (derived by `linear_fog_to_extinction`
+  and `fog_color_to_albedo`) and the effect lost its `medium` content.
+  Don't place an MFOG sphere as a fog volume: it is distance fog a viewer
+  inside the parts that list it sees (the classic look stays in the
+  instance's `style`, the radii in `inner_radius`/`outer_radius`).
+- **Parallax (WMO shader 22) has no `tangent_view` input.** Its term `e`
+  is `tangent_frame(view_position, view_position, view_normal, uv1) /
+  dot(view_normal, view_position)` over two new `renderer_value` inputs,
+  `view_position` and `view_normal`. Provide those two and evaluate the
+  new `tangent_frame` op (below) in the renderer.
+- **Portal `side` is resolved.** `parts[].portals[].unresolved.side` is
+  now `parts[].portals[].side`, required, +1 or -1: +1 when the owning
+  part lies where `dot(normal, p) + distance > 0`. The link has no
+  `unresolved` object any more. Values are the source's, so the ~14
+  authoring errors in 3,871 cleanly separated sample portals stay flipped.
+- **`parts[].fog_volumes` is `parts[].interior_fogs`.** Same `{set, id}`
+  refs, renamed for what they are: the fogs a viewer inside the part
+  sees, beside `resources.scene.default_fog`.
+- **Material layer alpha is two curves.** `layers[].alpha_fade` is gone;
+  read `layers[].color_alpha` (M2Color.alpha) and
+  `layers[].texture_weight` (M2TextureWeight). Both are written when the
+  source sets both; the consumer combines them (`BUNDLE_FORMAT.md`
+  "Material tracks", table in "`Model()`" below).
+- **Item models and textures are the wearer's files.** A
+  `definition.items[].models[]` entry is `{position, model}` or
+  `{position, unresolved_reason}`, no longer an asset ref: `position` is
+  the ItemDisplayInfo.ModelResourcesID index (shoulders: 0 left, 1
+  right). `textures[]` entries gain a required `model_position`, the
+  model they dress. Each model and texture is the file for the wearer's
+  race and sex (ComponentModelFileData / ComponentTextureFileData); an
+  unpicked texture is `known_unresolved` with the reason.
+- **`name_source` gains `community`.** A closed enum (a 0.3 schema, a
+  switch without a default) rejects it. It marks a name from a
+  community-maintained table outside the client, today only clip names
+  (below); treat it like `listfile`: decoration that may be wrong.
+- **References are named by id.** Every document's `references[]` entry
+  has a required `id` (a UUID derived from the kind and the referenced
+  asset's identity, `BUNDLE_FORMAT.md` "Stable ids"), and every pointer
+  into references holds that id string, not an integer index: model
+  `definition.placement_sets[].reference`, `texture_slots[].composite`,
+  customization choice `textures[].material`, `selection.equipped[].reference`,
+  material `techniques[]`; placement_set `instances[].reference`; world
+  `grid.cells[].tile` and `placements[]`. Build an id → reference map per
+  document and look pointers up in it; don't assume an order of
+  references (owned sets first, tiles first) any more. A set placing one
+  file under two names now has one reference for it.
+- **Mesh parts are named by id.** `resources.geometry.mesh.parts[]` has a
+  required `id` (from the model's identity and the WMO group index); part
+  `portals[].to_part`, liquid `part`, static light `part`, primitive
+  `part` (mesh and every LOD level) and LOD `source.part_levels[].part`
+  hold that id. Map ids to parts once per model.
+- **Light conditions are named by id.** A placement set's
+  `resources.light_conditions[]` (0.3 `light_params[]`, renamed below)
+  entries have a required `id` (from the LightParams row); a zone light's
+  `clear`, `clear_underwater`, `storm`, `storm_underwater` and `death`
+  hold that id.
+- **Textures are named by id.** Every `resources.textures[]` entry of a
+  model, terrain tile or placement set has an `id` (from the texture's
+  identity, state and what else tells two entries of one file apart), and
+  every texture pointer holds it: material layer `texture`, slot
+  `options[]`, item and choice `textures[].texture`, static light
+  `cookie`, liquid type `textures[].frames[]`, terrain ground texture
+  `diffuse`/`height`, LOD `diffuse`/`normal`, `liquid_flow`, and an
+  effect instance's `image` inputs (e.g. emitter `texture`, zone light
+  `color_grading`). A material document's own `resources.textures` is
+  unchanged: its layers still index it.
+- **Materials are named by id.** `resources.materials[]` entries have a
+  required `id`; a primitive's `material_index` (mesh and every LOD level)
+  and a liquid's `material_index` are replaced by `material`, holding it.
+- **Static lights are named by id.** `resources.scene.static_lights[]`
+  entries have a required `id` (from the model's identity and the light's
+  MNLD/MOLT/MOLS/MOLP record); a part's `lights[]` and `light_sets[][]`
+  hold those ids.
+- **Presets point at appearances.** A `selection.presets[]` entry has a
+  required `id` and keeps only `appearance` (an id), the outfit's
+  `textures` (a humanoid NPC's bake; now optional), `items`, `sources`
+  and the outfit's `unresolved`. `customization`, `shown_geosets`,
+  `particle_colors`, `opacity`, a creature display's texture variations
+  and the body's `unresolved` moved into the appearance. Find it through
+  the model's one `references[]` entry of kind `appearances` (new in the
+  kind enum): `document` holds the list inline (`husk export`), or
+  `asset.uri` names the tree's shared `appearances.json` (`export-corpus`,
+  `export-appearances`); look the id up in that document's
+  `appearances[]`. Its indices are still this model's definition's. Apply
+  the appearance first, then the preset's own `textures` and `garments`
+  (`BUNDLE_FORMAT.md` "Appearances").
+- **Items are garments** (`REFACTOR/GARMENTS.md`). What a model wears is a
+  `garments` document (new kind, `schema/garments.schema.json`), reached
+  through the model's one `references[]` entry of kind `garments` (new in
+  the kind enum), `document` inline (`husk export`). Old → new:
+  - `definition.items[]` → the document's `items[]` (`ref`, and
+    `source.slot`/`slot_token`/`item_slot`) plus `garments[]` (`kind`,
+    `layer`, `order`, `pieces[]`); `items[].garments` lists the
+    garments wearing the item exactly means.
+  - `items[].overlays[]` `{component_section, texture}` → piece
+    `overlay {region, texture, mask?}`, the number in `source.section_type`;
+    regions and their rectangles are the model's new `definition.body.regions`.
+  - `items[].models[]` + `textures[]` → piece `attached {point, model |
+    unresolved_reason, textures[]}` (head, shoulders, weapons) or
+    `skinned {model | unresolved_reason, textures[], shown_geosets}`; a
+    texture's `texture_type`/`model_position` → `role` plus
+    `source.texture_type`/`source.model_position`.
+  - New: piece `geometry {part, geoset}`, the body geosets the item
+    switches on (sleeves, hem, boots), which 0.3 did not export.
+  - `selection.presets[].items[]` → `selection.presets[].garments[]`
+    (garment ids, each once; no slots); a bake's `covers_items` (indices)
+    → `covers_garments` (garment ids).
+  - `selection.equipped` is removed (nothing wrote it).
+  - Texture ids in pieces index the garments document's own
+    `resources.textures`, not the model's.
+  A hem a legs item ships (body geoset 1102) is a piece of the tunic of its
+  set, with its paint masked out of the legs texture (`overlay.mask`, a
+  white-on-black texture); wearing a legs item's `items[].garments`
+  still reproduces the client.
+  NPC equipment (an `items[]` entry per ItemDisplayInfo and slot: one
+  display is worn as a shirt by some NPCs and a chest by others) has pieces
+  too, each split once and shared by every NPC preset wearing it there. A
+  display that draws nothing has no garment (`items[].garments` empty;
+  NPC slot 11 is always such a display). An NPC whose chest is a tunic
+  wears a joined tunic holding its legs' hem (piece rule
+  `hem_join_outfit`), listed under neither item; wear the preset's
+  `garments` for the NPC's look, an item's `garments` for that display
+  alone.
+  Every garment cut from a source item says `"layer_rule":
+  "source_slot_priority"`: its `order` is its slot's draw rank (shirt 1 …
+  back 13) and boots sit in `mid`, so garments of one layer stack as the
+  client draws them (bracers under gloves, a belt over a tabard, a robe's
+  skirt over a legs skirt). Stack by layer, then order; within one layer and
+  order an overlap is a conflict the bundle reports, never one husk wrote
+  from source items.
+- **Animation fallbacks are a shared document.**
+  `resources.rig.animation_fallbacks` (`[animation, fallback]` AnimationData
+  id pairs, copied into every model; in earlier 0.4.0 builds only) is
+  gone. The table is the model's one `references[]` entry of kind
+  `animation_fallbacks` (new in the kind enum, new kind
+  `schema/animation_fallbacks.schema.json`): `document` inline
+  (`husk export` with `--db2-dir`), or `asset.uri` naming the tree's one
+  `animation_fallbacks.json` (`export-world`/`export-corpus` with
+  `--db2-dir`), the same two forms as appearances. Old pair `[a, f]` is now
+  a `fallbacks[]` entry `{id, animation, fallback}` whose
+  `animation.id.row` is a and `fallback.id.row` is f (refs named like a
+  clip's `animation`); the implicit "unlisted falls back to 0" is the
+  document's `otherwise` ref. Walk it by identity until a clip exists
+  (`REFACTOR/ANIMATION.md` "Fallbacks"). Load the shared file once per
+  tree, not per model.
+- **Creature display `preset` is an id.** `creatures.json` displays hold
+  the preset's `id` string instead of its index into `selection.presets`.
+- **Raw source values moved under `source`.** Values kept as the source
+  stores them, with no meaning a consumer of another source could use,
+  left the canonical keys:
+  - terrain `resources.terrain.liquid_objects[]`: `flow_speed`,
+    `fishable`, `reflection` → `liquid_settings[].source.{flow_speed,
+    fishable, reflection}` (`flow_direction` stays);
+  - model `resources.physics.bodies[].type` →
+    `bodies[].source.type`;
+  - placement set `resources.light_params[]`: `celestial_sphere_override`,
+    `sun_position_override` → `light_conditions[].source.{...}`.
+  Descriptions of colours and densities no longer say "as stored"; their
+  values are unchanged.
+- **Keys named after the source renamed.** Values unchanged unless said:
+  - model `definition.customization.options[].chr_model` →
+    `options[].body` (the body model the option belongs to);
+  - placement set `resources.light_params[]` →
+    `resources.light_conditions[]`, and its entries' ids change with it
+    (key `light_condition/db2_row/LightParams/<row>`, `BUNDLE_FORMAT.md`
+    "Stable ids");
+  - terrain `resources.terrain.liquid_objects[]` →
+    `resources.terrain.liquid_settings[]`; a liquid's `liquid_object` →
+    `liquid_setting`;
+  - customization choice `geoset_id` (group·100+variant) →
+    `geoset: {group, variant}`, the packed number kept as
+    `source.geoset`;
+  - primitive (mesh and every LOD level) `geoset_id`, `geoset_group`,
+    `geoset_variant` → `geoset: {group, variant}`, the packed number kept
+    as `source.skin_section_id` (absent on a WMO batch). Match a choice to
+    ranges on `geoset`;
+  - appearance `shown_geosets[]`: packed numbers → `{group, variant}`
+    objects.
+- **Zone fog has an extinction; its density moved under `source`.** A
+  light key's `fog.density` and `fog.height_density` (the client's
+  parameters, unit `1`, never an extinction) are now
+  `fog.source.density` and `fog.source.height_density`. New required
+  `fog.extinction` and `fog.height_extinction`, in 1/yard: the fog keeps
+  `exp(-extinction · e)` of the scene colour at `e` yards past the fog
+  start, the rest is fog colour; inside the height fog blend the two by
+  the height weight. Derived by `fog_density_to_extinction`
+  (`0.0005 · density`, floored, missing values filled), grade ref: the
+  scale comes from one reimplementation, not client code. A typical key
+  (density 4.5) reaches half fog 308 yards past the start
+  (`WIKI_FINDINGS/RENDERING.md` "Zone fog density").
+
+Additions (a 0.3 reader that ignores unknown keys loses nothing):
+- **Creature catalog, a new document kind.** `husk export-creatures`
+  (also run by `export-corpus`) writes `<tree>/creatures.json`: every
+  client `Creature` row with name, title, type and family (refs with
+  names), raw `source.classification`, and its display slots with weights; each
+  display names its model by stable id, with the id of its preset in that
+  model's `selection.presets` and its scale. Where creatures live is
+  server data, so the catalog has no locations (`BUNDLE_FORMAT.md`
+  "Creature catalogs").
+- **Zone flags.** With `--db2-dir`, a world zone's `source` carries
+  AreaTable `flags` (Flags[0], Flags[1]), `mount_flags` and
+  `flag_names` (wowdev.wiki's 10.2 bit names), all three or none
+  (`BUNDLE_FORMAT.md` "World documents", `zones`).
+- **Technique ops** `min` (n-ary, per channel), `dot` (two operands, a
+  scalar; `dot(x, 1)` sums x's channels) and `tangent_frame(v, p, n, uv)`
+  (two channels; needs screen derivatives of `p` and `uv`, so the
+  renderer evaluates it). Definitions: `schema/technique.schema.json`'s
+  `expression`. UnkDFShader (23) sums its weights with `dot`.
+- **Physics from the model itself.** `resources.physics` is filled from
+  the M2's `PFDC` chunk or its `PFID` file, not only from a `.phys`
+  beside it, so physics capes and mounts ship their rigid-body chains. The
+  manifest's provenance source `phys` says which was read (`available:
+  false` = not found, unknown, not "has none").
+- **Joint flags.** `skeleton.joints[].inherit: {translation, rotation,
+  scale}` (false: the joint ignores that part of its parent's transform)
+  and `driven_by: "physics"` on the joints a dynamic physics body drives:
+  drive those from the simulation, the rest from animation.
+  `source.flags` keeps the raw word; bits with no established meaning are
+  only there.
+- **Global-sequence lengths.** A `global_sequence` clip has `duration`
+  (its loop); `resources.rig.global_sequences[i].duration` is the loop
+  table other curves index. Use these as the period, not the last key.
+- **Map identity.** With `--db2-dir`, a world document has a `map` block
+  from its `Map` row: `ref` (row + `MapName_lang`), `instance_type_name`
+  (for 0-4), `expansion`, `max_players`, `parent`, `cosmetic_parent` (Map
+  refs) and `area` (AreaTable ref), each named, and the raw
+  `source.directory`, `source.instance_type` and `source.map_type`. A tile carries the same map ref
+  as `definition.terrain.map`. Use these for the place's name, not the
+  WDT file stem.
+- **WMO interior names.** With `--db2-dir`, a WMO mesh part has `areas`:
+  per name set, `{name_set, ref, area, whole_model}` (WMOAreaTable row
+  with `AreaName_lang`, its AreaTable row named). Every map-object
+  placement carries `selection.name_set`; pick the entry whose `name_set`
+  equals it, the way `selection.placement_sets` picks doodad sets
+  (`BUNDLE_FORMAT.md` "Schema 0.4.0").
+- **More named refs.** With `--db2-dir`, a tile's
+  `resources.terrain.chunks.areas[]` carry AreaTable names and a zone
+  light's `skybox.ref` its LightSkybox name; identities unchanged.
+- **Creature display fields.** A catalog display gains `source.size_class`
+  (raw) and unnamed row refs `object_effect_package`, `state_spell_visual_kit`,
+  `anim_replacement_set`, `dissolve_effect`, `mount_poof_spell_visual_kit`
+  (CreatureDisplayInfo columns of the same names), each absent at 0.
+- **Character model names.** A customization option's `body` ref
+  is named "<race> <sex>" from ChrRaces and ChrRaceXChrModel ("Human
+  male"); match on the ChrModel row, show the name.
+- **Clip names on 12.x.** With `--anim-names <wow.export checkout>` (also
+  on `export-world`, `export-corpus`, `snapshot`), a clip's `animation`
+  ref is named from wow.export's list (`name_source: community`) where the
+  client has no name; a client name (`db2`) wins. Provenance source
+  `animation names` records repo, file and commit. Match clips by
+  `animation.id.row`, never by name.
+
+Output changes, not format changes: `db2-export` writes float arrays as
+numbers and String/LocString arrays as text (they were raw bits and
+string-table offsets, e.g. LiquidType `Float_*`, `Texture_*`), and
+resolves single strings by WoWDBDefs type.
+
+Output change, not a format change: DB2 copy-table rows are now read, so
+ItemDisplayInfo, ComponentModelFileData (65 stored + 59,474 copies),
+ChrCustomizationMaterial/Geoset, GroundEffectTexture and LightParams gain
+rows. Bundles built before it miss that data; rebuild them.
+
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so
 it never said how layers combine. An M2 material now names its
@@ -140,6 +423,7 @@ mesh layout as an M2, plus their own doodad sets.
 <out>/maps/<map>/<tile>.bundle/sets/1.json           placement set "map_objects" (WMOs)
 <out>/models/<fdid>.canon.bundle/manifest.json       model: M2 or WMO (a WMO has its own sets/)
 <out>/textures/<fdid>.dds                            ground textures, shared
+<out>/animation_fallbacks.json                       animation_fallbacks: every model's (with --db2-dir)
 ```
 
 Every path inside a document is relative to that document's own file,
@@ -210,7 +494,7 @@ come from the world grid (step 3), not from `origins[0]`.
 
 | Old | Now |
 |---|---|
-| `textures[i].diffuse.texture_state == "resolved"` | `textures[i].diffuse` is an index into `resources.textures`; that entry's `state`: `resolved`, `known_unresolved` or `ambiguous` |
+| `textures[i].diffuse.texture_state == "resolved"` | `textures[i].diffuse` is the id of an entry of `resources.textures`; that entry's `state`: `resolved`, `known_unresolved` or `ambiguous` |
 | `textures[i].diffuse.texture.uri` | the entry's `payload.uri` (with `payload.media_type`); its identity is the entry's `identity` |
 | `repeats_per_chunk` | unchanged |
 | `chunks.layers[c][k].texture_index`, `.alpha` | unchanged (`ground_effect_index` is new) |
@@ -233,12 +517,12 @@ Renamed to row/column. The values are the same numbers: "row" steps −X,
 | `quad_rect.width` / `.height` | `quad_rect.columns` / `.rows` |
 | `heights`, `quad_exists` | unchanged; heights count `(columns + 1) · (rows + 1)` |
 | `height_source: "heightmap"` | `"stored"` (`min_height_level` and `zero` unchanged) |
-| — | new: `liquid_type`, `liquid_object` (DB2 refs, named when the liquid DB2s were read), optional `depth` |
+| — | new: `liquid_type`, `liquid_setting` (DB2 refs, named when the liquid DB2s were read), optional `depth` |
 
 New beside it: `resources.liquid_types` lists each named type once (name,
 material, texture slots whose frames are ordinary texture entries, e.g.
-Water's 30 animated `lake_a` frames), and `resources.terrain.liquid_objects`
-each object's flow. Match a liquid to its type by `identity`.
+Water's 30 animated `lake_a` frames), and `resources.terrain.liquid_settings`
+each setting's flow. Match a liquid to its type by `identity`.
 
 ### `Placements()`: replaced
 
@@ -271,8 +555,9 @@ M2 and WMO bundles share one layout.
 | Old | Now |
 |---|---|
 | `resources.mesh` | `resources.geometry.mesh` |
-| `mesh.positions`, `normals`, `uv0`, `indices`, `primitives[].index_start/index_count/material_index` | unchanged |
-| `materials[m].layers[].texture_state == "resolved"` | `materials[m].layers[].texture` is an index into `resources.textures`; that entry's `state` |
+| `mesh.positions`, `normals`, `uv0`, `indices`, `primitives[].index_start/index_count` | unchanged |
+| `primitives[].material_index` | `primitives[].material`: the id of an entry of `resources.materials` |
+| `materials[m].layers[].texture_state == "resolved"` | `materials[m].layers[].texture` is the id of an entry of `resources.textures`; that entry's `state` |
 | `layers[].texture.uri` | the entry's `payload.uri` |
 | `layers[].alpha_fade` | two curves: `layers[].color_alpha` (M2Color.alpha) and `layers[].texture_weight` (M2TextureWeight); both may be set, combine them as the renderer sees fit |
 
@@ -280,9 +565,10 @@ A WMO bundle also has:
 - `definition.placement_sets`: its doodad sets, each a document under
   `sets/`. Set 0 is always on; an instance's selection adds others.
 - `resources.geometry.mesh.parts`: groups, with bounds, portals, and the
-  volumes each uses. `fog_volumes` are `{set, id}` refs to effect
-  instances in the doodad sets (`REFACTOR/EFFECTS.md`; a fog is placed by
-  its set, its look is the instance's `style`); `ambient_color_volumes`
+  volumes each uses. `interior_fogs` are `{set, id}` refs to effect
+  instances in the doodad sets, the fogs a viewer inside the part sees
+  (`REFACTOR/EFFECTS.md`; a fog is placed by its set, its look is the
+  instance's `style`); `ambient_color_volumes`
   and `ambient_particle_volumes` are the same. `resources.scene.default_fog`
   is the fog a part falls back to.
 - `resources.geometry.mesh.attributes`: per-face flags and material, which
@@ -326,8 +612,8 @@ on husk's side (`BUNDLE_FORMAT.md` "Seams between tiles").
 - Outdoor lighting: the `zone_lights` set (was `zone_fogs`; effects
   `classic_zone_light`/`_global`, were `classic_zone_fog`/`_global`).
   Each instance's `style.light.zone_light` maps a condition (clear,
-  clear_underwater, storm, storm_underwater, death) to an index into the
-  set's `resources.light_params`. An entry holds its `settings` (sky
+  clear_underwater, storm, storm_underwater, death) to the id of an entry
+  of the set's `resources.light_conditions`. An entry holds its `settings` (sky
   model, glow, water opacity, sun, hide_sun/moon/stars; absent for
   1,196 ids the build's LightParams file lacks) and `keys` by time of
   day: direct/ambient/horizon/ground colours, `sky`, `clouds`, `water`,

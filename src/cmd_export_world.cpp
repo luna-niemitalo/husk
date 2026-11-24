@@ -9,6 +9,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -17,7 +18,10 @@
 #include <variant>
 #include <vector>
 
+#include "anim_names.hpp"
+#include "animationdata_db2.hpp"
 #include "cli_args.hpp"
+#include "cmd_export_canon.hpp"
 #include "cmd_world_shared.hpp"
 #include "commands.hpp"
 #include "corpus_store.hpp"
@@ -27,6 +31,7 @@
 #include "parallel.hpp"
 #include "progress.hpp"
 #include "sources/listfile_catalog.hpp"
+#include "version.hpp"
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_writer.hpp"
 #include "writers/terrain_bundle_writer.hpp"
@@ -53,10 +58,13 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
         ->required()
         ->group("Resolution");
     app.add_option("--db2-dir", opts.db2Dir,
-                   "DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions and creature "
-                   "options, or 'none'")
+                   "DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions, creature "
+                   "options and animation fallbacks, or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--anim-names", opts.animNames,
+                   "wow.export checkout naming the model bundles' clips (export's --anim-names), or 'none'")
+        ->group("Resolution");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
     app.add_flag("--skip-models", opts.skipModels,
                  "don't export model bundles (pass 2); placements link only to bundles already under "
@@ -284,10 +292,42 @@ int exportWorld(int argc, char** args) {
         std::string areaNote;
         const std::optional<areadb::Data> areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), areaNote);
         std::cout << areaNote << std::endl;
+        std::string mapNote;
+        const std::optional<mapdb::Data> mapRows = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), mapNote);
+        std::cout << mapNote << std::endl;
+        std::string wmoAreaNote;
+        const std::optional<wmoareadb::Data> wmoAreas =
+            loadWmoAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), wmoAreaNote);
+        std::cout << wmoAreaNote << std::endl;
         std::string creatureNote;
         const std::optional<creaturedisplay::Data> creatures =
             loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
         std::cout << creatureNote << std::endl;
+        // AnimationData has no model or skeleton key: one fallback table is
+        // every model's, written once and referenced by each (REFACTOR/
+        // ANIMATION.md "Fallbacks").
+        const std::filesystem::path fallbacksFile = out / "animation_fallbacks.json";
+        bool haveFallbacks = false;
+        if (!unlessNone(opts.db2Dir).empty() && !unlessNone(opts.dbdDir).empty()) {
+            if (auto animData = animationdata::load(opts.db2Dir, opts.dbdDir, std::cerr)) {
+                animnames::Table names;
+                if (!unlessNone(opts.animNames).empty()) names = animnames::load(opts.animNames);
+                canon::AnimationFallbacks fallbacks = animationFallbacks(*animData, names.names);
+                writers::Provenance provenance{std::string("husk ") + husk::version(), "db2", {}};
+                provenance.sources.push_back({"AnimationData", "the Fallback column", true,
+                                              std::to_string(animData->entries.size()) + " rows"});
+                provenance.sources.push_back({"animation names", "animation names by AnimationData id (community list)",
+                                              !names.detail.empty(), names.detail.empty() ? "not given" : names.detail});
+                std::ostringstream text;
+                husk::json::Writer w(text);
+                writers::writeAnimationFallbacksDocument(w, fallbacks, provenance);
+                corpus::writeTextAtomic(fallbacksFile, text.str());
+                haveFallbacks = true;
+                std::cout << "animation fallbacks: " << fallbacks.entries.size() << " entries in "
+                          << fallbacksFile.filename().string() << std::endl;
+            }
+        }
+        if (!haveFallbacks) std::cout << "animation fallbacks: not written, they need --db2-dir and --dbd-dir" << std::endl;
 
         // Pass 1: references.
         std::set<uint32_t> modelIds;
@@ -417,6 +457,7 @@ int exportWorld(int argc, char** args) {
             addExportOptions(modelApp, modelOpts);
             std::vector<std::string> modelArgs = {"--listfile", opts.listfile, "--listfile-root",
                                                   opts.listfileRoot, "--db2-dir", "none", "--dbd-dir", "none",
+                                                  "--anim-names", opts.animNames.empty() ? "none" : opts.animNames,
                                                   "--config", "/dev/null"};
             std::vector<char*> argv;
             for (std::string& a : modelArgs) argv.push_back(a.data());
@@ -435,7 +476,9 @@ int exportWorld(int argc, char** args) {
                         if (!src) {
                             errors.add("model", std::to_string(fdid), "no local file (listfile or _by_fdid)");
                         } else if (exportOneModel(modelOpts, modelApp, src->string(), bundle.string(), true,
-                                                  *listfile, fdid, creatures ? &*creatures : nullptr, &modelTextures) != 0) {
+                                                  *listfile, fdid, creatures ? &*creatures : nullptr, &modelTextures,
+                                                  haveFallbacks ? fallbacksFile.lexically_relative(bundle).generic_string()
+                                                                : "") != 0) {
                             errors.add("model", std::to_string(fdid), "export failed (see stderr): " + src->string());
                         }
                     }
@@ -474,7 +517,8 @@ int exportWorld(int argc, char** args) {
                         auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
                         canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot,
                                                           liquids ? &*liquids : nullptr,
-                                                          surfaces ? &*surfaces : nullptr, warn);
+                                                          surfaces ? &*surfaces : nullptr,
+                                                          wmoAreas ? &*wmoAreas : nullptr, areas ? &*areas : nullptr, warn);
                         writers::AssetUris doodadUris;
                         for (uint32_t doodad : placedAssets(model)) {
                             if (exportedModels.count(doodad)) {
@@ -483,7 +527,8 @@ int exportWorld(int argc, char** args) {
                         }
                         writers::AssetUris textureUris;
                         writers::externalizeTextures(model, textureStore, modelTextures.uriToStore, textureUris);
-                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value(), surfaces.has_value()),
+                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value(), surfaces.has_value(),
+                                                                                   wmoAreas.has_value()),
                                              doodadUris, textureUris);
                     }
                 } catch (...) {
@@ -560,7 +605,8 @@ int exportWorld(int argc, char** args) {
                                                   tileTextures.mapTexture, tileTextures.mapNormalTexture,
                                                   tileTextures.liquidFlow};
                     canon::Terrain terrain = adtinput::buildCanonTerrain(
-                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
+                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr,
+                                  areas ? &*areas : nullptr});
                     nameModelRefs(terrain, *listfile);
                     dropMissingDoodadSets(terrain.mapObjects, wmoSetCounts,
                                           [&](const std::string& w) { errors.add("placement", t.root.string(), w); });
@@ -572,12 +618,14 @@ int exportWorld(int argc, char** args) {
                         }
                     }
                     terrain.subject = writers::subjectRef(t.root, tileFileDataId(rootIds, opts.listfileRoot, t.root));
+                    if (auto ref = mapRef(t.map, mapRows ? &*mapRows : nullptr)) terrain.map = *ref;
                     writers::writeTerrainBundle(terrain, bundle,
                                                 terrainProvenance(obj.has_value(), tex.has_value(),
                                                                   lodSidecar.value.has_value(),
                                                                   obj1Sidecar.value.has_value(), flags.has_value(),
                                                                   listfile.get(), opts.listfile, !groundEffects.empty(),
-                                                                  liquids.has_value(), surfaces.has_value()),
+                                                                  liquids.has_value(), surfaces.has_value(),
+                                                                  mapRows.has_value(), areas.has_value()),
                                                 modelUris, textureUris);
                 }
             } catch (...) {
@@ -624,6 +672,7 @@ int exportWorld(int argc, char** args) {
                             loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot,
                                       lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
                                       areas ? &*areas : nullptr, jobs);
+                        world.map = mapInfo(maps[i], mapRows ? &*mapRows : nullptr, areas ? &*areas : nullptr);
                         for (canon::PlacementSet& set : world.placements) {
                             dropMissingDoodadSets(set, wmoSetCounts,
                                                   [&](const std::string& w) { errors.add("placement", mapDir.string(), w); });
@@ -647,7 +696,8 @@ int exportWorld(int argc, char** args) {
                         }
                         writers::writeWorldBundle(world, bundle,
                                                   worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value(),
-                                                                  conditions.has_value(), areas.has_value()),
+                                                                  conditions.has_value(), areas.has_value(),
+                                                                  mapRows.has_value()),
                                                   tileUris, assetUris);
                     }
                     ++worlds;

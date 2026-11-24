@@ -32,7 +32,7 @@ record but the empty entry is a placeholder effect instance
 (`classic_local_fog`, or `classic_fog_exit_blend` for flag 0x1) in the
 doodad set `MFED` names, else set 0 (`REFACTOR/EFFECTS.md`). A real
 record 0 is `resources.scene.default_fog`; group fog lists
-(`MFVR`/`fogIds`) are `parts[].fog_volumes` as `{set, id}`, 0 slots left
+(`MFVR`/`fogIds`) are `parts[].interior_fogs` as `{set, id}`, 0 slots left
 out. 393 sampled roots export and validate (91 fog instances, 44 default
 fogs). Real-data facts: `../../WIKI_FINDINGS/WORLD.md` "WMO `MFOG` /
 `MFED`".

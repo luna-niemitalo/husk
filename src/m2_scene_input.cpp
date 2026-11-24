@@ -1,7 +1,10 @@
 #include "m2_scene_input.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
+#include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -105,6 +108,43 @@ canon::Animated<float> fixed16Track(const TrackSource& src, uint32_t trackOffset
         },
         [](const Blob& b, uint32_t off) { return m2::resolveRawIntGlobalSequenceTrack(b, off, 2); },
         decodeFixed16);
+}
+
+// A packed key without a direction is dropped with a warning instead of
+// failing the export (Luna 2026-11-24): one bad key in one emitter must not
+// cost the whole model. The curve interpolates across the gap.
+canon::Animated<canon::Vec3> particleGravityTrack(const TrackSource& src, const m2::Model& model,
+                                                  const m2::ParticleEmitter& p, size_t index) {
+    canon::Animated<uint32_t> rawCurves = resolveTrack<uint32_t, uint32_t>(
+        src, p.gravityTrackOffset,
+        [](const Blob& b, uint32_t off, uint32_t si, const Blob* ext) {
+            return m2::resolveRawIntTrackSequence(b, off, si, 4, ext);
+        },
+        [](const Blob& b, uint32_t off) { return m2::resolveRawIntGlobalSequenceTrack(b, off, 4); },
+        [](uint32_t key) { return key; });
+
+    canon::Animated<canon::Vec3> curves;
+    for (const canon::Curve<uint32_t>& raw : rawCurves) {
+        canon::Curve<canon::Vec3> curve;
+        curve.sequence = raw.sequence;
+        curve.interpolation = raw.interpolation;
+        for (const auto& [seconds, key] : raw.keyframes) {
+            std::optional<m2::Vec3> g = m2::decodeParticleGravity(key, p.flags);
+            if (!g) {
+                char hex[9];
+                std::snprintf(hex, sizeof(hex), "%08x", key);
+                std::cerr << "husk: warning: model '" << model.header.name << "' particle emitter " << index
+                          << " gravity key 0x" << hex << " at " << seconds
+                          << " s dropped: expected packed x^2 + y^2 <= 128^2, got x "
+                          << int(static_cast<int8_t>(key & 0xFF)) << ", y "
+                          << int(static_cast<int8_t>((key >> 8) & 0xFF)) << "\n";
+                continue;
+            }
+            curve.keyframes.emplace_back(seconds, toCanon(*g));
+        }
+        if (!curve.keyframes.empty()) curves.push_back(std::move(curve));
+    }
+    return curves;
 }
 
 template <typename T, typename Raw, typename Convert>
@@ -290,7 +330,7 @@ canon::PlacedInstance assembleParticle(const m2::Model& model, const m2::Particl
     particle.speedVariation = floatTrack(src, p.speedVariationTrackOffset);
     particle.verticalRange = floatTrack(src, p.verticalRangeTrackOffset);
     particle.horizontalRange = floatTrack(src, p.horizontalRangeTrackOffset);
-    particle.gravity = floatTrack(src, p.gravityTrackOffset);
+    particle.gravity = particleGravityTrack(src, model, p, index);
     particle.lifespan = floatTrack(src, p.lifespanTrackOffset);
     particle.emissionRate = floatTrack(src, p.emissionRateTrackOffset);
     particle.emissionAreaLength = floatTrack(src, p.emissionAreaLengthTrackOffset);

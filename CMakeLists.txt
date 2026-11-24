@@ -94,7 +94,7 @@ target_compile_options(husk-md5 PRIVATE -w)
 # schema/ is the bundle format's definition and effects/ the effect
 # documents husk writes; both are embedded into the binary so `husk
 # validate-bundle`, the writers and the tests use the same files.
-set(HUSK_SCHEMAS common model placement_set world effect material technique)
+set(HUSK_SCHEMAS common model placement_set world effect material technique creatures appearances animation_fallbacks garments)
 set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend classic_ambient_global classic_ambient_point
                  classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume
                  classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon classic_zone_light_global
@@ -155,6 +155,7 @@ add_library(husk-lib STATIC
   src/canon_definition_builder.cpp
   src/canon_selection_builder.cpp
   src/canon_item_builder.cpp
+  src/canon_garment_builder.cpp
   src/writers/writer_common.cpp
   src/writers/gltf_lean.cpp
   src/writers/bundle_common.cpp
@@ -171,7 +172,9 @@ add_library(husk-lib STATIC
   src/wmo_effects_input.cpp
   src/wdt_volumes.cpp
   src/map_scene_input.cpp
+  src/zone_fog_extinction.cpp
   src/bundle_schema.cpp
+  src/schema_paths.cpp
   src/version.cpp
   ${HUSK_EMBEDDED_SCHEMAS}
   src/adt_canon_input.cpp
@@ -207,6 +210,8 @@ add_library(husk-lib STATIC
   src/groundeffect_db2.cpp
   src/liquid_db2.cpp
   src/area_db2.cpp
+  src/map_db2.cpp
+  src/wmo_area_db2.cpp
   src/light_db2.cpp
   src/liquid_canon_input.cpp
   src/surface_db2.cpp
@@ -216,6 +221,7 @@ add_library(husk-lib STATIC
   src/read_file.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
+  src/anim_names.cpp
   src/cmd_db2.cpp
   src/cmd_db2_build.cpp
   src/cmd_blp.cpp
@@ -242,6 +248,13 @@ add_library(husk-lib STATIC
   src/input_log.cpp
   src/corpus_index.cpp
   src/cmd_store.cpp
+  src/creature_db2.cpp
+  src/creature_catalog_input.cpp
+  src/writers/creatures_writer.cpp
+  src/cmd_export_creatures.cpp
+  src/cmd_export_appearances.cpp
+  src/garment_footprint.cpp
+  src/cmd_uv_footprint.cpp
 )
 target_include_directories(husk-lib PUBLIC src)
 target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11 SQLite::SQLite3
@@ -293,12 +306,14 @@ if(HUSK_BUILD_TESTS)
     tests/test_map_scene_input.cpp
   tests/test_bundle_schema.cpp
   tests/test_corpus_store.cpp
+  tests/test_creature_catalog.cpp
   tests/test_text_encoding.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp
     tests/test_canon_selection.cpp
     tests/test_canon_selection_convergence.cpp
     tests/test_canon_item_convergence.cpp
+    tests/test_canon_garment.cpp
     tests/test_component_file.cpp
     tests/test_canon_material.cpp
     tests/test_writers_common.cpp
@@ -306,8 +321,10 @@ if(HUSK_BUILD_TESTS)
     tests/test_writers_bundle.cpp
     tests/test_writers_bundle_scene.cpp
     tests/test_writers_bundle_materials.cpp
+    tests/test_animation_fallbacks.cpp
     tests/test_writers_terrain_bundle.cpp
     tests/test_skin.cpp
+    tests/test_garment_footprint.cpp
     tests/test_skel.cpp
     tests/test_bone.cpp
     tests/test_phys.cpp
@@ -324,6 +341,8 @@ if(HUSK_BUILD_TESTS)
     tests/test_db2table.cpp
     tests/test_liquid_db2.cpp
     tests/test_light_db2.cpp
+    tests/test_zone_fog_extinction.cpp
+    tests/test_place_db2.cpp
     tests/test_creature_options.cpp
     tests/test_sources_catalog.cpp
     tests/test_sources_resolved.cpp
@@ -360,6 +379,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_skin.cpp
     tests/test_cli_anim.cpp
     tests/test_cli_animationdata.cpp
+    tests/test_anim_names.cpp
     tests/test_cli_anim_skel.cpp
     tests/test_cli_skel.cpp
     tests/test_cli_phys.cpp
@@ -399,6 +419,8 @@ if(HUSK_BUILD_TESTS)
     # per-model WoW extraction fixture, hence its own separate macro rather
     # than routing through test_data_paths.hpp's test_data/-relative resolve().
     HUSK_TEST_DBD_DIR="${CMAKE_CURRENT_SOURCE_DIR}/reference/WoWDBDefs"
+    # Same, for the reference/wow.export checkout --anim-names reads.
+    HUSK_TEST_WOW_EXPORT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/reference/wow.export"
     # tests/test_cli_flag_docs.cpp's drift check: README.md's generated flag
     # table (between the BEGIN/END GENERATED FLAG TABLE markers) must match
     # `husk --print-flag-docs=<subcommand>`'s live output byte-for-byte.

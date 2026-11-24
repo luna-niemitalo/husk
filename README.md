@@ -39,6 +39,7 @@ are the same text.
 | **Models** | |
 | `info <file.m2> [--json]` | header, record counts, chunk tags, sidecar FileDataIDs, emitter summary |
 | `export -i <file.m2> [-o out.bundle] [--glb out.glb]` | M2 → model bundle (default `<model>.bundle/` beside the model); `--glb` also writes the lean glTF projection |
+| `garments-check <bundle> [--preset ID]` | garment conflicts (same layer and order, overlapping coverage) and kind/layer/order deviations of each preset (`REFACTOR/GARMENTS.md`) |
 | `resolve -i <file.m2>` | texture-resolution ledger as JSON: which tier answered each slot |
 | `dump-chunks <file.m2\|.bone\|.phys>` | raw-record JSON: Legion+ side chunks, full emitter records, `.bone`, `.phys` |
 | **World** | |
@@ -47,19 +48,23 @@ are the same text.
 | `export-map <map-dir> <out>` | one map's world document: tile grid, map-wide volumes, zones |
 | `export-world <maps-root> <out> --listfile F --listfile-root D` | every tile of every map plus every placed model and WMO; parallel, resumable |
 | `validate-bundle <path>... [--lint-schema]` | check documents against `schema/` |
+| `schema-doc [-o FILE]` | every document value `schema/` defines, as one Markdown reference (description, type, allowed values, unit, links, `x-source`) |
 | **Corpus store** | |
-| `export-corpus <out>` | `export-world --all-assets`, `index-tree`, `store-add` in one run |
+| `export-corpus <out>` | `export-world --all-assets`, `index-tree`, `export-appearances`, `export-creatures`, `store-add` in one run |
 | `snapshot` | export the source mount's `live` build into the store, tag it `live` |
 | `store-add <tree>` | record an export tree as `builds/<game>/<husk>/` |
 | `store-prune [--superseded] [--drop <game>/<husk>] [--apply]` | drop old builds and the objects only they listed (dry run without `--apply`) |
 | `mount <mountpoint>` | serve the store read-only; unmount with `fusermount3 -u` |
 | `index-tree <tree>` | (re)build `index/creature_displays.tsv`, `index/chr_models.tsv` |
+| `export-creatures <tree>` | the tree's creature catalog, `creatures.json`: type, family, each look's model and preset (after `index-tree`) |
+| `export-appearances <tree>` | move the model manifests' inline appearance lists into one shared `appearances.json` and point the manifests at it |
 | **Data** | |
 | `db2-info <file.db2>` | WDC5 header, layout, sample rows; column names and string fields with `--dbd-dir` |
 | `db2-export <file.db2>\|--dir <dir> <out.sqlite>` | DB2 → SQLite, real column names with `--dbd-dir` |
 | `db2-build ... -o <out.sqlite>` | knowledge-base database (disabled subsystem, see `STYLE_CLEANUP.md` item 2) |
 | `appearance-string --validate <string>` | validate a `husk-appearance/1` string; resolves `gear` with `--db2-dir`/`--dbd-dir` |
 | `blp-export <file.blp> <out.png>` / `--dir <in> <out>` | BLP2 → PNG, mip 0 |
+| `uv-footprint <body.m2> --layout-id N [--group G]...` | each geoset's UV footprint on the composite skin texture: bounds, sections, overlaps, texture types sampled, PNG masks with `--png-dir`, a section texture's coverage with `--texture`; without `--layout-id`, an item model on its own `--texture` (footprint overlays with `--png-dir`) (`WIKI_FINDINGS/GARMENTS.md`) |
 | `--version`, `-V` | build version |
 
 ### Inputs
@@ -80,11 +85,16 @@ are the same text.
   (`REFACTOR/BUNDLE_FORMAT.md`). `--customization-choice-ids`,
   `--chr-model-id` and `--char-layout-id` only steer which character
   textures the texture slots resolve to.
+- **Clip names** come from AnimationData's `Name` column where the client
+  has one (pre-12; `name_source: db2`), else from a local wow.export
+  checkout's community list (`--anim-names`, `name_source: community`).
+  12.x AnimationData has no names, so without `--anim-names` its clips
+  carry only their AnimationData id.
 
 ### Config file
 
 TOML defaults for per-machine flags (`dbd-dir`, `db2-dir`, `listfile`,
-`listfile-root`, `textures`, `store`, ...). Lookup: `--config <path>` →
+`listfile-root`, `anim-names`, `textures`, `store`, ...). Lookup: `--config <path>` →
 `$HUSK_CONFIG` → `$XDG_CONFIG_HOME/husk/config.toml` (else
 `~/.config/husk/config.toml`); no file is not an error. An explicit flag
 beats config, config beats the built-in default; `none` opts a configured
@@ -95,7 +105,13 @@ dbd-dir = "/home/luna/dev/husk/reference/WoWDBDefs"
 db2-dir = "/media/luna/wow_export/live/dbfilesclient"
 listfile = "/home/luna/dev/husk/development/listfiles"
 listfile-root = "/media/luna/wow_export/live"
+anim-names = "/home/luna/dev/husk/reference/wow.export"
 ```
+
+`reference/` (gitignored) holds the community checkouts husk reads in
+place and never commits: `WoWDBDefs` (`git clone
+https://github.com/wowdev/WoWDBDefs`) for `--dbd-dir`, `wow.export` (`git
+clone https://github.com/Kruithne/wow.export`) for `--anim-names`.
 
 `--listfile` (flag or config) may name a directory: husk then uses its
 alphabetically last `*.csv`. Keep dated snapshots in the gitignored
@@ -127,8 +143,8 @@ What husk should be. Each line points at the document that defines it.
   consumer. glTF and Blender are tertiary: the only glTF is `export
   --glb`'s lean projection of the bundle. Concept: `CANONICAL_FORMAT.md`; format
   record: `REFACTOR/BUNDLE_FORMAT.md`.
-- **Six document kinds** — `model`, `placement_set`, `world`, `effect`,
-  `material`, `technique` — under one contract header. `schema/*.schema.json`
+- **Eight document kinds** — `model`, `placement_set`, `world`, `effect`,
+  `material`, `technique`, `creatures`, `appearances` — under one contract header. `schema/*.schema.json`
   is the definition (embedded in the binary, checked by `validate-bundle`).
   Schema versions are `x.y.z`: `y` for breaking changes, `z` for additions.
 - **Invariants** (`REFACTOR/README.md` "Invariants" I1–I8): no paths in
@@ -157,14 +173,17 @@ Open items live in the linked TODO files (index: `TODO/README.md`).
 | Feature | Design | Implementation state |
 |---|---|---|
 | M2 parsing (header, geometry, skeleton, `.skel`, animation incl. `.anim` `AFM2`/`AFSB`, aliases, global sequences, materials, emitters, collision, `.bone`, `.phys`) | `M2_COMPLETENESS.md`, `DESIGN.md` | Built. Open: `M2Camera` count only (deprioritized) |
-| M2 → model bundle (`export`) | `REFACTOR/CANONICAL_MODEL.md`, `REFACTOR/BUNDLE_FORMAT.md` | Mesh, rig + animation clips with their AnimationData facts, materials and material tracks, UV maps, every LOD level, attachments/events/lights/emitters, collision, `.phys` physics, `.bone` correction sets. Open: `REFACTOR/AUDIT.md` |
+| M2 → model bundle (`export`) | `REFACTOR/CANONICAL_MODEL.md`, `REFACTOR/BUNDLE_FORMAT.md` | Mesh, rig + animation clips with their AnimationData facts, materials and material tracks, UV maps, every LOD level, attachments/events/lights/emitters, collision, physics (`PFDC`, `PFID` or `.phys`), `.bone` correction sets. Open: `REFACTOR/AUDIT.md` |
 | M2 → lean glTF (`export --glb`) | `src/writers/gltf_lean.hpp` | Mesh, skin, animation, base-colour materials; nothing without a core glTF slot. Validator- and Blender-checked (`tests/test_conformance.cpp`) |
 | Creature options and presets | `REFACTOR/BUNDLE_FORMAT.md` "Options and presets" | Built from CreatureModelData → CreatureDisplayInfo whenever `--db2-dir` is given. Open: `TODO/CREATURE_OPTIONS_TODO.md` |
-| Character customization and humanoid NPCs | `REFACTOR/BUNDLE_FORMAT.md`, `REFACTOR/MATERIALS.md` | Options and geosets, skin composites as material documents (slice 1), choice textures bound to their image inputs, correction sets named by choice, `--appearance` gear as items with their own model bundles. Open: `TODO/MATERIALS_TODO.md`, `REFACTOR/CHARACTER_RENDERING.md` §11 |
+| Appearances (`export-appearances`) | `REFACTOR/BUNDLE_FORMAT.md` "Appearances" | Built: a preset points at its body (customization, a display's texture variations, geosets, particle colours, opacity) by id; `husk export` writes the list inline in the model's `appearances` reference, `export-appearances`/`export-corpus` move a tree's lists into one shared `appearances.json` |
+| Animation fallbacks | `REFACTOR/ANIMATION.md` "Fallbacks" | Built with `--db2-dir`/`--dbd-dir`: AnimationData's client-wide fallback table as an `animation_fallbacks` document, inline in the model's reference (`husk export`) or one shared `animation_fallbacks.json` per tree that every model references (`export-world`, `export-corpus`) |
+| Creature catalog (`export-creatures`) | `REFACTOR/BUNDLE_FORMAT.md` "Creature catalogs" | Built: every client `Creature` row with type, family, classification, and each display's model reference (stable id, listfile name), preset, size class and effect rows (unnamed refs) |
+| Character customization and humanoid NPCs | `REFACTOR/BUNDLE_FORMAT.md`, `REFACTOR/MATERIALS.md` | Options and geosets (each option's ChrModel named by race and sex), skin composites as material documents (slice 1), choice textures bound to their image inputs, correction sets named by choice, `--appearance` gear as items with their own model bundles, each model and texture the wearer's race/sex variant. Open: `TODO/MATERIALS_TODO.md`, `REFACTOR/CHARACTER_RENDERING.md` §11 |
 | `.bone` correction application | `TODO/BONE_CORRECTION_APPLICATION_TODO.md` | Written as `resources.rig.correction_sets`, named by customization choice; never applied (semantics unverified against the client) |
 | ADT terrain | `REFACTOR/BUNDLE_FORMAT.md` "Terrain tile bundles" | Heightfield, 0–8 splat layers, ground-cover rules, `MH2O`, placements as two sets, `_lod` levels, `_obj1` distant sets. Open: `TODO/WORLD/ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`, `WORLD_PLACEMENT_TODO.md` |
-| WMO | `REFACTOR/PLACEMENT_SETS.md`, `TODO/WORLD/WMO_GEOMETRY_TODO.md` | Root + groups → object bundle: geometry, materials, doodad sets, lights, `MLIQ`, portals, face-flag channels (collision), GFID levels, fog/volumes as effects. Open: skybox parsed not written, UV set per shader assumed, `MOC2`/`MOM3`, `MOBS` |
-| Maps and worlds | `REFACTOR/BUNDLE_FORMAT.md`, `TODO/WORLD/WDT_TODO.md` | WDT `MAIN`/`MAID`/`MPHD`, world document (grid, `_fogs.wdt`/`_mpv.wdt` volumes, off-grid WMO, zones). Open: `.wdl`, `.pvdata` |
+| WMO | `REFACTOR/PLACEMENT_SETS.md`, `TODO/WORLD/WMO_GEOMETRY_TODO.md` | Root + groups → object bundle: geometry, materials, doodad sets, lights, `MLIQ`, portals, face-flag channels (collision), GFID levels, fog/volumes as effects, part area names per name set (WMOAreaTable). Open: skybox parsed not written, UV set per shader assumed, `MOC2`/`MOM3`, `MOBS` |
+| Maps and worlds | `REFACTOR/BUNDLE_FORMAT.md`, `TODO/WORLD/WDT_TODO.md` | WDT `MAIN`/`MAID`/`MPHD`, world document (grid, `_fogs.wdt`/`_mpv.wdt` volumes, off-grid WMO, zones with AreaTable flags, the map's `Map` row as a `map` block; tiles carry the map ref). No UiMap region tree yet. No graveyards: the client has none (server data; `REFACTOR/BUNDLE_FORMAT.md` "World documents"). Open: `.wdl`, `.pvdata` |
 | Effects (fog, volumes, particles) | `REFACTOR/EFFECTS.md` | Every source exported as a placeholder effect; zone lights; derivation started. Open: classification (Phase 5), zone fog as a medium, M2 particle light roles |
 | Liquids | `REFACTOR/BUNDLE_FORMAT.md` | `MH2O`, `MLIQ`, liquid types from DB2. Open: `TODO/WORLD/LIQUID_TODO.md` §1–2 |
 | Lighting | `TODO/WORLD/LIGHTING_TODO.md` | WMO `MNLD`/`MOLT` static lights, map `Light` zones with `LightParams`. Open: that TODO |
@@ -216,7 +235,7 @@ started in any row (8 `.m3` files exist in the corpus; chunk survey:
 | Materials | ✅ blend mode, flags, static and animated tint/fade, texture transforms, extra layers, shader names | ✅ `MOMT`, `MOTX`; ⬜ `MOM3` | ✅ `MCLY`, `MCAL` (all three forms), `MTXP`; ⬜ `MTXF` | ⬛ |
 | Texture references | ✅ `TXID`, `textures`, `textureCombos` | ✅ | ✅ `MDID`/`MHID`, `MTEX` via listfile | ⬛ |
 | Texture pixels | ⬛ | ⬛ | ⬛ | ✅ palette, DXT1/3/5, BC5, BGRA; ⬜ JPEG |
-| Collision / physics | ✅ collision mesh, `.phys` bodies/shapes/joints; 📖 `PCOL` | ✅ face flags select collision; ⬜ `MOBN`/`MOBR` BSP | ⬛ | ⬛ |
+| Collision / physics | ✅ collision mesh, `.phys` bodies/shapes/joints (from `PFDC`, `PFID` or a `.phys` file); 📖 `PCOL` | ✅ face flags select collision; ⬜ `MOBN`/`MOBR` BSP | ⬛ | ⬛ |
 | Attachments, events, cameras | ✅ attachments, events; 🚧 `M2Camera` count only | ⬛ | ⬛ | ⬛ |
 | Lights | ✅ | ✅ `MOLT`, `MNLD`, group `MOLS`/`MOLP` light sets | ✅ map `Light` zones (DB2) | ⬛ |
 | Particles / ribbons | ✅ bone-anchored placeholder effects; 📖 full records; 📖 `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` | ✅ `MPVD` as effects | ⬛ `MCSE` is sound, not particles | ⬛ |
@@ -283,17 +302,18 @@ when a table drifts.
 | `--anim` | `-a` | 'auto': inline + global-sequence + best-effort external directory search; 'inline': inline + global-sequence only, no external search; 'none': no animation clips at all (bind pose only); or a directory of '<FileDataID>.anim' files, falling back to '<model-basename><animId>-<subId>.anim' when a FileDataID-named file isn't found | `auto` |
 | `--skel` | -- | external .skel path (only relevant for a model with 0 inline bones), or 'none' to never look for one (default: a same-basename '.skel' next to the model, if any) | unset |
 | `--bones-dir` | -- | directory of already-extracted '<FileDataID>.bone' files (per the model's/'.skel's BFID array), tried before the listfile and store, or 'none' to look only there (default: the model's own directory) -- written as the bundle's correction sets, data only | unset |
-| `--phys` | -- | external .phys path (per the model's own PFID scalar), or 'none' to never look for one (default: a same-basename '.phys' next to the model, if any) -- written as the bundle's physics: bodies, shapes and joints, data only | unset |
+| `--phys` | -- | .phys path, or 'none' to read no physics (default: the model's PFDC chunk, else its PFID FileDataID via --listfile-root, else a same-basename '.phys' next to the model) -- written as the bundle's physics: bodies, shapes and joints, data only; provenance source 'phys' names the one used | unset |
 | `--db2-dir` | -- | directory of extracted DB2 files (lowercase casc-tool names) -- with --dbd-dir, fills the bundle's character customization, creature options and presets, character textures, and --appearance gear; unset (default) skips them. 'none' opts out even when --config/$HUSK_CONFIG supplies a value | unset |
 | `--dbd-dir` | -- | a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs), used to resolve --db2-dir's real column names -- required alongside --db2-dir/--char-layout-id or --db2-dir/--customization-choice-ids, same role as `husk db2-export`'s own --dbd-dir. 'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value | unset |
 | `--char-layout-id` | -- | a real CharComponentTextureLayoutsID (see `husk db2-export`) to filter --db2-dir's data down to. Optional -- unset (default) auto-derives it from the resolved --chr-model-id's own real ChrModel.CharComponentTextureLayoutID column (same auto&#124;none&#124;<id> derivation --chr-model-id itself already uses; --chr-model-id none disables this too); an explicit value always overrides. Requires --db2-dir/--dbd-dir either way | unset |
 | `--customization-choice-ids` | -- | comma-separated ChrCustomizationChoiceID(s) whose textures the character texture slots resolve to, instead of the default choice per option; requires --db2-dir/--dbd-dir | unset |
-| `--appearance` | -- | a husk-appearance/1 string (src/appearance_string.hpp): written as one preset -- its 'cust' choices (also used as --customization-choice-ids) and its 'gear' items, each (SLOT, ItemModifiedAppearanceID) resolved to the item's models (exported as bundles under 'items/'), textures and body-section overlays. Mutually exclusive with --customization-choice-ids; requires --db2-dir/--dbd-dir. 'race'/'sex' are informational only -- --chr-model-id's derivation decides the character | unset |
+| `--appearance` | -- | a husk-appearance/1 string (src/appearance_string.hpp): written as one preset -- its 'cust' choices (also used as --customization-choice-ids) and its 'gear' items, each (SLOT, ItemModifiedAppearanceID) resolved to the item's models (exported as bundles under 'items/'), textures and body-section overlays. Mutually exclusive with --customization-choice-ids; requires --db2-dir/--dbd-dir. 'race'/'sex' pick each gear file's race/sex variant (else the model file name's race and sex do); --chr-model-id's derivation still decides the character | unset |
 | `--chr-model-id` | -- | a real ChrModelID (see ChrModel.db2 / `husk db2-export`), the literal 'auto' to derive one automatically, or 'none' to explicitly disable derivation. Same auto&#124;none&#124;<id> three-state convention as --textures/--skin-dir/--skel -- **unset defaults to 'auto'**: whenever --db2-dir/--dbd-dir are given at all, husk tries to derive the character model whose texture layout and choice textures the texture slots resolve through. Two derivation paths, tried in order: (1) primary, if --listfile/--listfile-root resolve this .m2's own real FileDataID -- an exact identity match via CreatureModelData/CreatureDisplayInfo/ChrModel, never ambiguous for a real file (e.g. correctly tells dracthyrmale.m2 apart from dracthyrdragon.m2 even though both are valid 'Dracthyr, male' answers); (2) fallback, only when no FileDataID was found: this .m2's own filename against the real client-side <ClientFileString><"male"&#124;"female">[_hd].m2 convention (exact, case-insensitive match only, never fuzzy) -- can be genuinely ambiguous when a race+sex has more than one real model (e.g. Dracthyr's dragon form). Either path reports and skips rather than guessing when it can't resolve to exactly one real ChrModelID. Either way, once resolved, auto-selects a *sensible default* customization choice per option: the choice with the lowest real OrderIndex under each ChrCustomizationOption belonging to this model; NOT a client-verified default (no DB2 table states a player default), husk's own heuristic. Ignored when --customization-choice-ids is also given (an explicit pick always wins); requires --db2-dir/--dbd-dir too | unset |
 | `--object-skin-texture-id` | -- | a real texture FileDataID to fill into any type=2 (object_skin) texture slot that has no FileDataID of its own -- husk can't derive this on its own (it needs the real ItemDisplayInfo/TextureFileData DB2 chain resolved externally), so it must be supplied directly; unset (default) leaves those slots unresolved, same as before this flag existed | unset |
 | `--knowledge-db` | -- | husk's own pre-built knowledge-base SQLite database (`husk db2-build`, TODO/TEXTURE_POOL_RECALL_TODO.md) -- when given, resolves this model's own object-skin texture automatically (via the database's own model->texture mapping, keyed by the model's FileDataID under --listfile-root), instead of requiring --object-skin-texture-id per invocation; --object-skin-texture-id still wins if both are given | unset |
 | `--listfile` | -- | a local community-listfile.csv-style snapshot (FileDataID;path per line, github.com/wowdev/wow-listfile) -- last-resort fallback when a FileDataID-named texture slot isn't found as '<FileDataID>.{blp,png}' next to --textures: looks up its real name and tries '<listfile-root>/<real-path>' instead, before falling back to the same-basename fuzzy pool. Optional; unset (default) skips this tier entirely, same as every other opt-in sidecar -- never fetched by husk itself, same tier as --dbd-dir's WoWDBDefs checkout. 'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value | unset |
 | `--listfile-root` | -- | the corpus root --listfile's paths are relative to -- deliberately separate from --textures, since --textures also drives the *directory-local* embedded-filename/same-basename matching tried first, and a real corpus root is typically many directories away from any one model. Only meaningful alongside --listfile; ignored otherwise. Default: --textures itself, for the case where a single directory happens to serve both roles. 'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value | unset |
+| `--anim-names` | -- | a local wow.export checkout (github.com/Kruithne/wow.export): names sequence clips by AnimationData id from its src/js/3D/AnimMapper.js list (name_source 'community'), for clients whose AnimationData has no Name column (12.x); a client name from --db2-dir wins. Read in place, never fetched by husk; provenance source 'animation names' records the file and commit. Unset (default) leaves those clips unnamed. 'none' opts out even when --config/$HUSK_CONFIG supplies a value | unset |
 
 <!-- END GENERATED FLAG TABLE: export -->
 
@@ -324,8 +344,9 @@ when a table drifts.
 | `--map` | -- | only these map directories (repeatable); default every map | unset |
 | `--listfile` | -- | community listfile CSV: finds texture and model files by FileDataID, resolves name-table (MMDX/MWMO/MTEX) paths to FileDataIDs | -- (required) |
 | `--listfile-root` | -- | directory the listfile's paths are relative to | -- (required) |
-| `--db2-dir` | -- | DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions and creature options, or 'none' | unset |
+| `--db2-dir` | -- | DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions, creature options and animation fallbacks, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
+| `--anim-names` | -- | wow.export checkout naming the model bundles' clips (export's --anim-names), or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--skip-models` | -- | don't export model bundles (pass 2); placements link only to bundles already under <output>/models/ | unset |
 | `--all-assets` | -- | also export every M2 and root WMO the listfile names, placed or not (export-corpus) | unset |
@@ -345,6 +366,7 @@ when a table drifts.
 | `--listfile-root` | -- | directory the listfile's paths are relative to | -- (required) |
 | `--db2-dir` | -- | DB2 directory, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
+| `--anim-names` | -- | wow.export checkout naming model clips, or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--store` | -- | record the tree as a build in this store, or 'none'; each output is linked into the store as it is written, so only new content takes space | unset |
 | `--game` | -- | the game build the tree was exported from, e.g. 12.1.0.69933 | unset |
@@ -386,6 +408,7 @@ when a table drifts.
 | `--listfile-root` | -- | the source mount's tag link to snapshot, e.g. /media/luna/wow_export/live: the build it names is exported | -- (required) |
 | `--listfile` | -- | community listfile CSV | -- (required) |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
+| `--anim-names` | -- | wow.export checkout naming model clips, or 'none' | unset |
 | `--store` | -- | the canonical store directory | -- (required) |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--tag` | -- | the tag to point at the snapshot | `live` |
@@ -410,3 +433,31 @@ when a table drifts.
 |---|---|---|---|
 
 <!-- END GENERATED FLAG TABLE: index-tree -->
+
+<!-- BEGIN GENERATED FLAG TABLE: export-appearances -->
+<!-- generated by `husk --print-flag-docs=export-appearances` -- do not hand-edit; regenerate with that command whenever export-appearances's flags change. -->
+
+| Flag | Short | Description | Default |
+|---|---|---|---|
+
+<!-- END GENERATED FLAG TABLE: export-appearances -->
+
+<!-- BEGIN GENERATED FLAG TABLE: export-creatures -->
+<!-- generated by `husk --print-flag-docs=export-creatures` -- do not hand-edit; regenerate with that command whenever export-creatures's flags change. -->
+
+| Flag | Short | Description | Default |
+|---|---|---|---|
+| `--db2-dir` | -- | DB2 directory: Creature, CreatureType, CreatureFamily, CreatureDisplayInfo, CreatureModelData | -- (required) |
+| `--dbd-dir` | -- | WoWDBDefs definitions directory | -- (required) |
+| `--listfile` | -- | community listfile CSV: names the model references; without it they carry no name | unset |
+
+<!-- END GENERATED FLAG TABLE: export-creatures -->
+
+<!-- BEGIN GENERATED FLAG TABLE: schema-doc -->
+<!-- generated by `husk --print-flag-docs=schema-doc` -- do not hand-edit; regenerate with that command whenever schema-doc's flags change. -->
+
+| Flag | Short | Description | Default |
+|---|---|---|---|
+| `--output` | `-o` | write the Markdown to this file instead of stdout | unset |
+
+<!-- END GENERATED FLAG TABLE: schema-doc -->

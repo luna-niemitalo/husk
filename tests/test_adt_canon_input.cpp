@@ -23,6 +23,7 @@ struct Inputs {
     adtinput::GroundEffectDefinitions groundEffects;
     adtinput::GamePathResolutions gamePaths;
     const husk::surfacedb::Data* surfaces = nullptr;
+    const husk::areadb::Data* areas = nullptr;
 };
 
 canon::Terrain build(const RootSpec& rootSpec, const std::optional<ObjSpec>& objSpec = std::nullopt,
@@ -34,7 +35,8 @@ canon::Terrain build(const RootSpec& rootSpec, const std::optional<ObjSpec>& obj
     std::optional<adt::TexFile> tex;
     if (texSpec) tex = adt::parseTex(texFile(*texSpec));
     adtinput::TileSources sources{root, obj, tex, wdtFlags, "azeroth", rootSpec.tileX, rootSpec.tileY};
-    return adtinput::buildCanonTerrain(sources, {inputs.textures, inputs.groundEffects, inputs.gamePaths, nullptr, inputs.surfaces});
+    return adtinput::buildCanonTerrain(sources, {inputs.textures, inputs.groundEffects, inputs.gamePaths, nullptr,
+                                                 inputs.surfaces, inputs.areas});
 }
 
 canon::Vec3 rotate(const canon::Quat& q, const canon::Vec3& v) {
@@ -101,9 +103,21 @@ TEST_CASE("adtinput: chunks land in the world frame with absolute heights and th
     auto area = std::get<canon::Db2Row>(c.area.id);
     CHECK(area.table == "AreaTable");
     CHECK(area.row == 16);
+    CHECK(c.area.name.empty());
     // No _tex0: no layers, no ground-cover data.
     CHECK(c.layers.empty());
     CHECK(t.textures.empty());
+
+    // With an area table, each chunk's area is named; a row the table lacks stays unnamed.
+    husk::areadb::Data areas;
+    areas[16].name = "Goldshire";
+    Inputs named;
+    named.areas = &areas;
+    canon::Terrain n = build(spec, std::nullopt, std::nullopt, named);
+    CHECK(n.chunks[16 * 2 + 7].area.name == "Goldshire");
+    CHECK(n.chunks[16 * 2 + 7].area.source == canon::NameSource::Db2);
+    CHECK(n.chunks[16 * 2 + 6].area.name.empty());
+    CHECK(n.chunks[16 * 2 + 6].area.source == canon::NameSource::None);
 }
 
 TEST_CASE("adtinput: tile coordinates from the file name must match MCNK #0's world position") {

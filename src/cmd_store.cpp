@@ -548,6 +548,8 @@ void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts) {
         ->group("Resolution");
     app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, or 'none'")->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--anim-names", opts.animNames, "wow.export checkout naming model clips, or 'none'")
+        ->group("Resolution");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
     app.add_option("--store", opts.store,
                    "record the tree as a build in this store, or 'none'; each output is linked into the store as it "
@@ -583,6 +585,7 @@ int exportCorpus(int argc, char** args) {
                                               "--listfile-root", opts.listfileRoot,
                                               "--db2-dir", opts.db2Dir.empty() ? "none" : opts.db2Dir,
                                               "--dbd-dir", opts.dbdDir.empty() ? "none" : opts.dbdDir,
+                                              "--anim-names", opts.animNames.empty() ? "none" : opts.animNames,
                                               "--config", "/dev/null",
                                               "--all-assets"};
         if (opts.jobs > 0) {
@@ -613,6 +616,19 @@ int exportCorpus(int argc, char** args) {
         }
         if (code != 0) return code;
         printIndex(corpus::buildIndex(opts.output), opts.output);
+        std::vector<std::string> appearanceArgs = {opts.output};
+        std::vector<char*> appearanceArgv;
+        for (std::string& a : appearanceArgs) appearanceArgv.push_back(a.data());
+        if (int code = exportAppearances(static_cast<int>(appearanceArgv.size()), appearanceArgv.data())) return code;
+        if (opts.db2Dir.empty() || opts.db2Dir == "none" || opts.dbdDir.empty() || opts.dbdDir == "none") {
+            std::cout << "creatures.json: not written, it needs --db2-dir and --dbd-dir" << std::endl;
+        } else {
+            std::vector<std::string> creatureArgs = {opts.output, "--db2-dir", opts.db2Dir, "--dbd-dir", opts.dbdDir,
+                                                     "--listfile", opts.listfile, "--config", "/dev/null"};
+            std::vector<char*> creatureArgv;
+            for (std::string& a : creatureArgs) creatureArgv.push_back(a.data());
+            if (int creatures = exportCreatures(static_cast<int>(creatureArgv.size()), creatureArgv.data())) return creatures;
+        }
         if (!storing) return 0;
         storeTree(opts.store, opts.output, run.game, opts.tags, true);
         corpus::Store(fs::absolute(opts.store)).endRun(run);
@@ -634,6 +650,8 @@ void addSnapshotOptions(CLI::App& app, SnapshotOptions& opts) {
         ->group("Source");
     app.add_option("--listfile", opts.listfile, "community listfile CSV")->required()->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--anim-names", opts.animNames, "wow.export checkout naming model clips, or 'none'")
+        ->group("Resolution");
     app.add_option("--store", opts.store, "the canonical store directory")->required()->group("Store");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
     app.add_option("--tag", opts.tag, "the tag to point at the snapshot")->capture_default_str()->group("Store");
@@ -671,6 +689,7 @@ int snapshot(int argc, char** args) {
                                                    "--listfile-root", build.string(),
                                                    "--db2-dir", (build / "dbfilesclient").string(),
                                                    "--dbd-dir", opts.dbdDir.empty() ? "none" : opts.dbdDir,
+                                                   "--anim-names", opts.animNames.empty() ? "none" : opts.animNames,
                                                    "--store", store.root().string(),
                                                    "--game", game,
                                                    "--tag", opts.tag,

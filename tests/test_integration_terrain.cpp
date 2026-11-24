@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "../src/adt.hpp"
 #include "../src/adt_canon_input.hpp"
 #include "run_husk.hpp"
@@ -164,7 +165,7 @@ TEST_CASE("real ADT: liquid surfaces are whole-chunk rects with heights for ever
 }
 
 TEST_CASE("real ADT: husk export-terrain exports the real tile end to end" * doctest::skip(testAdtTile().empty())) {
-    fs::path out = fs::temp_directory_path() / "husk-test-real-adt.bundle";
+    fs::path out = husk::test::testRunDir() / "husk-test-real-adt.bundle";
     fs::remove_all(out);
     auto r = husk::test::runHusk("export-terrain '" + testAdtTile() + "' '" + out.string() + "'");
     INFO(r.output);

@@ -31,7 +31,27 @@ struct Problem {
 // The document kinds schema/ defines.
 std::vector<std::string> kinds();
 
+// The `$id` of `kind`'s schema: what a document of that kind carries as
+// `$schema`.
+std::string schemaId(const std::string& kind);
+
 std::vector<Problem> lintSchemas();
+
+// Leaf properties of any kind's documents with no x-source, own or
+// inherited (REFACTOR/BUNDLE_FORMAT.md "Where values come from: x-source"):
+// one per schema location, sorted by it, each naming every document path
+// that reaches it.
+std::vector<Problem> sourceGaps();
+
+// Whether a source gap fails the lint (lintSchemas, lintSchemaText). Set
+// false only for a bulk annotation pass: validate-bundle --lint-schema then
+// lists the gaps as warnings and counts them per schema file.
+inline constexpr bool kSourceRequired = true;
+
+// One Markdown reference of every kind's document paths: description,
+// type, allowed values, unit, index/id targets, x-source (inherited
+// resolved) and whether required. Deterministic: schema order is key order.
+std::string schemaDoc();
 
 // Lints one kind schema given as text, against the embedded common
 // definitions; how the lint rules themselves are tested.
@@ -45,5 +65,22 @@ std::vector<Problem> lintSchemaText(const std::string& stem, const std::string& 
 std::vector<Problem> validateDocument(const std::filesystem::path& path,
                                       std::vector<std::filesystem::path>* checked = nullptr,
                                       std::vector<Problem>* warnings = nullptr);
+
+// A finding about a model's garments (REFACTOR/GARMENTS.md "Conflicts are
+// reported, not guessed"): garments a preset wears at one layer and order
+// that overlap in coverage, or a garment whose kind, layer or order is off
+// the kind's preset (known when it says `deviates`).
+struct GarmentFinding {
+    enum class Kind { Conflict, KnownDeviation, UnexpectedDeviation };
+    Kind kind;
+    std::string preset;                 // the preset's id; empty for a deviation
+    std::vector<std::string> garments;  // garment ids
+    std::string message;
+};
+
+// The findings for the model bundle (or manifest) at `path`, over its
+// inline or external garments document; only preset `presetId` when not
+// empty. Throws when the manifest or its garments document can't be read.
+std::vector<GarmentFinding> checkGarments(const std::filesystem::path& path, const std::string& presetId);
 
 }  // namespace husk::bundle_schema

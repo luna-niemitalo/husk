@@ -8,17 +8,79 @@ namespace {
 
 uint32_t dbRow(const Ref& ref) { return std::get<Db2Row>(ref.id).row; }
 
-uint32_t resolveFileDataId(const std::optional<texturefiledata::Data>& textureData, uint32_t materialResourcesId) {
-    if (!textureData) return 0;
-    auto it = textureData->find(materialResourcesId);
-    return it != textureData->end() ? it->second : 0;
+componentfile::Pick pickFile(const GearSources& sources, componentfile::Kind kind, const std::vector<uint32_t>* files,
+                             uint32_t side) {
+    const char* table = kind == componentfile::Kind::Model ? "ModelFileData" : "TextureFileData";
+    if (!files) return {std::nullopt, std::string(table) + " lists no file for this resource"};
+    if (files->size() > 1 && !sources.components) {
+        return {std::nullopt, std::to_string(files->size()) + " files by race and sex; Component" +
+                                  table + " is not loaded"};
+    }
+    static const componentfile::Data kNoTags;
+    return componentfile::pick(sources.components ? *sources.components : kNoTags, kind, *files, sources.wearers,
+                               side);
+}
+
+template <typename Map>
+const std::vector<uint32_t>* filesFor(const Map* map, uint32_t resourcesId) {
+    if (!map) return nullptr;
+    auto it = map->find(resourcesId);
+    return it == map->end() ? nullptr : &it->second;
+}
+
+componentfile::Pick pickTexture(const GearSources& sources, uint32_t materialResourcesId) {
+    return pickFile(sources, componentfile::Kind::Texture, filesFor(sources.textures, materialResourcesId), 0);
+}
+
+void addComponents(Item& item, const itemappearance::Resolution& resolution, const GearSources& sources) {
+    item.itemDisplayInfoId = resolution.itemDisplayInfoId;
+    item.geosetGroups = resolution.geosetGroups;
+    item.attachmentGeosetGroups = resolution.attachmentGeosetGroups;
+    item.transmogSets = resolution.transmogSets;
+
+    if (!resolution.sectionMaterials.empty()) {
+        SectionOverlayComponent overlay;
+        overlay.sections.reserve(resolution.sectionMaterials.size());
+        for (const auto& m : resolution.sectionMaterials) {
+            componentfile::Pick p = pickTexture(sources, m.materialResourcesId);
+            overlay.sections.push_back(
+                {m.componentSection, m.materialResourcesId, p.fileDataId.value_or(0), p.unresolved});
+        }
+        item.components.push_back(std::move(overlay));
+    }
+
+    // A ModelResourcesID of 0 means no model in that position (a
+    // common case-2-only item), not an unresolved one.
+    GeometryComponent geometry;
+    if (resolution.modelResourcesIds) {
+        for (uint32_t position = 0; position < 2; ++position) {
+            uint32_t resourcesId = (*resolution.modelResourcesIds)[position];
+            if (resourcesId == 0) continue;
+            componentfile::Pick p =
+                pickFile(sources, componentfile::Kind::Model, filesFor(sources.models, resourcesId), position);
+            geometry.models.push_back({position, resourcesId, p.fileDataId, p.unresolved});
+        }
+    }
+    for (const auto& m : resolution.materials) {
+        componentfile::Pick p = pickTexture(sources, m.materialResourcesId);
+        geometry.materials.push_back(
+            {m.textureType, m.materialResourcesId, p.fileDataId.value_or(0), m.modelIndex, p.unresolved});
+    }
+    if (!geometry.models.empty() || !geometry.materials.empty()) item.components.push_back(std::move(geometry));
 }
 
 }  // namespace
 
-std::vector<Item> assembleEquippedItems(const itemappearance::Data& data,
-                                         const std::optional<modelfiledata::Data>& modelData,
-                                         const std::optional<texturefiledata::Data>& textureData,
+Item assembleDisplayItem(const itemappearance::DisplayIndex& index, const GearSources& sources,
+                         uint32_t itemDisplayInfoId, const std::string& slot, std::ostream& err) {
+    Item item;
+    item.identity.id = Db2Row{"ItemDisplayInfo", itemDisplayInfoId};
+    item.slots = {slot};
+    addComponents(item, itemappearance::resolveDisplay(index, itemDisplayInfoId, err), sources);
+    return item;
+}
+
+std::vector<Item> assembleEquippedItems(const itemappearance::Data& data, const GearSources& sources,
                                          const std::vector<appearance::GearEntry>& gear, std::ostream& err) {
     std::vector<Item> result;
 
@@ -50,35 +112,7 @@ std::vector<Item> assembleEquippedItems(const itemappearance::Data& data,
         // entry sharing the same id must not re-resolve (and duplicate)
         // the same component data.
         if (!firstOccurrence) continue;
-
-        if (!resolution.sectionMaterials.empty()) {
-            SectionOverlayComponent overlay;
-            overlay.sections.reserve(resolution.sectionMaterials.size());
-            for (const auto& m : resolution.sectionMaterials) {
-                overlay.sections.push_back({m.componentSection, m.materialResourcesId,
-                                             resolveFileDataId(textureData, m.materialResourcesId)});
-            }
-            itemIt->components.push_back(std::move(overlay));
-        }
-
-        // A real ModelResourcesID of 0 means "no standalone geometry" (a
-        // real, common case-2-only item) -- not "unresolved," since
-        // itemappearance::resolve always fills the optional with
-        // DisplayInfo::modelResourcesId's raw value, zero included.
-        bool hasRealModel = resolution.modelResourcesId && *resolution.modelResourcesId != 0;
-        if (hasRealModel || !resolution.materials.empty()) {
-            GeometryComponent geometry;
-            if (hasRealModel && modelData) {
-                auto it = modelData->find(*resolution.modelResourcesId);
-                if (it != modelData->end()) geometry.modelFileDataIds = it->second;
-            }
-            geometry.materials.reserve(resolution.materials.size());
-            for (const auto& m : resolution.materials) {
-                geometry.materials.push_back(
-                    {m.textureType, m.materialResourcesId, resolveFileDataId(textureData, m.materialResourcesId)});
-            }
-            itemIt->components.push_back(std::move(geometry));
-        }
+        addComponents(*itemIt, resolution, sources);
     }
 
     return result;

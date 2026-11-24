@@ -21,6 +21,9 @@ enum class NameSource {
     WmoEmbedded,
     Listfile,
     Db2,
+    // A community-maintained table outside the client (--anim-names), as
+    // opposed to a name the client's own data carries.
+    Community,
     Synthesized,
     None,
 };

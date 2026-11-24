@@ -44,6 +44,19 @@ struct Joint {
 
     BillboardMode billboard = BillboardMode::None;
 
+    // Which parts of the parent's transform the joint takes on.
+    struct Inherit {
+        bool translation = true;
+        bool rotation = true;
+        bool scale = true;
+    };
+    Inherit inherit;
+    bool physicsDriven = false;  // a physics body moves it (WIKI_FINDINGS/M2.md "Cloth")
+
+    // M2CompBone.flags as stored, every bit: the ones without an
+    // established meaning live only here.
+    uint32_t sourceFlags = 0;
+
     // id = RecordIndex{bone index} via boneRef; name/source are
     // NameSource::M2Embedded (m2::keyBoneName table hit) or
     // NameSource::Synthesized ("bone_<index>" fallback) -- the exact

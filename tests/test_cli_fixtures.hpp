@@ -25,22 +25,23 @@
 #include <fstream>
 #include <utility>
 #include <vector>
+#include "test_temp.hpp"
 
 namespace {
 
 namespace fs = std::filesystem;
 
 fs::path tempPath(const std::string& name) {
-    return fs::temp_directory_path() / ("husk-cli-test-" + name);
+    return husk::test::testRunDir() / ("husk-cli-test-" + name);
 }
 
-// A dedicated subdirectory (not the shared system temp root tempPath()
-// otherwise writes into) so directory-scan-based defaulting (--skin
+// A dedicated subdirectory (not the run directory tempPath() otherwise
+// writes into) so directory-scan-based defaulting (--skin
 // auto's same-basename scan, --skin-dir/--textures/--anim/--skel all
 // defaulting to "the model's own directory") gets a clean, isolated view --
 // no risk of an unrelated file from a different test case being picked up.
 fs::path defaultsDir(const std::string& name) {
-    auto dir = fs::temp_directory_path() / ("husk-cli-test-defaults-" + name);
+    auto dir = husk::test::testRunDir() / ("husk-cli-test-defaults-" + name);
     fs::create_directories(dir);
     return dir;
 }

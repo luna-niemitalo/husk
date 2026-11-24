@@ -93,49 +93,39 @@ struct ChoiceCorrectionSet {
     uint32_t set = 0;  // index into Model::correctionSets
 };
 
-// What an item draws, when resolved: its own models (each exported as a
-// model bundle beside this one, `uri` set when written), the textures
-// those models take (ItemDisplayInfoModelMatRes), and the textures it
-// draws onto the wearer's body sections (ItemDisplayInfoMaterialRes).
-struct ItemModel {
-    Ref ref;          // id = FileDataId of the item's .m2
-    std::string uri;  // the item model bundle's manifest, relative; empty = not exported
-};
-struct ItemTexture {
-    uint32_t textureType = 0;  // the item model's M2 texture type it fills
-    TextureRef texture;
-};
-struct ItemOverlay {
-    uint32_t componentSection = 0;  // CharComponentTextureSections.SectionType
-    TextureRef texture;
-};
-struct ItemEntry {
-    Ref ref;  // Db2Row: ItemDisplayInfo (NPC equipment) or ItemModifiedAppearance (--appearance gear)
-    std::vector<ItemModel> models;
-    std::vector<ItemTexture> textures;
-    std::vector<ItemOverlay> overlays;
-};
-
-// An item a preset wears. `slot`: the equipment slot's name, when the
-// source's slot number has a known one; `sourceSlot` is that number.
-struct PresetItem {
-    std::optional<std::string> slot;
-    std::optional<uint32_t> sourceSlot;  // absent when the source names slots, not numbers (--appearance)
-    uint32_t item = 0;  // index into Model::items
-    std::string sourceToken;  // the source's own slot name (--appearance); empty when it numbers slots
-};
-
-struct Preset {
+// A body a preset points at (REFACTOR/BUNDLE_FORMAT.md "Appearances"):
+// the choices that make it, without what it wears. `key`: the source
+// values that make it (customization choices by row id, then texture
+// FileDataIDs by display slot, geosets, particle colour, alpha); with the
+// model's identity it is
+// the appearance's stable id, and equal keys are one appearance.
+struct Appearance {
+    std::string key;
     std::vector<SlotChoice> textures;
     // The mesh geoset ids shown; every other geoset is hidden. nullopt:
-    // the preset doesn't choose geosets.
+    // the body doesn't choose geosets.
     std::optional<std::vector<uint32_t>> shownGeosets;
     std::optional<uint32_t> particleColors;  // index into Model::particleColorOptions
     std::optional<float> opacity;            // 0..1; nullopt = opaque
     std::vector<CustomizationPick> customization;
-    std::vector<PresetItem> items;
+    // Body values the source names but husk can't place in an option.
+    std::vector<UnresolvedField> unresolved;
+};
+
+// A body plus what it wears, and the source rows that use the combination.
+// `key`: the body's key plus the outfit's source values; the preset's
+// stable id with the model's identity.
+struct Preset {
+    std::string key;
+    std::optional<uint32_t> appearance;  // index into Model::appearances; nullopt = the body chooses nothing
+    std::vector<SlotChoice> textures;    // the outfit's: a humanoid NPC's bake
+    // Model::garments indices the bake in `textures` draws in, so a consumer
+    // that swaps a garment knows the bake no longer matches. Empty: a bake
+    // with no gear.
+    std::vector<uint32_t> bakeCovers;
+    std::vector<uint32_t> garments;  // indices into Model::garments.garments, each once
     std::vector<PresetSource> sources;
-    // Source values the preset names but husk can't place in an option.
+    // Outfit values the source names but husk can't place in an option.
     std::vector<UnresolvedField> unresolved;
 };
 

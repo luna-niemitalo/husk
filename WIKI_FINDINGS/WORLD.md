@@ -227,7 +227,44 @@ and the 12.1.5.70391 mount. The formulas are the technique documents
   shader's `o9.xy`, not sphere-mapped); `t3` at
   `uv1 − e·0.25·t17.r` and `t4` at `uv2 − e·0.5·t17.r`, where `e` is the
   view direction in a tangent frame built from screen derivatives of
-  `uv1`. The technique states `e` as a renderer value (`tangent_view`).
+  `uv1`: `e = (dot(T, V), dot(B, V)) / dot(N, V)`, with T and B from
+  `ddx_coarse`/`ddy_coarse` of the view-space position and `uv1`, scaled
+  by `1/sqrt(max(dot(T, T), dot(B, B)))` (program 0000, `case l(22)`).
+  The technique states it with the ops `tangent_frame` and `dot`.
+
+### Shader 23's tint `cb2[5]`: MOMT colours (2026-11-24)
+
+Shader 23 blends `diffuse` toward `cb2[5].rgb` by `v9.w` (`MOC2` alpha).
+No other `uber` material and no vertex shader reads `cb2[5]`, so the
+shaders don't name its source. Data side: 4,000 WMO roots drawn with seed
+20261124 from the 13,080 the 2026-11-21 listfile names (75 unreadable),
+read from the 12.1.5 mount's `_by_fdid`; 1,193 have shader-23 materials,
+10,361 in all. Tint weight is `MOC2` byte 3 over each material's batch
+vertex ranges (`MOBA` first to last vertex) in the tier-0 group files.
+
+| MOMT field | Distinct values | Values (materials) |
+|---|---|---|
+| `sidnColor` | 1 | `0xff000000` (10,361) |
+| `frameSidnColor` | 1 | `0x00000000` (10,361) |
+| `diffColor` | 88 | `0xff959595` 9,394; `0xff969696` 199; `0xff483420` 120; `0xff523c25` 78; 84 others, mostly dark browns, 570 |
+| `flags` | 7 | 0 in 10,233; bits `0x4` 63, `0x100` 35, `0x10` 23, `0x8` 16, `0x2` 3 |
+| `blendMode` | 2 | 0 in 10,359; 1 in 2 |
+
+The tint is in use: 10,270,889 of 20,004,902 batch vertices (51%) have
+`MOC2` alpha > 0, in 9,699 of the 10,346 materials with `MOC2`; 627,293
+vertices are at 255, and in 93 materials (80 roots, mostly expansion-11
+player-housing exteriors) every vertex is. Tinted materials split like all
+of them (`diffColor` 0xff959595 in 8,750 of 9,699; mean alpha 0.237 for
+those, 0.226 for the others).
+
+What this settles and what it doesn't:
+- `sidnColor` is opaque black in every sampled shader-23 material. If
+  `cb2[5]` is `sidnColor`, the tint is black, which is what wow.export draws.
+- `diffColor` varies by material (88 values), so it is the only candidate
+  that would make the tint differ between materials.
+- Neither is ruled out. Nothing in the files says which one the client
+  uploads, and a render to compare against needs a client capture, which
+  is ruled out. **Unresolved.**
   The branch on `v3.w > 0` only skips the `t0` fetch.
 
 ## WDT `_lgt.wdt` lights in the client shaders (12.1.0)
@@ -287,6 +324,21 @@ implementation priority. Legacy `MCLQ` confirmed genuinely absent (0/4,000).
 root-level candidates from the wiki's own page layout. The wholly
 undocumented `_fogs.wdt` chunk **`VFE2`** and `MPVD`'s record layout are
 both now reverse-engineered — see the dedicated sections below.
+
+## Suramar ley lines: liquid type 868 on three tiles, otherwise models (12.1.5, 2026-11-24)
+
+| Claim | Evidence |
+|---|---|
+| `LiquidType.db2` has four ley-line rows: 868 `Ley Line`, 891 `Backup_Ley Line`, 896 `WMO Ley Line`, plus the related 890 `Suramar Illuminated Water` (920 its WMO twin) | `husk db2-export liquidtype.db2`, 201 rows, `Name LIKE '%ley%'` and Suramar names |
+| All five share `LiquidMaterial` 12 (`Flags` 1, `LVF` 0, height + depth). Material 12 is not ley-line specific: it holds 27 types, the glowing waters of 7.x–12.x (Void Water, Bastion Soul River, Arden, Tyrhold). Which type draws with the `procleyline*` shader family is not decided by the material; the selector is unresolved | `LiquidType` grouped by `MaterialID` |
+| Map 1220 (`troll raid`, Broken Isles): 729 root ADTs, 721 with `MH2O`, 158,613 liquid instances. Type 868 has 45 instances on 3 tiles: `19_30`, `20_29`, `20_30`. Type 890 has 239 instances on 10 tiles (`23_29`..`27_30`). 891, 896, 920 appear on no tile | every root ADT's `MH2O` instance headers, `liquidType` at +0 |
+| The ley-line network across Suramar is drawn by M2 doodads, not liquid: `7fx_leyline_doodad_a/b/c.m2` (FDIDs 1093200/1093202/1093203, `world/expansion06/doodads/fx/`), plus nightborne props `7ne_ancient_leylinecoil*`, `_leylineseals`, `_leyline_glowball` | listfile, 9 M2 paths matching `ley_?line` |
+| No DB2 holds ley-line paths or splines | WoWDBDefs definitions: no table or column names a ley line |
+
+husk's terrain bundle already carries the liquid instances with their type:
+`liquid_types[]` names row 868 `Ley Line` with its material and texture
+frames (needs `--db2-dir`/`--dbd-dir`). Whether 896 is used by a WMO's
+`MLIQ` was not surveyed.
 
 ## WMO lightset lights: `MOLS` resolved, `MOLP` corrected, `MOP2` verified (2026-10-11)
 
@@ -628,10 +680,48 @@ portals (never `- distance`), with unit normals; 5,003 are quads. Every
 only ±1, the filler is 0, and the groups' `MOGP` portalStart/portalCount
 ranges partition `MOPR` exactly. A group with no portals may store
 portalStart **0xFFFF** with count 0. 5,037 portals are linked from two
-groups, 28 from one, 3 from none. `side` matches the sign of
-`dot(normal, c) + distance` at the owning group's vertex centroid in
-8,685/10,103 links; PortalCulling.md's front/back test is one
-contributor's guess and reads the other way, so neither is encoded.
+groups, 28 from one, 3 from none.
+
+**`MOPR.side` is the half-space of the portal plane the owning group lies
+in** (2026-11-24, seeded 4,000 roots, seed 20261124, listfile 2026-11-21:
+762 roots with portals, 6,541 portals, 13,036 links;
+`tools/survey_wmo_portal_sides.py`): +1 means the group is where
+`dot(normal, p) + distance > 0`, -1 where it is < 0. A portal's two refs
+always carry opposite signs and name each other's group (6,495/6,495
+two-ref portals), so `side` is one fact per portal: which group the
+normal points into.
+- Tested against the geometry next to the portal (sign of the 16
+  off-plane group vertices nearest the portal centre), the rule holds for
+  5,999 of the 6,068 portals whose two groups land on opposite sides;
+  427 don't separate that way (both groups on one side near the plane:
+  nested groups, portals much larger than the opening). Single-ref
+  portals: 41/46.
+- Where both groups lie cleanly apart (>= 90% of each group's off-plane
+  vertices on its side), 3,857 of 3,871 portals follow the rule. The 14
+  others carry
+  the pair flipped against unambiguous geometry; most have a correctly
+  signed portal joining the same two groups beside them (an exact
+  duplicate polygon in `8zul_cavemicro_mine01` p7,
+  `10xt_exterior_burrowtunnels01` p6), so they read as authoring errors,
+  not a second convention.
+- The vertex centroid is a bad test point, not a different convention: it
+  agrees in 11,364/13,036 links, and 1,332 of the 1,672 misses are links
+  owned by an exterior group (0x8), which wraps around the building
+  (exterior groups own 2,424 of all links). The bounding-box centre is
+  worse (11,226). The polygon's vertex order carries no side: its Newell
+  normal matches `side` in 6,523 links and opposes it in 6,513.
+- The client reads it this way: `CMapObj::AttenTransVerts` (wiki WMO.md,
+  MOCV) takes `side * distance(plane, v)` over the owning group's own
+  vertices and treats >= 0 as inside, fading vertex colour over 6 yards
+  toward an exterior neighbour. PortalCulling.md's front/back test is one
+  contributor's own renderer, not the client.
+- `6as_horde_tower` (FileDataID 1000061): portals 1 and 2 are the same
+  quad (the roof hatch, z = 23.25, normal +z) between the exterior
+  group 0 and the interior group 1. Portal 2 follows the rule (group 0
+  +1, above; group 1 -1, below); portal 1 is its copy with the pair
+  flipped. Portal 0 (the door) follows it too, though group 0's centroid
+  and box centre fall on the wrong side of the door plane.
+
 **`MOPE`** (74 of these roots, always one record per portal) doesn't
 hold what the wiki says: its "portalIndex" field is often 0x4D4F50xx
 (the portal index in the low byte under ASCII "MOP"), and its other

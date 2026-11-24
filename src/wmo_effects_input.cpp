@@ -143,17 +143,9 @@ canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index) {
             unresolvedFloat("smaller_radius", f.smallerRadius, effect.unresolved);
             unresolvedFloat("larger_radius", f.largerRadius, effect.unresolved);
         }
-        // linear_fog_to_extinction: the classic band [start, end] read as a
-        // medium that is 95% opaque across it (e^-3 ~ 0.05).
-        if (style.distanceFog && style.distanceFog->linear) {
-            const canon::LinearFog& fog = *style.distanceFog->linear;
-            if (fog.end > fog.start) {
-                effect.inputs.push_back({"extinction", {3.0 / (double{fog.end} - fog.start)}});
-                effect.derived.push_back({"inputs.extinction", "linear_fog_to_extinction"});
-            }
-            effect.inputs.push_back({"albedo", {fog.color}});
-            effect.derived.push_back({"inputs.albedo", "fog_color_to_albedo"});
-        }
+        // No medium is derived: the client applies this fog to a viewer inside
+        // the parts that list it, so the sphere is not a fog volume (a medium
+        // in it would read as a ball of dense fog a few yards across).
         effect.style = {{"fog", {style}}};
     }
     if (uint32_t unknown = f.flags & ~kFogExitBlend; unknown != 0) {
