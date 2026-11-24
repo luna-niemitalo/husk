@@ -20,6 +20,21 @@ anything now understood moves out of `unresolved`. Decided:
   export goes on; gravity rotates with the emitter (Luna's game knowledge).
 - Follow-ups 17-21 all go in.
 
+Second round (Luna 2026-11-24), all into 0.4.0:
+- Map identity: a new `map` block (Map.db2) on world documents; map
+  metadata on tiles. No UiMap / UI region tree yet.
+- WMO interior names: an area ref per mesh part (WMOAreaTable).
+- Stable ids for every large array, not only `references`.
+- Presets become references, inline or external like any other
+  reference; external points into a shared appearance-list document,
+  inline keeps a bundle self-contained.
+- Animation clip names from a community list: allowed, but never
+  committed; read from a local checkout under the gitignored `reference/`
+  (same pattern as WoWDBDefs and wow.export), with the repo named in docs.
+- Every emitted document names its schema (critical).
+- Self-documenting schema: `x-source` on every value, lint-enforced, why
+  in the description, `husk schema-doc` renders one file.
+
 ## Answer only (already in husk)
 
 1. Per-chunk areas: terrain `areas[]` + per-chunk u32 index exist
