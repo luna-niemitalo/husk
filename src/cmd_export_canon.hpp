@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -44,6 +45,9 @@ struct BundleSidecars {
     std::vector<uint32_t> appearanceChoiceIds;
     std::vector<canon::Item> gear;
     std::vector<std::vector<std::string>> gearModelUris;
+    // Humanoid NPC equipment displays as items (creatureinput::NpcEquipmentInputs::resolve);
+    // unset = NPC equipment by identity only.
+    std::function<std::optional<canon::Item>(uint32_t itemDisplayInfo, const std::string& slot)> npcItem;
     // The body's composite layout (--chr-model-id or the model's own), for
     // the body regions and the hem mask; nullopt = not known.
     std::optional<canon::BodyLayout> bodyLayout;

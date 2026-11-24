@@ -32,7 +32,53 @@ componentfile::Pick pickTexture(const GearSources& sources, uint32_t materialRes
     return pickFile(sources, componentfile::Kind::Texture, filesFor(sources.textures, materialResourcesId), 0);
 }
 
+void addComponents(Item& item, const itemappearance::Resolution& resolution, const GearSources& sources) {
+    item.itemDisplayInfoId = resolution.itemDisplayInfoId;
+    item.geosetGroups = resolution.geosetGroups;
+    item.attachmentGeosetGroups = resolution.attachmentGeosetGroups;
+    item.transmogSets = resolution.transmogSets;
+
+    if (!resolution.sectionMaterials.empty()) {
+        SectionOverlayComponent overlay;
+        overlay.sections.reserve(resolution.sectionMaterials.size());
+        for (const auto& m : resolution.sectionMaterials) {
+            componentfile::Pick p = pickTexture(sources, m.materialResourcesId);
+            overlay.sections.push_back(
+                {m.componentSection, m.materialResourcesId, p.fileDataId.value_or(0), p.unresolved});
+        }
+        item.components.push_back(std::move(overlay));
+    }
+
+    // A ModelResourcesID of 0 means no model in that position (a
+    // common case-2-only item), not an unresolved one.
+    GeometryComponent geometry;
+    if (resolution.modelResourcesIds) {
+        for (uint32_t position = 0; position < 2; ++position) {
+            uint32_t resourcesId = (*resolution.modelResourcesIds)[position];
+            if (resourcesId == 0) continue;
+            componentfile::Pick p =
+                pickFile(sources, componentfile::Kind::Model, filesFor(sources.models, resourcesId), position);
+            geometry.models.push_back({position, resourcesId, p.fileDataId, p.unresolved});
+        }
+    }
+    for (const auto& m : resolution.materials) {
+        componentfile::Pick p = pickTexture(sources, m.materialResourcesId);
+        geometry.materials.push_back(
+            {m.textureType, m.materialResourcesId, p.fileDataId.value_or(0), m.modelIndex, p.unresolved});
+    }
+    if (!geometry.models.empty() || !geometry.materials.empty()) item.components.push_back(std::move(geometry));
+}
+
 }  // namespace
+
+Item assembleDisplayItem(const itemappearance::DisplayIndex& index, const GearSources& sources,
+                         uint32_t itemDisplayInfoId, const std::string& slot, std::ostream& err) {
+    Item item;
+    item.identity.id = Db2Row{"ItemDisplayInfo", itemDisplayInfoId};
+    item.slots = {slot};
+    addComponents(item, itemappearance::resolveDisplay(index, itemDisplayInfoId, err), sources);
+    return item;
+}
 
 std::vector<Item> assembleEquippedItems(const itemappearance::Data& data, const GearSources& sources,
                                          const std::vector<appearance::GearEntry>& gear, std::ostream& err) {
@@ -66,40 +112,7 @@ std::vector<Item> assembleEquippedItems(const itemappearance::Data& data, const 
         // entry sharing the same id must not re-resolve (and duplicate)
         // the same component data.
         if (!firstOccurrence) continue;
-        itemIt->itemDisplayInfoId = resolution.itemDisplayInfoId;
-        itemIt->geosetGroups = resolution.geosetGroups;
-        itemIt->attachmentGeosetGroups = resolution.attachmentGeosetGroups;
-        itemIt->transmogSets = resolution.transmogSets;
-
-        if (!resolution.sectionMaterials.empty()) {
-            SectionOverlayComponent overlay;
-            overlay.sections.reserve(resolution.sectionMaterials.size());
-            for (const auto& m : resolution.sectionMaterials) {
-                componentfile::Pick p = pickTexture(sources, m.materialResourcesId);
-                overlay.sections.push_back(
-                    {m.componentSection, m.materialResourcesId, p.fileDataId.value_or(0), p.unresolved});
-            }
-            itemIt->components.push_back(std::move(overlay));
-        }
-
-        // A ModelResourcesID of 0 means no model in that position (a
-        // common case-2-only item), not an unresolved one.
-        GeometryComponent geometry;
-        if (resolution.modelResourcesIds) {
-            for (uint32_t position = 0; position < 2; ++position) {
-                uint32_t resourcesId = (*resolution.modelResourcesIds)[position];
-                if (resourcesId == 0) continue;
-                componentfile::Pick p =
-                    pickFile(sources, componentfile::Kind::Model, filesFor(sources.models, resourcesId), position);
-                geometry.models.push_back({position, resourcesId, p.fileDataId, p.unresolved});
-            }
-        }
-        for (const auto& m : resolution.materials) {
-            componentfile::Pick p = pickTexture(sources, m.materialResourcesId);
-            geometry.materials.push_back(
-                {m.textureType, m.materialResourcesId, p.fileDataId.value_or(0), m.modelIndex, p.unresolved});
-        }
-        if (!geometry.models.empty() || !geometry.materials.empty()) itemIt->components.push_back(std::move(geometry));
+        addComponents(*itemIt, resolution, sources);
     }
 
     return result;

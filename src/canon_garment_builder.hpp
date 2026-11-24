@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -49,10 +50,44 @@ struct Inputs {
 // indices the gear wears, each once, in garment order.
 std::vector<uint32_t> fromGear(const std::vector<Item>& gear, const Inputs& inputs, Garments& out);
 
-// An NPC equipment row: one garment of the slot's kind with no pieces
-// (the display isn't resolved). Returns its index; the caller keeps one
-// garment per display.
-uint32_t fromNpcItem(uint32_t itemDisplayInfo, uint32_t itemSlot, const std::optional<std::string>& slotName,
-                     Garments& out);
+// One NPC equipment row. `item` is its display resolved (assembleDisplayItem);
+// nullptr when the item tables aren't loaded.
+struct NpcItem {
+    uint32_t itemDisplayInfo = 0;
+    uint32_t itemSlot = 0;
+    std::optional<std::string> slot;  // the slot's name; nullopt for a slot with none
+    const Item* item = nullptr;
+};
+
+// NPC equipment as garments, each display split once (its source item's
+// garments are the display worn alone) and shared by every NPC wearing it.
+// The hem rule is decided per NPC: see wear().
+class NpcGarments {
+public:
+    NpcGarments(Inputs inputs, Garments& out) : inputs_(std::move(inputs)), out_(out) {}
+
+    // One NPC's equipment; returns the garments it wears, each once, in
+    // garment order. A display that draws nothing (no model, overlay,
+    // texture or geoset) makes no garment. A legs hem joins the NPC's own
+    // chest garment when that is a tunic (one garment per chest and legs
+    // display, rule hem_join_outfit; an item-model hem mesh the chest
+    // already shows is not repeated), else the legs' own `hem` garment is
+    // worn.
+    std::vector<uint32_t> wear(const std::vector<NpcItem>& equipment);
+
+private:
+    struct Split {
+        std::vector<uint32_t> garments;  // the display alone, without its hem garment
+        std::optional<uint32_t> main;
+        std::optional<uint32_t> hem;     // the legs' own hem garment
+        std::string slot;
+    };
+    const Split& split(const NpcItem& npcItem);
+
+    Inputs inputs_;
+    Garments& out_;
+    std::map<uint32_t, Split> byDisplay_;
+    std::map<std::pair<uint32_t, uint32_t>, uint32_t> joined_;  // (chest, legs display) -> tunic with the hem
+};
 
 }  // namespace husk::canon::garments

@@ -193,6 +193,7 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     CHECK_FALSE(model.garments.sourceItems[1].slot.has_value());
     CHECK(model.garments.sourceItems[1].itemSlot == 11);
     CHECK(model.garments.garments[p.garments[1]].kind == "item");
+    CHECK(model.garments.garments[p.garments[1]].deviates);
     // The bake was made for exactly the worn garments.
     CHECK(p.bakeCovers == p.garments);
     REQUIRE(model.presets[1].unresolved.size() == 1);

@@ -177,4 +177,32 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
     return result;
 }
 
+DisplayIndex indexDisplays(const Data& data) {
+    DisplayIndex index;
+    for (const auto& d : data.displayInfos) index.displays.emplace(d.id, &d);
+    for (const auto& m : data.modelMatRes) index.materials[m.itemDisplayInfoId].push_back(&m);
+    for (const auto& m : data.materialRes) index.sectionMaterials[m.itemDisplayInfoId].push_back(&m);
+    return index;
+}
+
+Resolution resolveDisplay(const DisplayIndex& index, uint32_t itemDisplayInfoId, std::ostream& err) {
+    Resolution result;
+    result.itemDisplayInfoId = itemDisplayInfoId;
+    auto display = index.displays.find(itemDisplayInfoId);
+    if (display == index.displays.end()) {
+        err << "husk: note: ItemDisplayInfoID " << itemDisplayInfoId << " matched no row in ItemDisplayInfo\n";
+        return result;
+    }
+    result.modelResourcesIds = display->second->modelResourcesIds;
+    result.geosetGroups = display->second->geosetGroups;
+    result.attachmentGeosetGroups = display->second->attachmentGeosetGroups;
+    if (auto m = index.materials.find(itemDisplayInfoId); m != index.materials.end()) {
+        for (const ModelMatRes* row : m->second) result.materials.push_back(*row);
+    }
+    if (auto m = index.sectionMaterials.find(itemDisplayInfoId); m != index.sectionMaterials.end()) {
+        for (const MaterialRes* row : m->second) result.sectionMaterials.push_back(*row);
+    }
+    return result;
+}
+
 }  // namespace husk::itemappearance

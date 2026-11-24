@@ -411,3 +411,52 @@ either. Options for Luna:
 Open before any of these ships: the slot rule above is wow.export's (**ref**),
 unverified against the client; what the 1,002 waist-length chest models pair
 with in practice (which legs model gives them a lower edge) is not counted.
+
+## NPC item slot 11 — data, name unsettled
+
+`NPCModelItemSlotDisplayInfo.ItemSlot` 0-10 are named by wow.export
+(`src/js/db/caches/DBNpcEquipment.js` `NPC_SLOT_MAP`: head, shoulder,
+shirt, chest, waist, legs, feet, wrist, hands, tabard, back), which skips
+11; WoWDBDefs has no comment on the column; WebWowViewerCpp doesn't read
+the table. What the data says (SQL: `s11b.sql`, `s11c.sql` in the scripts
+directory above):
+
+- **One display.** All 1,635 slot-11 rows name ItemDisplayInfo 185704,
+  and 185704 occurs in no other slot (other slots: 671-11,470 distinct
+  displays each).
+- **It draws nothing.** 185704 has ModelResourcesID 0/0,
+  ModelMaterialResourcesID 0/0, ModelType -1/-1, every GeosetGroup,
+  AttachmentGeosetGroup and HelmetGeosetVis 0, Flags 0, no ItemVisual or
+  ParticleColorID, and no ItemDisplayInfoMaterialRes or
+  ItemDisplayInfoModelMatRes row.
+- **No item uses it.** No ItemAppearance row names 185704, so no
+  ItemModifiedAppearance, ItemSparse row or InventoryType reaches it.
+- **It came with one outfit.** Displays 185697-185703 are NPC extra
+  150709's slots 2, 3 and 5-9 (its slot 4 is 172531), and 185704 its slot
+  11: one batch of display rows. Every
+  extra with a slot-11 row (1,635, all races and both sexes, e.g. 145
+  human female) also has rows for slots 2, 3, 5, 6, 7, 8 and 9.
+
+So slot 11 can't be named from this build: its only display is a
+placeholder that draws nothing. husk keeps the raw slot under the source
+item (`item_slot` 11, no `slot`) and makes no garment for it, as for any
+display that draws nothing. A display of an unnamed slot that draws
+something would be kind `item`, declared `deviates`; none exists.
+
+## NPC equipment and the hem — data (humanfemale_hd)
+
+NPC equipment has no TransmogSet, so the hem rule is decided by the NPC's
+own equipment (`hem.sql`): of 3,799 human-female extras' 3,770 legs rows,
+31 switch on body hem 1102 and 261 show an item-model group-13 geoset; 218
+outfits pair such legs with a tunic chest (no `GeosetGroup[2]`), as 122
+distinct chest/legs display pairs over 104 legs displays; 14 hem legs rows
+have no chest.
+
+Exported (`husk export humanfemale_hd.m2 --chr-model-id 2`, 3,646
+presets): 9,994 source items, 10,449 garments, 26,436 pieces, 139 displays
+drawing nothing, 64 joined tunics; the inline garments document grows from
+3.3 MB (identity only) to 12.3 MB, the manifest from 114.8 to 134.3 MB, the
+texture files from 254 to 573 MB. `garments-check`: 0 deviations, 2,040
+conflicts, all the source's slot priorities (981 bracers/gloves on
+arm_lower, 362 robe/legs skirts, 245 belt/tabard on torso_lower, 239
+shirt/leggings on leg_upper, the rest smaller).

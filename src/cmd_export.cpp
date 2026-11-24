@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -492,6 +494,51 @@ std::vector<canon::Item> resolveGearItems(const std::string& db2Dir, const std::
     return canon::assembleEquippedItems(*items, sources, gear, std::cerr);
 }
 
+// The item tables NPC equipment resolves through, loaded once per run and
+// directory pair: a --from-list batch exports many models against them.
+struct NpcItemTables {
+    itemappearance::Data items;
+    itemappearance::DisplayIndex index;  // points into `items`
+    std::optional<modelfiledata::Data> models;
+    std::optional<texturefiledata::Candidates> textures;
+    std::optional<componentfile::Data> components;
+};
+std::shared_ptr<const NpcItemTables> npcItemTables(const std::string& db2Dir, const std::string& dbdDir) {
+    static std::map<std::pair<std::string, std::string>, std::shared_ptr<const NpcItemTables>> loaded;
+    auto [it, added] = loaded.try_emplace({db2Dir, dbdDir});
+    if (!added) return it->second;
+    std::optional<itemappearance::Data> items = itemappearance::load(db2Dir, dbdDir, std::cerr);
+    if (!items) return nullptr;
+    auto tables = std::make_shared<NpcItemTables>();
+    tables->items = std::move(*items);
+    tables->index = itemappearance::indexDisplays(tables->items);
+    tables->models = modelfiledata::load(db2Dir, dbdDir, std::cerr);
+    tables->textures = texturefiledata::loadCandidates(db2Dir, dbdDir, std::cerr);
+    tables->components = componentfile::load(db2Dir, dbdDir, std::cerr);
+    it->second = tables;
+    return tables;
+}
+
+// Humanoid NPC equipment displays as items, each file picked for the
+// model's own race and sex (gearWearers). The tables load at the first
+// display asked: most creature models have no humanoid NPCs.
+std::function<std::optional<canon::Item>(uint32_t, const std::string&)> npcItemResolver(
+    const std::string& db2Dir, const std::string& dbdDir, const std::string& modelPath) {
+    return [db2Dir, dbdDir, modelPath](uint32_t display, const std::string& slot) -> std::optional<canon::Item> {
+        std::shared_ptr<const NpcItemTables> tables = npcItemTables(db2Dir, dbdDir);
+        if (!tables) return std::nullopt;
+        static std::map<std::string, std::vector<componentfile::Wearer>> wearersByModel;
+        auto [wearers, added] = wearersByModel.try_emplace(modelPath);
+        if (added) wearers->second = gearWearers(0, 0, modelPath, db2Dir, dbdDir);
+        canon::GearSources sources;
+        sources.models = tables->models ? &*tables->models : nullptr;
+        sources.textures = tables->textures ? &*tables->textures : nullptr;
+        sources.components = tables->components ? &*tables->components : nullptr;
+        sources.wearers = wearers->second;
+        return canon::assembleDisplayItem(tables->index, sources, display, slot, std::cerr);
+    };
+}
+
 // One picked gear model as `items/<fdid>.bundle/`; its manifest uri, or
 // nullopt (reported) when it has no local file or fails to export.
 std::optional<std::string> exportGearModel(const canon::GeometryComponent& geometry,
@@ -861,6 +908,9 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                 sidecars.gear = resolveGearItems(db2Dir, dbdDirForChr, gearEntries, {});
             }
             sidecars.gearModelUris = exportGearItemBundles(sidecars.gear, listfile, listfileRoot, outputPath, textureStore);
+        }
+        if (creatures && !db2Dir.empty() && !dbdDirForChr.empty()) {
+            sidecars.npcItem = npcItemResolver(db2Dir, dbdDirForChr, modelPath);
         }
         writeCanonBundleOnly(model, skinsToExport.front().second, lodSkins, catalog, modelPath,
                              modelFileDataId ? modelFileDataId

@@ -5,6 +5,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Real, typed reader for the DB2 chain that resolves a real
@@ -170,5 +171,20 @@ struct Resolution {
 // field(s) from being filled -- never fabricated, same convention as
 // chrcustomization::resolveChoice.
 Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ostream& err);
+
+// `data`'s display rows and their textures by ItemDisplayInfoID, for
+// resolving many displays (NPC equipment: ~10k per body model) without a
+// table scan each. Points into `data`, which must outlive it.
+struct DisplayIndex {
+    std::unordered_map<uint32_t, const DisplayInfo*> displays;
+    std::unordered_map<uint32_t, std::vector<const ModelMatRes*>> materials;
+    std::unordered_map<uint32_t, std::vector<const MaterialRes*>> sectionMaterials;
+};
+DisplayIndex indexDisplays(const Data& data);
+
+// One ItemDisplayInfoID resolved as resolve() resolves an appearance's
+// display; transmogSets stays empty (a display belongs to no set). A display
+// with no row is reported and leaves every field but itemDisplayInfoId unset.
+Resolution resolveDisplay(const DisplayIndex& index, uint32_t itemDisplayInfoId, std::ostream& err);
 
 }  // namespace husk::itemappearance

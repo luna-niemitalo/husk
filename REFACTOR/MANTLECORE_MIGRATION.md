@@ -227,6 +227,14 @@ changes:
   set, with its paint masked out of the legs texture (`overlay.mask`, a
   white-on-black texture); wearing a legs item's `items[].garments`
   still reproduces the client.
+  NPC equipment (an `items[]` entry per ItemDisplayInfo) has pieces too,
+  each display split once and shared by every NPC preset wearing it. A
+  display that draws nothing has no garment (`items[].garments` empty;
+  NPC slot 11 is always such a display). An NPC whose chest is a tunic
+  wears a joined tunic holding its legs' hem (piece rule
+  `hem_join_outfit`), listed under neither item; wear the preset's
+  `garments` for the NPC's look, an item's `garments` for that display
+  alone.
 - **Animation fallbacks are a shared document.**
   `resources.rig.animation_fallbacks` (`[animation, fallback]` AnimationData
   id pairs, copied into every model; in earlier 0.4.0 builds only) is

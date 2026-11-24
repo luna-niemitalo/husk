@@ -124,7 +124,7 @@
                   "x-source": [{"format": true}]
                 },
                 "rule": {
-                  "enum": ["garment_split", "hem_body_geoset", "hem_uv_footprint", "hem_join_set", "hem_own_garment", "item_model_hem"],
+                  "enum": ["garment_split", "hem_body_geoset", "hem_uv_footprint", "hem_join_set", "hem_join_outfit", "hem_own_garment", "item_model_hem"],
                   "description": "The derivation rule that put the piece in this garment (REFACTOR/BUNDLE_FORMAT.md derived-rule table).",
                   "x-source": [{"format": true}]
                 },

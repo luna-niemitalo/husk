@@ -224,8 +224,8 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     hair.choices = {longHair};
     customization.options = {hair};
     model.customization = {customization};
-    preset.garments.push_back(canon::garments::fromNpcItem(9000, 0, std::string("head"), model.garments));
-    preset.garments.push_back(canon::garments::fromNpcItem(9011, 11, std::nullopt, model.garments));
+    canon::garments::NpcGarments npcGarments({}, model.garments);
+    preset.garments = npcGarments.wear({{9000, 0, std::string("head"), nullptr}, {9011, 11, std::nullopt, nullptr}});
     body.customization.push_back({0, 0});
     model.appearances.push_back(body);
     preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1.5f, 2});

@@ -3,8 +3,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 
+#include "canon_garment_builder.hpp"
+#include "canon_item.hpp"
 #include "canon_model.hpp"
 #include "creature_display_db2.hpp"
 
@@ -15,8 +18,8 @@
 // has no texture type), every particle colour row one particle colour
 // option. A character model gets its customization definition; a
 // humanoid NPC's baked skin is an option of the lowest-type slot, its
-// customization choices index that definition, its items are carried by
-// identity. Each distinct
+// customization choices index that definition, its equipment becomes
+// garments (canon_garment_builder.hpp NpcGarments). Each distinct
 // combination a display uses is a preset listing every such display with
 // its scale.
 namespace husk::creatureinput {
@@ -30,10 +33,21 @@ struct OptionsReport {
     size_t unplacedChoiceTextures = 0;
 };
 
+// How a humanoid NPC's equipment becomes garments with pieces. `resolve`
+// gives a display as an item (canon::assembleDisplayItem, files picked for
+// the model's wearer), asked once per display; `slot` is empty for a slot
+// with no name. nullopt: not resolvable, the garment carries identity only.
+struct NpcEquipmentInputs {
+    std::function<std::optional<canon::Item>(uint32_t itemDisplayInfo, const std::string& slot)> resolve;
+    canon::garments::Inputs garments;
+};
+
 // `model` must already carry its mesh and textureSlots; fills the slots'
 // options, particleColorOptions and presets. `texture` resolves a
-// FileDataID (each distinct one is asked once).
+// FileDataID (each distinct one is asked once). `equipment` nullptr: NPC
+// equipment by identity only.
 void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDataId, canon::Model& model,
-                        const std::function<canon::TextureRef(uint32_t)>& texture, OptionsReport& report);
+                        const std::function<canon::TextureRef(uint32_t)>& texture, OptionsReport& report,
+                        const NpcEquipmentInputs* equipment = nullptr);
 
 }  // namespace husk::creatureinput

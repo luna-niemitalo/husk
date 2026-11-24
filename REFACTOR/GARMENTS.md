@@ -11,11 +11,17 @@ Replaces the model's `definition.items`, `selection.equipped` and `presets[].ite
   (`hem_uv_footprint`); item-model group-13 hems as their own pieces, deduplicated by model file and geoset
   (`item_model_hem`); outfits per TransmogSet; validate-bundle checks preset garment ids and warns on
   conflicts and kind/layer/order deviations, `husk garments-check <bundle> [--preset ID]` lists them.
+- **Built, NPC equipment** (`NpcGarments`): each display resolved through the same stage-1 split
+  (models, model textures, overlays, geosets, files picked for the body model's race and sex), split once
+  and shared by every NPC wearing it; item models are referenced by file, not exported as bundles. A
+  display that draws nothing makes no garment (NPC slot 11's only display is one,
+  `WIKI_FINDINGS/GARMENTS.md` "NPC item slot 11"). The hem rule, with no TransmogSet: see "NPC
+  equipment: the hem by the NPC's own outfit" below.
 - **Not built**: the external (shared, per-tree) garments list and its export command; `hides` pieces
-  (HelmetGeosetData not read); `dress` vs `robe` by length; class-specific files; NPC equipment is one
-  garment per display with no pieces (its displays aren't resolved); ItemSet as a set source (TransmogSet
-  only); 1104/1105 stay plain `thigh` variants with no hem claim; item-model group-11 meshes stay with the
-  legs garment; the Blender addon and the lean glb don't read garments.
+  (HelmetGeosetData not read); `dress` vs `robe` by length; class-specific files; ItemSet as a set source
+  (TransmogSet only); NPC outfits as `outfits` entries (a preset lists the NPC's garments); 1104/1105 stay
+  plain `thigh` variants with no hem claim; item-model group-11 meshes stay with the legs garment; the
+  Blender addon and the lean glb don't read garments.
 
 ## The problem
 
@@ -244,6 +250,22 @@ The breeches' source item still produces both pieces (`items` lists
 both garments for it), so wearing the WoW item reproduces the client look.
 Wearing the leggings alone gives trousers with no hem, and wearing the tunic
 over other leggings gives the hem in the tunic's own paint.
+
+**NPC equipment: the hem by the NPC's own outfit.** An NPC's equipment
+names displays, with no TransmogSet, and its outfit is fixed. So:
+
+- A display's source item lists the display worn alone: a legs display's
+  hem pieces are its own `hem` garment (`hem_own_garment`).
+- An NPC whose own chest garment is a tunic wears, instead of that tunic,
+  one joined tunic per chest and legs display pair: the tunic's pieces plus
+  the legs' hem pieces (`hem_join_outfit`), minus an item-model hem mesh
+  the chest already shows (same model file and geosets). Other NPCs with
+  the same pair share it. It is not listed under either source item, whose
+  lists stay the display alone; that is the one place a piece sits in two
+  garments.
+- Otherwise (a robe, or no chest) the NPC wears the legs' own `hem`
+  garment. The chest's and legs' same item-model hem mesh is then drawn by
+  both, as the client draws both items' models.
 
 **Not hems:** the body's group-13 meshes 1302/1303 are robe skirts (a robe
 hides the thighs), and 1301 is a thigh variant. 1104/1105 (knee length) are

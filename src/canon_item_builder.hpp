@@ -39,4 +39,10 @@ struct GearSources {
 std::vector<Item> assembleEquippedItems(const itemappearance::Data& data, const GearSources& sources,
                                          const std::vector<appearance::GearEntry>& gear, std::ostream& err);
 
+// One ItemDisplayInfo row as an item (NPC equipment names displays, not
+// appearances): identity ItemDisplayInfo/<id>, `slot` as its one slot,
+// components as assembleEquippedItems resolves them.
+Item assembleDisplayItem(const itemappearance::DisplayIndex& index, const GearSources& sources,
+                         uint32_t itemDisplayInfoId, const std::string& slot, std::ostream& err);
+
 }  // namespace husk::canon

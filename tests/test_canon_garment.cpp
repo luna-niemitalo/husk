@@ -1,6 +1,6 @@
-// canon::garments::fromGear (canon_garment_builder.hpp): the stage-1 split
-// and the hem rules of REFACTOR/GARMENTS.md, on items shaped like transmog
-// set 3540's chest and legs (WIKI_FINDINGS/GARMENTS.md "The body's own hem").
+// canon::garments::fromGear and NpcGarments (canon_garment_builder.hpp): the
+// stage-1 split and the hem rules of REFACTOR/GARMENTS.md, on items shaped like
+// transmog set 3540's chest and legs (WIKI_FINDINGS/GARMENTS.md "The body's own hem").
 
 #include <doctest/doctest.h>
 
@@ -139,4 +139,54 @@ TEST_CASE("garments: an item-model hem shown by a set's chest and legs is one pi
     const auto& legsSource = *std::find_if(out.sourceItems.begin(), out.sourceItems.end(),
                                            [](const canon::SourceItem& s) { return s.slotToken == "LEGS"; });
     CHECK(legsSource.garments.size() == 2);  // its leggings and the tunic holding the shared hem
+}
+
+TEST_CASE("NPC garments: displays get pieces, a display drawing nothing makes no garment") {
+    canon::Item boots = item(30, "feet", {6, 7}, {});
+    boots.geosetGroups = {1, 0, 0, 0, 0, 0};
+    canon::Item nothing = item(31, "", {}, {});
+    canon::Garments out;
+    canon::garments::NpcGarments npc(inputs(true), out);
+    std::vector<uint32_t> worn = npc.wear({{30, 6, std::string("feet"), &boots}, {31, 11, std::nullopt, &nothing}});
+    REQUIRE(worn.size() == 1);
+    CHECK(out.garments[worn[0]].kind == "boots");
+    CHECK(geosets(out.garments[worn[0]]) == std::vector<uint32_t>{502});
+    CHECK(overlays(out.garments[worn[0]]) == std::vector<std::pair<uint32_t, bool>>{{6, false}, {7, false}});
+    REQUIRE(out.sourceItems.size() == 2);
+    CHECK(out.sourceItems[1].itemSlot == 11);
+    CHECK(out.sourceItems[1].garments.empty());
+    // A second NPC in the same boots shares the garment.
+    CHECK(npc.wear({{30, 6, std::string("feet"), &boots}}) == worn);
+    CHECK(out.garments.size() == 1);
+}
+
+TEST_CASE("NPC garments: a legs hem joins the NPC's own tunic, else its own hem garment is worn") {
+    canon::Item tunic = item(40, "chest", {0, 3}, {});
+    canon::Item robe = item(41, "chest", {3}, {});
+    robe.geosetGroups = {0, 0, 1, 0, 0, 0};
+    canon::Item legs = item(42, "legs", {5}, {});
+    legs.geosetGroups = {1, 0, 0, 0, 0, 0};
+    canon::Garments out;
+    canon::garments::NpcGarments npc(inputs(true), out);
+
+    std::vector<uint32_t> inTunic = npc.wear({{40, 3, std::string("chest"), &tunic}, {42, 5, std::string("legs"), &legs}});
+    REQUIRE(inTunic.size() == 2);
+    const canon::Garment& joined = out.garments[inTunic[1]];
+    CHECK(joined.kind == "tunic");
+    CHECK(geosets(joined) == std::vector<uint32_t>{1102});
+    CHECK(overlays(joined) == std::vector<std::pair<uint32_t, bool>>{{0, false}, {3, false}, {5, true}});
+    CHECK(out.garments[inTunic[0]].kind == "leggings");
+
+    std::vector<uint32_t> inRobe = npc.wear({{41, 3, std::string("chest"), &robe}, {42, 5, std::string("legs"), &legs}});
+    std::vector<std::string> kinds;
+    for (uint32_t g : inRobe) kinds.push_back(out.garments[g].kind);
+    CHECK(kinds == std::vector<std::string>{"leggings", "hem", "robe"});
+
+    // The legs item alone is its leggings and its own hem; the tunic item alone is the plain tunic.
+    CHECK(out.sourceItems[1].garments.size() == 2);
+    CHECK(out.garments[out.sourceItems[0].garments[0]].pieces.size() == 2);
+    // The same chest and legs on another NPC reuse the joined tunic.
+    size_t count = out.garments.size();
+    CHECK(npc.wear({{40, 3, std::string("chest"), &tunic}, {42, 5, std::string("legs"), &legs}}) == inTunic);
+    CHECK(out.garments.size() == count);
 }

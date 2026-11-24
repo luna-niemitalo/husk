@@ -444,6 +444,25 @@ std::optional<canon::TextureRef> bodyHemMask(const m2::Model& model, const std::
     return mask;
 }
 
+// What the garment split takes from the export, for --appearance gear and
+// NPC equipment alike; modelUris stays empty (only --appearance exports
+// item models).
+template <typename TextureFor>
+canon::garments::Inputs garmentInputs(TextureFor& textureFor, const std::optional<canon::TextureRef>& bodyHemMask) {
+    canon::garments::Inputs inputs;
+    inputs.texture = [&textureFor](uint32_t fdid, const std::string& unresolved) {
+        canon::TextureRef texture = textureFor(fdid);
+        if (fdid == 0) texture.unresolvedReason = unresolved;
+        return texture;
+    };
+    inputs.textureRole = [](uint32_t type) {
+        const char* name = m2::textureTypeName(type);
+        return name ? std::string(name) : "type_" + std::to_string(type);
+    };
+    inputs.bodyHemMask = bodyHemMask;
+    return inputs;
+}
+
 // --appearance as one preset: its customization choices (as indices into
 // the model's catalogs) and its gear as garments (canon_garment_builder.hpp).
 template <typename TextureFor>
@@ -481,18 +500,8 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
         if (same == model.appearances.end()) model.appearances.push_back(std::move(body));
     }
 
-    canon::garments::Inputs inputs;
-    inputs.texture = [&](uint32_t fdid, const std::string& unresolved) {
-        canon::TextureRef texture = textureFor(fdid);
-        if (fdid == 0) texture.unresolvedReason = unresolved;
-        return texture;
-    };
-    inputs.textureRole = [](uint32_t type) {
-        const char* name = m2::textureTypeName(type);
-        return name ? std::string(name) : "type_" + std::to_string(type);
-    };
+    canon::garments::Inputs inputs = garmentInputs(textureFor, bodyHemMask);
     inputs.modelUris = sidecars.gearModelUris;
-    inputs.bodyHemMask = bodyHemMask;
     preset.garments = canon::garments::fromGear(sidecars.gear, inputs, model.garments);
     preset.sources.push_back(
         {canon::Ref{canon::None{}, sidecars.appearance, canon::NameSource::Synthesized}, 1.0f, 1.0f, {}});
@@ -562,9 +571,14 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     auto textureFor = [&](uint32_t fdid) {
         return fdid == 0 ? canon::TextureRef{} : optionTexture(catalog, fdid, textureStore, textureUris);
     };
+    std::optional<canon::TextureRef> hemMask =
+        bodyHemMask(model, build.triangleIndices, build.submeshes, sidecars.bodyLayout);
     if (creatures && modelFileDataId) {
         creatureinput::OptionsReport report;
-        creatureinput::addCreatureOptions(*creatures, *modelFileDataId, build.model, textureFor, report);
+        std::optional<creatureinput::NpcEquipmentInputs> equipment;
+        if (sidecars.npcItem) equipment = creatureinput::NpcEquipmentInputs{sidecars.npcItem, garmentInputs(textureFor, hemMask)};
+        creatureinput::addCreatureOptions(*creatures, *modelFileDataId, build.model, textureFor, report,
+                                          equipment ? &*equipment : nullptr);
         if (!report.notes.empty()) std::cerr << report.notes;
         if (report.displays > 0) {
             std::cerr << "husk: " << build.model.presets.size() << " creature preset(s) from " << report.displays
@@ -578,8 +592,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     }
     build.model.bodyLayout = sidecars.bodyLayout;
     if (!sidecars.appearance.empty()) {
-        addAppearancePreset(sidecars, build.model, textureFor,
-                            bodyHemMask(model, build.triangleIndices, build.submeshes, sidecars.bodyLayout));
+        addAppearancePreset(sidecars, build.model, textureFor, hemMask);
     }
     // Before externalizing: the projection embeds texture payloads.
     if (!sidecars.leanGlbPath.empty()) writers::writeLeanGlb(build.model, sidecars.leanGlbPath);

@@ -68,9 +68,133 @@ uint32_t addGarment(Garments& out, std::string key, std::string kind) {
     Garment g;
     g.key = std::move(key);
     g.layer = defaultLayer(kind);
+    // An unnamed source slot (NPC ItemSlot 11) gives no kind to stand on;
+    // declared, so the validator reports it as known.
+    g.deviates = g.layer.empty() && kind == "item";
     g.kind = std::move(kind);
     out.garments.push_back(std::move(g));
     return static_cast<uint32_t>(out.garments.size() - 1);
+}
+
+// One item's stage-1 split: its main garment, a legs skirt garment, and
+// the hem pieces held back for the hem rule.
+struct ItemSplit {
+    uint32_t main = 0;
+    std::optional<uint32_t> skirt;
+    std::vector<GarmentPiece> hem;
+};
+
+// `itemHemOwner`: item-model hem pieces already placed, by model FileDataID
+// and geoset, for gear worn together (a set's chest and legs often show the
+// same mesh, and it is one piece); nullptr splits the item on its own.
+ItemSplit splitItem(const Item& item, const std::string& slot, const std::string& key, uint32_t sourceIndex,
+                    const Inputs& inputs, const std::vector<std::string>* modelUris, Garments& out,
+                    std::map<std::pair<uint32_t, uint32_t>, uint32_t>* itemHemOwner) {
+    ItemSplit split;
+    std::string kind = kindFor(slot, &item);
+    split.main = addGarment(out, key + "/" + kind, kind);
+    uint32_t garment = split.main;
+    auto add = [&](uint32_t g, PieceKind what, std::string derived = "") {
+        out.garments[g].pieces.push_back({std::move(what), sourceIndex, std::move(derived)});
+    };
+
+    const SectionOverlayComponent* overlays = nullptr;
+    const GeometryComponent* models = nullptr;
+    for (const Component& c : item.components) {
+        if (const auto* o = std::get_if<SectionOverlayComponent>(&c)) overlays = o;
+        if (const auto* m = std::get_if<GeometryComponent>(&c)) models = m;
+    }
+
+    auto groups = slotGroups().find(slot);
+    if (groups != slotGroups().end()) {
+        for (uint32_t index = 0; index < groups->second.size(); ++index) {
+            int32_t value = item.geosetGroups[index];
+            if (value <= 0) continue;
+            uint32_t group = groups->second[index];
+            GeometryPiece piece{partName(group), group, 1 + static_cast<uint32_t>(value), index, value};
+            if (slot == "legs" && group * 100 + piece.variant == kBodyHemGeoset) {
+                split.hem.push_back({piece, sourceIndex, "hem_body_geoset"});
+            } else if (slot == "legs" && group == 13) {
+                if (!split.skirt) split.skirt = addGarment(out, key + "/skirt", "skirt");
+                add(*split.skirt, piece);
+            } else {
+                add(garment, piece);
+            }
+        }
+    }
+    bool bodyHem = !split.hem.empty();
+    if (overlays) {
+        for (const auto& s : overlays->sections) {
+            OverlayPiece piece{regionName(s.componentSection), s.componentSection,
+                               inputs.texture(s.fileDataId, s.unresolved), std::nullopt};
+            if (bodyHem && s.componentSection == 5 && inputs.bodyHemMask) {
+                OverlayPiece hemPaint = piece;
+                hemPaint.mask = inputs.bodyHemMask;
+                split.hem.push_back({hemPaint, sourceIndex, "hem_uv_footprint"});
+            }
+            add(garment, std::move(piece));
+        }
+    }
+    if (!models) return split;
+    for (size_t m = 0; m < models->models.size(); ++m) {
+        const auto& model = models->models[m];
+        PieceModel pm;
+        if (model.fileDataId) {
+            pm.ref = Ref{FileDataId{*model.fileDataId}, "", NameSource::None};
+            if (modelUris && m < modelUris->size()) pm.uri = (*modelUris)[m];
+        } else {
+            pm.unresolved = model.unresolved;
+        }
+        std::vector<PieceTexture> textures;
+        for (const auto& t : models->materials) {
+            if (t.modelIndex != model.position) continue;
+            textures.push_back({inputs.textureRole(t.textureType), t.textureType, t.modelIndex,
+                                inputs.texture(t.fileDataId, t.unresolved)});
+        }
+        if (auto point = attachmentFor(slot, model.position)) {
+            add(garment, AttachedPiece{point->point, point->id, model.position, pm, textures});
+            continue;
+        }
+        SkinnedPiece body{model.position, pm, textures, {}};
+        std::vector<uint32_t> hemGeosets;
+        if (groups != slotGroups().end()) {
+            for (uint32_t index = 0; index < groups->second.size(); ++index) {
+                int32_t value = item.attachmentGeosetGroups[index];
+                if (value < 0) continue;
+                uint32_t id = groups->second[index] * 100 + 1 + static_cast<uint32_t>(value);
+                bool hemMesh = groups->second[index] == 13 && (slot == "chest" || slot == "legs");
+                (hemMesh ? hemGeosets : body.shownGeosets).push_back(id);
+            }
+        }
+        add(garment, body);
+        for (uint32_t id : hemGeosets) {
+            SkinnedPiece hemPiece{model.position, pm, textures, {id}};
+            uint32_t fdid = model.fileDataId.value_or(0);
+            if (itemHemOwner && fdid != 0) {
+                auto owner = itemHemOwner->find({fdid, id});
+                if (owner != itemHemOwner->end()) {
+                    out.sourceItems[sourceIndex].garments.push_back(owner->second);
+                    continue;
+                }
+            }
+            if (slot == "chest") {
+                add(garment, hemPiece, "item_model_hem");
+                if (itemHemOwner && fdid != 0) (*itemHemOwner)[{fdid, id}] = garment;
+            } else {
+                split.hem.push_back({hemPiece, sourceIndex, "item_model_hem"});
+                if (itemHemOwner && fdid != 0) (*itemHemOwner)[{fdid, id}] = UINT32_MAX;
+            }
+        }
+    }
+    return split;
+}
+
+// The model file and geosets of a skinned piece, the identity of an
+// item-model hem mesh.
+std::optional<std::pair<uint32_t, std::vector<uint32_t>>> skinnedMesh(const GarmentPiece& piece) {
+    const auto* s = std::get_if<SkinnedPiece>(&piece.what);
+    if (!s || !s->model.ref) return std::nullopt;
+    return std::pair{std::get<FileDataId>(s->model.ref->id).value, s->shownGeosets};
 }
 
 }  // namespace
@@ -113,19 +237,96 @@ std::string defaultLayer(const std::string& kind) {
     return "";
 }
 
-uint32_t fromNpcItem(uint32_t itemDisplayInfo, uint32_t itemSlot, const std::optional<std::string>& slotName,
-                     Garments& out) {
-    std::string key = "source_item/db2_row/ItemDisplayInfo/" + std::to_string(itemDisplayInfo);
-    uint32_t garment = addGarment(out, key + "/garment", slotName ? kindFor(*slotName, nullptr) : "item");
+const NpcGarments::Split& NpcGarments::split(const NpcItem& npcItem) {
+    auto [it, added] = byDisplay_.try_emplace(npcItem.itemDisplayInfo);
+    Split& split = it->second;
+    if (!added) return split;
+    split.slot = npcItem.slot.value_or("");
+
+    std::string key = "source_item/db2_row/ItemDisplayInfo/" + std::to_string(npcItem.itemDisplayInfo);
+    uint32_t sourceIndex = static_cast<uint32_t>(out_.sourceItems.size());
     SourceItem source;
     source.key = key;
-    source.ref.id = Db2Row{"ItemDisplayInfo", itemDisplayInfo};
-    source.garments = {garment};
-    source.slot = slotName;
-    source.itemSlot = itemSlot;
-    source.itemDisplayInfo = itemDisplayInfo;
-    out.sourceItems.push_back(std::move(source));
-    return garment;
+    source.ref.id = Db2Row{"ItemDisplayInfo", npcItem.itemDisplayInfo};
+    source.slot = npcItem.slot;
+    source.itemSlot = npcItem.itemSlot;
+    source.itemDisplayInfo = npcItem.itemDisplayInfo;
+    out_.sourceItems.push_back(std::move(source));
+
+    if (!npcItem.item) {
+        // Unresolved: the display's identity only, as a garment of the slot's kind.
+        split.main = addGarment(out_, key + "/garment", npcItem.slot ? kindFor(*npcItem.slot, nullptr) : "item");
+        split.garments = {*split.main};
+        out_.sourceItems[sourceIndex].garments = split.garments;
+        return split;
+    }
+
+    ItemSplit parts = splitItem(*npcItem.item, split.slot, key, sourceIndex, inputs_, nullptr, out_, nullptr);
+    bool drawsNothing = out_.garments[parts.main].pieces.empty() && !parts.skirt && parts.hem.empty();
+    if (drawsNothing) {
+        out_.garments.pop_back();
+        return split;
+    }
+    split.main = parts.main;
+    split.garments.push_back(parts.main);
+    if (parts.skirt) split.garments.push_back(*parts.skirt);
+    if (!parts.hem.empty()) {
+        split.hem = addGarment(out_, key + "/hem", "hem");
+        for (GarmentPiece& piece : parts.hem) {
+            if (piece.derived != "hem_uv_footprint") piece.derived = "hem_own_garment";
+            out_.garments[*split.hem].pieces.push_back(std::move(piece));
+        }
+    }
+    auto& listed = out_.sourceItems[sourceIndex].garments;
+    listed = split.garments;
+    if (split.hem) listed.push_back(*split.hem);
+    return split;
+}
+
+std::vector<uint32_t> NpcGarments::wear(const std::vector<NpcItem>& equipment) {
+    std::set<uint32_t> worn;
+    std::optional<uint32_t> chestDisplay;
+    std::vector<uint32_t> legsDisplays;
+    for (const NpcItem& npcItem : equipment) {
+        const Split& s = split(npcItem);
+        worn.insert(s.garments.begin(), s.garments.end());
+        if (s.slot == "chest" && !chestDisplay && s.main) chestDisplay = npcItem.itemDisplayInfo;
+        if (s.hem) legsDisplays.push_back(npcItem.itemDisplayInfo);
+    }
+    std::optional<uint32_t> tunic;
+    if (chestDisplay && out_.garments[*byDisplay_.at(*chestDisplay).main].kind == "tunic") {
+        tunic = byDisplay_.at(*chestDisplay).main;
+    }
+    for (uint32_t legs : legsDisplays) {
+        uint32_t ownHem = *byDisplay_.at(legs).hem;
+        if (!tunic) {
+            worn.insert(ownHem);
+            continue;
+        }
+        auto [it, added] = joined_.try_emplace({*chestDisplay, legs}, 0);
+        if (added) {
+            const Garment& chest = out_.garments[*tunic];
+            Garment joined;
+            joined.key = chest.key + "/hem/" + std::to_string(legs);
+            joined.kind = chest.kind;
+            joined.layer = chest.layer;
+            joined.pieces = chest.pieces;
+            std::set<std::pair<uint32_t, std::vector<uint32_t>>> shown;
+            for (const GarmentPiece& piece : chest.pieces) {
+                if (auto mesh = skinnedMesh(piece)) shown.insert(*mesh);
+            }
+            for (GarmentPiece piece : out_.garments[ownHem].pieces) {
+                if (auto mesh = skinnedMesh(piece); mesh && shown.count(*mesh)) continue;
+                if (piece.derived != "hem_uv_footprint") piece.derived = "hem_join_outfit";
+                joined.pieces.push_back(std::move(piece));
+            }
+            out_.garments.push_back(std::move(joined));
+            it->second = static_cast<uint32_t>(out_.garments.size() - 1);
+        }
+        worn.erase(*tunic);
+        worn.insert(it->second);
+    }
+    return {worn.begin(), worn.end()};
 }
 
 std::vector<uint32_t> fromGear(const std::vector<Item>& gear, const Inputs& inputs, Garments& out) {
@@ -162,104 +363,10 @@ std::vector<uint32_t> fromGear(const std::vector<Item>& gear, const Inputs& inpu
         if (!slot.empty()) source.slot = slot;
         sourceOf[i] = static_cast<uint32_t>(out.sourceItems.size());
         out.sourceItems.push_back(std::move(source));
-        uint32_t sourceIndex = sourceOf[i];
-
-        std::string kind = kindFor(slot, &item);
-        uint32_t garment = addGarment(out, key + "/" + kind, kind);
-        mainGarment[i] = garment;
-        auto add = [&](uint32_t g, PieceKind what, std::string derived = "") {
-            out.garments[g].pieces.push_back({std::move(what), sourceIndex, std::move(derived)});
-        };
-
-        std::optional<uint32_t> skirtGarment;
-        PendingHem hem{i, sourceIndex, {}};
-        const SectionOverlayComponent* overlays = nullptr;
-        const GeometryComponent* models = nullptr;
-        for (const Component& c : item.components) {
-            if (const auto* o = std::get_if<SectionOverlayComponent>(&c)) overlays = o;
-            if (const auto* m = std::get_if<GeometryComponent>(&c)) models = m;
-        }
-
-        auto groups = slotGroups().find(slot);
-        if (groups != slotGroups().end()) {
-            for (uint32_t index = 0; index < groups->second.size(); ++index) {
-                int32_t value = item.geosetGroups[index];
-                if (value <= 0) continue;
-                uint32_t group = groups->second[index];
-                GeometryPiece piece{partName(group), group, 1 + static_cast<uint32_t>(value), index, value};
-                if (slot == "legs" && group * 100 + piece.variant == kBodyHemGeoset) {
-                    hem.pieces.push_back({piece, sourceIndex, "hem_body_geoset"});
-                } else if (slot == "legs" && group == 13) {
-                    if (!skirtGarment) skirtGarment = addGarment(out, key + "/skirt", "skirt");
-                    add(*skirtGarment, piece);
-                } else {
-                    add(garment, piece);
-                }
-            }
-        }
-        if (overlays) {
-            for (const auto& s : overlays->sections) {
-                OverlayPiece piece{regionName(s.componentSection), s.componentSection,
-                                   inputs.texture(s.fileDataId, s.unresolved), std::nullopt};
-                if (!hem.pieces.empty() && s.componentSection == 5 && inputs.bodyHemMask) {
-                    OverlayPiece hemPaint = piece;
-                    hemPaint.mask = inputs.bodyHemMask;
-                    hem.pieces.push_back({hemPaint, sourceIndex, "hem_uv_footprint"});
-                }
-                add(garment, std::move(piece));
-            }
-        }
-        if (models) {
-            for (size_t m = 0; m < models->models.size(); ++m) {
-                const auto& model = models->models[m];
-                PieceModel pm;
-                if (model.fileDataId) {
-                    pm.ref = Ref{FileDataId{*model.fileDataId}, "", NameSource::None};
-                    if (i < inputs.modelUris.size() && m < inputs.modelUris[i].size()) pm.uri = inputs.modelUris[i][m];
-                } else {
-                    pm.unresolved = model.unresolved;
-                }
-                std::vector<PieceTexture> textures;
-                for (const auto& t : models->materials) {
-                    if (t.modelIndex != model.position) continue;
-                    textures.push_back({inputs.textureRole(t.textureType), t.textureType, t.modelIndex,
-                                        inputs.texture(t.fileDataId, t.unresolved)});
-                }
-                if (auto point = attachmentFor(slot, model.position)) {
-                    add(garment, AttachedPiece{point->point, point->id, model.position, pm, textures});
-                    continue;
-                }
-                SkinnedPiece body{model.position, pm, textures, {}};
-                std::vector<uint32_t> hemGeosets;
-                if (groups != slotGroups().end()) {
-                    for (uint32_t index = 0; index < groups->second.size(); ++index) {
-                        int32_t value = item.attachmentGeosetGroups[index];
-                        if (value < 0) continue;
-                        uint32_t id = groups->second[index] * 100 + 1 + static_cast<uint32_t>(value);
-                        bool hemMesh = groups->second[index] == 13 && (slot == "chest" || slot == "legs");
-                        (hemMesh ? hemGeosets : body.shownGeosets).push_back(id);
-                    }
-                }
-                add(garment, body);
-                for (uint32_t id : hemGeosets) {
-                    SkinnedPiece hemPiece{model.position, pm, textures, {id}};
-                    uint32_t fdid = model.fileDataId.value_or(0);
-                    auto owner = itemHemOwner.find({fdid, id});
-                    if (fdid != 0 && owner != itemHemOwner.end()) {
-                        out.sourceItems[sourceIndex].garments.push_back(owner->second);
-                        continue;
-                    }
-                    if (slot == "chest") {
-                        add(garment, hemPiece, "item_model_hem");
-                        if (fdid != 0) itemHemOwner[{fdid, id}] = garment;
-                    } else {
-                        hem.pieces.push_back({hemPiece, sourceIndex, "item_model_hem"});
-                        if (fdid != 0) itemHemOwner[{fdid, id}] = UINT32_MAX;
-                    }
-                }
-            }
-        }
-        if (!hem.pieces.empty()) hems.push_back(std::move(hem));
+        const std::vector<std::string>* uris = i < inputs.modelUris.size() ? &inputs.modelUris[i] : nullptr;
+        ItemSplit split = splitItem(item, slot, key, sourceOf[i], inputs, uris, out, &itemHemOwner);
+        mainGarment[i] = split.main;
+        if (!split.hem.empty()) hems.push_back({i, sourceOf[i], std::move(split.hem)});
     }
 
     // Hem split: a legs item's hem joins the tunic of its set, else is a hem garment of its own.

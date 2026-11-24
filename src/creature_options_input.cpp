@@ -69,7 +69,8 @@ std::vector<uint32_t> shownGeosets(const std::vector<uint32_t>& meshIds, const s
 }
 
 // NPCModelItemSlotDisplayInfo.ItemSlot names, from wow.export's
-// DBNpcEquipment.js (not on the wiki); 11 has none.
+// DBNpcEquipment.js (not on the wiki). 11 has none: its one display draws
+// nothing (WIKI_FINDINGS/GARMENTS.md "NPC item slot 11").
 const char* npcItemSlotName(uint32_t slot) {
     static const char* const kNames[] = {"head",  "shoulder", "shirt", "chest", "waist", "legs",
                                          "feet",  "wrist",    "hands", "tabard", "back"};
@@ -97,7 +98,6 @@ struct OptionIndex {
     std::map<std::pair<uint32_t, uint32_t>, uint32_t> textureOption;  // (slot, fdid)
     std::unordered_map<uint32_t, uint32_t> particleOption;            // ParticleColorID
     std::unordered_map<uint32_t, canon::CustomizationPick> choice;    // ChrCustomizationChoiceID
-    std::unordered_map<uint32_t, uint32_t> item;                      // ItemDisplayInfoID
 };
 
 // A layer's rectangle on its canvas: the whole canvas for a mask of -1,
@@ -223,7 +223,8 @@ void linkCorrectionSets(const creaturedisplay::Data& data, canon::Model& model) 
 }  // namespace
 
 void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDataId, canon::Model& model,
-                        const std::function<canon::TextureRef(uint32_t)>& texture, OptionsReport& report) {
+                        const std::function<canon::TextureRef(uint32_t)>& texture, OptionsReport& report,
+                        const NpcEquipmentInputs* equipment) {
     auto modelRows = data.modelDataByFile.find(modelFileDataId);
     if (modelRows == data.modelDataByFile.end()) return;
 
@@ -329,9 +330,13 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         return it->second;
     };
 
+    canon::garments::NpcGarments npcGarments(equipment ? equipment->garments : canon::garments::Inputs{},
+                                             model.garments);
+    std::map<uint32_t, std::optional<canon::Item>> itemByDisplay;
+
     // A humanoid NPC: its customization choices are the body; its baked
-    // skin (an option of the bake slot, gear drawn in) and items by
-    // identity are the outfit.
+    // skin (an option of the bake slot, gear drawn in) and its equipment's
+    // garments are the outfit.
     auto addNpcLook = [&](uint32_t extraId, canon::Appearance& body, canon::Preset& preset, std::string& key) {
         key += "x";
         auto extra = data.extras.find(extraId);
@@ -363,22 +368,17 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
             }
         }
         if (auto items = data.itemsByExtra.find(extraId); items != data.itemsByExtra.end()) {
+            std::vector<canon::garments::NpcItem> worn;
             for (const creaturedisplay::NpcItem& item : items->second) {
                 if (item.itemDisplayInfo == 0) continue;
                 const char* name = npcItemSlotName(item.slot);
-                auto known = index.item.find(item.itemDisplayInfo);
-                uint32_t garment = known != index.item.end()
-                                       ? known->second
-                                       : canon::garments::fromNpcItem(item.itemDisplayInfo, item.slot,
-                                                                      name ? std::optional<std::string>(name)
-                                                                           : std::nullopt,
-                                                                      model.garments);
-                index.item.emplace(item.itemDisplayInfo, garment);
-                if (std::find(preset.garments.begin(), preset.garments.end(), garment) == preset.garments.end()) {
-                    preset.garments.push_back(garment);
-                }
-                key +="i" + std::to_string(item.slot) + ":" + std::to_string(item.itemDisplayInfo) + ";";
+                auto [resolved, added] = itemByDisplay.try_emplace(item.itemDisplayInfo);
+                if (added && equipment) resolved->second = equipment->resolve(item.itemDisplayInfo, name ? name : "");
+                worn.push_back({item.itemDisplayInfo, item.slot, name ? std::optional<std::string>(name) : std::nullopt,
+                                resolved->second ? &*resolved->second : nullptr});
+                key += "i" + std::to_string(item.slot) + ":" + std::to_string(item.itemDisplayInfo) + ";";
             }
+            preset.garments = npcGarments.wear(worn);
         }
         // The bake is made for the extra's whole equipment (gear overlays
         // drawn into the skin), so it matches only that item set.
