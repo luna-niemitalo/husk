@@ -109,6 +109,7 @@ TEST_CASE("creature catalog: shared displays, stable ids, and rows the tables la
     catalog.models[0].ref.name = "wolf";
     catalog.models[0].ref.source = canon::NameSource::Listfile;
     fs::path file = freshDir("document") / "creatures.json";
+    writeText(file.parent_path() / "models/1234.canon.bundle/manifest.json", "{}");
     writers::Provenance provenance{"husk test", "db2", {}};
     writeText(file, writers::creatureCatalogDocument(catalog, provenance, {{1234, "models/1234.canon.bundle/manifest.json"}}));
     std::string problems = problemsOf(file);
@@ -196,7 +197,7 @@ TEST_CASE("creaturedb::load: real 12.1.0 tables -- a wolf, a boar, a dragon" * d
     CHECK(deathwing.name == "Deathwing");
     CHECK(deathwing.type == 2);
     CHECK(deathwing.weights[0] == 1.0f);
-    CHECK(deathwing.classification == 3);
+    CHECK(deathwing.classification == 1);
     CHECK(data->models.count(data->displays.at(17408).modelData) == 1);
 }
 

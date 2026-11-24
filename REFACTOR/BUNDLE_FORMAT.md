@@ -930,21 +930,28 @@ and is not per zone.
 
 ```json
 { "kind": "creatures", "references": [
-    { "kind": "model", "asset": { "id": { "kind": "file_data_id", "value": 126080 },
-                                  "uri": "models/126080.canon.bundle/manifest.json" } } ],
+    { "id": "93ed63c9…", "kind": "model",
+      "asset": { "id": { "kind": "file_data_id", "value": 123418 },
+                 "name": "ridingdirewolf", "name_source": "listfile",
+                 "uri": "models/123418.canon.bundle/manifest.json" } } ],
   "creatures": [
-    { "id": "6f1c…", "name": "Kor'kron Battlewolf", "name_source": "db2",
+    { "id": "54d39895…", "name": "Kor'kron Battlewolf", "name_source": "db2",
       "type":   { "id": { "kind": "db2_row", "table": "CreatureType",   "row": 1 }, "name": "Beast", "name_source": "db2" },
       "family": { "id": { "kind": "db2_row", "table": "CreatureFamily", "row": 1 }, "name": "Wolf",  "name_source": "db2" },
-      "displays": [ { "display": "0b9e…", "weight": 1 } ],
+      "classification": 0,
+      "displays": [ { "display": "d0fd2799…", "weight": 1 }, { "display": "691ce215…", "weight": 1 } ],
       "source": { "id": { "kind": "db2_row", "table": "Creature", "row": 71116 } } } ],
   "displays": [
-    { "id": "0b9e…", "model": 0, "preset": 4, "scale": 1, "base_scale": 1,
-      "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 17408 } } } ] }
+    { "id": "d0fd2799…", "model": "93ed63c9…", "preset": 4, "scale": 1.2, "base_scale": 1,
+      "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 17408 } } },
+    { "id": "691ce215…", "model": "93ed63c9…", "preset": 1, "scale": 1.2, "base_scale": 1,
+      "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 247 } } } ] }
 ```
 
 - **One document, not one per creature.** The client's `Creature` table
-  holds ~20k of the game's creatures (23,167 rows in 12.1.5); one file
+  holds ~20k of the game's creatures (18,639 rows in 12.1.5.70961, 5 of
+  them in encrypted sections; a full catalog is 18,634 creatures, 16,807
+  displays, 3,050 models, written in 0.5 s); one file
   of entries is what a consumer loads to pick from, and per-creature
   files would only be loaded together.
 - **`creatures`**: every `Creature` row, ascending by row. `type` and
