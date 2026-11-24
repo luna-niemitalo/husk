@@ -738,6 +738,44 @@ TEST_CASE(
     fs::remove_all(dir);
 }
 
+// Real-data-gated: LiquidType's Float[38] and Texture[6] are arrays (a
+// float array and a string array); db2-export once wrote their raw bits and
+// string offsets. Row 1 is "Water" in every 12.x build.
+TEST_CASE("husk db2-export: real liquidtype.db2 writes float arrays as floats and string arrays as text" *
+          doctest::skip(husk::test::testDbdDir().empty() ||
+                         !fs::exists("/media/luna/wow_export/live/dbfilesclient/liquidtype.db2"))) {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-liquidtype";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::path outPath = dir / "out.sqlite";
+
+    auto result = runHusk("db2-export /media/luna/wow_export/live/dbfilesclient/liquidtype.db2 " + outPath.string() +
+                          " --dbd-dir " + husk::test::testDbdDir());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+
+    sqlite3* db = nullptr;
+    REQUIRE(sqlite3_open_v2(outPath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    sqlite3_stmt* stmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(db,
+                               "SELECT Name, typeof(Float_0), Float_0, typeof(Texture_0), Texture_0, Texture_5 "
+                               "FROM LiquidType WHERE ID = 1",
+                               -1, &stmt, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(stmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))) == "Water");
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))) == "real");
+    CHECK(sqlite3_column_double(stmt, 2) == 1.0);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))) == "text");
+    std::string texture(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+    INFO(texture);
+    CHECK(texture.find(".blp") != std::string::npos);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))).empty());
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
     // DESIGN.md's "Three-state resolution, not two": `--dbd-dir` is
     // optional and config-backed here too (single-file mode has no

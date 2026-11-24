@@ -58,6 +58,7 @@ using ExternalAnimBlobs = std::unordered_map<uint32_t, std::vector<uint8_t>>;
 struct ExternalSkeletonSource {
     std::vector<m2::Bone> bones;
     std::vector<m2::Sequence> sequences;
+    std::vector<uint32_t> globalLoops;  // skel::parseGlobalLoops: what the bones' global-sequence tracks index
     std::vector<uint8_t> blob;
     std::optional<skel::Attachments> attachments;  // skel::findAttachments; replaces model.attachments when set
 };

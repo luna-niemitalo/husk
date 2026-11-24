@@ -18,6 +18,7 @@
 // transforms and blend modes. Shared byte-builder helpers live in
 // tests/test_cli_fixtures.hpp, included by all test_cli*.cpp files.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
@@ -30,6 +31,7 @@
 #include "test_bundle_fixtures.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
+#include "test_data_paths.hpp"
 
 using husk::test::runHusk;
 namespace fs = std::filesystem;
@@ -378,6 +380,17 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     // track actually under test.
     fillTrack(m2, boneOff + 0x24, {0}, {identityQuatBytes()});
     fillTrack(m2, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+    // Four global loops (M2Loop, ms); the track's loop 3 lasts 2.5 s, longer
+    // than its last key (1 s): the period isn't the last keyframe.
+    uint32_t loopOff = static_cast<uint32_t>(m2.size());
+    uint32_t loopCount = 4;
+    std::memcpy(m2.data() + 0x014, &loopCount, 4);
+    std::memcpy(m2.data() + 0x018, &loopOff, 4);
+    for (uint32_t ms : {100u, 200u, 300u, 2500u}) {
+        size_t at = m2.size();
+        m2.resize(at + 4);
+        std::memcpy(m2.data() + at, &ms, 4);
+    }
 
     auto dir = defaultsDir("globalseq");
     writeFile(dir / "glow.m2", m2);
@@ -391,6 +404,66 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     REQUIRE(clips.size() == 1);
     CHECK(clips[0]["sequence_kind"] == "global_sequence");
     CHECK(clips[0]["sequence_index"] == 3);
+    CHECK(clips[0]["duration"].get<double>() == doctest::Approx(2.5));
+    const nlohmann::json& loops = m["resources"]["rig"]["global_sequences"];
+    REQUIRE(loops.size() == 4);
+    CHECK(loops[0]["duration"].get<double>() == doctest::Approx(0.1));
+    CHECK(loops[3]["duration"].get<double>() == doctest::Approx(2.5));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a joint carries its raw bone flags and the named bits, kinematic_bone included") {
+    auto m2 = tinyValidM2();
+    uint32_t boneOff = static_cast<uint32_t>(m2.size());
+    uint32_t boneCount = 1;
+    std::memcpy(m2.data() + 0x02C, &boneCount, 4);
+    std::memcpy(m2.data() + 0x030, &boneOff, 4);
+    m2.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(m2.data() + boneOff + 0x00, &keyBoneId, 4);
+    uint32_t flags = 0x400 | 0x4 | 0x8 | 0x2000;  // kinematic, ignore parent rotation, billboard, unnamed
+    std::memcpy(m2.data() + boneOff + 0x04, &flags, 4);
+    int16_t parentBone = -1;
+    std::memcpy(m2.data() + boneOff + 0x08, &parentBone, 2);
+    fillTrack(m2, boneOff + 0x10, {0}, {vec3Bytes(0, 0, 0)});
+    fillTrack(m2, boneOff + 0x24, {0}, {identityQuatBytes()});
+    fillTrack(m2, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto dir = defaultsDir("boneflags");
+    writeFile(dir / "flags.m2", m2);
+    writeFile(dir / "flags00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "flags.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "flags.bundle");
+    const nlohmann::json& joint = m["resources"]["rig"]["skeleton"]["joints"][0];
+    CHECK(joint["source"]["flags"] == "0x240c");
+    CHECK(joint["flags"] == nlohmann::json::array({"ignore_parent_rotation", "kinematic_bone"}));
+    CHECK(joint["billboard"] == "spherical");
+
+    fs::remove_all(dir);
+}
+
+// Real-data-gated: 12.x AnimationData has no Name column (layout BBF66A3C),
+// which isn't worth a warning, and its Fallback column is the table a
+// consumer walks for an animation the model lacks (row 6, Dead -> 1, Death).
+TEST_CASE("husk export: real AnimationData gives clip fallbacks and no Name warning" *
+          doctest::skip(husk::test::testDbdDir().empty() ||
+                         !fs::exists("/media/luna/wow_export/live/creature/rabbit/rabbit.m2"))) {
+    auto dir = defaultsDir("animfallback");
+    auto bundle = dir / "rabbit.bundle";
+    auto result = runHusk("export /media/luna/wow_export/live/creature/rabbit/rabbit.m2 -o " + bundle.string() +
+                          " --db2-dir /media/luna/wow_export/live/dbfilesclient --dbd-dir " +
+                          husk::test::testDbdDir() + " --listfile-root /media/luna/wow_export/live");
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(result.output.find("string column 'Name'") == std::string::npos);
+    nlohmann::json m = parseManifest(bundle);
+    const nlohmann::json& fallbacks = m["resources"]["rig"]["animation_fallbacks"];
+    REQUIRE(fallbacks.is_array());
+    CHECK(std::find(fallbacks.begin(), fallbacks.end(), nlohmann::json::array({6, 1})) != fallbacks.end());
 
     fs::remove_all(dir);
 }

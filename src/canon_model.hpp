@@ -65,6 +65,9 @@ struct AnimationClip {
     SequenceRef sequence;
     std::vector<std::optional<BoneAnimationCurves>> boneCurves;
     std::optional<ClipInfo> info;
+    // Global-sequence clips: the loop's length (M2Loop), seconds, from the
+    // loop table the bones' tracks index (the .skel's for a .skel model).
+    std::optional<float> loopDuration;
 };
 
 // The whole model: one bind-pose skeleton, one flat mesh (positions +
@@ -91,6 +94,12 @@ struct Model {
     std::vector<Material> materials;
     std::vector<Identity> primitiveMaterials;  // one per mesh.primitives entry, see above
     std::vector<AnimationClip> animations;
+    // The model file's own global loops (M2Loop), seconds: what a material
+    // or scene curve's GlobalSequence index names.
+    std::vector<float> globalSequenceDurations;
+    // AnimationData (id, Fallback) for every row whose Fallback isn't 0
+    // (Stand), ascending; empty when the table wasn't read.
+    std::vector<std::pair<uint32_t, uint32_t>> animationFallbacks;
     Scene scene;  // attachments, events, lights, emitters
 
     // Placement sets this model owns (a WMO's doodad sets). An always-on set

@@ -270,6 +270,14 @@ constexpr uint32_t kBillboardMask = kSphericalBillboard | kCylindricalBillboardL
                                      kCylindricalBillboardLockY | kCylindricalBillboardLockZ;
 }  // namespace BoneFlag
 
+// The non-billboard M2CompBone.flags bits wowdev.wiki M2#Bones names, as
+// snake_case, lowest bit first: 0x1/0x2/0x4 ignore_parent_translate/
+// _scale/_rotation, 0x200 transformed, 0x400 kinematic_bone ("allow physics
+// to influence this bone": the bones a .phys body drives), 0x1000
+// helmet_anim_scaled. The wiki's unnamed or guessed bits (0x2000 and up)
+// are left out; billboard bits are billboardModeName's.
+std::vector<std::string> boneFlagNames(uint32_t flags);
+
 // Names a bone's billboard mode ("spherical"/"cylindrical_lock_x"/"_y"/"_z"),
 // or nullptr if none of BoneFlag's bits are set -- the ordinary case for
 // most bones. Spherical and cylindrical-lock bits are documented as

@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <unordered_map>
+#include <utility>
 
 namespace husk::m2 {
 
@@ -33,6 +34,18 @@ std::vector<std::string> globalFlagNames(uint32_t flags) {
         if (flags & bit) {
             names.emplace_back(name);
         }
+    }
+    return names;
+}
+
+std::vector<std::string> boneFlagNames(uint32_t flags) {
+    static const std::pair<uint32_t, const char*> kNames[] = {
+        {0x1, "ignore_parent_translate"}, {0x2, "ignore_parent_scale"}, {0x4, "ignore_parent_rotation"},
+        {0x200, "transformed"},           {0x400, "kinematic_bone"},    {0x1000, "helmet_anim_scaled"},
+    };
+    std::vector<std::string> names;
+    for (const auto& [bit, name] : kNames) {
+        if (flags & bit) names.emplace_back(name);
     }
     return names;
 }

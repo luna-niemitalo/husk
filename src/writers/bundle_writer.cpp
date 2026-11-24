@@ -685,7 +685,8 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const Provenance& provenance,
-                 const AssetUris& assetUris, const AssetUris& textureUris) {
+                 const AssetUris& assetUris, const AssetUris& textureUris,
+                 const std::vector<Provenance::Source>& manifestSources) {
     std::error_code ec;
     std::filesystem::create_directories(bundleDir, ec);
     if (ec) {
@@ -707,7 +708,9 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     json::Writer w(manifestStream);
 
     w.beginObject();
-    writeContractHeader(w, "model", model.subject, provenance);
+    Provenance manifestProvenance = provenance;
+    manifestProvenance.sources.insert(manifestProvenance.sources.end(), manifestSources.begin(), manifestSources.end());
+    writeContractHeader(w, "model", model.subject, manifestProvenance);
 
     // Owned placement sets are the model's first references, so set i is
     // reference i.
@@ -794,6 +797,27 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeSkeletonSection(w, model.skeleton, skeletonBin);
     w.key("animation");
     writeAnimationSection(w, model.skeleton, model.animations, animBin);
+    if (!model.globalSequenceDurations.empty()) {
+        w.key("global_sequences");
+        w.beginArray();
+        for (float duration : model.globalSequenceDurations) {
+            w.beginObject();
+            writeFloatField(w, "duration", duration);
+            w.endObject();
+        }
+        w.endArray();
+    }
+    if (!model.animationFallbacks.empty()) {
+        w.key("animation_fallbacks");
+        w.beginArray();
+        for (const auto& [animation, fallback] : model.animationFallbacks) {
+            w.beginArray();
+            w.value(static_cast<int64_t>(animation));
+            w.value(static_cast<int64_t>(fallback));
+            w.endArray();
+        }
+        w.endArray();
+    }
     if (!model.correctionSets.empty()) {
         w.key("correction_sets");
         writeCorrectionSets(w, model.correctionSets);

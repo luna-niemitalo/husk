@@ -96,21 +96,35 @@ namespace {
 // SKS1 payload: M2Array global_loops (0x00), M2Array sequences (0x08),
 // M2Array sequence_lookups (0x10), 8 bytes of trailing padding -- 0x20 = 32
 // bytes total (wowdev.wiki M2/.skel#SKS1).
+constexpr size_t kGlobalLoopsFieldOffset = 0x00;
 constexpr size_t kSequencesFieldOffset = 0x08;
 constexpr size_t kSks1HeaderSize = 0x20;
-}  // namespace
 
-// IN, critical: a .skel-linked model's sequences live only here.
-std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes) {
+Chunk requireSks1(const std::vector<uint8_t>& fileBytes) {
     Chunk sks1 = findRequiredChunk(fileBytes, "SKS1");
     if (sks1.size < kSks1HeaderSize) {
         throw ParseError("SKS1 chunk is " + std::to_string(sks1.size) +
                           " bytes, need at least " + std::to_string(kSks1HeaderSize) +
                           " for its header");
     }
+    return sks1;
+}
+}  // namespace
+
+// IN, critical: a .skel-linked model's sequences live only here.
+std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes) {
+    Chunk sks1 = requireSks1(fileBytes);
     m2::Array sequences = readArray(sks1.data, sks1.size, kSequencesFieldOffset);
     std::vector<uint8_t> chunkBlob(sks1.data, sks1.data + sks1.size);
     return m2::parseSequences(chunkBlob, sequences);
+}
+
+// IN, critical: the loop lengths of a .skel model's global-sequence bones.
+std::vector<uint32_t> parseGlobalLoops(const std::vector<uint8_t>& fileBytes) {
+    Chunk sks1 = requireSks1(fileBytes);
+    m2::Array loops = readArray(sks1.data, sks1.size, kGlobalLoopsFieldOffset);
+    std::vector<uint8_t> chunkBlob(sks1.data, sks1.data + sks1.size);
+    return m2::parseGlobalLoops(chunkBlob, loops);
 }
 
 // IN, critical when present; absent is a valid file (a child skeleton

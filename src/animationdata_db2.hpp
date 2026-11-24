@@ -5,6 +5,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // Real, typed reader for AnimationData.db2 -- WoW's own table of human-
@@ -17,7 +18,10 @@ namespace husk::animationdata {
 
 struct Entry {
     uint32_t id = 0;
-    std::string name;  // real AnimationData.Name string; never empty for a real row
+    std::string name;  // AnimationData.Name; empty where the layout has no Name (12.x)
+    // AnimationData.Fallback: the animation a model without this one plays
+    // instead (an AnimationData ID); 0 = Stand.
+    uint32_t fallback = 0;
 };
 
 struct Data {
@@ -35,5 +39,8 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 // simply absent from the map, same as if AnimationData.db2 didn't resolve
 // it at all.
 std::unordered_map<uint32_t, std::string> toNameMap(const Data& data);
+
+// id -> Fallback for every row whose Fallback isn't 0, ascending by id.
+std::vector<std::pair<uint32_t, uint32_t>> nonzeroFallbacks(const Data& data);
 
 }  // namespace husk::animationdata

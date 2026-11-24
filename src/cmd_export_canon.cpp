@@ -374,6 +374,7 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
         src.blob = skel::boneTrackBlob(skelBytes);
         if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
             src.sequences = skel::parseSequences(skelBytes);
+            src.globalLoops = skel::parseGlobalLoops(skelBytes);
         }
         src.attachments = skel::findAttachments(skelBytes);
         skelSequences = src.sequences;
@@ -507,8 +508,11 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
         clip.info->animation.name = name->second;
         clip.info->animation.source = canon::NameSource::Db2;
     }
+    if (!build.model.animations.empty()) build.model.animationFallbacks = sidecars.animationFallbacks;
     size_t jointCount = build.model.skeleton.joints.size();
-    if (!sidecars.physPath.empty()) build.model.physics = m2input::loadPhysics(sidecars.physPath, jointCount);
+    if (!sidecars.physics.bytes.empty()) {
+        build.model.physics = m2input::loadPhysics(sidecars.physics.bytes, sidecars.physics.detail, jointCount);
+    }
     std::optional<std::vector<uint32_t>> boneFiles =
         bonesAreInline ? model.header.boneFileDataIds : (haveSkel ? skel::findBoneFileDataIds(skelBytes) : std::nullopt);
     if (boneFiles && sidecars.listfile) {
@@ -538,7 +542,9 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     // Before externalizing: the projection embeds texture payloads.
     if (!sidecars.leanGlbPath.empty()) writers::writeLeanGlb(build.model, sidecars.leanGlbPath);
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
-    writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris);
+    writers::Provenance::Source physSource{"phys", "rigid bodies and joints (resources.physics)",
+                                           sidecars.physics.available, sidecars.physics.detail};
+    writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris, {physSource});
 }
 
 }  // namespace husk::commands

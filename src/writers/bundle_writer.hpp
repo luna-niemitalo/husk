@@ -51,8 +51,12 @@ namespace husk::writers {
 // `assetUris` links placement-set instances to bundles the caller exported
 // (FileDataID -> uri relative to `bundleDir`); `textureUris` are textures a
 // shared store holds (writers/texture_store.hpp), same keys and base.
+// `manifestSources` join `provenance.sources` in the manifest only: sources
+// about the model itself (its physics) would make the material and
+// technique documents differ per model, which they otherwise needn't.
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const Provenance& provenance,
-                 const AssetUris& assetUris = {}, const AssetUris& textureUris = {});
+                 const AssetUris& assetUris = {}, const AssetUris& textureUris = {},
+                 const std::vector<Provenance::Source>& manifestSources = {});
 
 // A `world` document (schema/world.schema.json): the map's tile grid, cell
 // i's tile being reference i with uri `tileUris[i]` (empty: known, not

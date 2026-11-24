@@ -5,6 +5,7 @@
 // body bone references. See TEST_DESIGN.md#Four-tier-architecture for how
 // this tier relates to the others.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
@@ -75,6 +76,144 @@ TEST_CASE("husk export: --phys <path> resolves an explicitly-named .phys file, n
     nlohmann::json m = parseManifest(bundle);
     REQUIRE(m["resources"].contains("physics"));
     CHECK(m["resources"]["physics"]["bodies"].size() == 1);
+
+    fs::remove_all(dir);
+}
+
+namespace {
+
+// `chunkedM2WithSfid(tinyValidM2(), {})` plus one more chunk.
+std::vector<uint8_t> chunkedM2With(const char* tag, const std::vector<uint8_t>& payload) {
+    auto b = chunkedM2WithSfid(tinyValidM2(), {});
+    putTag(b, tag);
+    putU32(b, static_cast<uint32_t>(payload.size()));
+    b.insert(b.end(), payload.begin(), payload.end());
+    return b;
+}
+
+std::vector<uint8_t> u32Bytes(uint32_t v) {
+    std::vector<uint8_t> b;
+    putU32(b, v);
+    return b;
+}
+
+const nlohmann::json* physSource(const nlohmann::json& manifest) {
+    for (const nlohmann::json& s : manifest["provenance"]["sources"]) {
+        if (s["name"] == "phys") return &s;
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+TEST_CASE("husk export: the model's PFDC chunk (an inline .phys, padded) is its physics, before a "
+          "same-basename .phys") {
+    auto dir = defaultsDir("physpfdc");
+    auto pfdc = buildPhysFile(0, 0.5f, 0, 0);
+    pfdc.insert(pfdc.end(), {0, 0, 0, 0});  // PFDC's alignment padding
+    writeFile(dir / "physpfdc.m2", chunkedM2With("PFDC", pfdc));
+    writeFile(dir / "physpfdc00.skin", tinyMatchingSkin());
+    writeFile(dir / "physpfdc.skel", boneCorrectionSkel());
+    writeFile(dir / "physpfdc.phys", buildPhysFile(5, 0, 0, 0));  // would fail: bone 5 doesn't exist
+
+    auto result = runHusk("export " + (dir / "physpfdc.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "physpfdc.bundle");
+    REQUIRE(m["resources"].contains("physics"));
+    CHECK(m["resources"]["physics"]["bodies"].size() == 1);
+    const nlohmann::json* source = physSource(m);
+    REQUIRE(source != nullptr);
+    CHECK((*source)["available"] == true);
+    CHECK((*source)["detail"] == "PFDC chunk");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: an explicit --phys wins over the model's PFDC") {
+    auto dir = defaultsDir("physpfdcexplicit");
+    writeFile(dir / "m.m2", chunkedM2With("PFDC", buildPhysFile(5, 0, 0, 0)));  // would fail
+    writeFile(dir / "m00.skin", tinyMatchingSkin());
+    writeFile(dir / "m.skel", boneCorrectionSkel());
+    auto physPath = dir / "chosen.phys";
+    writeFile(physPath, buildPhysFile(0, 1, 2, 3));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --phys " + physPath.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "m.bundle");
+    CHECK(m["resources"]["physics"]["bodies"].size() == 1);
+    CHECK((*physSource(m))["detail"] == "--phys " + physPath.string());
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a PFID FileDataID is read from --listfile-root's _by_fdid/") {
+    auto root = defaultsDir("physpfid");
+    fs::create_directories(root / "item");
+    fs::create_directories(root / "_by_fdid");
+    writeFile(root / "item" / "m.m2", chunkedM2With("PFID", u32Bytes(4242)));
+    writeFile(root / "item" / "m00.skin", tinyMatchingSkin());
+    writeFile(root / "item" / "m.skel", boneCorrectionSkel());
+    writeFile(root / "_by_fdid" / "4242", buildPhysFile(0, 0, 0, 1));
+
+    auto bundle = root / "out.bundle";
+    auto result = runHusk("export " + (root / "item" / "m.m2").string() + " --listfile-root " + root.string() +
+                          " -o " + bundle.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(bundle);
+    CHECK(m["resources"]["physics"]["bodies"].size() == 1);
+    std::string detail = (*physSource(m))["detail"];
+    CHECK(detail.rfind("PFID 4242: ", 0) == 0);
+    CHECK(detail.find("_by_fdid/4242") != std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("husk export: a PFID not found locally leaves physics out and marks the source unavailable") {
+    auto root = defaultsDir("physpfidmissing");
+    fs::create_directories(root / "item");
+    writeFile(root / "item" / "m.m2", chunkedM2With("PFID", u32Bytes(4243)));
+    writeFile(root / "item" / "m00.skin", tinyMatchingSkin());
+    writeFile(root / "item" / "m.skel", boneCorrectionSkel());
+
+    auto bundle = root / "out.bundle";
+    auto result = runHusk("export " + (root / "item" / "m.m2").string() + " --listfile-root " + root.string() +
+                          " -o " + bundle.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(bundle);
+    CHECK_FALSE(m["resources"].contains("physics"));
+    CHECK((*physSource(m))["available"] == false);
+    CHECK((*physSource(m))["detail"] == "PFID 4243 not found locally");
+
+    fs::remove_all(root);
+}
+
+// Real-data-gated: catmount.m2 keeps its physics in PFDC (the listfile's
+// catmount.phys isn't in the build), and its physics bones carry 0x400.
+TEST_CASE("husk export: real catmount.m2 gets its PFDC physics on kinematic joints" *
+          doctest::skip(!fs::exists("/media/luna/wow_export/live/creature/catmount/catmount.m2"))) {
+    auto dir = defaultsDir("physcatmount");
+    auto bundle = dir / "catmount.bundle";
+    auto result = runHusk("export /media/luna/wow_export/live/creature/catmount/catmount.m2 -o " + bundle.string() +
+                          " --listfile-root /media/luna/wow_export/live --anim none");
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(bundle);
+    REQUIRE(m["resources"].contains("physics"));
+    const nlohmann::json& bodies = m["resources"]["physics"]["bodies"];
+    CHECK(bodies.size() > 0);
+    CHECK((*physSource(m))["detail"] == "PFDC chunk");
+    const nlohmann::json& joints = m["resources"]["rig"]["skeleton"]["joints"];
+    for (const nlohmann::json& body : bodies) {
+        if (body["type"] == 0) continue;  // type 0 bodies follow their bone; only dynamic ones need physics to drive it
+        const nlohmann::json& joint = joints[body["joint"].get<size_t>()];
+        INFO(joint.dump());
+        REQUIRE(joint.contains("flags"));
+        CHECK(std::find(joint["flags"].begin(), joint["flags"].end(), "kinematic_bone") != joint["flags"].end());
+    }
 
     fs::remove_all(dir);
 }

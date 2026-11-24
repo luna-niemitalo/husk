@@ -37,6 +37,7 @@
 #include "listfile_cache.hpp"
 #include "listfile_index.hpp"
 #include "m2.hpp"
+#include "m2_sidecar_input.hpp"
 #include "modelfiledata_db2.hpp"
 #include "skel.hpp"
 #include "skin.hpp"
@@ -333,9 +334,10 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "correction sets, data only")
         ->group("Model sidecars");
     app.add_option("--phys", opts.physArg,
-                    "external .phys path (per the model's own PFID scalar), or 'none' to never "
-                    "look for one (default: a same-basename '.phys' next to the model, if any) -- "
-                    "written as the bundle's physics: bodies, shapes and joints, data only")
+                    ".phys path, or 'none' to read no physics (default: the model's PFDC chunk, "
+                    "else its PFID FileDataID via --listfile-root, else a same-basename '.phys' "
+                    "next to the model) -- written as the bundle's physics: bodies, shapes and "
+                    "joints, data only; provenance source 'phys' names the one used")
         ->group("Model sidecars");
     app.add_option("--db2-dir", opts.db2DirArg,
                     "directory of extracted DB2 files (lowercase casc-tool names) -- with --dbd-dir, "
@@ -820,17 +822,12 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         if (!db2Dir.empty() && !dbdDirForChr.empty()) {
             if (auto animData = animationdata::load(db2Dir, dbdDirForChr, std::cerr)) {
                 sidecars.animationNames = animationdata::toNameMap(*animData);
+                sidecars.animationFallbacks = animationdata::nonzeroFallbacks(*animData);
             }
         }
         sidecars.listfile = &listfile;
         sidecars.bonesDir = bonesDir;
-        if (physGiven && !physNone) {
-            sidecars.physPath = physPath;
-        } else if (!physGiven) {
-            std::filesystem::path beside = std::filesystem::path(modelPath).replace_extension(".phys");
-            std::error_code ec;
-            if (std::filesystem::exists(beside, ec)) sidecars.physPath = beside.string();
-        }
+        sidecars.physics = m2input::resolvePhysics(modelPath, modelBytes, header, physPath, physNone, listfile, listfileRoot);
         if (appearanceGiven) {
             sidecars.appearance = opts.appearanceArg;
             std::stringstream ids(customizationChoiceIdsArg);

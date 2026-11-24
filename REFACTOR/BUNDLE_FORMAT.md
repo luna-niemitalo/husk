@@ -499,11 +499,18 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   item `source` is `item_slot` (NPC slot number) or `slot_token` (the
   appearance string's own slot name); `slot` is set when the name is a
   known one.
-- **Physics.** `resources.physics`: the `.phys` beside the model (or
-  `--phys`) as `bodies` (joint, position, shape indices), `shapes`
-  (capsule and polytope geometry; box and sphere layouts unverified, so
-  under `source`) and `joints` (kind, bodies, the kind's record under
-  `source`: its angle unit isn't established).
+- **Physics.** `resources.physics`: the model's physics as `bodies`
+  (joint, position, shape indices), `shapes` (capsule and polytope
+  geometry; box and sphere layouts unverified, so under `source`) and
+  `joints` (kind, bodies, the kind's record under `source`: its angle unit
+  isn't established). Read from, first hit wins (0.4.0): `--phys`, the
+  model's `PFDC` chunk (an inline `.phys`; where 12.x keeps nearly all of
+  it), the `PFID` FileDataID (store `_by_fdid`, then the listfile path),
+  a same-basename `.phys` beside the model. The manifest's provenance
+  source `phys` says which (`detail`: `PFDC chunk`, `PFID <fdid>: <path>`,
+  `--phys <path>`, `beside the model: <path>`); `available: false` when a
+  `PFID` wasn't found locally or `--phys none` was given, so absent physics
+  is unknown rather than "has none".
 - **Bone corrections.** `resources.rig.correction_sets`: each `.bone`
   file the model or `.skel` names (`<bones-dir>/<fdid>.bone`, else the
   listfile/store), a 4x4 matrix per corrected joint. A customization
@@ -518,6 +525,25 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   `blend_out`, and the raw `source{flags, variation_next}`
   (`variation_next` −1 = last variation). `M2Sequence` bounds and replay
   range are not written.
+- **Global sequences (0.4.0).** A `global_sequence` clip's `duration` is
+  its loop length (`M2Loop`), the period its curves repeat with; the last
+  keyframe can come before it. `resources.rig.global_sequences[i].duration`
+  is the model file's own loop table, which material, scene and effect
+  curves with `sequence_kind: global_sequence` index. A `.skel` model's
+  joint clips index the `.skel`'s table, so the clip's own `duration` is
+  the one to use for them.
+- **Animation fallbacks (0.4.0).** `resources.rig.animation_fallbacks`:
+  AnimationData's `Fallback` column as `[animation, fallback]` pairs, for
+  every row whose fallback isn't 0 (an unlisted id falls back to 0,
+  Stand). A model without a clip for an animation plays its fallback,
+  followed until a clip exists. Written when `--db2-dir`/`--dbd-dir` read
+  the table (not by `export-world`'s model pass).
+- **Joint flags (0.4.0).** `skeleton.joints[].source.flags` is
+  `M2CompBone.flags` as stored; `flags` names the bits wowdev.wiki names
+  (`ignore_parent_translate`/`_scale`/`_rotation`, `transformed`,
+  `kinematic_bone`, `helmet_anim_scaled`), billboard bits stay
+  `billboard`. `kinematic_bone` (0x400) marks the joints physics drives:
+  in the 12.1.5 corpus it occurs exactly on models with physics.
 - **Material tracks.** Layer `tint`, `color_alpha`, `texture_weight` and
   `uv_maps[].transform`: a constant tint, alpha, texture weight or UV
   transform is a one-key `step` curve; identity values stay absent; a

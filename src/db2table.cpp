@@ -171,7 +171,11 @@ std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
                 }
             }
         }
-        if (!found) {
+        // A column the layout doesn't declare is that build's shape (12.x
+        // AnimationData has no Name), not a failure: the row just has none.
+        bool layoutDeclares = std::any_of(parsed->layout->fields.begin(), parsed->layout->fields.end(),
+                                          [&](const dbd::Field& field) { return field.name == name; });
+        if (!found && layoutDeclares) {
             err << "husk: db2table: '" << path << "': string column '" << name
                 << "' not resolved as an inline field against this file's real layout\n";
         }
