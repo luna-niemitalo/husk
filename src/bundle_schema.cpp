@@ -123,16 +123,22 @@ bool isRealValued(const json& node) {
 
 // Follows a schema node through a property path, resolving $refs, to see
 // whether an x-index-into pointer names an array the document can hold.
-const json* followSchema(const std::string& stem, const json* node, const std::vector<std::string>& path) {
-    for (const std::string& step : path) {
-        for (int hops = 0; node && node->contains("$ref") && hops < 8; ++hops) {
+const json* followSchema(std::string stem, const json* node, const std::vector<std::string>& path) {
+    auto resolve = [&] {
+        for (int hops = 0; node->contains("$ref") && hops < 8; ++hops) {
             std::string ref = (*node)["$ref"];
             size_t hash = ref.find('#');
-            std::string target = hash == 0 ? stem : schemaStem(ref.substr(0, hash));
-            node = &schemaFor(target).at(json::json_pointer(ref.substr(hash + 1)));
+            if (hash != 0) stem = schemaStem(ref.substr(0, hash));
+            node = &schemaFor(stem).at(json::json_pointer(ref.substr(hash + 1)));
         }
-        if (!node) return nullptr;
-        if (node->value("type", "") == "array" && node->contains("items")) node = &(*node)["items"];
+    };
+    for (const std::string& step : path) {
+        resolve();
+        // An array's items are often a shared definition: resolve that too.
+        if (node->value("type", "") == "array" && node->contains("items")) {
+            node = &(*node)["items"];
+            resolve();
+        }
         if (!node->contains("properties") || !(*node)["properties"].contains(step)) return nullptr;
         node = &(*node)["properties"][step];
     }
@@ -226,8 +232,7 @@ struct Linter {
             fail(pointer, "x-id-in '" + t + "' names no array in the " + stem + " schema");
             return;
         }
-        const json& item = (*found)["items"];
-        if (!item.contains("properties") || !item["properties"].contains("id")) {
+        if (!followSchema(stem, &root, splitPointer(t + "/id"))) {
             fail(pointer, "x-id-in '" + t + "' names an array whose items have no 'id'");
         }
     }
@@ -446,7 +451,7 @@ bool isNumbers(const json& value, size_t count) {
 // specs themselves.
 struct InputChecker {
     std::function<void(const std::string& pointer, const std::string& message)> fail;
-    size_t textureCount = 0;  // entries in the document's resources.textures
+    std::set<std::string> textureIds;  // ids of the document's resources.textures
 
     void check(const json& spec, const json& value, const std::string& pointer, const std::string& name) {
         std::string kind = spec["kind"];
@@ -475,8 +480,8 @@ struct InputChecker {
         } else if (kind == "rotation" || kind == "color_alpha") {
             expect(isNumbers(value, 4), "4 numbers");
         } else if (kind == "image") {
-            expect(value.is_number_unsigned() && value.get<size_t>() < textureCount,
-                   "an index into resources.textures (" + std::to_string(textureCount) + " entries)");
+            expect(value.is_string() && textureIds.count(value.get<std::string>()),
+                   "the id of an entry of resources.textures (" + std::to_string(textureIds.size()) + " entries)");
         } else if (kind == "mesh") {
             expect(value.is_object() && value.contains("id"), "an asset reference");
         } else if (kind == "spline") {
@@ -782,13 +787,23 @@ struct Validation {
         }
     }
 
+    // Each reference's position by its id; a repeated id is the id check's
+    // to report.
+    static std::map<std::string, size_t> referenceIndices(const json& refs) {
+        std::map<std::string, size_t> out;
+        for (size_t i = 0; i < refs.size(); ++i) out.emplace(refs[i]["id"].get<std::string>(), i);
+        return out;
+    }
+
     // A model's slot composites and choice textures name material
     // references, and each bound input is one that material declares.
     void checkMaterialBindings(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
         const json& refs = model["references"];
-        auto material = [&](const json& index, const std::string& pointer) -> const json* {
-            size_t i = index;
-            if (i >= refs.size()) return nullptr;  // the index check reports it
+        std::map<std::string, size_t> byId = referenceIndices(refs);
+        auto material = [&](const json& id, const std::string& pointer) -> const json* {
+            auto found = byId.find(id.get<std::string>());
+            if (found == byId.end()) return nullptr;  // the id check reports it
+            size_t i = found->second;
             if (refs[i]["kind"] != "material") {
                 checker.fail(pointer, "expected a material reference, got a " + refs[i]["kind"].get<std::string>());
                 return nullptr;
@@ -848,11 +863,13 @@ struct Validation {
 
     void checkEffectInstances(const json& set, const std::vector<const json*>& referenced, DocumentChecker& checker) {
         const json& instances = set["instances"];
+        std::map<std::string, size_t> byId = referenceIndices(set["references"]);
         for (size_t i = 0; i < instances.size(); ++i) {
             const json& instance = instances[i];
             std::string pointer = "/instances/" + std::to_string(i);
-            size_t reference = instance["reference"];
-            if (reference >= referenced.size()) continue;  // the index check has reported it
+            auto found = byId.find(instance["reference"].get<std::string>());
+            if (found == byId.end()) continue;  // the id check has reported it
+            size_t reference = found->second;
             if (set["references"][reference]["kind"] != "effect") {
                 for (const char* key : {"inputs", "style", "unresolved"}) {
                     if (instance.contains(key)) checker.fail(pointer + "/" + key, std::string("expected '") + key + "' only on an effect instance");
@@ -862,8 +879,9 @@ struct Validation {
             const json* effect = referenced[reference];
             if (!effect) continue;  // the effect's own problem is already reported
             const json& resources = set.value("resources", json::object());
-            size_t textureCount = resources.contains("textures") ? resources["textures"].size() : 0;
-            InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }, textureCount};
+            std::set<std::string> textureIds;
+            for (const json& texture : resources.value("textures", json::array())) textureIds.insert(texture.value("id", ""));
+            InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }, textureIds};
             inputs.checkFields((*effect)["definition"]["inputs"], instance.value("inputs", json::object()), pointer + "/inputs", "");
             // A source repeated per list element has one style block per element.
             std::map<std::string, std::string> repeatedOver;

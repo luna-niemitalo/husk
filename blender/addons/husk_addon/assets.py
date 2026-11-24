@@ -18,7 +18,7 @@ ASSETS_NAME = "Assets"
 def _material(doc, doc_dir, mat_json):
     mat = bpy.data.materials.new(doc["subject"].get("name", "asset"))
     bsdf = mat.node_tree.nodes["Principled BSDF"]
-    textures = doc["resources"].get("textures", [])
+    textures = docs.by_id(doc["resources"].get("textures", []))
     for layer in mat_json.get("layers", []):
         tex = textures[layer["texture"]]
         if tex["state"] != "resolved" or "payload" not in tex:
@@ -54,11 +54,13 @@ def _mesh(doc, doc_dir, name):
         uv = docs.read_slice(doc_dir, mj["uv_sets"][0]).astype(np.float32)
         uv[:, 1] = 1.0 - uv[:, 1]
         mesh.uv_layers.new(name="uv0").data.foreach_set("uv", uv[faces].ravel())
+    slot_of = {}
     for mat_json in doc["resources"].get("materials", []):
+        slot_of[mat_json["id"]] = len(mesh.materials)
         mesh.materials.append(_material(doc, doc_dir, mat_json))
     material = np.zeros(len(faces) // 3, dtype=np.int32)
     for prim in mj.get("primitives", []):
-        material[prim["index_start"] // 3:(prim["index_start"] + prim["index_count"]) // 3] = prim["material_index"]
+        material[prim["index_start"] // 3:(prim["index_start"] + prim["index_count"]) // 3] = slot_of[prim["material"]]
     mesh.polygons.foreach_set("material_index", material)
     return mesh
 
@@ -132,8 +134,9 @@ class Assets:
         if model is None:
             return []
         doc = model[0]
+        refs = docs.references_by_id(doc)
         return [(k, s["always_on"]) for k, s in enumerate(doc["definition"]["placement_sets"])
-                if "uri" in doc["references"][s["reference"]]["asset"]]
+                if "uri" in refs[s["reference"]]["asset"]]
 
     def set_collection(self, reference, index):
         """An owned set (a WMO doodad set) as a collection of instancing empties, asset-local."""
@@ -142,15 +145,16 @@ class Assets:
             return self.set_colls[key]
         doc, doc_dir = self.models[self.key(reference)]
         entry = doc["definition"]["placement_sets"][index]
-        set_ref = doc["references"][entry["reference"]]["asset"]
+        set_ref = docs.references_by_id(doc)[entry["reference"]]["asset"]
         coll = bpy.data.collections.new("%s.set_%d" % (set_ref.get("name", "set"), index))
         self.root.children.link(coll)
         self.set_colls[key] = coll
         set_path = os.path.normpath(os.path.join(doc_dir, set_ref["uri"]))
         set_doc = docs.load(set_path)
         set_dir = os.path.dirname(set_path)
+        set_refs = docs.references_by_id(set_doc)
         for inst in set_doc["instances"]:
-            ref = docs.absolute_uris(set_doc["references"][inst["reference"]], set_dir)
+            ref = docs.absolute_uris(set_refs[inst["reference"]], set_dir)
             obj = bpy.data.objects.new("%s_%d" % (coll.name, inst["id"]), None)
             obj.instance_type = "COLLECTION"
             obj.instance_collection = self.collection(ref)

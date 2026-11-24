@@ -40,6 +40,28 @@ nlohmann::json parseManifest(const std::filesystem::path& bundleDir) {
     return parsed;
 }
 
+// The entry of `array` (an array of objects with stable ids) whose id is `id`.
+const nlohmann::json& entryById(const nlohmann::json& array, const nlohmann::json& id) {
+    auto it = std::find_if(array.begin(), array.end(), [&](const nlohmann::json& e) { return e["id"] == id; });
+    REQUIRE(it != array.end());
+    return *it;
+}
+
+// The reference of `document` a pointer names by id.
+const nlohmann::json& referenceById(const nlohmann::json& document, const nlohmann::json& id) {
+    return entryById(document["references"], id);
+}
+
+// The texture of `document` a pointer names by id, from its resources.textures.
+const nlohmann::json& textureAt(const nlohmann::json& document, const nlohmann::json& id) {
+    return entryById(document["resources"]["textures"], id);
+}
+
+// The material of `document` a pointer names by id.
+const nlohmann::json& materialById(const nlohmann::json& document, const nlohmann::json& id) {
+    return entryById(document["resources"]["materials"], id);
+}
+
 // The components of an f32 BufferSlice, flattened, read from the bundle's
 // own bin file.
 std::vector<float> readF32Slice(const std::filesystem::path& bundleDir, const nlohmann::json& slice) {

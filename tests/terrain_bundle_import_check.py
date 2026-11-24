@@ -214,8 +214,9 @@ def build_terrain_material(tile, weight_images):
     uv = nt.nodes.new("ShaderNodeTexCoord")
     total = None
     loaded = []
+    textures_by_id = {t["id"]: t for t in tile.m["resources"]["textures"]}
     for i, tex in enumerate(tile.t["textures"]):
-        d = tile.m["resources"]["textures"][tex["diffuse"]]
+        d = textures_by_id[tex["diffuse"]]
         if d["state"] != "resolved" or "payload" not in d:
             continue
         mapping = nt.nodes.new("ShaderNodeMapping")
@@ -316,12 +317,15 @@ def load_model(bundle_dir, uri):
     for loop in mesh.loops:
         u, v = uv0[loop.vertex_index]
         uvl.data[loop.index].uv = (u, 1.0 - v)
+    textures_by_id = {t["id"]: t for t in res.get("textures", [])}
+    slot_of = {}
     for mat_json in res["materials"]:
+        slot_of[mat_json["id"]] = len(mesh.materials)
         mat = bpy.data.materials.new(mesh.name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
         for layer in mat_json.get("layers", []):
-            tex = res["textures"][layer["texture"]]
+            tex = textures_by_id[layer["texture"]]
             if tex["state"] != "resolved" or "payload" not in tex:
                 continue
             node = mat.node_tree.nodes.new("ShaderNodeTexImage")
@@ -345,9 +349,13 @@ def load_model(bundle_dir, uri):
         mesh.materials.append(mat)
     for prim in mj["primitives"]:
         for p in range(prim["index_start"] // 3, (prim["index_start"] + prim["index_count"]) // 3):
-            mesh.polygons[p].material_index = prim["material_index"]
+            mesh.polygons[p].material_index = slot_of[prim["material"]]
     _model_cache[path] = mesh
     return mesh
+
+
+def references_by_id(doc):
+    return {r["id"]: r for r in doc["references"]}
 
 
 def build_placements(tile, seen):
@@ -358,11 +366,12 @@ def build_placements(tile, seen):
     coll = bpy.data.collections.new("placements")
     bpy.context.scene.collection.children.link(coll)
     for entry in tile.m["definition"]["placement_sets"]:
-        asset = tile.m["references"][entry["reference"]]["asset"]
+        asset = references_by_id(tile.m)[entry["reference"]]["asset"]
         set_name = asset["name"]
         set_path = os.path.join(tile.dir, asset["uri"])
         set_dir = os.path.dirname(set_path)
         set_doc = json.load(open(set_path))
+        set_refs = references_by_id(set_doc)
         for p in set_doc["instances"]:
             total += 1
             if (set_name, p["id"]) in seen:
@@ -381,7 +390,7 @@ def build_placements(tile, seen):
                     r, c = min(int(fr), 7), min(int(fc), 7)
                     measured += 1
                     near += abs(tile.height_at(ci, r, c, fr - r, fc - c) - z) < 1.0
-            uri = set_doc["references"][p["reference"]]["asset"].get("uri")
+            uri = set_refs[p["reference"]]["asset"].get("uri")
             if not uri:
                 continue
             linked += 1
@@ -489,8 +498,9 @@ def main():
     world = json.load(open(os.path.join(world_dir, "manifest.json")))
     grid = world["grid"]
     bundle_dirs = []
+    world_refs = references_by_id(world)
     for cell in grid["cells"]:
-        asset = world["references"][cell["tile"]]["asset"]
+        asset = world_refs[cell["tile"]]["asset"]
         if asset["name"] not in wanted:
             continue
         if "uri" not in asset:
@@ -499,7 +509,7 @@ def main():
         offset = tuple(grid["origin"][k] + (cell["i"] * grid["axis_i"][k] + cell["j"] * grid["axis_j"][k])
                        * grid["cell_size"] for k in range(2))
         bundle_dirs.append((os.path.dirname(os.path.join(world_dir, asset["uri"])), offset))
-    missing = set(wanted) - {world["references"][c["tile"]]["asset"]["name"] for c in grid["cells"]}
+    missing = set(wanted) - {world_refs[c["tile"]]["asset"]["name"] for c in grid["cells"]}
     if missing:
         raise SystemExit("not in the world's grid: " + ", ".join(sorted(missing)))
     # Absolute: Blender resolves a bare relative output path against its own idea of the base dir.

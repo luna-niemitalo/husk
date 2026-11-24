@@ -20,6 +20,7 @@
 
 #include "run_husk.hpp"
 #include "test_adt_fixtures.hpp"
+#include "test_bundle_read.hpp"
 
 using husk::test::runHusk;
 using namespace adtfx;
@@ -45,7 +46,7 @@ nlohmann::json readPlacements(const fs::path& setFile) {
     REQUIRE(in.good());
     nlohmann::json set = nlohmann::json::parse(in);
     nlohmann::json instances = set["instances"];
-    for (auto& instance : instances) instance["asset"] = set["references"][instance["reference"].get<size_t>()]["asset"];
+    for (auto& instance : instances) instance["asset"] = referenceById(set, instance["reference"])["asset"];
     return instances;
 }
 
@@ -120,7 +121,7 @@ std::vector<uint8_t> fogsFile() {
 
 // Tile ground texture i's diffuse entry, from the tile's resources.textures.
 nlohmann::json groundDiffuse(const nlohmann::json& tile, size_t i) {
-    return tile["resources"]["textures"][tile["resources"]["terrain"]["textures"][i]["diffuse"].get<size_t>()];
+    return textureAt(tile, tile["resources"]["terrain"]["textures"][i]["diffuse"]);
 }
 
 }  // namespace
@@ -484,12 +485,12 @@ TEST_CASE("husk export-map: a map's tiles and _fogs.wdt become a world document;
     double size = m["grid"]["cell_size"].get<double>();
     CHECK(cell["bounds_max"][0].get<double>() == doctest::Approx(m["grid"]["origin"][0].get<double>() - 48 * size));
     CHECK(cell["bounds_min"][1].get<double>() == doctest::Approx(m["grid"]["origin"][1].get<double>() - 33 * size));
-    const nlohmann::json& tile = m["references"][cell["tile"].get<size_t>()];
+    const nlohmann::json& tile = referenceById(m, cell["tile"]);
     CHECK(tile["asset"]["name"] == "azeroth_32_48");
     CHECK_FALSE(tile["asset"].contains("uri"));
     // The map's fog is an effect instance in the world's "fogs" set.
     REQUIRE(m["placements"].size() == 1);
-    CHECK(m["references"][m["placements"][0].get<size_t>()]["asset"]["name"] == "fogs");
+    CHECK(referenceById(m, m["placements"][0])["asset"]["name"] == "fogs");
     nlohmann::json fogs = readTile(out / "sets" / "0.json");
     CHECK(fogs["instances"][0]["id"] == 1659);
     bool modeCarried = false;
@@ -521,7 +522,7 @@ TEST_CASE("husk export-map: a map without terrain places its WDT's one WMO off t
     nlohmann::json m = readTile(out / "manifest.json");
     CHECK(m["grid"]["cells"].empty());
     REQUIRE(m["placements"].size() == 1);
-    const nlohmann::json& set = m["references"][m["placements"][0].get<size_t>()];
+    const nlohmann::json& set = referenceById(m, m["placements"][0]);
     CHECK(set["kind"] == "placement_set");
     nlohmann::json instances = readPlacements(out / set["asset"]["uri"].get<std::string>());
     REQUIRE(instances.size() == 1);

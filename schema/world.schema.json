@@ -99,10 +99,9 @@
                 "description": "Cell row."
               },
               "tile": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The tile model placed in the cell, at origin + (i * axis_i + j * axis_j) * cell_size.",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the reference to the tile model placed in the cell, at origin + (i * axis_i + j * axis_j) * cell_size.",
+                "x-id-in": "/references"
               },
               "bounds_min": {
                 "$ref": "common.schema.json#/definitions/vec3",
@@ -140,10 +139,9 @@
       "type": "array",
       "description": "Placement sets the world places directly, off the grid: a map-wide building, and the map's fog and particulate volumes as effect instances.",
       "items": {
-        "type": "integer",
-        "minimum": 0,
-        "description": "A placement set document.",
-        "x-index-into": "/references"
+        "$ref": "common.schema.json#/definitions/uuid",
+        "description": "The id of a placement set document's reference.",
+        "x-id-in": "/references"
       },
       "x-layer": "resource"
     },

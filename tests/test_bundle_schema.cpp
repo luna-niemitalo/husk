@@ -34,26 +34,26 @@ std::string slice(size_t offset, size_t length, const char* type, int components
 std::string modelDocument() {
     std::string level0 = R"({"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
                          R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) +
-                         R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
+                         R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
                "attributes": []})";
     return std::string("{") + kHeader + R"(
   "kind": "model",
   "subject": {"id": {"kind": "file_data_id", "value": 1}, "name": "crate", "name_source": "listfile"},
-  "definition": {"placement_sets": [{"reference": 0, "always_on": true, "instance_count": 1}]},
+  "definition": {"placement_sets": [{"reference": "00000000-0000-3000-8000-00000000000a", "always_on": true, "instance_count": 1}]},
   "selection": {"placement_sets": []},
-  "references": [{"kind": "placement_set",
+  "references": [{"id": "00000000-0000-3000-8000-00000000000a", "kind": "placement_set",
                   "asset": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized", "uri": "sets/0.json"}}],
   "resources": {
     "geometry": {
       "mesh": {"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
            R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) + R"(,
-               "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
+               "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
                "parts": [], "portals": [], "attributes": []},
       "lod": {"max_level": 0, "levels": [)" + level0 + R"(]},
       "liquids": []},
     "rig": {"skeleton": {"joint_count": 0, "parents": )" + slice(108, 0, "i32", 1, 0) + R"(, "bind_translation": )" +
            slice(108, 0, "f32", 3, 0) + R"(, "joints": []}, "animation": []},
-    "materials": [{"layers": [], "unlit": false, "unfogged": false, "two_sided": false, "source": {"flags": "0x0"}}],
+    "materials": [{"id": "00000000-0000-3000-8000-00000000000c", "layers": [], "unlit": false, "unfogged": false, "two_sided": false, "source": {"flags": "0x0"}}],
     "scene": {"attachments": [], "events": [], "animated_lights": [], "static_lights": []}}
 })";
 }
@@ -63,8 +63,8 @@ std::string setDocument() {
   "kind": "placement_set",
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
-  "references": [{"kind": "model", "asset": {"id": {"kind": "file_data_id", "value": 2}, "name": "chair", "name_source": "listfile"}}],
-  "instances": [{"id": 7, "reference": 0, "translation": [1, 2, 3], "rotation": [0, 0, 0, 1], "scale": 1,
+  "references": [{"id": "00000000-0000-3000-8000-00000000000b", "kind": "model", "asset": {"id": {"kind": "file_data_id", "value": 2}, "name": "chair", "name_source": "listfile"}}],
+  "instances": [{"id": 7, "reference": "00000000-0000-3000-8000-00000000000b", "translation": [1, 2, 3], "rotation": [0, 0, 0, 1], "scale": 1,
                  "selection": {"placement_sets": []}, "source": {"flags": "0x0"}}]
 })";
 }
@@ -119,7 +119,7 @@ std::string effectSetDocument(const std::string& effect, const std::string& inst
   "kind": "placement_set",
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
-  "references": [{"kind": "effect", "asset": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
+  "references": [{"id": "00000000-0000-3000-8000-00000000000c", "kind": "effect", "asset": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
                   "document": )" + effect + R"(}],
   "instances": [)" + instance + R"(]
 })";
@@ -138,7 +138,7 @@ std::string glowEffect(const std::string& status = R"("status": "placeholder",)"
 })";
 }
 
-constexpr const char* kGlowInstance = R"({"id": 1, "reference": 0, "translation": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": 1,
+constexpr const char* kGlowInstance = R"({"id": 1, "reference": "00000000-0000-3000-8000-00000000000c", "translation": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": 1,
   "inputs": {"center": [1, 2, 3], "radius": 4},
   "style": {"glow": {"distance_fog": {"linear": {"start": 1, "end": 10, "color": [1, 1, 1]}}}},
   "source": {"flags": "0x0", "record": {"table": "test", "index": 0}}})";
@@ -319,9 +319,15 @@ TEST_CASE("bundle_schema: schema violations -- an unknown key, a missing kind, a
 TEST_CASE("bundle_schema: structural checks the schema can't express, each reporting expected and actual") {
     std::string model = modelDocument();
 
-    fs::path dir = writeBundle("husk-schema-index", replaced(model, R"("material_index": 0)", R"("material_index": 1)"), setDocument());
+    fs::path dir = writeBundle("husk-schema-index", replaced(model, R"("selection": {"placement_sets": []})", R"("selection": {"placement_sets": [1]})"), setDocument());
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
-    CHECK(mentions(problems, "expected an index < 1 into '/resources/materials', got 1"));
+    CHECK(mentions(problems, "expected an index < 1 into '/definition/placement_sets', got 1"));
+
+    dir = writeBundle("husk-schema-material-id",
+                      replaced(model, R"("material": "00000000-0000-3000-8000-00000000000c")", R"("material": "00000000-0000-3000-8000-00000000000d")"),
+                      setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir),
+                   "expected the id of an entry of '/resources/materials', got '00000000-0000-3000-8000-00000000000d'"));
 
     dir = writeBundle("husk-schema-length", replaced(model, R"("byte_length": 12)", R"("byte_length": 16)"), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "expected byte_length 12"));
@@ -333,10 +339,12 @@ TEST_CASE("bundle_schema: structural checks the schema can't express, each repor
     dir = writeBundle("husk-schema-escape", replaced(model, R"("file": "mesh.bin")", R"("file": "../mesh.bin")"), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "inside the document's directory"));
 
-    dir = writeBundle("husk-schema-set", model, replaced(setDocument(), R"("reference": 0)", R"("reference": 1)"));
+    dir = writeBundle("husk-schema-set", model,
+                      replaced(setDocument(), R"("reference": "00000000-0000-3000-8000-00000000000b")",
+                               R"("reference": "00000000-0000-3000-8000-0000000000ff")"));
     problems = bundle_schema::validateDocument(dir);
     CHECK(mentions(problems, "sets/0.json"));
-    CHECK(mentions(problems, "expected an index < 1 into '/references', got 1"));
+    CHECK(mentions(problems, "expected the id of an entry of '/references', got '00000000-0000-3000-8000-0000000000ff'"));
 
     dir = writeBundle("husk-schema-uri", replaced(model, R"("uri": "sets/0.json")", R"("uri": "sets/9.json")"), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "expected 'sets/9.json' to exist"));

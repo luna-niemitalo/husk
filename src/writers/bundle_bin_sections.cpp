@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <variant>
 
+#include "uuid.hpp"
 #include "writers/writer_common.hpp"
 
 namespace husk::writers {
@@ -127,7 +128,7 @@ void writeVertexSlices(json::Writer& w, const VertexSlices& v) {
 // `materialOf(i)`: primitive i's index into model.materials, resolved
 // through canon::resolveMaterialIndex or its level twin -- model.materials
 // is deduped (canon_model.hpp), so it is never assumed to be `i`.
-void writePrimitives(json::Writer& w, const std::vector<canon::PrimitiveGeoset>& primitives,
+void writePrimitives(json::Writer& w, const canon::Model& model, const std::vector<canon::PrimitiveGeoset>& primitives,
                      const std::function<std::optional<size_t>(size_t)>& materialOf) {
     w.beginArray();
     for (size_t i = 0; i < primitives.size(); ++i) {
@@ -147,7 +148,7 @@ void writePrimitives(json::Writer& w, const std::vector<canon::PrimitiveGeoset>&
         // bundle format has no way to represent (a bundle-external material
         // reference, not implemented anywhere yet) -- an interior invariant
         // violation for this writer's own current scope, so it throws
-        // rather than silently writing a wrong index (FOREIGN_DATA policy:
+        // rather than silently writing a wrong id (FOREIGN_DATA policy:
         // the interior trusts an already-validated canon::Model, it doesn't
         // limp past a shape it can't handle).
         auto matIdx = materialOf(i);
@@ -156,11 +157,11 @@ void writePrimitives(json::Writer& w, const std::vector<canon::PrimitiveGeoset>&
                                       "'s material reference isn't a local RecordIndex -- bundle writer has no "
                                       "way to represent a bundle-external material reference yet");
         }
-        w.key("material_index");
-        w.value(static_cast<int64_t>(*matIdx));
+        w.key("material");
+        w.value(materialId(model, *matIdx));
         if (prim.part) {
             w.key("part");
-            w.value(static_cast<int64_t>(*prim.part));
+            w.value(partId(model, *prim.part));
         }
         w.endObject();
     }
@@ -168,6 +169,22 @@ void writePrimitives(json::Writer& w, const std::vector<canon::PrimitiveGeoset>&
 }
 
 }  // namespace
+
+std::string partId(const canon::Model& model, size_t part) {
+    uint32_t source = std::get<canon::RecordIndex>(model.mesh.parts.at(part).ref.id).value;
+    return nameUuid("part/" + identityKey(model.subject) + "/" + std::to_string(source));
+}
+
+std::string materialId(const canon::Model& model, size_t material) {
+    return nameUuid("material/" + identityKey(model.subject) + "/" + identityKey(model.materials.at(material).ref));
+}
+
+std::string staticLightId(const canon::Model& model, size_t light) {
+    const canon::LocalLight& l = model.scene.localLights.at(light);
+    std::string key = "static_light/" + identityKey(model.subject) + "/" + l.origin.table + "/" + std::to_string(l.origin.index);
+    if (l.part) key += "/part/" + std::to_string(std::get<canon::RecordIndex>(model.mesh.parts.at(*l.part).ref.id).value);
+    return nameUuid(key);
+}
 
 MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<uint8_t>& meshBin) {
     const canon::Mesh& mesh = model.mesh;
@@ -181,12 +198,15 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
     writeBufferSlice(w, indices, "INDICES");
 
     w.key("primitives");
-    writePrimitives(w, mesh.primitives, [&](size_t i) { return canon::resolveMaterialIndex(model, i); });
+    writePrimitives(w, model, mesh.primitives, [&](size_t i) { return canon::resolveMaterialIndex(model, i); });
 
     w.key("parts");
     w.beginArray();
-    for (const canon::MeshPart& part : mesh.parts) {
+    for (size_t p = 0; p < mesh.parts.size(); ++p) {
+        const canon::MeshPart& part = mesh.parts[p];
         w.beginObject();
+        w.key("id");
+        w.value(partId(model, p));
         w.key("ref");
         writeRef(w, part.ref);
         w.key("bounds_min");
@@ -204,7 +224,7 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
         if (!part.lights.empty()) {
             w.key("lights");
             w.beginArray();
-            for (uint32_t light : part.lights) w.value(static_cast<int64_t>(light));
+            for (uint32_t light : part.lights) w.value(staticLightId(model, light));
             w.endArray();
         }
         if (!part.lightSets.empty()) {
@@ -212,7 +232,7 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
             w.beginArray();
             for (const std::vector<uint32_t>& set : part.lightSets) {
                 w.beginArray();
-                for (uint32_t light : set) w.value(static_cast<int64_t>(light));
+                for (uint32_t light : set) w.value(staticLightId(model, light));
                 w.endArray();
             }
             w.endArray();
@@ -225,7 +245,7 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
                 w.key("portal");
                 w.value(static_cast<int64_t>(link.portal));
                 w.key("to_part");
-                w.value(static_cast<int64_t>(link.toPart));
+                w.value(partId(model, link.toPart));
                 w.key("side");
                 w.value(static_cast<int64_t>(link.side));
                 w.endObject();
@@ -304,7 +324,7 @@ void writeLodSection(json::Writer& w, const canon::Model& model, const MeshSlice
     w.key("indices");
     writeBufferSlice(w, mesh0.indices, "INDICES");
     w.key("primitives");
-    writePrimitives(w, model.mesh.primitives, [&](size_t i) { return canon::resolveMaterialIndex(model, i); });
+    writePrimitives(w, model, model.mesh.primitives, [&](size_t i) { return canon::resolveMaterialIndex(model, i); });
     w.key("attributes");
     writeAttributes(w, model.mesh.attributes, mesh0.attributes);
     w.endObject();
@@ -316,7 +336,7 @@ void writeLodSection(json::Writer& w, const canon::Model& model, const MeshSlice
         w.key("indices");
         writeBufferSlice(w, appendArray(meshBin, "mesh.bin", level.mesh.indices, 1, "u32"), "INDICES");
         w.key("primitives");
-        writePrimitives(w, level.mesh.primitives,
+        writePrimitives(w, model, level.mesh.primitives,
                         [&](size_t i) { return canon::resolveLevelMaterialIndex(model, l, i); });
         w.key("attributes");
         writeAttributes(w, level.mesh.attributes, appendAttributes(level.mesh.attributes, meshBin));
@@ -332,7 +352,7 @@ void writeLodSection(json::Writer& w, const canon::Model& model, const MeshSlice
             for (const canon::PartLevel& p : level.partLevels) {
                 w.beginObject();
                 w.key("part");
-                w.value(static_cast<int64_t>(p.part));
+                w.value(partId(model, p.part));
                 w.key("level");
                 w.value(static_cast<int64_t>(p.sourceLevel));
                 w.endObject();
@@ -489,9 +509,10 @@ void writeLiquids(json::Writer& w, const canon::Model& model, std::vector<uint8_
     w.beginArray();
     for (const canon::LiquidGrid& l : model.liquids) {
         w.beginObject();
-        writeIntField(w, "part", l.part);
-        w.key("material_index");
-        w.value(static_cast<int64_t>(std::get<canon::RecordIndex>(l.material).value));
+        w.key("part");
+        w.value(partId(model, l.part));
+        w.key("material");
+        w.value(materialId(model, std::get<canon::RecordIndex>(l.material).value));
         w.key("liquid_type");
         writeRef(w, l.liquidType);
         writeVec3Field(w, "corner", l.corner);

@@ -5,6 +5,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -80,6 +81,21 @@ void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri = "
 void writeIdentity(json::Writer& w, const canon::Identity& identity);
 // A Ref's `name` and `name_source` keys, both or neither, into the open object.
 void writeName(json::Writer& w, const canon::Ref& ref);
+
+// `ref`'s identity as a stable-id key: file_data_id/<value>,
+// db2_row/<table>/<row>, record_index/<value>[/name/<name>], or, for a ref
+// with no identity of its own, name/<name>. Throws for a ref with neither
+// identity nor name.
+std::string identityKey(const canon::Ref& ref);
+// A stable id (schema "uuid") for an entry whose source identity is `ref`:
+// husk::nameUuid of "<space>/<identityKey>". Derived from the source, never
+// from output position, so a re-export keeps it (REFACTOR/BUNDLE_FORMAT.md
+// "Stable ids"). blender/addons/husk_addon/docs.py mirrors it.
+std::string stableId(std::string_view space, const canon::Ref& ref);
+// A document reference's id: the space is the reference's kind, so a
+// document with a file id or DB2 row has the same id wherever it is
+// referenced (the creature catalog's model ids are these).
+inline std::string referenceId(std::string_view kind, const canon::Ref& asset) { return stableId(kind, asset); }
 
 // FileDataID -> uri of a file the caller produced outside this bundle (a
 // model bundle, or a texture shared across tiles), relative to the file that
@@ -169,9 +185,11 @@ void writeTechniqueDocuments(const std::vector<std::string>& names, const std::f
 
 // A technique's path in a bundle, relative to the bundle's manifest.
 std::string techniqueUri(const std::string& name);
+// A technique's identity: it has none of its own, so its name.
+canon::Ref techniqueRef(const std::string& name);
 
-// The parts of a document that link it to the sets it owns, set i being
-// reference i: `writeOwnedSetDefinitions` writes the "placement_sets" key
+// The parts of a document that link it to the sets it owns, each set
+// naming its reference by id: `writeOwnedSetDefinitions` writes the "placement_sets" key
 // inside an open definition object; `writeOwnedSetSelectionAndReferences`
 // writes the selection (no optional set chosen) and references keys.
 void writeOwnedSetDefinitions(json::Writer& w, const std::vector<SetDocument>& sets);
@@ -195,8 +213,8 @@ void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const 
                        std::unordered_set<std::string>& writtenTextures, const std::string& uriPrefix = "");
 
 // A document's resources.textures: every texture entry once, used
-// elsewhere by index (REFACTOR/BUNDLE_FORMAT.md "Textures"). Entries are
-// rendered when added, so identical ones share an index; the table is
+// elsewhere by its id (REFACTOR/BUNDLE_FORMAT.md "Textures", "Stable ids").
+// Entries are rendered when added, so identical ones share an id; the table is
 // written once everything that uses it has been. `shared` holds the uris
 // (relative to the bundle) of textures a shared store already holds
 // (writers/texture_store.hpp): a resolved texture without a payload found
@@ -210,21 +228,21 @@ public:
           uriPrefix_(std::move(uriPrefix)),
           shared_(shared) {}
 
-    // The entry's index; its payload file is written on first sight.
-    uint32_t add(const canon::TextureRef& texture);
+    // The entry's id; its payload file is written on first sight.
+    std::string add(const canon::TextureRef& texture);
     bool empty() const { return entries_.empty(); }
     // The "textures" member of an open resources object.
     void write(json::Writer& w) const;
 
 private:
-    uint32_t add(const std::function<void(json::Writer&)>& writeEntry);
+    std::string add(const canon::TextureRef& texture, const std::function<void(json::Writer&)>& writeEntry);
 
     std::filesystem::path bundleDir_;
     std::unordered_set<std::string>& writtenTextures_;
     std::string uriPrefix_;
     const AssetUris* shared_;
     std::vector<std::string> entries_;
-    std::unordered_map<std::string, uint32_t> index_;
+    std::unordered_map<std::string, std::string> bodies_;  // id -> entry body without the id
 };
 
 // The schema's framebuffer blend vocabulary.

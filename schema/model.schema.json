@@ -48,10 +48,9 @@
             "description": "One owned set.",
             "properties": {
               "reference": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The placement_set document.",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the placement_set document's reference.",
+                "x-id-in": "/references"
               },
               "always_on": {
                 "type": "boolean",
@@ -105,15 +104,14 @@
                 "type": "array",
                 "description": "Textures the slot may hold.",
                 "items": {
-                  "$ref": "common.schema.json#/definitions/texture_index",
+                  "$ref": "common.schema.json#/definitions/texture_id",
                   "description": "One option."
                 }
               },
               "composite": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The material document whose composite builds the slot's texture from customization choices (REFACTOR/MATERIALS.md).",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the reference to the material document whose composite builds the slot's texture from customization choices (REFACTOR/MATERIALS.md).",
+                "x-id-in": "/references"
               }
             },
             "additionalProperties": false,
@@ -243,7 +241,7 @@
                       "description": "The model position (models[].position) whose model it textures."
                     },
                     "texture": {
-                      "$ref": "common.schema.json#/definitions/texture_index",
+                      "$ref": "common.schema.json#/definitions/texture_id",
                       "description": "The texture."
                     }
                   },
@@ -268,7 +266,7 @@
                       "description": "The body section, CharComponentTextureSections.SectionType."
                     },
                     "texture": {
-                      "$ref": "common.schema.json#/definitions/texture_index",
+                      "$ref": "common.schema.json#/definitions/texture_id",
                       "description": "The texture."
                     }
                   },
@@ -361,17 +359,16 @@
                             "description": "One bound texture.",
                             "properties": {
                               "material": {
-                                "type": "integer",
-                                "minimum": 0,
-                                "description": "The material document.",
-                                "x-index-into": "/references"
+                                "$ref": "common.schema.json#/definitions/uuid",
+                                "description": "The id of the material document's reference.",
+                                "x-id-in": "/references"
                               },
                               "input": {
                                 "type": "string",
                                 "description": "The image input it binds."
                               },
                               "texture": {
-                                "$ref": "common.schema.json#/definitions/texture_index",
+                                "$ref": "common.schema.json#/definitions/texture_id",
                                 "description": "The texture."
                               },
                               "only_with": {
@@ -504,10 +501,9 @@
             "description": "One worn item.",
             "properties": {
               "reference": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The item model.",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the item model's reference.",
+                "x-id-in": "/references"
               },
               "slots": {
                 "type": "array",
@@ -810,6 +806,10 @@
                     "type": "object",
                     "description": "One part.",
                     "properties": {
+                      "id": {
+                        "$ref": "common.schema.json#/definitions/uuid",
+                        "description": "This part's stable id, derived from the model's identity and the part's source index (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); everything that names a part uses it."
+                      },
                       "ref": {
                         "$ref": "common.schema.json#/definitions/ref",
                         "description": "The part."
@@ -852,10 +852,9 @@
                         "type": "array",
                         "description": "The model's static lights that reach this part (WMO MOLR, MNLR).",
                         "items": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "description": "A static light.",
-                          "x-index-into": "/resources/scene/static_lights"
+                          "$ref": "common.schema.json#/definitions/uuid",
+                          "description": "The id of a static light.",
+                          "x-id-in": "/resources/scene/static_lights"
                         }
                       },
                       "light_sets": {
@@ -865,10 +864,9 @@
                           "type": "array",
                           "description": "One light set.",
                           "items": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "description": "A static light.",
-                            "x-index-into": "/resources/scene/static_lights"
+                            "$ref": "common.schema.json#/definitions/uuid",
+                            "description": "The id of a static light.",
+                            "x-id-in": "/resources/scene/static_lights"
                           }
                         }
                       },
@@ -919,10 +917,9 @@
                               "x-index-into": "/resources/geometry/mesh/portals"
                             },
                             "to_part": {
-                              "type": "integer",
-                              "minimum": 0,
-                              "description": "The part on the other side.",
-                              "x-index-into": "/resources/geometry/mesh/parts"
+                              "$ref": "common.schema.json#/definitions/uuid",
+                              "description": "The id of the part on the other side.",
+                              "x-id-in": "/resources/geometry/mesh/parts"
                             },
                             "side": {
                               "type": "integer",
@@ -958,6 +955,7 @@
                     },
                     "additionalProperties": false,
                     "required": [
+                      "id",
                       "ref",
                       "bounds_min",
                       "bounds_max",
@@ -1073,16 +1071,14 @@
                 "description": "A liquid surface as a height grid over tiles; vertex (x, y) is at corner + (x, y) * tile_size with height heights[y * verts_x + x].",
                 "properties": {
                   "part": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Part the liquid belongs to.",
-                    "x-index-into": "/resources/geometry/mesh/parts"
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "The id of the part the liquid belongs to.",
+                    "x-id-in": "/resources/geometry/mesh/parts"
                   },
-                  "material_index": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Material of the surface.",
-                    "x-index-into": "/resources/materials"
+                  "material": {
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "The id of the surface's material.",
+                    "x-id-in": "/resources/materials"
                   },
                   "liquid_type": {
                     "$ref": "common.schema.json#/definitions/ref",
@@ -1145,7 +1141,7 @@
                 "additionalProperties": false,
                 "required": [
                   "part",
-                  "material_index",
+                  "material",
                   "liquid_type",
                   "corner",
                   "tile_size",
@@ -1743,11 +1739,15 @@
         },
         "materials": {
           "type": "array",
-          "description": "Materials; primitives refer to them by index.",
+          "description": "Materials; primitives and liquids refer to them by id.",
           "items": {
             "type": "object",
             "description": "How primitives are shaded.",
             "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "This material's stable id, derived from the model's identity and the material's source record (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\")."
+              },
               "layers": {
                 "type": "array",
                 "description": "Texture layers, bottom first.",
@@ -1770,7 +1770,7 @@
                       "x-index-into": "/resources/uv_maps"
                     },
                     "texture": {
-                      "$ref": "common.schema.json#/definitions/texture_index",
+                      "$ref": "common.schema.json#/definitions/texture_id",
                       "description": "The layer's texture."
                     },
                     "texture_unit": {
@@ -1875,15 +1875,15 @@
                 "type": "array",
                 "description": "The techniques the material is drawn with (its shader, its framebuffer blend), as references.",
                 "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "One technique.",
-                  "x-index-into": "/references"
+                  "$ref": "common.schema.json#/definitions/uuid",
+                  "description": "The id of one technique's reference.",
+                  "x-id-in": "/references"
                 }
               }
             },
             "additionalProperties": false,
             "required": [
+              "id",
               "layers",
               "unlit",
               "unfogged",
@@ -2121,6 +2121,10 @@
                 "type": "object",
                 "description": "A light placed in the model, not animated.",
                 "properties": {
+                  "id": {
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "This light's stable id, derived from the model's identity and the light's source record (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); parts name their lights by it."
+                  },
                   "ref": {
                     "$ref": "common.schema.json#/definitions/ref",
                     "description": "The light."
@@ -2271,7 +2275,7 @@
                     "x-unit": "1"
                   },
                   "cookie": {
-                    "$ref": "common.schema.json#/definitions/texture_index",
+                    "$ref": "common.schema.json#/definitions/texture_id",
                     "description": "Texture projected by the light; a cube map for point lights."
                   },
                   "placement_set": {
@@ -2281,10 +2285,9 @@
                     "x-index-into": "/definition/placement_sets"
                   },
                   "part": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "The mesh part whose own light this is (a WMO group's light-set light); absent for a model-wide light.",
-                    "x-index-into": "/resources/geometry/mesh/parts"
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "The id of the mesh part whose own light this is (a WMO group's light-set light); absent for a model-wide light.",
+                    "x-id-in": "/resources/geometry/mesh/parts"
                   },
                   "unresolved": {
                     "$ref": "common.schema.json#/definitions/unresolved",
@@ -2312,6 +2315,7 @@
                 },
                 "additionalProperties": false,
                 "required": [
+                  "id",
                   "ref",
                   "kind",
                   "position",
@@ -2432,11 +2436,11 @@
                 "description": "A ground texture.",
                 "properties": {
                   "diffuse": {
-                    "$ref": "common.schema.json#/definitions/texture_index",
+                    "$ref": "common.schema.json#/definitions/texture_id",
                     "description": "Colour texture."
                   },
                   "height": {
-                    "$ref": "common.schema.json#/definitions/texture_index",
+                    "$ref": "common.schema.json#/definitions/texture_id",
                     "description": "Height texture for height-based blending."
                   },
                   "repeats_per_chunk": {
@@ -2800,7 +2804,7 @@
               }
             },
             "liquid_flow": {
-              "$ref": "common.schema.json#/definitions/texture_index",
+              "$ref": "common.schema.json#/definitions/texture_id",
               "description": "Optional. The tile's liquid flow map, drawn over the whole tile like lod's diffuse (first stored row at the tile corner, rows along row_axis, columns along column_axis). Data, not colour: R and G are a signed 2D flow vector, 128/255 meaning still (which channel follows which axis, and its sign, are unverified); B is 0, A 255. Absent when the source has none."
             }
           },
@@ -2824,7 +2828,7 @@
         },
         "textures": {
           "type": "array",
-          "description": "Every texture the document uses, each once; everything else refers to them by index.",
+          "description": "Every texture the document uses, each once; everything else refers to them by id.",
           "items": {
             "$ref": "common.schema.json#/definitions/texture_entry",
             "description": "One texture."
@@ -2899,17 +2903,15 @@
           "description": "Number of indices.",
           "minimum": 0
         },
-        "material_index": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Material that draws it.",
-          "x-index-into": "/resources/materials"
+        "material": {
+          "$ref": "common.schema.json#/definitions/uuid",
+          "description": "The id of the material that draws it.",
+          "x-id-in": "/resources/materials"
         },
         "part": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Part it belongs to.",
-          "x-index-into": "/resources/geometry/mesh/parts"
+          "$ref": "common.schema.json#/definitions/uuid",
+          "description": "The id of the part it belongs to.",
+          "x-id-in": "/resources/geometry/mesh/parts"
         }
       },
       "additionalProperties": false,
@@ -2919,7 +2921,7 @@
         "geoset_variant",
         "index_start",
         "index_count",
-        "material_index"
+        "material"
       ]
     },
     "attribute_channel": {
@@ -3024,10 +3026,9 @@
                 "description": "One part.",
                 "properties": {
                   "part": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "The part.",
-                    "x-index-into": "/resources/geometry/mesh/parts"
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "The id of the part.",
+                    "x-id-in": "/resources/geometry/mesh/parts"
                   },
                   "level": {
                     "type": "integer",
@@ -3082,16 +3083,12 @@
           "description": "Triangles hanging below the level's border to hide cracks where it meets a tile at another level, u32; empty on the finest mesh level."
         },
         "diffuse": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "The tile's baked colour, drawn over the whole tile: the image's first stored row lies at the tile corner, rows step along row_axis and columns along column_axis.",
-          "x-index-into": "/resources/textures"
+          "$ref": "common.schema.json#/definitions/texture_id",
+          "description": "The tile's baked colour, drawn over the whole tile: the image's first stored row lies at the tile corner, rows step along row_axis and columns along column_axis."
         },
         "normal": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "The tile's baked normal map, laid out as diffuse.",
-          "x-index-into": "/resources/textures"
+          "$ref": "common.schema.json#/definitions/texture_id",
+          "description": "The tile's baked normal map, laid out as diffuse."
         },
         "source": {
           "type": "object",

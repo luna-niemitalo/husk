@@ -631,12 +631,13 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
             if (!primitiveIndexOOR) primitiveIndexOOR = where;
             continue;
         }
-        if (!primitives[pi].contains("material_index") ||
-            primitives[pi]["material_index"].get<size_t>() >= materials.size()) {
+        auto found = std::find_if(materials.begin(), materials.end(),
+                                  [&](const auto& m) { return primitives[pi].contains("material") && m["id"] == primitives[pi]["material"]; });
+        if (found == materials.end()) {
             if (!materialIndexMismatch) materialIndexMismatch = where + ": " + primitives[pi].dump();
             continue;
         }
-        const auto& material = materials[primitives[pi]["material_index"].get<size_t>()];
+        const auto& material = *found;
         const auto& layers = material["layers"];
         if (layers.size() != b.textureCount) {
             if (!layerCountMismatch) {

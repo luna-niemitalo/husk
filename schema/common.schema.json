@@ -387,8 +387,12 @@
     },
     "reference": {
       "type": "object",
-      "description": "Another document this one depends on.",
+      "description": "Another document this one depends on. Everything that points at it uses its id.",
       "properties": {
+        "id": {
+          "$ref": "#/definitions/uuid",
+          "description": "This reference's stable id, unique among the document's references: derived from the kind and the referenced document's identity (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"), so a document named by file id or data-table row has the same id wherever it is referenced."
+        },
         "kind": {
           "enum": [
             "model",
@@ -410,6 +414,7 @@
         }
       },
       "required": [
+        "id",
         "kind",
         "asset"
       ],
@@ -560,6 +565,10 @@
       "type": "object",
       "description": "A texture reference and whether it could be resolved.",
       "properties": {
+        "id": {
+          "$ref": "#/definitions/uuid",
+          "description": "This entry's stable id, unique in the document's texture table: derived from the texture's identity and what else tells two entries of one file apart (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"). In a material document's own table, absent: its layers point by index."
+        },
         "state": {
           "enum": [
             "resolved",
@@ -616,11 +625,10 @@
       ],
       "additionalProperties": false
     },
-    "texture_index": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "A texture: index into the document's resources.textures, where each texture is listed once.",
-      "x-index-into": "/resources/textures"
+    "texture_id": {
+      "$ref": "#/definitions/uuid",
+      "description": "A texture: the id of an entry of the document's resources.textures, where each texture is listed once.",
+      "x-id-in": "/resources/textures"
     },
     "liquid_type": {
       "type": "object",
@@ -675,7 +683,7 @@
                 "type": "array",
                 "description": "The slot's frames in animation order; one frame for a still texture.",
                 "items": {
-                  "$ref": "#/definitions/texture_index",
+                  "$ref": "#/definitions/texture_id",
                   "description": "One frame."
                 }
               },
@@ -934,7 +942,7 @@
       "description": "An image, or a binding to one.",
       "oneOf": [
         {
-          "$ref": "#/definitions/texture_index",
+          "$ref": "#/definitions/texture_id",
           "description": "The image."
         },
         {
@@ -1383,7 +1391,7 @@
                   "type": "array",
                   "description": "The layers.",
                   "items": {
-                    "$ref": "#/definitions/texture_index",
+                    "$ref": "#/definitions/texture_id",
                     "description": "One layer."
                   }
                 },
@@ -1422,7 +1430,7 @@
                   "type": "array",
                   "description": "The layers.",
                   "items": {
-                    "$ref": "#/definitions/texture_index",
+                    "$ref": "#/definitions/texture_id",
                     "description": "One layer."
                   }
                 },
@@ -1620,23 +1628,23 @@
           "description": "The classic zone light: the light parameter set the client uses under each condition (wowdev.wiki DB/Light). A condition the zone doesn't state is absent.",
           "properties": {
             "clear": {
-              "$ref": "#/definitions/light_params_index",
+              "$ref": "#/definitions/light_params_id",
               "description": "In clear weather."
             },
             "clear_underwater": {
-              "$ref": "#/definitions/light_params_index",
+              "$ref": "#/definitions/light_params_id",
               "description": "In clear weather, under water."
             },
             "storm": {
-              "$ref": "#/definitions/light_params_index",
+              "$ref": "#/definitions/light_params_id",
               "description": "In rain, snow or sandstorm."
             },
             "storm_underwater": {
-              "$ref": "#/definitions/light_params_index",
+              "$ref": "#/definitions/light_params_id",
               "description": "In storm weather, under water."
             },
             "death": {
-              "$ref": "#/definitions/light_params_index",
+              "$ref": "#/definitions/light_params_id",
               "description": "While the viewer is dead."
             }
           },
@@ -2295,11 +2303,10 @@
       ],
       "additionalProperties": false
     },
-    "light_params_index": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "A light parameter set: index into the document's resources.light_params, where each set is listed once.",
-      "x-index-into": "/resources/light_params"
+    "light_params_id": {
+      "$ref": "#/definitions/uuid",
+      "description": "A light parameter set: the id of an entry of the document's resources.light_params, where each set is listed once.",
+      "x-id-in": "/resources/light_params"
     },
     "light_key": {
       "type": "object",
@@ -2452,11 +2459,11 @@
           "additionalProperties": false
         },
         "color_grading": {
-          "$ref": "#/definitions/texture_index",
+          "$ref": "#/definitions/texture_id",
           "description": "A 1024x32 lookup texture remapping the frame's colours (wowdev.wiki DB/LightData). Absent: none."
         },
         "darker_color_grading": {
-          "$ref": "#/definitions/texture_index",
+          "$ref": "#/definitions/texture_id",
           "description": "The darker variant of color_grading. Absent: none."
         },
         "fog": {
@@ -2669,6 +2676,10 @@
       "type": "object",
       "description": "A light parameter set: what a zone light shows under one condition.",
       "properties": {
+        "id": {
+          "$ref": "#/definitions/uuid",
+          "description": "This set's stable id, derived from its LightParams row (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); zone lights name it by this id."
+        },
         "ref": {
           "$ref": "#/definitions/ref",
           "description": "The LightParams row."
@@ -2687,6 +2698,7 @@
         }
       },
       "required": [
+        "id",
         "ref",
         "keys"
       ],

@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "bundle_schema_embedded.hpp"
+#include "uuid.hpp"
 
 namespace husk::writers {
 
@@ -86,6 +87,33 @@ void writeIdentity(json::Writer& w, const canon::Identity& identity) {
         },
         identity);
     w.endObject();
+}
+
+std::string identityKey(const canon::Ref& ref) {
+    std::ostringstream key;
+    std::visit(
+        [&](const auto& id) {
+            using T = std::decay_t<decltype(id)>;
+            if constexpr (std::is_same_v<T, canon::None>) {
+                if (ref.name.empty()) throw std::runtime_error("bundle writer: an entry has neither identity nor name, so no stable id");
+                key << "name/" << ref.name;
+            } else if constexpr (std::is_same_v<T, canon::FileDataId>) {
+                key << "file_data_id/" << id.value;
+            } else if constexpr (std::is_same_v<T, canon::Db2Row>) {
+                key << "db2_row/" << id.table << "/" << id.row;
+            } else {
+                // A record index is a position in a list only the name tells
+                // apart: a WMO's doodad set 0 and its effects set are both 0.
+                key << "record_index/" << id.value;
+                if (!ref.name.empty()) key << "/name/" << ref.name;
+            }
+        },
+        ref.id);
+    return key.str();
+}
+
+std::string stableId(std::string_view space, const canon::Ref& ref) {
+    return nameUuid(std::string(space) + "/" + identityKey(ref));
 }
 
 void writeName(json::Writer& w, const canon::Ref& ref) {
@@ -269,6 +297,8 @@ const bundle_schema::EmbeddedSchema* embeddedTechnique(const std::string& name) 
 
 std::string techniqueUri(const std::string& name) { return "techniques/" + name + ".json"; }
 
+canon::Ref techniqueRef(const std::string& name) { return canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}; }
+
 std::vector<std::string> materialTechniques(const canon::Material& material) {
     std::vector<std::string> candidates;
     if (material.pixelShader) {
@@ -299,12 +329,21 @@ void writeTechniqueDocuments(const std::vector<std::string>& names, const std::f
         const bundle_schema::EmbeddedSchema* body = embeddedTechnique(name);
         if (!body) throw std::runtime_error("bundle writer: no technique document '" + name + "' in techniques/");
         for (const nlohmann::json& ref : nlohmann::json::parse(body->text)["references"]) {
-            if (ref["kind"] == "technique") pending.push_back(ref["asset"]["name"]);
+            if (ref["kind"] != "technique") continue;
+            std::string target = ref["asset"]["name"];
+            // The body is checked in and spliced as is, so its ids are
+            // written there; they must be the ones the scheme derives.
+            std::string expected = referenceId("technique", techniqueRef(target));
+            if (ref.value("id", "") != expected) {
+                throw std::runtime_error("bundle writer: technique '" + name + "' names '" + target + "' with id '" +
+                                         ref.value("id", "") + "', expected '" + expected + "'");
+            }
+            pending.push_back(target);
         }
         std::ostringstream text;
         json::Writer w(text);
         w.beginObject();
-        writeContractHeader(w, "technique", canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, provenance);
+        writeContractHeader(w, "technique", techniqueRef(name), provenance);
         w.rawMembers(std::string(body->text));
         w.endObject();
         std::filesystem::path path = bundleDir / techniqueUri(name);
@@ -529,23 +568,77 @@ std::string framebufferBlendName(canon::FramebufferBlend blend) {
     return "opaque";
 }
 
-uint32_t TextureTable::add(const std::function<void(json::Writer&)>& writeEntry) {
-    std::ostringstream text;
-    json::Writer w(text);
-    writeEntry(w);
-    auto [it, added] = index_.emplace(text.str(), static_cast<uint32_t>(entries_.size()));
-    if (added) entries_.push_back(text.str());
-    return it->second;
+namespace {
+
+std::string identityKeyOrNone(const canon::Ref& ref) {
+    if (std::holds_alternative<canon::None>(ref.id) && ref.name.empty()) return "none";
+    return identityKey(ref);
 }
 
-uint32_t TextureTable::add(const canon::TextureRef& texture) {
+// The key of a texture entry's id: its identity and state, and what else
+// the entry says that tells it from another entry of the same file in one
+// document -- the payload's uri (an own copy vs the shared store's), the
+// reason it is unresolved, the candidates of an ambiguous one -- and the
+// identity's name and where it came from: one file named from the
+// listfile by one producer and synthesized by another is two entries.
+std::string textureKey(const canon::TextureRef& texture, const std::string& body) {
+    std::string key = "texture/" + identityKeyOrNone(texture.resolved);
+    nlohmann::json entry = nlohmann::json::parse(body);
+    if (entry.contains("identity") && entry["identity"].contains("name")) {
+        key += "/named/" + entry["identity"]["name"].get<std::string>() + "/" + entry["identity"]["name_source"].get<std::string>();
+    }
+    switch (texture.state) {
+        case canon::TextureRef::State::Resolved:
+            key += "/resolved";
+            if (entry.contains("payload")) key += "/payload/" + entry["payload"]["uri"].get<std::string>();
+            break;
+        case canon::TextureRef::State::KnownUnresolved:
+            key += "/known_unresolved/reason/" + texture.unresolvedReason;
+            break;
+        case canon::TextureRef::State::Ambiguous:
+            key += "/ambiguous/candidates";
+            for (const auto& candidate : texture.candidates) key += "/" + identityKeyOrNone(candidate.identity) + "/" + candidate.category;
+            break;
+    }
+    return key;
+}
+
+}  // namespace
+
+std::string TextureTable::add(const canon::TextureRef& texture, const std::function<void(json::Writer&)>& writeEntry) {
+    std::ostringstream body;
+    json::Writer bw(body);
+    writeEntry(bw);
+    std::string id = nameUuid(textureKey(texture, body.str()));
+    auto [it, added] = bodies_.emplace(id, body.str());
+    if (!added) {
+        // Two entries the key can't tell apart: textureKey misses a field
+        // that distinguishes them.
+        if (it->second != body.str()) {
+            throw std::logic_error("bundle writer: texture entries share id " + id + " (key '" +
+                                   textureKey(texture, body.str()) + "') but differ:\n" + it->second + "\n" + body.str());
+        }
+        return id;
+    }
+    std::ostringstream text;
+    json::Writer w(text);
+    w.beginObject();
+    w.key("id");
+    w.value(id);
+    w.rawMembers(body.str());
+    w.endObject();
+    entries_.push_back(text.str());
+    return id;
+}
+
+std::string TextureTable::add(const canon::TextureRef& texture) {
     auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id);
     bool hasPayload = texture.payload || texture.rawPayload;
     if (texture.state != canon::TextureRef::State::Resolved || hasPayload || !fdid || !shared_ || !shared_->count(fdid->value)) {
-        return add([&](json::Writer& w) { writeTextureEntry(w, texture, bundleDir_, writtenTextures_, uriPrefix_); });
+        return add(texture, [&](json::Writer& w) { writeTextureEntry(w, texture, bundleDir_, writtenTextures_, uriPrefix_); });
     }
     std::string uri = uriPrefix_ + shared_->at(fdid->value);
-    return add([&](json::Writer& w) {
+    return add(texture, [&](json::Writer& w) {
         w.beginObject();
         w.key("state");
         w.value("resolved");

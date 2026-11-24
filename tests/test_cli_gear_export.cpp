@@ -78,8 +78,8 @@ nlohmann::json appearancePreset(nlohmann::json& m) {
     return presets.back();
 }
 
-nlohmann::json textureFileDataId(const nlohmann::json& manifest, const nlohmann::json& index) {
-    nlohmann::json texture = textureAt(manifest, index);
+nlohmann::json textureFileDataId(const nlohmann::json& manifest, const nlohmann::json& id) {
+    nlohmann::json texture = textureAt(manifest, id);
     return texture["identity"]["id"]["value"];
 }
 

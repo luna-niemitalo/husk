@@ -7,6 +7,7 @@
 
 #include "area_db2.hpp"
 #include "test_bundle_fixtures.hpp"
+#include "uuid.hpp"
 
 TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with inline and lifetime curves") {
     canon::Model model = buildSyntheticModel();
@@ -111,6 +112,8 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     spot.origin = {"MNLD", 4};
     model.scene.localLights = {spot, omni};
     model.placementSets.resize(2);
+    model.placementSets[0].set.ref = canon::Ref{canon::RecordIndex{0}, "Set_A", canon::NameSource::WmoEmbedded};
+    model.placementSets[1].set.ref = canon::Ref{canon::RecordIndex{1}, "Set_B", canon::NameSource::WmoEmbedded};
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-local-lights";
     fs::remove_all(dir);
@@ -128,7 +131,9 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     CHECK(s["cone"]["outer_angle"] == 1.5);
     CHECK(s["flicker"]["mode"] == 2);
     CHECK(s["casts_shadows"] == true);
-    CHECK(manifest["resources"]["textures"][s["cookie"].get<size_t>()]["identity"]["id"]["value"] == 9001);
+    CHECK(textureAt(manifest, s["cookie"])["identity"]["id"]["value"] == 9001);
+    CHECK(s["id"].is_string());
+    CHECK(s["id"] != lights[1]["id"]);
     CHECK(s["placement_set"] == 1);
     CHECK(s["source"]["flags"] == "0x3");
     CHECK(s["source"]["record"]["table"] == "MNLD");
@@ -331,15 +336,15 @@ TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets wit
     CHECK(grid["cells"][0]["i"] == 32);
     CHECK(grid["cells"][0]["j"] == 49);
     CHECK(grid["cells"][0]["bounds_max"][2] == 90.0);
-    const auto& tile = manifest["references"][grid["cells"][0]["tile"].get<size_t>()];
+    const auto& tile = referenceById(manifest, grid["cells"][0]["tile"]);
     CHECK(tile["kind"] == "model");
     CHECK(tile["asset"]["uri"] == "../azeroth_32_49.bundle/manifest.json");
     CHECK_FALSE(manifest["references"][1]["asset"].contains("uri"));
 
-    // The off-grid sets follow the tiles: fogs, then particulate volumes.
+    // The off-grid sets: fogs, then particulate volumes.
     REQUIRE(manifest["placements"].size() == 2);
-    CHECK(manifest["references"][2]["asset"]["name"] == "fogs");
-    CHECK(manifest["references"][3]["asset"]["name"] == "particulate_volumes");
+    CHECK(referenceById(manifest, manifest["placements"][0])["asset"]["name"] == "fogs");
+    CHECK(referenceById(manifest, manifest["placements"][1])["asset"]["name"] == "particulate_volumes");
     nlohmann::json fogSet = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     const auto& f = fogSet["instances"][0];
     CHECK(f["id"] == 1659);
@@ -503,9 +508,11 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     nlohmann::json set = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     CHECK(set["subject"]["name"] == "zone_lights");
     REQUIRE(set["instances"].size() == 2);
-    CHECK(set["instances"][1]["style"]["light"]["zone_light"] == nlohmann::json{{"clear", 0}, {"clear_underwater", 0}});
     const auto& table = set["resources"]["light_params"];
     REQUIRE(table.size() == 1);
+    CHECK(set["instances"][1]["style"]["light"]["zone_light"] ==
+          nlohmann::json{{"clear", table[0]["id"]}, {"clear_underwater", table[0]["id"]}});
+    CHECK(table[0]["id"] == husk::nameUuid("light_params/db2_row/LightParams/" + table[0]["ref"]["id"]["row"].dump()));
     const auto& settings = table[0]["settings"];
     CHECK(settings["hide_sun"] == true);
     CHECK(settings["skybox"]["model"]["uri"] == "../../deathskybox.bundle/manifest.json");
@@ -517,7 +524,7 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     CHECK(key["time"] == 43200.0);
     CHECK(key["direct_color"][0].get<double>() == doctest::Approx(1.0));
     CHECK(key["unresolved"]["fields"][0]["field"] == "LightData DirectColor high byte");
-    const auto& texture = set["resources"]["textures"][key["color_grading"].get<size_t>()];
+    const auto& texture = textureAt(set, key["color_grading"]);
     CHECK(texture["identity"]["name"] == "colorgrading_identity");
     CHECK(fs::exists(dir / "effects" / "classic_zone_light.json"));
     CHECK(fs::exists(dir / "effects" / "classic_zone_light_global.json"));
