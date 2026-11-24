@@ -15,7 +15,7 @@ translation, rotation, scale, each `times` + `values` + `interpolation`).
 | `sequence_kind` | `sequence_index` names | Metadata on the clip |
 |---|---|---|
 | `sequence` | the model's `M2Sequence` array (or the `.skel`'s `SKS1` for a model whose bones live in a `.skel`) | `animation`, `variation`, `duration`, `move_speed`, `frequency`, `blend_in`, `blend_out`, `source{flags, variation_next}` |
-| `global_sequence` | the model's global-loop array | none: the clip carries only its curves |
+| `global_sequence` | the model's global-loop array | `duration`: the loop's length (`M2Loop`) |
 
 ### Which animation a clip is
 
@@ -38,8 +38,11 @@ translation, rotation, scale, each `times` + `values` + `interpolation`).
   `frequency`. `move_speed` (yard/second) is the ground speed the clip is
   authored for, to scale playback to the character's speed.
 - A model that lacks an animation has no clip for it. The client then falls
-  back along `AnimationData.Fallback` (e.g. Run to Walk); the bundle doesn't
-  carry that table.
+  back along `AnimationData.Fallback` (e.g. Run to Walk):
+  `resources.rig.animation_fallbacks` holds that table as `[animation,
+  fallback]` pairs (an unlisted id falls back to 0, Stand); follow it until
+  a clip exists. Written only when the export reads AnimationData
+  (`--db2-dir`/`--dbd-dir`), so not by `export-world`'s model pass.
 
 ### Inline, external and alias sequences
 
@@ -68,9 +71,12 @@ curves came from:
 
 A `global_sequence` clip is a loop on its own timer, independent of the
 playing sequence (flags, idle machinery, rotating parts). Its curves' times
-are within one loop. The loop's length (`M2Loop`) is not in the bundle: a
-consumer takes the last keyframe time as the period, which is shorter than
-the authored loop when the last key comes before the loop end.
+are within one loop. The clip's `duration` is the loop's length (`M2Loop`),
+the period its curves repeat with; the last keyframe can come before it.
+`resources.rig.global_sequences[i].duration` is the model's own loop table,
+which material, scene and effect curves with `sequence_kind:
+global_sequence` index. A `.skel` model's joint clips index the `.skel`'s
+table, so for those use the clip's own `duration`.
 
 Material tracks (layer tint, alpha, texture weight, UV transform) and
 effect curves use the same `sequence_index` + `sequence_kind` pairing
@@ -88,4 +94,5 @@ shares the one skeleton and the one clip list; LOD changes geometry only.
 `export-world`'s model pass runs with `--db2-dir none` and the default
 `--anim auto`. Clips, external `.anim` sequences included, arrive as in a
 single `export`. Clip names don't, but with a 12.x corpus a single `export`
-writes no names either, so the two outputs match.
+writes no names either. `animation_fallbacks` is the one difference: it
+needs AnimationData, which this pass doesn't read.

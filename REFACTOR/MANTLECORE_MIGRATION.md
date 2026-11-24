@@ -154,6 +154,25 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
   not an extinction in 1/yard. The values are unchanged; a reader that
   used them as extinction must stop (the client's transform to `k` in
   `exp(-e·k)` is unknown, `REFACTOR/EFFECTS.md`).
+- **Physics from the model itself.** `resources.physics` is filled from
+  the M2's `PFDC` chunk or its `PFID` file, not only from a `.phys`
+  beside it, so physics capes and mounts ship their rigid-body chains. The
+  manifest's provenance source `phys` says which was read (`available:
+  false` = not found, unknown, not "has none").
+- **Joint flags.** `skeleton.joints[].source.flags` (raw) and `flags`
+  (named bits). `kinematic_bone` marks the joints a dynamic physics body
+  drives: drive those from the simulation, the rest from animation.
+- **Global-sequence lengths.** A `global_sequence` clip has `duration`
+  (its loop); `resources.rig.global_sequences[i].duration` is the loop
+  table other curves index. Use these as the period, not the last key.
+- **Animation fallbacks.** `resources.rig.animation_fallbacks`:
+  `[animation, fallback]` pairs from AnimationData, written with
+  `--db2-dir`; follow them when a model has no clip for an animation.
+
+Output changes, not format changes: `db2-export` writes float arrays as
+numbers and String/LocString arrays as text (they were raw bits and
+string-table offsets, e.g. LiquidType `Float_*`, `Texture_*`), and
+resolves single strings by WoWDBDefs type.
 
 Output change, not a format change: DB2 copy-table rows are now read, so
 ItemDisplayInfo, ComponentModelFileData (65 stored + 59,474 copies),
