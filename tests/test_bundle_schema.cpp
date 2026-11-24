@@ -425,6 +425,25 @@ TEST_CASE("bundle_schema: the lint walks kind-local definitions and map values, 
     CHECK(mentions(problems, R"(expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got {"guess":true})"));
 }
 
+TEST_CASE("bundle_schema: schema-doc lists every kind's document paths with type, allowed values, unit, links and required") {
+    std::string doc = bundle_schema::schemaDoc();
+    CHECK(doc == bundle_schema::schemaDoc());
+    for (const std::string& kind : bundle_schema::kinds()) {
+        CAPTURE(kind);
+        CHECK(doc.find("## " + kind + "\n\n`$schema`: `https://husk.invalid/schema/" + kind + ".schema.json`") != std::string::npos);
+    }
+    auto row = [&](const std::string& path) {
+        size_t at = doc.find("| `" + path + "` |");
+        REQUIRE(at != std::string::npos);
+        return doc.substr(at, doc.find('\n', at) - at);
+    };
+    CHECK(row("$schema").find("| yes | constant | = `https://husk.invalid/schema/creatures.schema.json` |") != std::string::npos);
+    CHECK(row("sources[].region{kind=sphere}.inner_radius").find("| yes | `bound_number` (one of 2) |  | yard |") != std::string::npos);
+    CHECK(row("displays[].model").find("| id in `/references` |") != std::string::npos);
+    CHECK(row("definition.inputs.<name>.clock").find("one of `seconds`, `age`, `day_time`") != std::string::npos);
+    CHECK(row("definition.inputs.<name>.item").find("recursive") != std::string::npos);
+}
+
 TEST_CASE("bundle_schema: source gaps name a schema location and a document path, once each") {
     std::vector<bundle_schema::Problem> gaps = bundle_schema::sourceGaps();
     REQUIRE_FALSE(gaps.empty());

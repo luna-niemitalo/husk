@@ -4,7 +4,7 @@ _husk_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle export-world store-add store-prune export-corpus snapshot index-tree export-creatures mount"
+    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle schema-doc export-world store-add store-prune export-corpus snapshot index-tree export-creatures mount"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcommands" -- "$cur"))
@@ -133,12 +133,16 @@ _husk_completions() {
             ;;
         db2-info)
             case "$prev" in
-                --rows|--config)
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --rows)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
                     ;;
                 --dbd-dir)
-                    COMPREPLY=($(compgen -d -W "none" -- "$cur"))
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
                     return
                     ;;
             esac
@@ -407,6 +411,19 @@ _husk_completions() {
         validate-bundle)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--help -h --lint-schema --release" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
+        schema-doc)
+            case "$prev" in
+                --output|-o)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --output -o" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

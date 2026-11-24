@@ -10,7 +10,7 @@ _husk_file_or_none_value() { _alternative 'value:value:(none)' 'files:file:_file
 _husk() {
     local -a subcommands
     subcommands=(
-        'export:export a mesh (+ skin/animation) to glTF'
+        'export:export an M2 model to a canonical model bundle'
         'info:parse and print an M2 header'
         'dump-chunks:extract misc chunks to JSON'
         'db2-info:parse and print a WDC5 DB2 file'
@@ -23,6 +23,7 @@ _husk() {
         'export-wmo:export one WMO building to a canonical object bundle'
         'export-map:export one map's world document: tile grid and map-wide volumes'
         'validate-bundle:check bundle documents against the format's schema'
+        'schema-doc:print every document value the format defines as one Markdown file'
         'export-world:export every ADT tile of every map to a canonical scene'
         'store-add:record an export tree as a build in the canonical store'
         'store-prune:drop builds from the canonical store and the objects only they listed'
@@ -44,7 +45,7 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--config[--config]:value:_files' \
                 '(-i --input)'{-i,--input}'[the .m2 file to export]:value:_files' \
-                '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
+                '(-o --output)'{-o,--output}'[output path]:value:_files' \
                 '--from-list[--from-list]:value:_files' \
                 '--output-dir[--output-dir]:value:_files' \
                 '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
@@ -85,7 +86,7 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--config[--config]:value:_files' \
                 '--rows[--rows]:value:_files' \
-                '--dbd-dir[WoWDBDefs checkout, for column names and string fields]:value:_husk_dir_or_none_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
                 '1:model:_files'
             ;;
         db2-export)
@@ -103,7 +104,7 @@ _husk() {
                 '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
-                '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
+                '(-o --output)'{-o,--output}'[output path]:value:_files' \
                 '1:model:_files'
             ;;
         blp-export)
@@ -180,6 +181,12 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--lint-schema[--lint-schema]' \
                 '--release[--release]' \
+                '1:model:_files'
+            ;;
+        schema-doc)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '(-o --output)'{-o,--output}'[output path]:value:_files' \
                 '1:model:_files'
             ;;
         export-world)

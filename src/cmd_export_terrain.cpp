@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -355,6 +356,29 @@ int validateBundle(int argc, char** args) {
     std::cout << documents << " documents checked, " << problems.size() << " problems, " << warnings.size()
               << " warnings" << (opts.release && !warnings.empty() ? " (--release: warnings fail)" : "") << "\n";
     return problems.empty() && (!opts.release || warnings.empty()) ? 0 : 1;
+}
+
+void addSchemaDocOptions(CLI::App& app, SchemaDocOptions& opts) {
+    app.add_option("-o,--output", opts.output, "write the Markdown to this file instead of stdout");
+}
+
+int schemaDoc(int argc, char** args) {
+    CLI::App app{"husk schema-doc -- every document value the bundle format defines, as one Markdown file", "husk schema-doc"};
+    SchemaDocOptions opts;
+    addSchemaDocOptions(app, opts);
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
+    std::string markdown = bundle_schema::schemaDoc();
+    if (opts.output.empty()) {
+        std::cout << markdown;
+        return 0;
+    }
+    std::ofstream out(opts.output, std::ios::binary);
+    out << markdown;
+    if (!out) {
+        std::cerr << "husk: schema-doc: cannot write " << opts.output << "\n";
+        return 1;
+    }
+    return 0;
 }
 
 int exportMap(int argc, char** args) {

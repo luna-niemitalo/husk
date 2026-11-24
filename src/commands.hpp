@@ -98,6 +98,10 @@ int exportMap(int argc, char** args);
 // (bundle_schema.hpp), and with --lint-schema the schema itself.
 int validateBundle(int argc, char** args);
 
+// `schema-doc` -- the embedded schema/ as one Markdown reference
+// (bundle_schema::schemaDoc).
+int schemaDoc(int argc, char** args);
+
 // `export-world` -- every tile of every (or the selected) map, plus one
 // shared set of model bundles and terrain textures; parallel, resumable,
 // failures logged and skipped (cmd_export_terrain.cpp).
@@ -282,6 +286,11 @@ struct ValidateBundleOptions {
     bool release = false;  // warnings (placeholder effect instances) fail too
 };
 void addValidateBundleOptions(CLI::App& app, ValidateBundleOptions& opts);
+
+struct SchemaDocOptions {
+    std::string output;  // empty: stdout
+};
+void addSchemaDocOptions(CLI::App& app, SchemaDocOptions& opts);
 
 struct ExportWorldOptions {
     std::string mapsRoot;

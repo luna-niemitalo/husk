@@ -48,6 +48,11 @@ std::vector<Problem> sourceGaps();
 // warnings and counts them per schema file.
 inline constexpr bool kSourceRequired = false;
 
+// One Markdown reference of every kind's document paths: description,
+// type, allowed values, unit, index/id targets, x-source (inherited
+// resolved) and whether required. Deterministic: schema order is key order.
+std::string schemaDoc();
+
 // Lints one kind schema given as text, against the embedded common
 // definitions; how the lint rules themselves are tested.
 std::vector<Problem> lintSchemaText(const std::string& stem, const std::string& text);

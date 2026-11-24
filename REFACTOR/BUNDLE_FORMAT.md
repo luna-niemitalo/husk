@@ -216,7 +216,8 @@ is the schema's `$id`, not a path, because:
   and break whenever a document is moved or mounted elsewhere;
 - exports don't ship the schemas: they are embedded in the husk binary,
   and the pair (`$schema`, `schema_version`) names one file at one version
-  of husk's `schema/` exactly;
+  of husk's `schema/` exactly, and `husk schema-doc` renders that set as
+  one Markdown reference (below, "One reference file: `husk schema-doc`");
 - `$schema` is the key editors and JSON Schema tools already read: mapping
   `https://husk.invalid/schema/*` to a checkout's `schema/` gives
   completion and validation in an editor. The `.invalid` host never
@@ -302,6 +303,18 @@ reaches each. Until the annotation pass is done the check is a warning:
 `husk validate-bundle --lint-schema` prints each gap and a count per schema
 file. `bundle_schema::kSourceRequired` (`bundle_schema.hpp`) turns it into
 a lint error once the count is zero.
+
+### One reference file: `husk schema-doc`
+
+`husk schema-doc [-o FILE]` renders the embedded schemas as one Markdown
+file: per kind, every document path (`$ref`s, array entries `[]`, map
+values `.<name>` and `oneOf` variants `{kind=x}` expanded; a recursive
+definition is listed once and marked) with its description, type, allowed
+values (const, enum, bounds, pattern), unit, `x-index-into`/`x-id-in`
+target, resolved `x-source` (and the path it is inherited from), and
+whether it is required. Output is deterministic (keys in sorted order), so
+it can be diffed between versions. It is generated, not checked in: the
+schemas are the source.
 
 ## Attribute channels — per-element data without a dedicated key
 

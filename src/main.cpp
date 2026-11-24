@@ -350,6 +350,7 @@ struct AllSubcommandOpts {
     husk::commands::ExportWmoOptions exportWmoOpts;
     husk::commands::ExportMapOptions exportMapOpts;
     husk::commands::ValidateBundleOptions validateBundleOpts;
+    husk::commands::SchemaDocOptions schemaDocOpts;
     husk::commands::StoreAddOptions storeAddOpts;
     husk::commands::StorePruneOptions storePruneOpts;
     husk::commands::MountOptions mountOpts;
@@ -411,6 +412,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* validateBundleSub =
         root.add_subcommand("validate-bundle", "check bundle documents against the format's schema");
     husk::commands::addValidateBundleOptions(*validateBundleSub, opts.validateBundleOpts);
+
+    CLI::App* schemaDocSub =
+        root.add_subcommand("schema-doc", "print every document value the format defines as one Markdown file");
+    husk::commands::addSchemaDocOptions(*schemaDocSub, opts.schemaDocOpts);
 
     CLI::App* exportWorldSub =
         root.add_subcommand("export-world", "export every ADT tile of every map to a canonical scene");
@@ -617,6 +622,7 @@ int main(int argc, char** argv) {
         "                               export one map's world document: tile grid and map-wide volumes\n"
         "  validate-bundle <path>... [--lint-schema]\n"
         "                               check documents against the bundle format's schema\n"
+        "  schema-doc [-o FILE]         every document value the format defines, as one Markdown file\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
         "                               every tile of every map, parallel, resumable\n"
         "  store-add <tree> --store DIR --game LABEL|--game-from DIR [--tag NAME]...\n"
@@ -683,6 +689,9 @@ int main(int argc, char** argv) {
     }
     if (command == "validate-bundle") {
         return husk::commands::validateBundle(restArgc, rest);
+    }
+    if (command == "schema-doc") {
+        return husk::commands::schemaDoc(restArgc, rest);
     }
     if (command == "store-add") {
         return husk::commands::storeAdd(restArgc, rest);

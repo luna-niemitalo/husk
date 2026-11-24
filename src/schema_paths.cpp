@@ -1,9 +1,10 @@
 // Every document kind's schema as the property paths a document can hold,
-// with $refs followed: what the x-source coverage check walks
-// (bundle_schema.hpp).
+// with $refs followed: what `husk schema-doc` renders and what the x-source
+// coverage check walks (bundle_schema.hpp).
 
 #include <algorithm>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -151,6 +152,110 @@ std::vector<PathEntry> documentPaths(const std::string& kind) {
     return out;
 }
 
+// ---------------------------------------------------------------- rendering
+
+std::string cell(const std::string& text) {
+    std::string out;
+    for (char c : text) {
+        if (c == '|') out += "\\|";
+        else if (c == '\n') out += ' ';
+        else out += c;
+    }
+    return out;
+}
+
+std::string code(const std::string& text) { return "`" + text + "`"; }
+
+std::string scalar(const json& value) { return value.is_string() ? value.get<std::string>() : value.dump(); }
+
+std::string typeOf(const PathEntry& e) {
+    const json& n = *e.resolved;
+    std::string type;
+    if (n.contains("type")) {
+        if (n["type"].is_array()) {
+            for (const json& t : n["type"]) type += (type.empty() ? "" : " or ") + t.get<std::string>();
+        } else {
+            type = n["type"];
+        }
+    } else if (n.contains("const")) {
+        type = "constant";
+    } else if (n.contains("enum")) {
+        type = "enum";
+    } else if (n.contains("oneOf")) {
+        type = "one of " + std::to_string(n["oneOf"].size());
+    }
+    if (type == "array" && n.contains("items") && n["items"].is_object()) {
+        const json& items = n["items"];
+        if (items.contains("$ref")) type += " of " + code(refName(items["$ref"]));
+        else if (items.contains("type") && items["type"].is_string()) type += " of " + items["type"].get<std::string>();
+    }
+    if (type == "array" && n.contains("items") && n["items"].is_array()) type = "tuple of " + std::to_string(n["items"].size());
+    if (type == "object" && n.contains("additionalProperties") && n["additionalProperties"].is_object()) type = "map";
+    if (!e.refName.empty()) type = code(e.refName) + (type.empty() ? "" : " (" + type + ")");
+    if (e.recursive) type += ", recursive";
+    return type;
+}
+
+std::string allowedOf(const json& n) {
+    std::vector<std::string> parts;
+    if (n.contains("const")) parts.push_back("= " + code(scalar(n["const"])));
+    if (n.contains("enum")) {
+        std::string values;
+        for (const json& v : n["enum"]) values += (values.empty() ? "" : ", ") + code(scalar(v));
+        parts.push_back("one of " + values);
+    }
+    static const std::vector<std::pair<const char*, const char*>> bounds = {
+        {"minimum", "≥ "}, {"maximum", "≤ "}, {"exclusiveMinimum", "> "}, {"exclusiveMaximum", "< "},
+        {"minLength", "length ≥ "}, {"maxLength", "length ≤ "}, {"minItems", "entries ≥ "}, {"maxItems", "entries ≤ "},
+        {"minProperties", "keys ≥ "}, {"multipleOf", "multiple of "}};
+    for (const auto& [key, text] : bounds) {
+        if (n.contains(key)) parts.push_back(text + n[key].dump());
+    }
+    if (n.contains("pattern")) parts.push_back("matches " + code(n["pattern"].get<std::string>()));
+    if (n.contains("uniqueItems") && n["uniqueItems"] == true) parts.push_back("entries unique");
+    std::string out;
+    for (const std::string& p : parts) out += (out.empty() ? "" : "; ") + p;
+    return out;
+}
+
+// x-index-into/x-id-in may sit on the use site or on the definition.
+std::string linksOf(const PathEntry& e) {
+    std::string out;
+    for (const json* n : {e.resolved, e.node}) {
+        if (n->contains("x-index-into")) out = "index into " + code((*n)["x-index-into"]);
+        if (n->contains("x-id-in")) out = "id in " + code((*n)["x-id-in"]);
+    }
+    return out;
+}
+
+std::string unitOf(const PathEntry& e) {
+    if (e.node->contains("x-unit")) return (*e.node)["x-unit"];
+    if (e.resolved->contains("x-unit")) return (*e.resolved)["x-unit"];
+    return {};
+}
+
+std::string origin(const json& o) {
+    if (o.contains("table")) return "table " + code(o["table"].get<std::string>() + (o.contains("column") ? "." + o["column"].get<std::string>() : ""));
+    if (o.contains("file")) return "file " + code(o["file"]) + (o.contains("field") ? " " + code(o["field"]) : "");
+    if (o.contains("derived")) return "derived by " + code(o["derived"]);
+    if (o.contains("authored")) return "authored in " + code(o["authored"]);
+    if (o.contains("stated_by")) return "stated per value by " + code(o["stated_by"]);
+    if (o.contains("listfile")) return "listfile";
+    return "format";
+}
+
+std::string sourceOf(const PathEntry& e) {
+    if (!e.source) return e.resolved->contains("const") ? "format (constant)" : "—";
+    std::string out;
+    for (const json& o : *e.source) out += (out.empty() ? "" : "; ") + origin(o);
+    if (!e.sourceFrom.empty()) out += " (from " + code(e.sourceFrom) + ")";
+    return out;
+}
+
+std::string descriptionOf(const PathEntry& e) {
+    return e.node->value("description", e.resolved->value("description", ""));
+}
+
 }  // namespace
 
 std::vector<Problem> sourceGaps() {
@@ -166,6 +271,41 @@ std::vector<Problem> sourceGaps() {
     }
     std::sort(out.begin(), out.end(), [](const Problem& a, const Problem& b) { return a.where < b.where; });
     return out;
+}
+
+std::string schemaDoc() {
+    std::ostringstream md;
+    std::string version = schemaFor("model")["properties"]["schema_version"]["const"];
+    md << "# husk bundle format reference, schema " << version << "\n\n"
+       << "Generated by `husk schema-doc` from the schemas embedded in husk (schema/*.schema.json); "
+          "regenerate it rather than editing it. REFACTOR/BUNDLE_FORMAT.md explains the format; "
+          "this file lists every value a document can hold.\n\n"
+       << "- **Path**: `a.b` is property `b` of object `a`; `a[]` each entry of array `a`; "
+          "`a.<name>` each value of map `a`; `a{kind=x}` the variant of `a` whose `kind` is `x` "
+          "(`a{#i}` the i-th variant when no constant tells them apart).\n"
+       << "- **Req**: `yes` when the enclosing object must have it.\n"
+       << "- **Type**: a named shared or kind-local definition is in backticks.\n"
+       << "- **Allowed**: constants, enums, bounds and patterns the schema enforces.\n"
+       << "- **Unit**: `x-unit`, for every real-valued property.\n"
+       << "- **Links**: `index into` an array (`x-index-into`: a bare name is a property of an enclosing object, "
+          "`/...` a pointer into the document), or `id in` an array whose entries carry ids (`x-id-in`).\n"
+       << "- **Source**: where the value comes from (`x-source`); \"from `p`\" when inherited from path `p`; "
+          "— when not annotated yet.\n\n";
+    for (const std::string& kind : kinds()) {
+        const json& schema = schemaFor(kind);
+        md << "## " << kind << "\n\n"
+           << "`$schema`: `" << schema["$id"].get<std::string>() << "`\n\n"
+           << schema.value("description", "") << "\n\n"
+           << "| Path | Req | Type | Allowed | Unit | Links | Source | Description |\n"
+           << "|---|---|---|---|---|---|---|---|\n";
+        for (const PathEntry& e : documentPaths(kind)) {
+            md << "| " << cell(code(e.path)) << " | " << (e.required ? "yes" : "") << " | " << cell(typeOf(e)) << " | "
+               << cell(allowedOf(*e.resolved)) << " | " << cell(unitOf(e)) << " | " << cell(linksOf(e)) << " | "
+               << cell(sourceOf(e)) << " | " << cell(descriptionOf(e)) << " |\n";
+        }
+        md << "\n";
+    }
+    return md.str();
 }
 
 }  // namespace husk::bundle_schema
