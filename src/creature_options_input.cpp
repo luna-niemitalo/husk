@@ -350,8 +350,15 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
             preset.unresolved.push_back({"BakeMaterialResourcesID", canon::UnresolvedField::Kind::Id, double(bake), std::nullopt});
             key += "b?" + std::to_string(bake) + ";";
         }
-        if (auto picks = data.customizationByExtra.find(extraId); picks != data.customizationByExtra.end()) {
-            for (const creaturedisplay::CustomizationPick& pick : picks->second) {
+        if (auto found = data.customizationByExtra.find(extraId); found != data.customizationByExtra.end()) {
+            // By choice row, not row order: extras list the same choices in
+            // different orders, and equal sets must be one body. The
+            // --appearance body key sorts the same way (cmd_export_canon.cpp
+            // addAppearancePreset).
+            std::vector<creaturedisplay::CustomizationPick> picks = found->second;
+            std::sort(picks.begin(), picks.end(),
+                      [](const auto& a, const auto& b) { return a.choice < b.choice; });
+            for (const creaturedisplay::CustomizationPick& pick : picks) {
                 body.key += "c" + std::to_string(pick.choice) + ";";
                 auto found = index.choice.find(pick.choice);
                 if (found == index.choice.end()) {
