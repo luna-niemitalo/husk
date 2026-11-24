@@ -1858,7 +1858,8 @@
         },
         "materials": {
           "type": "array",
-          "description": "Materials; primitives and liquids refer to them by id.",
+          "description": "Materials, primitives and liquids referring to them by id: on an M2, one per distinct batch (its M2Batch texture, colour, weight and transform combos and its M2Material); on a WMO, one per MOMT entry.",
+          "x-source": [{"file": "skin", "field": "M2Batch"}, {"file": "m2", "field": "M2Material"}, {"file": "wmo", "field": "MOMT"}],
           "items": {
             "type": "object",
             "description": "How primitives are shaded.",
@@ -1870,24 +1871,28 @@
               },
               "layers": {
                 "type": "array",
-                "description": "Texture layers, bottom first.",
+                "description": "Texture layers, bottom first: an M2 batch's textureCount texture units (textureCombos from textureComboIndex), or a WMO material's non-zero texture fields.",
+                "x-source": [{"file": "skin", "field": "M2Batch.textureComboIndex"}, {"file": "m2", "field": "textureCombos"}, {"file": "wmo", "field": "MOMT"}],
                 "items": {
                   "type": "object",
                   "description": "One texture layer of a material.",
                   "properties": {
                     "identity": {
                       "$ref": "common.schema.json#/definitions/ref",
-                      "description": "The layer."
+                      "description": "The layer: on an M2 its M2Texture, named by its filename or texture type; on a WMO its MOMT texture field, named after the field.",
+                      "x-source": [{"file": "m2", "field": "M2Texture"}, {"file": "wmo", "field": "MOMT"}]
                     },
                     "role": {
                       "type": "string",
-                      "description": "What the layer contributes, e.g. diffuse, specular, emission."
+                      "description": "What the layer contributes, e.g. diffuse, specular, emission (rule layer_role).",
+                      "x-source": [{"derived": "layer_role"}]
                     },
                     "uv_map": {
                       "type": "integer",
                       "minimum": 0,
                       "description": "What the layer samples its texture with.",
-                      "x-index-into": "/resources/uv_maps"
+                      "x-index-into": "/resources/uv_maps",
+                      "x-source": [{"format": true}]
                     },
                     "texture": {
                       "$ref": "common.schema.json#/definitions/texture_id",
@@ -1896,28 +1901,33 @@
                     "texture_unit": {
                       "type": "integer",
                       "minimum": 0,
-                      "description": "The shader texture this layer is: t<n> in its techniques' formulas (texture_unit inputs). An M2 pixel shader reads units 0-3; a layer above that is the source's, carried as it is. A WMO material's are its MOMT fields in shader order: texture_1-3 are 0-2, and for shaders 22 and 23, color_2 and flags_2 are 3-4 and runTimeData[0..3] are 17-20."
+                      "description": "The shader texture this layer is, t<n> in its techniques' formulas (texture_unit inputs): an M2 layer's offset in its batch's texture units, units 0-3 read by the pixel shader and a layer above that carried as the source has it; a WMO material's MOMT fields in shader order, texture_1-3 being 0-2 and, for shaders 22 and 23, color_2 and flags_2 3-4 and runTimeData[0..3] 17-20.",
+                      "x-source": [{"file": "skin", "field": "M2Batch.textureCount"}, {"file": "wmo", "field": "MOMT"}]
                     },
                     "slot": {
                       "type": "integer",
                       "minimum": 0,
-                      "description": "The slot whose options may replace texture.",
-                      "x-index-into": "/definition/texture_slots"
+                      "description": "The slot whose options may replace texture: the slot of the layer's M2Texture.type.",
+                      "x-index-into": "/definition/texture_slots",
+                      "x-source": [{"file": "m2", "field": "M2Texture.type"}]
                     },
                     "tint": {
                       "$ref": "common.schema.json#/definitions/inline_curve",
-                      "description": "Colour multiplier over time.",
-                      "x-unit": "1"
+                      "description": "Colour multiplier over time (M2: M2Color.color, by the batch's colorIndex).",
+                      "x-unit": "1",
+                      "x-source": [{"file": "m2", "field": "M2Color.color"}]
                     },
                     "color_alpha": {
                       "$ref": "common.schema.json#/definitions/inline_curve",
                       "description": "The source colour's opacity over time (M2: M2Color.alpha).",
-                      "x-unit": "1"
+                      "x-unit": "1",
+                      "x-source": [{"file": "m2", "field": "M2Color.alpha"}]
                     },
                     "texture_weight": {
                       "$ref": "common.schema.json#/definitions/inline_curve",
-                      "description": "The source texture weight over time (M2: M2TextureWeight). Kept apart from color_alpha: how the client combines the two is not established, so the consumer decides.",
-                      "x-unit": "1"
+                      "description": "The source texture weight over time (M2: M2TextureWeight, by the batch's textureWeightComboIndex). Kept apart from color_alpha: how the client combines the two is not established, so the consumer decides.",
+                      "x-unit": "1",
+                      "x-source": [{"file": "m2", "field": "M2TextureWeight"}, {"file": "m2", "field": "textureWeightCombos"}]
                     }
                   },
                   "additionalProperties": false,
@@ -1931,11 +1941,13 @@
               },
               "framebuffer_blend": {
                 "$ref": "common.schema.json#/definitions/framebuffer_blend",
-                "description": "How the result combines with what is already drawn."
+                "description": "How the result combines with what is already drawn (M2Material.blending_mode, WMO MOMT blendMode, an EGxBlend).",
+                "x-source": [{"file": "m2", "field": "M2Material.blending_mode"}, {"file": "wmo", "field": "MOMT.blendMode"}]
               },
               "diffuse_layer": {
                 "$ref": "common.schema.json#/definitions/ref",
-                "description": "Layer providing diffuse colour."
+                "description": "Layer providing diffuse colour: the layer whose role is diffuse.",
+                "x-source": [{"derived": "layer_role"}]
               },
               "specular_layer": {
                 "$ref": "common.schema.json#/definitions/ref",
@@ -1951,27 +1963,33 @@
               },
               "unlit": {
                 "type": "boolean",
-                "description": "Ignores lighting."
+                "description": "Ignores lighting (flag 0x1).",
+                "x-source": [{"file": "m2", "field": "M2Material.flags"}, {"file": "wmo", "field": "MOMT.flags"}]
               },
               "unfogged": {
                 "type": "boolean",
-                "description": "Ignores fog."
+                "description": "Ignores fog (flag 0x2).",
+                "x-source": [{"file": "m2", "field": "M2Material.flags"}, {"file": "wmo", "field": "MOMT.flags"}]
               },
               "two_sided": {
                 "type": "boolean",
-                "description": "Drawn from both sides."
+                "description": "Drawn from both sides (flag 0x4).",
+                "x-source": [{"file": "m2", "field": "M2Material.flags"}, {"file": "wmo", "field": "MOMT.flags"}]
               },
               "shader": {
                 "$ref": "common.schema.json#/definitions/ref",
-                "description": "Shader program it uses."
+                "description": "Shader program it uses (WMO: MOMT shader, named from the wiki's shader list).",
+                "x-source": [{"file": "wmo", "field": "MOMT.shader"}]
               },
               "pixel_shader": {
                 "$ref": "#/definitions/m2_pixel_shader",
-                "description": "M2: the pixel shader the batch's shader ID selects, which defines how the layers combine."
+                "description": "M2: the pixel shader the batch's shader ID and texture count select, which defines how the layers combine.",
+                "x-source": [{"file": "skin", "field": "M2Batch.shader_id"}, {"file": "skin", "field": "M2Batch.textureCount"}]
               },
               "vertex_shader": {
                 "type": "string",
-                "description": "M2: the vertex shader the batch's shader ID selects (its texture coordinate setup, e.g. Diffuse_T1_Env: the second texture environment-mapped)."
+                "description": "M2: the vertex shader the batch's shader ID and texture count select (its texture coordinate setup, e.g. Diffuse_T1_Env: the second texture environment-mapped).",
+                "x-source": [{"file": "skin", "field": "M2Batch.shader_id"}, {"file": "skin", "field": "M2Batch.textureCount"}]
               },
               "source": {
                 "type": "object",
@@ -1979,7 +1997,8 @@
                 "properties": {
                   "flags": {
                     "$ref": "common.schema.json#/definitions/flags",
-                    "description": "The source's flag word."
+                    "description": "The source's flag word.",
+                    "x-source": [{"file": "m2", "field": "M2Material.flags"}, {"file": "wmo", "field": "MOMT.flags"}]
                   }
                 },
                 "additionalProperties": false,
@@ -1989,11 +2008,13 @@
               },
               "surface_type": {
                 "$ref": "common.schema.json#/definitions/surface_type_index",
-                "description": "What the surface is made of (WMO ground_type). A face's own, when it differs, is the mesh attribute channel surface_type."
+                "description": "What the surface is made of (WMO MOMT ground_type, a TerrainType row); a face's own, when it differs, is the mesh attribute channel surface_type.",
+                "x-source": [{"file": "wmo", "field": "MOMT.ground_type"}]
               },
               "techniques": {
                 "type": "array",
-                "description": "The techniques the material is drawn with (its shader, its framebuffer blend), as references.",
+                "description": "The techniques the material is drawn with (its shader, its framebuffer blend), as references to husk's technique documents.",
+                "x-source": [{"authored": "techniques/"}],
                 "items": {
                   "$ref": "common.schema.json#/definitions/uuid",
                   "description": "The id of one technique's reference.",
@@ -2032,11 +2053,13 @@
                     "description": "Sphere environment mapping: coordinates computed from the view-space normal, none stored."
                   }
                 ],
-                "description": "Where the coordinates come from."
+                "description": "Where the coordinates come from: on an M2 the layer's textureCoordCombos entry (-1 environment mapping, else a set); on a WMO, the set the material's shader reads for that texture unit (rule wmo_layer_uv).",
+                "x-source": [{"file": "m2", "field": "textureCoordCombos"}, {"derived": "wmo_layer_uv"}]
               },
               "transform": {
                 "type": "object",
-                "description": "Coordinate animation, applied to the coordinates before sampling.",
+                "description": "Coordinate animation, applied to the coordinates before sampling (M2TextureTransform, by the batch's textureTransformComboIndex).",
+                "x-source": [{"file": "m2", "field": "M2TextureTransform"}, {"file": "m2", "field": "textureTransformCombos"}],
                 "properties": {
                   "translation": {
                     "$ref": "common.schema.json#/definitions/inline_curve",
@@ -2058,8 +2081,9 @@
               },
               "scroll": {
                 "$ref": "common.schema.json#/definitions/vec2",
-                "description": "Constant scroll speed.",
-                "x-unit": "uv/second"
+                "description": "Constant scroll speed (WMO MOUV, the material's first two layers).",
+                "x-unit": "uv/second",
+                "x-source": [{"file": "wmo", "field": "MOUV"}]
               }
             },
             "required": [
