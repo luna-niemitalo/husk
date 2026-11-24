@@ -281,6 +281,15 @@ origins, each an object of exactly one form.
 | `{"stated_by": "name_source"}` | the origin differs per value, and the named sibling property states it |
 | `{"format": true}` | pure structure: header, ids, indices, counts the format itself defines |
 
+`derived` rules that are not effect rules (`EFFECTS.md` "Derivation
+rules") are named here:
+
+| Rule | Computes | From |
+|---|---|---|
+| `texture_resolution` | a texture entry's state, identity, unresolved reason and candidates: the literal FileDataID, then the `--listfile` path, then same-basename candidates (`src/sources/texture_resolution.cpp`) | whatever names the texture (M2, WMO, ADT, DB2 column) |
+| `m2_gravity_to_vector` | particle `gravity` as a vector: a scalar `g` becomes `[0, 0, -g]`, a packed direction key is unpacked (`m2::decodeParticleGravity`) | `M2Particle.gravity` track |
+| `mfog_start_scalar_to_start` | linear fog `start` = `end` × start scalar | WMO `MFOG` layer |
+
 Several origins mean the value combines them, or comes from whichever one
 the source has. The lint rejects any other form, an unknown file kind or a
 rule that isn't snake_case.
