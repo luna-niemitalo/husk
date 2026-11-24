@@ -442,11 +442,13 @@
               "enum": [
                 "duplicated"
               ],
-              "description": "duplicated: a border vertex is stored by every tile it borders, at the same position in the world frame; heights agree to float precision unless the source tiles differ."
+              "description": "duplicated: a border vertex is stored by every tile it borders, at the same position in the world frame; heights agree to float precision unless the source tiles differ.",
+              "x-source": [{"format": true}]
             },
             "map": {
               "$ref": "common.schema.json#/definitions/ref",
-              "description": "The map this tile belongs to, so a tile read alone still knows its place: the Map row whose Directory is the tile's map directory, named from Map.MapName_lang. The world document's map block carries the rest of the row. Absent when no map table was given or no row matches."
+              "description": "The map this tile belongs to: the Map row whose Directory is the tile's map directory, named from Map.MapName_lang; absent when no map table was given or no row matches. It lets a tile read alone still know its place; the world document's map block carries the rest of the row.",
+              "x-source": [{"table": "Map", "column": "Directory"}, {"table": "Map", "column": "MapName_lang"}]
             }
           },
           "additionalProperties": false,
@@ -764,17 +766,20 @@
               "properties": {
                 "positions": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Vertex positions, f32x3.",
-                  "x-unit": "yard"
+                  "description": "Vertex positions, f32x3: the M2's vertex list, or every WMO group's MOVT in part order.",
+                  "x-unit": "yard",
+                  "x-source": [{"file": "m2", "field": "M2Vertex.pos"}, {"file": "wmo_group", "field": "MOVT"}]
                 },
                 "normals": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Vertex normals, f32x3, unit length."
+                  "description": "Vertex normals, f32x3, unit length.",
+                  "x-source": [{"file": "m2", "field": "M2Vertex.normal"}, {"file": "wmo_group", "field": "MONR"}]
                 },
                 "uv_sets": {
                   "type": "array",
                   "minItems": 1,
-                  "description": "Texture coordinate sets, f32x2, one entry per vertex each; set 0 first. M2 has up to two, WMO groups up to three.",
+                  "description": "Texture coordinate sets, f32x2, one entry per vertex each, set 0 first: up to two on an M2, up to four on a WMO (one per MOTV), a set a group lacks zero-filled. The client's WMO vertex holds four sets, the fourth read by shader 23, so every vertex carries every set.",
+                  "x-source": [{"file": "m2", "field": "M2Vertex.tex_coords"}, {"file": "wmo_group", "field": "MOTV"}],
                   "items": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
                     "description": "One texture coordinate set."
@@ -782,7 +787,8 @@
                 },
                 "colors": {
                   "type": "array",
-                  "description": "Vertex colour sets, u8x4 RGBA 0..255 as stored.",
+                  "description": "Vertex colour sets, u8x4 RGBA 0..255 as stored (WMO MOCV, BGRA on disk), a set a group lacks zero-filled.",
+                  "x-source": [{"file": "wmo_group", "field": "MOCV"}],
                   "items": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
                     "description": "One colour set."
@@ -790,15 +796,18 @@
                 },
                 "joints0": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Skinning joint indices per vertex, u8x4."
+                  "description": "Skinning joint indices per vertex, u8x4.",
+                  "x-source": [{"file": "m2", "field": "M2Vertex.bone_indices"}]
                 },
                 "weights0": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Skinning weights per vertex, f32x4."
+                  "description": "Skinning weights per vertex, f32x4, the stored bytes divided by 255.",
+                  "x-source": [{"file": "m2", "field": "M2Vertex.bone_weights"}]
                 },
                 "indices": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Triangle vertex indices, u32, three per triangle."
+                  "description": "Triangle vertex indices, u32, three per triangle: a .skin's triangle list resolved through its vertex lookup, or each WMO group's MOVI/MOVX offset by the vertices of the groups before it.",
+                  "x-source": [{"file": "skin", "field": "indices"}, {"file": "skin", "field": "vertices"}, {"file": "wmo_group", "field": "MOVI"}]
                 },
                 "primitives": {
                   "type": "array",
@@ -810,7 +819,8 @@
                 },
                 "parts": {
                   "type": "array",
-                  "description": "Named, separately addressable pieces (rooms, wings, shells).",
+                  "description": "Named, separately addressable pieces (rooms, wings, shells): one per WMO group, in MOGI order.",
+                  "x-source": [{"file": "wmo", "field": "MOGI"}, {"file": "wmo_group", "field": "MOGP"}],
                   "items": {
                     "type": "object",
                     "description": "One part.",
@@ -822,21 +832,25 @@
                       },
                       "ref": {
                         "$ref": "common.schema.json#/definitions/ref",
-                        "description": "The part."
+                        "description": "The part: its MOGI index, named from MOGN at the group's name offset.",
+                        "x-source": [{"file": "wmo", "field": "MOGI.nameoffset"}, {"file": "wmo", "field": "MOGN"}]
                       },
                       "bounds_min": {
                         "$ref": "common.schema.json#/definitions/vec3",
                         "description": "Bounding box minimum.",
-                        "x-unit": "yard"
+                        "x-unit": "yard",
+                        "x-source": [{"file": "wmo", "field": "MOGI.bounding_box"}]
                       },
                       "bounds_max": {
                         "$ref": "common.schema.json#/definitions/vec3",
                         "description": "Bounding box maximum.",
-                        "x-unit": "yard"
+                        "x-unit": "yard",
+                        "x-source": [{"file": "wmo", "field": "MOGI.bounding_box"}]
                       },
                       "interior_fogs": {
                         "type": "array",
-                        "description": "Fog instances a viewer inside the part sees, beyond the model's default fog (scene.default_fog), in source order. Distance fog for that viewer, not fog volumes: nothing in them is a medium to place.",
+                        "description": "Fog instances a viewer inside the part sees, beyond the model's default fog (scene.default_fog), in source order (MOGP fogIds into MFOG). Distance fog for that viewer, not fog volumes: nothing in them is a medium to place.",
+                        "x-source": [{"file": "wmo_group", "field": "MOGP.fogIds"}],
                         "items": {
                           "$ref": "common.schema.json#/definitions/instance_ref",
                           "description": "A fog instance."
@@ -844,7 +858,8 @@
                       },
                       "ambient_particle_volumes": {
                         "type": "array",
-                        "description": "Ambient particle instances the part uses.",
+                        "description": "Ambient particle instances the part uses (MPVR into MPVD).",
+                        "x-source": [{"file": "wmo_group", "field": "MPVR"}],
                         "items": {
                           "$ref": "common.schema.json#/definitions/instance_ref",
                           "description": "An ambient particle instance."
@@ -852,7 +867,8 @@
                       },
                       "ambient_color_volumes": {
                         "type": "array",
-                        "description": "Ambient colour instances the part uses (point volumes, then box volumes).",
+                        "description": "Ambient colour instances the part uses: point volumes (MAVR into MAVD), then box volumes (MBVR into MBVD).",
+                        "x-source": [{"file": "wmo_group", "field": "MAVR"}, {"file": "wmo_group", "field": "MBVR"}],
                         "items": {
                           "$ref": "common.schema.json#/definitions/instance_ref",
                           "description": "An ambient colour instance."
@@ -861,6 +877,7 @@
                       "lights": {
                         "type": "array",
                         "description": "The model's static lights that reach this part (WMO MOLR, MNLR).",
+                        "x-source": [{"file": "wmo_group", "field": "MOLR"}, {"file": "wmo_group", "field": "MNLR"}],
                         "items": {
                           "$ref": "common.schema.json#/definitions/uuid",
                           "description": "The id of a static light.",
@@ -870,7 +887,8 @@
                       },
                       "light_sets": {
                         "type": "array",
-                        "description": "The part's switchable light sets: a renderer lights the part with one of them. Pairing the k-th MLSS and MLSP window into one set is inferred from their parallel layout.",
+                        "description": "The part's switchable light sets, the k-th set holding the group's spot lights (MOLS) in the k-th MLSS window and point lights (MOLP) in the k-th MLSP window: a renderer lights the part with one of them. Pairing the k-th MLSS and MLSP window into one set is inferred from their parallel layout.",
+                        "x-source": [{"file": "wmo_group", "field": "MLSS"}, {"file": "wmo_group", "field": "MLSP"}],
                         "items": {
                           "type": "array",
                           "description": "One light set.",
@@ -884,7 +902,8 @@
                       },
                       "areas": {
                         "type": "array",
-                        "description": "What the client names a player's location inside this part, one entry per name set, ascending: a WMO placement's name set (MODF nameSet) picks the entry, since one building placed in two towns carries two names. From WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the placement's name set (NameSetID) and the group's MOGP groupID (WMOGroupID). Absent without a WMO area table, or when the WMO has no rows.",
+                        "description": "What the client names a player's location inside this part, one entry per name set, ascending, from the WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the name set (NameSetID) and the group's MOGP groupID (WMOGroupID); absent without a WMO area table, or when the WMO has no rows. A WMO placement's name set (MODF nameSet) picks the entry, since one building placed in two towns carries two names.",
+                        "x-source": [{"table": "WMOAreaTable"}, {"file": "wmo", "field": "MOHD.wmoID"}, {"file": "wmo_group", "field": "MOGP.groupID"}],
                         "items": {
                           "type": "object",
                           "description": "The part's area under one name set.",
@@ -892,19 +911,23 @@
                             "name_set": {
                               "type": "integer",
                               "minimum": 0,
-                              "description": "WMOAreaTable.NameSetID: the MODF nameSet of placements this entry applies to."
+                              "description": "WMOAreaTable.NameSetID: the MODF nameSet of placements this entry applies to.",
+                              "x-source": [{"table": "WMOAreaTable", "column": "NameSetID"}]
                             },
                             "ref": {
                               "$ref": "common.schema.json#/definitions/ref",
-                              "description": "The WMOAreaTable row, named from WMOAreaTable.AreaName_lang (unnamed when the row stores none; then the area's name is the one shown)."
+                              "description": "The WMOAreaTable row, named from WMOAreaTable.AreaName_lang (unnamed when the row stores none; then the area's name is the one shown).",
+                              "x-source": [{"table": "WMOAreaTable"}, {"table": "WMOAreaTable", "column": "AreaName_lang"}]
                             },
                             "area": {
                               "$ref": "common.schema.json#/definitions/ref",
-                              "description": "The AreaTable row the part counts as (WMOAreaTable.AreaTableID), named from AreaTable.AreaName_lang. Absent when stored as 0."
+                              "description": "The AreaTable row the part counts as (WMOAreaTable.AreaTableID), named from AreaTable.AreaName_lang; absent when stored as 0.",
+                              "x-source": [{"table": "WMOAreaTable", "column": "AreaTableID"}, {"table": "AreaTable", "column": "AreaName_lang"}]
                             },
                             "whole_model": {
                               "type": "boolean",
-                              "description": "true: the part has no row of its own under this name set, and ref is the model-wide row (WMOGroupID -1)."
+                              "description": "true: the part has no row of its own under this name set, and ref is the model-wide row (WMOGroupID -1).",
+                              "x-source": [{"table": "WMOAreaTable", "column": "WMOGroupID"}]
                             }
                           },
                           "additionalProperties": false,
@@ -917,7 +940,8 @@
                       },
                       "portals": {
                         "type": "array",
-                        "description": "Openings onto other parts.",
+                        "description": "Openings onto other parts: the group's MOGP portal window of MOPR.",
+                        "x-source": [{"file": "wmo", "field": "MOPR"}, {"file": "wmo_group", "field": "MOGP.portalStart"}],
                         "items": {
                           "type": "object",
                           "description": "One opening.",
@@ -926,7 +950,8 @@
                               "type": "integer",
                               "minimum": 0,
                               "description": "The portal polygon.",
-                              "x-index-into": "/resources/geometry/mesh/portals"
+                              "x-index-into": "/resources/geometry/mesh/portals",
+                              "x-source": [{"file": "wmo", "field": "MOPR.portalIndex"}]
                             },
                             "to_part": {
                               "$ref": "common.schema.json#/definitions/uuid",
@@ -940,7 +965,8 @@
                                 -1,
                                 1
                               ],
-                              "description": "The half-space of the portal's plane this part lies in: +1 where dot(normal, p) + distance > 0, -1 where it is < 0. The portal's other link carries the opposite sign. Written as the source states it: a few source portals (14 of 3,871 cleanly separated ones in a 4,000-root sample) carry the pair flipped against their geometry."
+                              "description": "The half-space of the portal's plane this part lies in, as the source states it: +1 where dot(normal, p) + distance > 0, -1 where it is < 0, the portal's other link carrying the opposite sign. Not recomputed from geometry: a few source portals (14 of 3,871 cleanly separated ones in a 4,000-root sample) carry the pair flipped against their geometry.",
+                              "x-source": [{"file": "wmo", "field": "MOPR.side"}]
                             }
                           },
                           "additionalProperties": false,
@@ -957,7 +983,8 @@
                         "properties": {
                           "flags": {
                             "$ref": "common.schema.json#/definitions/flags",
-                            "description": "The source's flag word."
+                            "description": "The group's flag word (MOGI flags).",
+                            "x-source": [{"file": "wmo", "field": "MOGI.flags"}]
                           }
                         },
                         "additionalProperties": false,
@@ -978,14 +1005,16 @@
                 },
                 "portals": {
                   "type": "array",
-                  "description": "Polygons parts see each other through.",
+                  "description": "Polygons parts see each other through, in MOPT order.",
+                  "x-source": [{"file": "wmo", "field": "MOPT"}],
                   "items": {
                     "type": "object",
                     "description": "One portal.",
                     "properties": {
                       "vertices": {
                         "type": "array",
-                        "description": "Polygon vertices in source order.",
+                        "description": "Polygon vertices in source order: the portal's MOPT window of MOPV.",
+                        "x-source": [{"file": "wmo", "field": "MOPV"}],
                         "items": {
                           "$ref": "common.schema.json#/definitions/vec3",
                           "description": "A vertex.",
@@ -996,12 +1025,14 @@
                       "normal": {
                         "$ref": "common.schema.json#/definitions/vec3",
                         "description": "Plane normal; dot(normal, p) + distance == 0 on the polygon.",
-                        "x-unit": "1"
+                        "x-unit": "1",
+                        "x-source": [{"file": "wmo", "field": "MOPT.plane.normal"}]
                       },
                       "distance": {
                         "type": "number",
                         "description": "Plane distance.",
-                        "x-unit": "yard"
+                        "x-unit": "yard",
+                        "x-source": [{"file": "wmo", "field": "MOPT.plane.distance"}]
                       },
                       "unresolved": {
                         "type": "object",
@@ -1009,7 +1040,8 @@
                         "properties": {
                           "extra_record": {
                             "type": "array",
-                            "description": "A 16-byte record attached to the portal, raw.",
+                            "description": "The portal's 16-byte MOPE record (11.1+), raw. Untyped: real records hold ASCII fragments and \"MOP\" bytes in the documented index field.",
+                            "x-source": [{"file": "wmo", "field": "MOPE"}],
                             "items": {
                               "type": "integer",
                               "description": "A byte."
@@ -1033,6 +1065,7 @@
                 "attributes": {
                   "type": "array",
                   "description": "Per-element data with no dedicated field.",
+                  "x-source": [{"file": "wmo_group", "field": "MOPY"}, {"file": "wmo_group", "field": "MPY2"}, {"file": "wmo_group", "field": "MOC2"}, {"file": "wmo_group", "field": "MOQG"}, {"file": "wmo", "field": "MOMT.ground_type"}],
                   "items": {
                     "$ref": "#/definitions/attribute_channel",
                     "description": "A named per-element data channel."
@@ -1053,12 +1086,14 @@
             },
             "lod": {
               "type": "object",
-              "description": "Levels of detail of the mesh, finest first. To draw level n, read levels[min(n, max_level)]; every level reads the same way. Level 0 is the mesh above, repeated; each later level is a coarser stand-in the source draws from further away. Its primitives name the mesh's parts and materials.",
+              "description": "Levels of detail of the mesh, finest first: level 0 is the mesh above, repeated; each later level is a coarser stand-in the source draws from further away (an M2's LOD skins, the SFID entries past numSkinProfiles; a WMO's lod group files, GFID), its primitives naming the mesh's parts and materials. To draw level n, read levels[min(n, max_level)]; every level reads the same way.",
+              "x-source": [{"file": "m2", "field": "SFID"}, {"file": "skin"}, {"file": "wmo", "field": "GFID"}, {"file": "wmo_group"}],
               "properties": {
                 "max_level": {
                   "type": "integer",
                   "minimum": 0,
-                  "description": "The last level the source authored: levels has max_level + 1 entries. 0 when the mesh has no coarser level."
+                  "description": "The last level the source authored: levels has max_level + 1 entries, 0 when the mesh has no coarser level.",
+                  "x-source": [{"format": true}]
                 },
                 "levels": {
                   "type": "array",
@@ -1078,7 +1113,8 @@
             },
             "liquids": {
               "type": "array",
-              "description": "Liquid surfaces.",
+              "description": "Liquid surfaces: each WMO group's MLIQ.",
+              "x-source": [{"file": "wmo_group", "field": "MLIQ"}],
               "items": {
                 "type": "object",
                 "description": "A liquid surface as a height grid over tiles; vertex (x, y) is at corner + (x, y) * tile_size with height heights[y * verts_x + x].",
@@ -1097,36 +1133,43 @@
                   },
                   "liquid_type": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Liquid type; identity kind none when undecided."
+                    "description": "Liquid type: the LiquidType row the group's stored type selects by the WMO liquid rules (rule wmo_liquid_type); identity kind none when the rules don't decide.",
+                    "x-source": [{"derived": "wmo_liquid_type"}, {"file": "wmo_group", "field": "MOGP.groupLiquid"}, {"file": "wmo", "field": "MOHD.flags"}]
                   },
                   "corner": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Grid origin.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "wmo_group", "field": "MLIQ.liquidCorner"}]
                   },
                   "tile_size": {
                     "type": "number",
-                    "description": "Edge length of one tile.",
-                    "x-unit": "yard"
+                    "description": "Edge length of one tile: 25/6 yards, an ADT unit (a map chunk is 8 of them). The source stores no size; the grid uses the client's fixed unit.",
+                    "x-unit": "yard",
+                    "x-source": [{"format": true}]
                   },
                   "verts_x": {
                     "type": "integer",
                     "description": "Vertices along x.",
-                    "minimum": 0
+                    "minimum": 0,
+                    "x-source": [{"file": "wmo_group", "field": "MLIQ.liquidVerts"}]
                   },
                   "verts_y": {
                     "type": "integer",
                     "description": "Vertices along y.",
-                    "minimum": 0
+                    "minimum": 0,
+                    "x-source": [{"file": "wmo_group", "field": "MLIQ.liquidVerts"}]
                   },
                   "heights": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
                     "description": "Vertex heights, f32, row-major, x fastest.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "wmo_group", "field": "MLIQ.vertices.height"}]
                   },
                   "tile_exists": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
-                    "description": "Per tile, 1 when liquid is present, u8."
+                    "description": "Per tile, 1 when liquid is present, u8: the tile's low nibble is not 0xF. MCLQ's convention, which MLIQ shares.",
+                    "x-source": [{"file": "wmo_group", "field": "MLIQ.tiles"}]
                   },
                   "source": {
                     "type": "object",
@@ -1134,15 +1177,18 @@
                     "properties": {
                       "liquid_type": {
                         "type": "integer",
-                        "description": "Liquid type id as stored."
+                        "description": "Liquid type id as stored.",
+                        "x-source": [{"file": "wmo_group", "field": "MOGP.groupLiquid"}]
                       },
                       "vertex_data": {
                         "$ref": "common.schema.json#/definitions/buffer_slice",
-                        "description": "Per vertex raw bytes, u8x4."
+                        "description": "Per vertex raw bytes, u8x4: the 4 bytes before the height. Kept raw: they are flow values for water and s/t coordinates for magma, and which one depends on the liquid type's material, outside this file.",
+                        "x-source": [{"file": "wmo_group", "field": "MLIQ.vertices"}]
                       },
                       "tile_flags": {
                         "$ref": "common.schema.json#/definitions/buffer_slice",
-                        "description": "Per tile raw flags, u8."
+                        "description": "Per tile raw flags, u8.",
+                        "x-source": [{"file": "wmo_group", "field": "MLIQ.tiles"}]
                       }
                     },
                     "additionalProperties": false,
@@ -1175,15 +1221,18 @@
                 "positions": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
                   "description": "Vertex positions, f32x3.",
-                  "x-unit": "yard"
+                  "x-unit": "yard",
+                  "x-source": [{"file": "m2", "field": "collisionPositions"}]
                 },
                 "indices": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Triangle vertex indices, u32, three per triangle."
+                  "description": "Triangle vertex indices, u32, three per triangle.",
+                  "x-source": [{"file": "m2", "field": "collisionIndices"}]
                 },
                 "triangle_normals": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per triangle normal, f32x3."
+                  "description": "Per triangle normal, f32x3.",
+                  "x-source": [{"file": "m2", "field": "collisionFaceNormals"}]
                 }
               },
               "additionalProperties": false,
@@ -2377,12 +2426,14 @@
           "properties": {
             "lod": {
               "type": "object",
-              "description": "Levels of detail of the surface, finest first. To draw level n, read levels[min(n, max_level)]. Level 0 is the chunks' heightfield; each later level is a whole-tile mesh the source draws from further away.",
+              "description": "Levels of detail of the surface, finest first: level 0 is the chunks' heightfield; each later level is a whole-tile mesh the source draws from further away, one per _lod.adt band (MLLL, stored coarsest first). To draw level n, read levels[min(n, max_level)].",
+              "x-source": [{"file": "adt_lod"}, {"file": "wdt", "field": "MAID"}],
               "properties": {
                 "max_level": {
                   "type": "integer",
                   "minimum": 0,
-                  "description": "The last level the source authored: levels has max_level + 1 entries. 0 when the tile has no coarser level."
+                  "description": "The last level the source authored: levels has max_level + 1 entries, 0 when the tile has no coarser level.",
+                  "x-source": [{"format": true}]
                 },
                 "levels": {
                   "type": "array",
@@ -2402,54 +2453,64 @@
             },
             "chunks_per_side": {
               "type": "integer",
-              "description": "Chunks along each tile edge.",
-              "minimum": 0
+              "description": "Chunks along each tile edge (16, the ADT's fixed MCNK grid).",
+              "minimum": 0,
+              "x-source": [{"format": true}]
             },
             "quads_per_side": {
               "type": "integer",
-              "description": "Quads along each chunk edge.",
-              "minimum": 0
+              "description": "Quads along each chunk edge (8).",
+              "minimum": 0,
+              "x-source": [{"format": true}]
             },
             "tile_size": {
               "type": "number",
               "description": "Edge length of the tile.",
-              "x-unit": "yard"
+              "x-unit": "yard",
+              "x-source": [{"format": true}]
             },
             "chunk_size": {
               "type": "number",
               "description": "Edge length of a chunk.",
-              "x-unit": "yard"
+              "x-unit": "yard",
+              "x-source": [{"format": true}]
             },
             "quad_size": {
               "type": "number",
               "description": "Edge length of a quad.",
-              "x-unit": "yard"
+              "x-unit": "yard",
+              "x-source": [{"format": true}]
             },
             "row_axis": {
               "$ref": "common.schema.json#/definitions/vec3",
-              "description": "Unit direction rows step along, for chunks, vertices and alpha maps.",
-              "x-unit": "1"
+              "description": "Unit direction rows step along, for chunks, vertices and alpha maps (-x: south).",
+              "x-unit": "1",
+              "x-source": [{"format": true}]
             },
             "column_axis": {
               "$ref": "common.schema.json#/definitions/vec3",
-              "description": "Unit direction columns step along.",
-              "x-unit": "1"
+              "description": "Unit direction columns step along (-y: east).",
+              "x-unit": "1",
+              "x-source": [{"format": true}]
             },
             "chunk_vertex_layout": {
               "enum": [
                 "interleaved_9x9_corners_8x8_centres"
               ],
-              "description": "Vertex order within a chunk: per row pair, 9 corner vertices then 8 quad-centre vertices, 145 in all."
+              "description": "Vertex order within a chunk: per row pair, 9 corner vertices then 8 quad-centre vertices, 145 in all.",
+              "x-source": [{"format": true}]
             },
             "chunk_topology": {
               "enum": [
                 "quad_centre_fan"
               ],
-              "description": "quad_centre_fan: each quad is four triangles around its centre vertex, counter-clockwise seen from +z; a hole quad has none."
+              "description": "quad_centre_fan: each quad is four triangles around its centre vertex, counter-clockwise seen from +z; a hole quad has none.",
+              "x-source": [{"format": true}]
             },
             "textures": {
               "type": "array",
-              "description": "Ground textures; layers index this list.",
+              "description": "Ground textures, the _tex0 MDID (or MTEX) list in order; layers index this list.",
+              "x-source": [{"file": "adt_tex0", "field": "MDID"}, {"file": "adt_tex0", "field": "MTEX"}],
               "items": {
                 "type": "object",
                 "description": "A ground texture.",
@@ -2460,22 +2521,25 @@
                   },
                   "height": {
                     "$ref": "common.schema.json#/definitions/texture_id",
-                    "description": "Height texture for height-based blending."
+                    "description": "Height texture for height-based blending (MHID; 0 there: none)."
                   },
                   "repeats_per_chunk": {
                     "type": "number",
-                    "description": "Times the texture repeats across one chunk along each axis.",
-                    "x-unit": "1"
+                    "description": "Times the texture repeats across one chunk along each axis: 8 / (1 << MTXP texture_scale, flags bits 4..7), 8 without MTXP. The base of 8 is a renderer convention with no field on disk.",
+                    "x-unit": "1",
+                    "x-source": [{"file": "adt_tex0", "field": "MTXP.flags"}]
                   },
                   "height_scale": {
                     "type": "number",
                     "description": "Height-blend scale; 0 with height_offset 1 turns height blending off.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "adt_tex0", "field": "MTXP.heightScale"}]
                   },
                   "height_offset": {
                     "type": "number",
                     "description": "Height-blend offset.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "adt_tex0", "field": "MTXP.heightOffset"}]
                   }
                 },
                 "additionalProperties": false,
@@ -2489,39 +2553,46 @@
             },
             "ground_effects": {
               "type": "array",
-              "description": "Ground-cover rules; layers index this list.",
+              "description": "Ground-cover rules, each GroundEffectTexture row the layers' MCLY effectId names, once; layers index this list.",
+              "x-source": [{"table": "GroundEffectTexture"}, {"file": "adt_tex0", "field": "MCLY.effectId"}],
               "items": {
                 "type": "object",
                 "description": "A ground-cover rule: the consumer scatters its doodads at runtime; nothing here is an instance.",
                 "properties": {
                   "identity": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The rule."
+                    "description": "The rule: its GroundEffectTexture row.",
+                    "x-source": [{"table": "GroundEffectTexture"}]
                   },
                   "density": {
                     "type": "integer",
                     "description": "Doodads per chunk, as stored; absolute scale unverified.",
-                    "minimum": 0
+                    "minimum": 0,
+                    "x-source": [{"table": "GroundEffectTexture", "column": "Density"}]
                   },
                   "doodads": {
                     "type": "array",
-                    "description": "Weighted doodad choices.",
+                    "description": "Weighted doodad choices: the row's DoodadID and DoodadWeight arrays.",
+                    "x-source": [{"table": "GroundEffectTexture", "column": "DoodadID"}],
                     "items": {
                       "type": "object",
                       "description": "One doodad choice.",
                       "properties": {
                         "identity": {
                           "$ref": "common.schema.json#/definitions/ref",
-                          "description": "The doodad record."
+                          "description": "The doodad record: a GroundEffectDoodad row.",
+                          "x-source": [{"table": "GroundEffectDoodad"}]
                         },
                         "model": {
                           "$ref": "common.schema.json#/definitions/asset_ref",
-                          "description": "Model it places."
+                          "description": "Model it places.",
+                          "x-source": [{"table": "GroundEffectDoodad", "column": "ModelFileID"}]
                         },
                         "weight": {
                           "type": "integer",
                           "description": "Relative weight; use as a ratio.",
-                          "minimum": 0
+                          "minimum": 0,
+                          "x-source": [{"table": "GroundEffectTexture", "column": "DoodadWeight"}]
                         },
                         "source": {
                           "type": "object",
@@ -2529,7 +2600,8 @@
                           "properties": {
                             "flags": {
                               "$ref": "common.schema.json#/definitions/flags",
-                              "description": "Doodad flags as stored."
+                              "description": "Doodad flags as stored.",
+                              "x-source": [{"table": "GroundEffectDoodad", "column": "Flags"}]
                             }
                           },
                           "additionalProperties": false,
@@ -2549,7 +2621,8 @@
                   },
                   "surface_type": {
                     "$ref": "common.schema.json#/definitions/surface_type_index",
-                    "description": "What ground under this effect's layers is made of (GroundEffectTexture Sound). Absent when the build has no row for the effect."
+                    "description": "What ground under this effect's layers is made of (GroundEffectTexture Sound, a TerrainType row); absent when the build has no row for the effect.",
+                    "x-source": [{"table": "GroundEffectTexture", "column": "Sound"}]
                   }
                 },
                 "additionalProperties": false,
@@ -2561,62 +2634,75 @@
             },
             "chunks": {
               "type": "object",
-              "description": "The tile's chunks, index = row * chunks_per_side + column. Corner vertex (r, c) of a chunk sits at origin + (r * row_axis + c * column_axis) * quad_size; centre (r, c) at origin + ((r + 0.5) * row_axis + (c + 0.5) * column_axis) * quad_size.",
+              "description": "The tile's chunks (root ADT MCNKs), index = row * chunks_per_side + column. Corner vertex (r, c) of a chunk sits at origin + (r * row_axis + c * column_axis) * quad_size; centre (r, c) at origin + ((r + 0.5) * row_axis + (c + 0.5) * column_axis) * quad_size.",
+              "x-source": [{"file": "adt", "field": "MCNK"}],
               "properties": {
                 "count": {
                   "type": "integer",
                   "description": "Number of chunks.",
-                  "minimum": 0
+                  "minimum": 0,
+                  "x-source": [{"format": true}]
                 },
                 "origin": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, (x, y) of corner vertex (0, 0), f32x2.",
-                  "x-unit": "yard"
+                  "description": "Per chunk, (x, y) of corner vertex (0, 0) in the tile frame, f32x2: MCNK position less the tile corner.",
+                  "x-unit": "yard",
+                  "x-source": [{"file": "adt", "field": "MCNK.position"}]
                 },
                 "heights": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, absolute height of each vertex in chunk_vertex_layout order, f32x145.",
-                  "x-unit": "yard"
+                  "description": "Per chunk, absolute height of each vertex in chunk_vertex_layout order, f32x145: MCNK position z plus the MCVT entry.",
+                  "x-unit": "yard",
+                  "x-source": [{"file": "adt", "field": "MCVT"}, {"file": "adt", "field": "MCNK.position"}]
                 },
                 "normals": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per vertex, unit normal, f32x3, 145 per chunk."
+                  "description": "Per vertex, unit normal, f32x3, 145 per chunk: MCNR's signed bytes / 127, renormalized. Read X, Y, Z: the wiki's \"X, Z, Y\" comment disagrees with every finite-difference check.",
+                  "x-source": [{"file": "adt", "field": "MCNR"}]
                 },
                 "hole_rows": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, u8x8: bit c of byte r set means quad (r, c) draws nothing."
+                  "description": "Per chunk, u8x8: bit c of byte r set means quad (r, c) draws nothing; MCNK holes_high_res, or holes_low_res's 2x2-quad blocks expanded when the chunk lacks the high-res flag.",
+                  "x-source": [{"file": "adt", "field": "MCNK.holes_high_res"}, {"file": "adt", "field": "MCNK.holes_low_res"}]
                 },
                 "dominant_layer": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, u8x64 row-major: per quad, the layer whose ground effect applies. Bit order unverified."
+                  "description": "Per chunk, u8x64 row-major: per quad, the layer whose ground effect applies (MCNK's uint2_t[8][8] predominant texture, taken LSB-first). Bit order unverified.",
+                  "x-source": [{"file": "adt", "field": "MCNK.predominantTexture"}]
                 },
                 "ground_effect_suppressed_rows": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, u8x8: bit c of byte r set means no ground effect on quad (r, c). Bit order unverified."
+                  "description": "Per chunk, u8x8: bit c of byte r set means no ground effect on quad (r, c). Bit order unverified.",
+                  "x-source": [{"file": "adt", "field": "MCNK.noEffectDoodad"}]
                 },
                 "liquid_fishable_rows": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, u8x8: bit c of byte r set means the liquid on quad (r, c) is fishable. Always within the chunk's liquid quads."
+                  "description": "Per chunk, u8x8: bit c of byte r set means the liquid on quad (r, c) is fishable, always within the chunk's liquid quads.",
+                  "x-source": [{"file": "adt", "field": "mh2o_chunk_attributes.fishable"}]
                 },
                 "liquid_deep_rows": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, u8x8: bit c of byte r set means the liquid on quad (r, c) is deep (the source's fatigue flag). Always within the fishable quads."
+                  "description": "Per chunk, u8x8: bit c of byte r set means the liquid on quad (r, c) is deep (the source's fatigue flag), always within the fishable quads.",
+                  "x-source": [{"file": "adt", "field": "mh2o_chunk_attributes.deep"}]
                 },
                 "area_index": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Per chunk, u32: index into areas."
+                  "description": "Per chunk, u32: index into areas.",
+                  "x-source": [{"format": true}]
                 },
                 "areas": {
                   "type": "array",
-                  "description": "Areas the chunks belong to.",
+                  "description": "Areas the chunks belong to, each once.",
                   "items": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "One area: the AreaTable row an MCNK's areaId names, named from AreaTable.AreaName_lang with --db2-dir so a tile read alone can label its ground (unnamed without, or when the table lacks the row)."
+                    "description": "One area: the AreaTable row an MCNK's areaId names, named from AreaTable.AreaName_lang with --db2-dir (unnamed without, or when the table lacks the row). The name lets a tile read alone label its ground.",
+                    "x-source": [{"file": "adt", "field": "MCNK.areaid"}, {"table": "AreaTable", "column": "AreaName_lang"}]
                   }
                 },
                 "layers": {
                   "type": "array",
-                  "description": "Per chunk, its texture layers.",
+                  "description": "Per chunk, its texture layers (the _tex0 MCNK's MCLY).",
+                  "x-source": [{"file": "adt_tex0", "field": "MCLY"}],
                   "items": {
                     "type": "array",
                     "description": "One chunk's layers, 0 to 8.",
@@ -2628,30 +2714,34 @@
                           "type": "integer",
                           "description": "Texture the layer draws.",
                           "minimum": 0,
-                          "x-index-into": "textures"
+                          "x-index-into": "textures",
+                          "x-source": [{"file": "adt_tex0", "field": "MCLY.textureId"}]
                         },
                         "ground_effect_index": {
                           "type": "integer",
-                          "description": "Ground effect the layer scatters.",
+                          "description": "Ground effect the layer scatters: its MCLY effectId's entry in ground_effects; absent for none.",
                           "minimum": 0,
-                          "x-index-into": "ground_effects"
+                          "x-index-into": "ground_effects",
+                          "x-source": [{"file": "adt_tex0", "field": "MCLY.effectId"}]
                         },
                         "overbright": {
                           "type": "boolean",
-                          "description": "Drawn brighter than its texture."
+                          "description": "Drawn brighter than its texture (MCLY flag 0x80).",
+                          "x-source": [{"file": "adt_tex0", "field": "MCLY.flags"}]
                         },
                         "animation": {
                           "type": "object",
-                          "description": "Texture scrolling.",
+                          "description": "Texture scrolling (MCLY flag 0x40).",
+                          "x-source": [{"file": "adt_tex0", "field": "MCLY.flags"}],
                           "properties": {
                             "direction": {
                               "type": "number",
-                              "description": "Scroll direction, counter-clockwise from +x seen from +z.",
+                              "description": "Scroll direction, counter-clockwise from +x seen from +z: the flags' 3-bit rotation in 45-degree steps.",
                               "x-unit": "radian"
                             },
                             "speed": {
                               "type": "integer",
-                              "description": "Scroll speed step, 0..7; its unit is not established.",
+                              "description": "Scroll speed step, 0..7, the flags' 3-bit speed; its unit is not established.",
                               "minimum": 0
                             }
                           },
@@ -2663,7 +2753,8 @@
                         },
                         "alpha": {
                           "$ref": "common.schema.json#/definitions/buffer_slice",
-                          "description": "Layer weight over the chunk, u8, 64x64 row-major, rows stepping along row_axis; absent on layer 0, which covers what later layers leave."
+                          "description": "Layer weight over the chunk, u8, 64x64 row-major, rows stepping along row_axis, decoded from MCAL's three on-disk forms (the WDT MPHD flags pick 8- or 4-bit); absent on layer 0, which covers what later layers leave.",
+                          "x-source": [{"file": "adt_tex0", "field": "MCAL"}, {"file": "wdt", "field": "MPHD.flags"}]
                         }
                       },
                       "additionalProperties": false,
@@ -2692,7 +2783,8 @@
             },
             "liquid_objects": {
               "type": "array",
-              "description": "Each LiquidObject the liquids name, once. An id the client builds itself (42, the ocean, and others absent from the table) has only its identity.",
+              "description": "Each LiquidObject the liquids name, once; an id the client builds itself (42, the ocean, and others absent from the table) has only its identity.",
+              "x-source": [{"table": "LiquidObject"}],
               "items": {
                 "type": "object",
                 "description": "One liquid object.",
@@ -2704,20 +2796,24 @@
                   "flow_direction": {
                     "type": "number",
                     "x-unit": "radian",
-                    "description": "Flow direction, stored as degrees."
+                    "description": "Flow direction, stored as degrees.",
+                    "x-source": [{"table": "LiquidObject", "column": "FlowDirection"}]
                   },
                   "flow_speed": {
                     "type": "number",
                     "x-unit": "1",
-                    "description": "Flow speed as stored; unit unverified."
+                    "description": "Flow speed as stored; unit unverified.",
+                    "x-source": [{"table": "LiquidObject", "column": "FlowSpeed"}]
                   },
                   "fishable": {
                     "type": "integer",
-                    "description": "LiquidObject.Fishable as stored."
+                    "description": "LiquidObject.Fishable as stored.",
+                    "x-source": [{"table": "LiquidObject", "column": "Fishable"}]
                   },
                   "reflection": {
                     "type": "integer",
-                    "description": "LiquidObject.Reflection as stored."
+                    "description": "LiquidObject.Reflection as stored.",
+                    "x-source": [{"table": "LiquidObject", "column": "Reflection"}]
                   }
                 },
                 "required": [
@@ -2731,25 +2827,30 @@
               "description": "Liquid surfaces.",
               "items": {
                 "type": "object",
-                "description": "A liquid surface over a rectangle of one chunk's quads. Vertex arrays are (width + 1) * (height + 1), row-major, rows stepping along row_axis.",
+                "description": "A liquid surface over a rectangle of one chunk's quads, from one MH2O SMLiquidInstance; vertex arrays are (width + 1) * (height + 1), row-major, rows stepping along row_axis.",
+                "x-source": [{"file": "adt", "field": "SMLiquidInstance"}],
                 "properties": {
                   "chunk_row": {
                     "type": "integer",
-                    "description": "Row of the chunk it lies in.",
-                    "minimum": 0
+                    "description": "Row of the chunk it lies in: the MH2O chunk header's index / 16.",
+                    "minimum": 0,
+                    "x-source": [{"format": true}]
                   },
                   "chunk_column": {
                     "type": "integer",
-                    "description": "Column of the chunk it lies in.",
-                    "minimum": 0
+                    "description": "Column of the chunk it lies in: the MH2O chunk header's index % 16.",
+                    "minimum": 0,
+                    "x-source": [{"format": true}]
                   },
                   "liquid_type": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Liquid type."
+                    "description": "Liquid type: the LiquidType row.",
+                    "x-source": [{"file": "adt", "field": "SMLiquidInstance.liquid_type"}]
                   },
                   "liquid_object": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Liquid object."
+                    "description": "Liquid object: the LiquidObject row, when liquid_object_or_lvf is 42 or more (below that it is a vertex format number).",
+                    "x-source": [{"file": "adt", "field": "SMLiquidInstance.liquid_object_or_lvf"}]
                   },
                   "quad_rect": {
                     "type": "object",
@@ -2758,22 +2859,26 @@
                       "row": {
                         "type": "integer",
                         "description": "First quad row.",
-                        "minimum": 0
+                        "minimum": 0,
+                        "x-source": [{"file": "adt", "field": "SMLiquidInstance.y_offset"}]
                       },
                       "column": {
                         "type": "integer",
                         "description": "First quad column.",
-                        "minimum": 0
+                        "minimum": 0,
+                        "x-source": [{"file": "adt", "field": "SMLiquidInstance.x_offset"}]
                       },
                       "rows": {
                         "type": "integer",
                         "description": "Quad rows covered.",
-                        "minimum": 0
+                        "minimum": 0,
+                        "x-source": [{"file": "adt", "field": "SMLiquidInstance.height"}]
                       },
                       "columns": {
                         "type": "integer",
                         "description": "Quad columns covered.",
-                        "minimum": 0
+                        "minimum": 0,
+                        "x-source": [{"file": "adt", "field": "SMLiquidInstance.width"}]
                       }
                     },
                     "additionalProperties": false,
@@ -2786,7 +2891,8 @@
                   },
                   "quad_exists": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
-                    "description": "Per covered quad, 1 when liquid is present, u8."
+                    "description": "Per covered quad, 1 when liquid is present, u8: the exists bitmap, all 1 when its offset is 0.",
+                    "x-source": [{"file": "adt", "field": "SMLiquidInstance.offset_exists_bitmap"}]
                   },
                   "height_source": {
                     "enum": [
@@ -2794,20 +2900,24 @@
                       "min_height_level",
                       "zero"
                     ],
-                    "description": "stored: heights were stored per vertex; min_height_level: none stored, flat at the instance's minimum; zero: a depth-only layout, drawn at 0."
+                    "description": "stored: heights were stored per vertex; min_height_level: none stored, flat at the instance's minimum; zero: a depth-only layout, drawn at 0.",
+                    "x-source": [{"file": "adt", "field": "SMLiquidInstance.offset_vertex_data"}]
                   },
                   "heights": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
-                    "description": "Absolute vertex heights, f32.",
-                    "x-unit": "yard"
+                    "description": "Absolute vertex heights, f32: the vertex data's heightmap, else min_height_level, else 0, as height_source says.",
+                    "x-unit": "yard",
+                    "x-source": [{"file": "adt", "field": "SMLiquidInstance.offset_vertex_data"}, {"file": "adt", "field": "SMLiquidInstance.min_height_level"}]
                   },
                   "depth": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
-                    "description": "Per vertex depth, f32, 0..1."
+                    "description": "Per vertex depth, f32, 0..1: the vertex data's depth bytes / 255.",
+                    "x-source": [{"file": "adt", "field": "SMLiquidInstance.offset_vertex_data"}]
                   },
                   "uv": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
-                    "description": "Per vertex texture coordinates, f32x2."
+                    "description": "Per vertex texture coordinates, f32x2: the vertex data's uv words / 8.",
+                    "x-source": [{"file": "adt", "field": "SMLiquidInstance.offset_vertex_data"}]
                   }
                 },
                 "additionalProperties": false,
@@ -2824,7 +2934,7 @@
             },
             "liquid_flow": {
               "$ref": "common.schema.json#/definitions/texture_id",
-              "description": "Optional. The tile's liquid flow map, drawn over the whole tile like lod's diffuse (first stored row at the tile corner, rows along row_axis, columns along column_axis). Data, not colour: R and G are a signed 2D flow vector, 128/255 meaning still (which channel follows which axis, and its sign, are unverified); B is 0, A 255. Absent when the source has none."
+              "description": "The tile's liquid flow map (WDT MAI2 field 0), drawn over the whole tile like lod's diffuse (first stored row at the tile corner, rows along row_axis, columns along column_axis), absent when the source has none: data, not colour, R and G a signed 2D flow vector, 128/255 meaning still (which channel follows which axis, and its sign, are unverified), B 0, A 255. An unresolved flow map is dropped, not referenced: a WDT can name one the build doesn't ship."
             }
           },
           "additionalProperties": false,
@@ -2899,29 +3009,35 @@
   "definitions": {
     "primitive": {
       "type": "object",
-      "description": "An index range drawn with one material.",
+      "description": "An index range drawn with one material: an M2 batch (.skin M2Batch over its M2SkinSection) or a WMO group batch (MOBA).",
+      "x-source": [{"file": "skin", "field": "M2Batch"}, {"file": "wmo_group", "field": "MOBA"}],
       "properties": {
         "geoset_id": {
           "type": "integer",
-          "description": "Geoset the range belongs to: group * 100 + variant."
+          "description": "Geoset the range belongs to, group * 100 + variant: the submesh's M2SkinSection.skinSectionId; 0 (always shown) on a WMO, which has no geosets.",
+          "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}, {"format": true}]
         },
         "geoset_group": {
           "type": "integer",
-          "description": "Geoset group."
+          "description": "Geoset group: geoset_id / 100.",
+          "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}, {"format": true}]
         },
         "geoset_variant": {
           "type": "integer",
-          "description": "Variant within the group."
+          "description": "Variant within the group: geoset_id % 100.",
+          "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}, {"format": true}]
         },
         "index_start": {
           "type": "integer",
-          "description": "First index.",
-          "minimum": 0
+          "description": "First index into the mesh's indices: M2SkinSection.indexStart with its Level as the high 16 bits, or MOBA.startIndex plus the indices of the groups before it.",
+          "minimum": 0,
+          "x-source": [{"file": "skin", "field": "M2SkinSection.indexStart"}, {"file": "skin", "field": "M2SkinSection.Level"}, {"file": "wmo_group", "field": "MOBA.startIndex"}]
         },
         "index_count": {
           "type": "integer",
           "description": "Number of indices.",
-          "minimum": 0
+          "minimum": 0,
+          "x-source": [{"file": "skin", "field": "M2SkinSection.indexCount"}, {"file": "wmo_group", "field": "MOBA.count"}]
         },
         "material": {
           "$ref": "common.schema.json#/definitions/uuid",
@@ -2952,7 +3068,8 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "Channel name, '<source>.<field>', unique within the mesh or level."
+          "description": "Channel name, '<source>.<field>', unique within the mesh or level.",
+          "x-source": [{"format": true}]
         },
         "domain": {
           "enum": [
@@ -2960,11 +3077,13 @@
             "face",
             "part"
           ],
-          "description": "Which elements it covers: vertices, faces (one per triangle of indices, in order) or the mesh's parts."
+          "description": "Which elements it covers: vertices, faces (one per triangle of indices, in order) or the mesh's parts.",
+          "x-source": [{"format": true}]
         },
         "data": {
           "$ref": "common.schema.json#/definitions/buffer_slice",
-          "description": "The values; count is the element count."
+          "description": "The values; count is the element count. The channel's name says which source field they are.",
+          "x-source": [{"stated_by": "name"}]
         }
       },
       "additionalProperties": false,
@@ -2976,7 +3095,7 @@
     },
     "mesh_level": {
       "type": "object",
-      "description": "One level of detail: a complete triangle list over its vertex streams, read like resources.geometry.mesh. A stream two levels share names the same bytes.",
+      "description": "One level of detail: a complete triangle list over its vertex streams, read like resources.geometry.mesh, a stream two levels share naming the same bytes.",
       "properties": {
         "positions": {
           "$ref": "common.schema.json#/definitions/buffer_slice",
@@ -3038,7 +3157,8 @@
           "properties": {
             "file": {
               "$ref": "common.schema.json#/definitions/ref",
-              "description": "The file holding the level (M2: its LOD skin)."
+              "description": "The file holding the level (M2: its LOD skin, by the SFID entry's FileDataID).",
+              "x-source": [{"file": "m2", "field": "SFID"}]
             },
             "part_levels": {
               "type": "array",
@@ -3056,7 +3176,8 @@
                   "level": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "The source level drawn."
+                    "description": "The source level drawn: the highest of the group's own files (GFID) at or below this level.",
+                    "x-source": [{"file": "wmo", "field": "GFID"}]
                   }
                 },
                 "additionalProperties": false,
@@ -3084,34 +3205,39 @@
     "terrain_level": {
       "type": "object",
       "description": "One level of detail of a terrain tile.",
+      "x-source": [{"file": "adt_lod"}],
       "properties": {
         "surface": {
           "enum": [
             "heightfield",
             "mesh"
           ],
-          "description": "heightfield: draw the chunks (level 0, no other keys). mesh: draw the triangles below."
+          "description": "heightfield: draw the chunks (level 0, no other keys). mesh: draw the triangles below.",
+          "x-source": [{"format": true}]
         },
         "positions": {
           "$ref": "common.schema.json#/definitions/buffer_slice",
-          "description": "Vertex positions in the tile frame, f32x3, shared by every mesh level: corner (r, c) of the tile's 128 x 128 quads at index r * 129 + c, placed as chunk corners are; centre (r, c) at 16641 + r * 128 + c; then skirt vertices, copies of border corners lowered.",
-          "x-unit": "yard"
+          "description": "Vertex positions in the tile frame, f32x3, shared by every mesh level: corner (r, c) of the tile's 128 x 128 quads at index r * 129 + c, placed as chunk corners are; centre (r, c) at 16641 + r * 128 + c; then skirt vertices, copies of border corners (MLSI) lowered.",
+          "x-unit": "yard",
+          "x-source": [{"file": "adt_lod", "field": "MLVH"}, {"file": "adt_lod", "field": "MLSI"}]
         },
         "indices": {
           "$ref": "common.schema.json#/definitions/buffer_slice",
-          "description": "The surface's triangles, u32, three per triangle, covering the whole tile."
+          "description": "The surface's triangles, u32, three per triangle, covering the whole tile: the band's MLLL surface range of MLVI.",
+          "x-source": [{"file": "adt_lod", "field": "MLVI"}, {"file": "adt_lod", "field": "MLLL"}]
         },
         "skirt_indices": {
           "$ref": "common.schema.json#/definitions/buffer_slice",
-          "description": "Triangles hanging below the level's border to hide cracks where it meets a tile at another level, u32; empty on the finest mesh level."
+          "description": "Triangles hanging below the level's border, u32: the band's MLLL skirt range of MLVI; empty on the finest mesh level. They hide cracks where the level meets a tile at another level.",
+          "x-source": [{"file": "adt_lod", "field": "MLVI"}, {"file": "adt_lod", "field": "MLLL"}]
         },
         "diffuse": {
           "$ref": "common.schema.json#/definitions/texture_id",
-          "description": "The tile's baked colour, drawn over the whole tile: the image's first stored row lies at the tile corner, rows step along row_axis and columns along column_axis."
+          "description": "The tile's baked colour (WDT MAID mapTexture), drawn over the whole tile: the image's first stored row lies at the tile corner, rows step along row_axis and columns along column_axis."
         },
         "normal": {
           "$ref": "common.schema.json#/definitions/texture_id",
-          "description": "The tile's baked normal map, laid out as diffuse."
+          "description": "The tile's baked normal map (WDT MAID mapTextureN), laid out as diffuse."
         },
         "source": {
           "type": "object",
@@ -3120,7 +3246,8 @@
             "band": {
               "type": "number",
               "description": "The source's band value as stored (4, 8, 16, 32, finest first).",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"file": "adt_lod", "field": "MLLL.lod"}]
             }
           },
           "additionalProperties": false,
