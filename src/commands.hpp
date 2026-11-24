@@ -129,6 +129,10 @@ int indexTree(int argc, char** args);
 // creature catalog, from the creature DB2s and the tree's index
 // (cmd_export_creatures.cpp).
 int exportCreatures(int argc, char** args);
+// `export-appearances` -- moves the inline appearance lists of an export
+// tree's model manifests into the tree's shared appearances.json and points
+// the manifests at it (cmd_export_appearances.cpp).
+int exportAppearances(int argc, char** args);
 
 // Every struct/addXOptions pair below is the same single-source-of-truth
 // split `ExportOptions`/`addExportOptions` established: the flag surface is
@@ -368,6 +372,11 @@ struct ExportCreaturesOptions {
     std::string listfile;
 };
 void addExportCreaturesOptions(CLI::App& app, ExportCreaturesOptions& opts);
+
+struct ExportAppearancesOptions {
+    std::string tree;
+};
+void addExportAppearancesOptions(CLI::App& app, ExportAppearancesOptions& opts);
 
 struct MountOptions {
     std::string mountpoint;

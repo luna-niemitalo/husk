@@ -52,6 +52,17 @@ const nlohmann::json& referenceById(const nlohmann::json& document, const nlohma
     return entryById(document["references"], id);
 }
 
+// The appearance a model's preset points at, from the model's inline
+// appearances reference.
+const nlohmann::json& appearanceOf(const nlohmann::json& model, const nlohmann::json& preset) {
+    REQUIRE(preset.contains("appearance"));
+    const nlohmann::json& refs = model["references"];
+    auto list = std::find_if(refs.begin(), refs.end(), [](const nlohmann::json& r) { return r["kind"] == "appearances"; });
+    REQUIRE(list != refs.end());
+    REQUIRE(list->contains("document"));
+    return entryById((*list)["document"]["appearances"], preset["appearance"]);
+}
+
 // The texture of `document` a pointer names by id, from its resources.textures.
 const nlohmann::json& textureAt(const nlohmann::json& document, const nlohmann::json& id) {
     return entryById(document["resources"]["textures"], id);

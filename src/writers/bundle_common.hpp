@@ -131,6 +131,14 @@ canon::Ref subjectRef(const std::filesystem::path& file, std::optional<uint32_t>
 
 void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& subject, const Provenance& provenance);
 
+// A model's one appearances reference (REFACTOR/BUNDLE_FORMAT.md
+// "Appearances"), opened and left open after its asset: the inline form
+// (empty `uri`) continues with `document`, the external form has its uri
+// in the asset and only closes. Both forms are written here so
+// export-appearances' rewrite is byte-for-byte what the model writer
+// would write.
+void beginAppearancesReference(json::Writer& w, const std::string& uri);
+
 // A flag word as stored, lowercase hex ("0x1f").
 std::string hexFlags(uint32_t flags);
 

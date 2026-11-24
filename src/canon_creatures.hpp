@@ -37,7 +37,7 @@ struct CreatureDisplay {
     std::string id;  // stable UUID
     Ref ref;         // the source's record (CreatureDisplayInfo row)
     std::optional<uint32_t> model;   // FileDataID of the model the display dresses; one of CreatureCatalog::models
-    std::optional<uint32_t> preset;  // index into that model document's selection.presets
+    std::optional<std::string> preset;  // id of an entry of that model document's selection.presets
     std::optional<float> scale;      // the display's own scale
     std::optional<float> baseScale;  // the model data row's scale
     std::optional<int32_t> sizeClass;  // the source's size class as stored; no table names it

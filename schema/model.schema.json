@@ -576,14 +576,25 @@
         },
         "presets": {
           "type": "array",
-          "description": "Combinations of the definition's options a source is known to use, and where. A renderer may choose any other combination.",
+          "description": "Combinations of the definition's options a source is known to use, and where: a body (appearance) plus what it wears. A renderer may choose any other combination.",
           "items": {
             "type": "object",
             "description": "One known combination.",
             "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "Stable id from the model's identity and the source values of body and outfit (REFACTOR/BUNDLE_FORMAT.md \"Appearances\"); the creature catalog's displays point at it.",
+                "x-source": [{"format": true}]
+              },
+              "appearance": {
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the body: an entry of the appearances document the model's one appearances reference holds, inline or external. Absent: the body chooses nothing.",
+                "x-source": [{"format": true}]
+              },
               "textures": {
                 "type": "array",
-                "description": "Texture choices; a slot not listed keeps the layer's texture.",
+                "description": "The outfit's texture choices: a humanoid NPC's baked skin, which draws its gear in. A slot not listed keeps the layer's texture or the appearance's choice.",
+                "x-source": [{"table": "CreatureDisplayInfoExtra", "column": "HDBakeMaterialResourcesID"}, {"table": "CreatureDisplayInfoExtra", "column": "BakeMaterialResourcesID"}],
                 "items": {
                   "type": "object",
                   "description": "One choice.",
@@ -598,66 +609,31 @@
                       "type": "integer",
                       "minimum": 0,
                       "description": "Index into the slot's options."
+                    },
+                    "covers_items": {
+                      "type": "array",
+                      "description": "The items the bake was made for: its skin has their overlays drawn in. A selection that wears any other item set must composite the skin itself instead of using the bake. Empty: a bake with no gear.",
+                      "x-source": [{"table": "NpcModelItemSlotDisplayInfo", "column": "ItemDisplayInfoID"}],
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "An item.",
+                        "x-index-into": "/definition/items"
+                      }
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "slot",
-                    "option"
-                  ]
-                }
-              },
-              "shown_geosets": {
-                "type": "array",
-                "description": "Mesh geoset ids shown; every other geoset is hidden. Absent: the preset doesn't choose geosets.",
-                "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "A geoset id, group * 100 + variant."
-                }
-              },
-              "particle_colors": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The particle recolouring.",
-                "x-index-into": "/definition/particle_colors"
-              },
-              "opacity": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
-                "description": "Whole-model opacity; absent: opaque.",
-                "x-unit": "1"
-              },
-              "customization": {
-                "type": "array",
-                "description": "Customization choices the combination makes.",
-                "items": {
-                  "type": "object",
-                  "description": "One choice.",
-                  "properties": {
-                    "option": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "description": "The option.",
-                      "x-index-into": "/definition/customization/options"
-                    },
-                    "choice": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "description": "Index into that option's choices."
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
                     "option",
-                    "choice"
+                    "covers_items"
                   ]
                 }
               },
               "items": {
                 "type": "array",
-                "description": "Items the combination wears, by identity.",
+                "description": "Items the combination wears, by identity: a humanoid NPC's equipment, or the gear an `--appearance` file names (rule appearance_file).",
+                "x-source": [{"table": "NpcModelItemSlotDisplayInfo"}, {"derived": "appearance_file"}],
                 "items": {
                   "type": "object",
                   "description": "One item.",
@@ -728,12 +704,14 @@
                     "scale": {
                       "type": "number",
                       "description": "The row's own scale.",
-                      "x-unit": "1"
+                      "x-unit": "1",
+                      "x-source": [{"table": "CreatureDisplayInfo", "column": "CreatureModelScale"}]
                     },
                     "base_scale": {
                       "type": "number",
                       "description": "The model data row's scale.",
-                      "x-unit": "1"
+                      "x-unit": "1",
+                      "x-source": [{"table": "CreatureModelData", "column": "ModelScale"}]
                     },
                     "users": {
                       "type": "array",
@@ -748,7 +726,8 @@
                           "title": {
                             "type": "string",
                             "minLength": 1,
-                            "description": "The user's title (Creature Title_lang, e.g. \"Innkeeper\")."
+                            "description": "The user's title (Creature Title_lang, e.g. \"Innkeeper\").",
+                            "x-source": [{"table": "Creature", "column": "Title_lang"}]
                           }
                         },
                         "additionalProperties": false,
@@ -768,12 +747,13 @@
               },
               "unresolved": {
                 "$ref": "common.schema.json#/definitions/unresolved",
-                "description": "Source values the combination names but husk can't place in an option."
+                "description": "Outfit values the source names but husk can't place in an option (a missing display extra or bake); the body's are the appearance's.",
+                "x-source": [{"table": "CreatureDisplayInfo", "column": "ExtendedDisplayInfoID"}, {"table": "CreatureDisplayInfoExtra", "column": "BakeMaterialResourcesID"}]
               }
             },
             "additionalProperties": false,
             "required": [
-              "textures",
+              "id",
               "sources"
             ]
           }

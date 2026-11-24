@@ -252,8 +252,8 @@ TEST_CASE("husk export --appearance: an object-skin section-overlay gear entry (
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export --appearance: 'cust' entries become the preset's customization picks; one the "
-          "model's catalogs lack is the preset's unresolved") {
+TEST_CASE("husk export --appearance: 'cust' entries become the customization picks of the preset's appearance; "
+          "one the model's catalogs lack is the appearance's unresolved") {
     auto dir = defaultsDir("gearcust");
     writeCharacter(dir, "gearcust");
     std::ofstream(dir / "listfile.csv") << "9400;gearcust.m2\n";
@@ -274,12 +274,14 @@ TEST_CASE("husk export --appearance: 'cust' entries become the preset's customiz
     nlohmann::json m = parseManifest(bundle);
     nlohmann::json preset = appearancePreset(m);
     INFO(preset.dump());
-    REQUIRE(preset["customization"].size() == 2);
-    CHECK(preset["customization"][0] == nlohmann::json{{"option", 0}, {"choice", 1}});
-    CHECK(preset["customization"][1] == nlohmann::json{{"option", 1}, {"choice", 0}});
-    REQUIRE(preset["unresolved"]["fields"].size() == 1);
-    CHECK(preset["unresolved"]["fields"][0]["field"] == "ChrCustomizationChoiceID");
-    CHECK(preset["unresolved"]["fields"][0]["value"] == 404);
+    const nlohmann::json& body = appearanceOf(m, preset);
+    REQUIRE(body["customization"].size() == 2);
+    CHECK(body["customization"][0] == nlohmann::json{{"option", 0}, {"choice", 1}});
+    CHECK(body["customization"][1] == nlohmann::json{{"option", 1}, {"choice", 0}});
+    REQUIRE(body["unresolved"]["fields"].size() == 1);
+    CHECK(body["unresolved"]["fields"][0]["field"] == "ChrCustomizationChoiceID");
+    CHECK(body["unresolved"]["fields"][0]["value"] == 404);
+    CHECK_FALSE(preset.contains("unresolved"));
 
     fs::remove_all(dir);
 }

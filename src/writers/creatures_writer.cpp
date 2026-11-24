@@ -88,7 +88,10 @@ std::string creatureCatalogDocument(const canon::CreatureCatalog& catalog, const
             w.key("model");
             w.value(*modelId.at(*display.model));
         }
-        if (display.preset) writeIntField(w, "preset", *display.preset);
+        if (display.preset) {
+            w.key("preset");
+            w.value(*display.preset);
+        }
         if (display.scale) writeFloatField(w, "scale", *display.scale);
         if (display.baseScale) writeFloatField(w, "base_scale", *display.baseScale);
         if (display.sizeClass) writeIntField(w, "size_class", *display.sizeClass);

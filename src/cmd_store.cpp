@@ -616,6 +616,10 @@ int exportCorpus(int argc, char** args) {
         }
         if (code != 0) return code;
         printIndex(corpus::buildIndex(opts.output), opts.output);
+        std::vector<std::string> appearanceArgs = {opts.output};
+        std::vector<char*> appearanceArgv;
+        for (std::string& a : appearanceArgs) appearanceArgv.push_back(a.data());
+        if (int code = exportAppearances(static_cast<int>(appearanceArgv.size()), appearanceArgv.data())) return code;
         if (opts.db2Dir.empty() || opts.db2Dir == "none" || opts.dbdDir.empty() || opts.dbdDir == "none") {
             std::cout << "creatures.json: not written, it needs --db2-dir and --dbd-dir" << std::endl;
         } else {

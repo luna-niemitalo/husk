@@ -185,13 +185,28 @@ changes:
   entries have a required `id` (from the model's identity and the light's
   MNLD/MOLT/MOLS/MOLP record); a part's `lights[]` and `light_sets[][]`
   hold those ids.
+- **Presets point at appearances.** A `selection.presets[]` entry has a
+  required `id` and keeps only `appearance` (an id), the outfit's
+  `textures` (a humanoid NPC's bake; now optional), `items`, `sources`
+  and the outfit's `unresolved`. `customization`, `shown_geosets`,
+  `particle_colors`, `opacity`, a creature display's texture variations
+  and the body's `unresolved` moved into the appearance. Find it through
+  the model's one `references[]` entry of kind `appearances` (new in the
+  kind enum): `document` holds the list inline (`husk export`), or
+  `asset.uri` names the tree's shared `appearances.json` (`export-corpus`,
+  `export-appearances`); look the id up in that document's
+  `appearances[]`. Its indices are still this model's definition's. Apply
+  the appearance first, then the preset's own `textures` and `items`
+  (`BUNDLE_FORMAT.md` "Appearances").
+- **Creature display `preset` is an id.** `creatures.json` displays hold
+  the preset's `id` string instead of its index into `selection.presets`.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Creature catalog, a new document kind.** `husk export-creatures`
   (also run by `export-corpus`) writes `<tree>/creatures.json`: every
   client `Creature` row with name, title, type and family (refs with
   names), raw `classification`, and its display slots with weights; each
-  display names its model by stable id, with the preset index into that
+  display names its model by stable id, with the id of its preset in that
   model's `selection.presets` and its scale. Where creatures live is
   server data, so the catalog has no locations (`BUNDLE_FORMAT.md`
   "Creature catalogs").

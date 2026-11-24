@@ -119,11 +119,25 @@ the minified manifest, about 800 B each; the `rig` section is 48.7 MB.
 Old bodies get none: `humanmale.m2` has no ChrModel (§2) and no humanoid
 displays.
 
+Presets point at appearances (decided Luna 2026-11-24, schema 0.4.0;
+BUNDLE_FORMAT.md "Appearances"):
+- An appearance is the body: customization picks (and a creature
+  display's texture variations, geosets, particle colours, opacity). The
+  preset keeps what is worn and who wears it: bake, items, sources and
+  users. The cut falls there because the bake and gear are what separate
+  5,748 presets over 4,617 bodies on `humanmale_hd`: scrolling bodies is
+  scrolling the appearance list, with no reader-side dedup.
+- The preset's `appearance` is a plain id; the list is the model's
+  `appearances` reference, inline (`husk export`, self-contained) or
+  external (`export-appearances`/`export-corpus`: one shared
+  `appearances.json` per tree). Inline vs external is the `document` vs
+  `asset.uri` form every reference has, not a new mechanism.
+- Indices in an appearance stay the model's own. Appearances keyed by
+  ChrCustomizationChoice rows instead would be shareable across a race's
+  models (ChrModel 1 and 45 share `humanmale_hd`); not done, consumers read
+  options by index.
+
 Open on presets:
-- A preset ties appearance, gear and bake together. Scrolling appearances
-  alone means deduplicating `customization` on the reader side (4,617 of
-  5,748). A separate appearance list that presets index would state it once.
-  This is a design call.
 - Labels: built 2026-11-09. Each source lists its `users` (Creature rows,
   name and title). The client ships only 18,639 creatures, so on
   `humanmale_hd` 607 of 5,748 presets are named (955 names). Usage guide:
@@ -312,8 +326,7 @@ Each step is checkable against §10 sources before the next.
 6. Old bodies: `ChrModelAltVariant*` from Forever (later live), an explicit
    HD↔old mapping, removing the `_hd`-strip fallback's silent reuse.
 7. Skinned/conditional model elements.
-8. If Luna wants it, an appearance list that presets index (§3 "Open on
-    presets").
+8. Appearance list that presets point at: built (§3, 0.4.0).
 
 ## 12. Stale docs found while compiling this
 

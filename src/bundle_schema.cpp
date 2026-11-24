@@ -792,7 +792,66 @@ struct Validation {
         if (kind == "placement_set") checkEffectInstances(document, referenced, checker);
         if (kind == "model") checkMaterialBindings(document, referenced, checker);
         if (kind == "model") checkLevels(document, checker);
+        if (kind == "model") checkPresetAppearances(document, referenced, checker);
         return true;
+    }
+
+    // A preset's appearance is an entry of the document the model's one
+    // appearances reference holds (inline or by uri), and that entry's
+    // indices fit this model's definition: the appearances schema can't say
+    // so, because its indices index whichever model points at the entry.
+    void checkPresetAppearances(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
+        const json& refs = model["references"];
+        std::vector<size_t> lists;
+        for (size_t i = 0; i < refs.size(); ++i) {
+            if (refs[i]["kind"] == "appearances") lists.push_back(i);
+        }
+        if (lists.size() > 1) checker.fail("/references", "expected at most one appearances reference, got " + std::to_string(lists.size()));
+        const json& presets = model["selection"].value("presets", json::array());
+        bool pointing = std::any_of(presets.begin(), presets.end(), [](const json& p) { return p.contains("appearance"); });
+        if (!pointing) return;
+        if (lists.empty()) {
+            checker.fail("/selection/presets", "expected an appearances reference holding the presets' appearances, got none");
+            return;
+        }
+        const json* list = referenced[lists[0]];
+        if (!list) return;  // unexported (identity only) or failed: reported or not checkable
+        std::map<std::string, const json*> byId;
+        for (const json& entry : (*list)["appearances"]) byId.emplace(entry["id"].get<std::string>(), &entry);
+
+        const json& definition = model["definition"];
+        auto count = [&](const json* array) { return array && array->is_array() ? array->size() : size_t(0); };
+        const json* slots = definition.contains("texture_slots") ? &definition["texture_slots"] : nullptr;
+        const json* colors = definition.contains("particle_colors") ? &definition["particle_colors"] : nullptr;
+        const json* options = definition.contains("customization") ? &definition["customization"]["options"] : nullptr;
+        auto inRange = [&](const json& value, size_t size, const std::string& pointer, const char* what) {
+            if (value.get<size_t>() < size) return true;
+            checker.fail(pointer, std::string("expected an index < ") + std::to_string(size) + " into the model's " + what + ", got " + value.dump());
+            return false;
+        };
+        std::set<std::string> checked;
+        for (size_t p = 0; p < presets.size(); ++p) {
+            if (!presets[p].contains("appearance")) continue;
+            std::string id = presets[p]["appearance"];
+            std::string pointer = "/selection/presets/" + std::to_string(p) + "/appearance";
+            auto found = byId.find(id);
+            if (found == byId.end()) {
+                checker.fail(pointer, "expected the id of an entry of the appearances reference's document, got '" + id + "'");
+                continue;
+            }
+            if (!checked.insert(id).second) continue;
+            const json& entry = *found->second;
+            std::string at = pointer + " -> appearance " + id;
+            for (const json& choice : entry.value("textures", json::array())) {
+                if (!inRange(choice["slot"], count(slots), at + "/textures/slot", "texture_slots")) continue;
+                inRange(choice["option"], count(&(*slots)[choice["slot"].get<size_t>()]["options"]), at + "/textures/option", "slot's options");
+            }
+            if (entry.contains("particle_colors")) inRange(entry["particle_colors"], count(colors), at + "/particle_colors", "particle_colors");
+            for (const json& pick : entry.value("customization", json::array())) {
+                if (!inRange(pick["option"], count(options), at + "/customization/option", "customization options")) continue;
+                inRange(pick["choice"], count(&(*options)[pick["option"].get<size_t>()]["choices"]), at + "/customization/choice", "option's choices");
+            }
+        }
     }
 
     // A level chain's max_level is its last index, and mesh level 0 is the
@@ -914,7 +973,8 @@ struct Validation {
         for (size_t i = 0; i < refs.size(); ++i) {
             const json& r = refs[i];
             std::string kind = r.value("kind", "");
-            if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique") {
+            if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique" &&
+                kind != "appearances") {
                 out.push_back(nullptr);
                 continue;
             }

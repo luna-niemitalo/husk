@@ -302,7 +302,8 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         }
     }
     linkCorrectionSets(data, model);
-    std::map<std::string, size_t> presetByChoices;
+    std::map<std::string, size_t> presetByKey;
+    std::map<std::string, uint32_t> appearanceByKey;
 
     auto textureOption = [&](uint32_t slot, uint32_t fdid) {
         auto [it, added] = index.textureOption.emplace(std::pair{slot, fdid}, 0);
@@ -327,9 +328,10 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         return it->second;
     };
 
-    // A humanoid NPC: its baked skin as an option of the bake slot, and its
-    // customization choices and items by identity.
-    auto addNpcLook = [&](uint32_t extraId, canon::Preset& preset, std::string& key) {
+    // A humanoid NPC: its customization choices are the body; its baked
+    // skin (an option of the bake slot, gear drawn in) and items by
+    // identity are the outfit.
+    auto addNpcLook = [&](uint32_t extraId, canon::Appearance& body, canon::Preset& preset, std::string& key) {
         key += "x";
         auto extra = data.extras.find(extraId);
         if (extra == data.extras.end()) {
@@ -349,14 +351,14 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         }
         if (auto picks = data.customizationByExtra.find(extraId); picks != data.customizationByExtra.end()) {
             for (const creaturedisplay::CustomizationPick& pick : picks->second) {
-                key += "c" + std::to_string(pick.choice) + ";";
+                body.key += "c" + std::to_string(pick.choice) + ";";
                 auto found = index.choice.find(pick.choice);
                 if (found == index.choice.end()) {
-                    preset.unresolved.push_back(
+                    body.unresolved.push_back(
                         {"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, double(pick.choice), std::nullopt});
                     continue;
                 }
-                preset.customization.push_back(found->second);
+                body.customization.push_back(found->second);
             }
         }
         if (auto items = data.itemsByExtra.find(extraId); items != data.itemsByExtra.end()) {
@@ -369,6 +371,11 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
                 key += "i" + std::to_string(item.slot) + ":" + std::to_string(item.itemDisplayInfo) + ";";
             }
         }
+        // The bake is made for the extra's whole equipment (gear overlays
+        // drawn into the skin), so it matches only that item set.
+        if (!preset.textures.empty()) {
+            for (const canon::PresetItem& worn : preset.items) preset.bakeCovers.push_back(worn.item);
+        }
     };
 
     for (const creaturedisplay::ModelData& modelData : modelRows->second) {
@@ -376,42 +383,49 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         if (displays == data.displaysByModelData.end()) continue;
         for (const creaturedisplay::Display& display : displays->second) {
             ++report.displays;
+            canon::Appearance body;
             canon::Preset preset;
-            std::string key;
+            std::string outfitKey;
             if (display.extra != 0) {
                 ++report.humanoid;
-                addNpcLook(display.extra, preset, key);
+                addNpcLook(display.extra, body, preset, outfitKey);
             }
             for (size_t i = 0; i < display.textures.size(); ++i) {
                 uint32_t fdid = display.textures[i];
                 if (fdid == 0) continue;
-                key += "t" + std::to_string(i) + ":" + std::to_string(fdid) + ";";
+                body.key += "t" + std::to_string(i) + ":" + std::to_string(fdid) + ";";
                 uint32_t slot = slotForEntry(model.textureSlots, i);
-                preset.textures.push_back({slot, textureOption(slot, fdid)});
+                body.textures.push_back({slot, textureOption(slot, fdid)});
             }
             if (modelData.displaysPickGeosets) {
                 auto picked = data.geosetsByDisplay.find(display.id);
-                preset.shownGeosets = shownGeosets(
+                body.shownGeosets = shownGeosets(
                     meshIds, picked == data.geosetsByDisplay.end() ? std::vector<uint32_t>{} : picked->second);
-                key += "g";
-                for (uint32_t id : *preset.shownGeosets) key += std::to_string(id) + ",";
+                body.key += "g";
+                for (uint32_t id : *body.shownGeosets) body.key += std::to_string(id) + ",";
             }
             if (display.particleColorId != 0) {
-                key += "p" + std::to_string(display.particleColorId) + ";";
+                body.key += "p" + std::to_string(display.particleColorId) + ";";
                 auto colors = data.particleColors.find(display.particleColorId);
                 if (colors == data.particleColors.end()) {
-                    preset.unresolved.push_back({"ParticleColorID", canon::UnresolvedField::Kind::Id,
-                                                 double(display.particleColorId), std::nullopt});
+                    body.unresolved.push_back({"ParticleColorID", canon::UnresolvedField::Kind::Id,
+                                               double(display.particleColorId), std::nullopt});
                 } else {
-                    preset.particleColors = particleOption(display.particleColorId, colors->second);
+                    body.particleColors = particleOption(display.particleColorId, colors->second);
                 }
             }
             if (display.alpha != 255) {
-                preset.opacity = static_cast<float>(display.alpha) / 255.0f;
-                key += "a" + std::to_string(display.alpha);
+                body.opacity = static_cast<float>(display.alpha) / 255.0f;
+                body.key += "a" + std::to_string(display.alpha);
             }
 
-            auto [it, added] = presetByChoices.emplace(key, model.presets.size());
+            preset.key = body.key + "/" + outfitKey;
+            if (!body.key.empty()) {
+                auto [found, added] = appearanceByKey.emplace(body.key, static_cast<uint32_t>(model.appearances.size()));
+                if (added) model.appearances.push_back(std::move(body));
+                preset.appearance = found->second;
+            }
+            auto [it, added] = presetByKey.emplace(preset.key, model.presets.size());
             if (added) model.presets.push_back(std::move(preset));
             canon::PresetSource source{
                 canon::Ref{canon::Db2Row{"CreatureDisplayInfo", display.id}, "", canon::NameSource::None},
