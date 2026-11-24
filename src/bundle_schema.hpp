@@ -39,14 +39,14 @@ std::vector<Problem> lintSchemas();
 
 // Leaf properties of any kind's documents with no x-source, own or
 // inherited (REFACTOR/BUNDLE_FORMAT.md "Where values come from: x-source"):
-// one per schema location, sorted by it, each naming a document path that
-// reaches it. The annotation pass's worklist.
+// one per schema location, sorted by it, each naming every document path
+// that reaches it.
 std::vector<Problem> sourceGaps();
 
-// Whether a source gap fails the lint. False while the annotation pass is
-// under way: until then validate-bundle --lint-schema lists the gaps as
-// warnings and counts them per schema file.
-inline constexpr bool kSourceRequired = false;
+// Whether a source gap fails the lint (lintSchemas, lintSchemaText). Set
+// false only for a bulk annotation pass: validate-bundle --lint-schema then
+// lists the gaps as warnings and counts them per schema file.
+inline constexpr bool kSourceRequired = true;
 
 // One Markdown reference of every kind's document paths: description,
 // type, allowed values, unit, index/id targets, x-source (inherited

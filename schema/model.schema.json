@@ -29,7 +29,8 @@
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The model this document describes.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"listfile": true}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",
@@ -595,7 +596,8 @@
                   "properties": {
                     "ref": {
                       "$ref": "common.schema.json#/definitions/ref",
-                      "description": "The row."
+                      "description": "The row.",
+                      "x-source": [{"table": "CreatureDisplayInfo"}]
                     },
                     "scale": {
                       "type": "number",
@@ -617,7 +619,8 @@
                         "properties": {
                           "ref": {
                             "$ref": "common.schema.json#/definitions/ref",
-                            "description": "The user's row, with its name."
+                            "description": "The user's row, with its name.",
+                            "x-source": [{"table": "Creature"}, {"table": "Creature", "column": "Name_lang"}]
                           },
                           "title": {
                             "type": "string",

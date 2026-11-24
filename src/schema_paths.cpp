@@ -39,22 +39,6 @@ struct Located {
 
 std::string refName(const std::string& ref) { return ref.substr(ref.find_last_of('/') + 1); }
 
-// A $ref chain's end, and the first x-source met on the way: a property's
-// own x-source wins over its definition's.
-Located follow(Located at, const json*& source, std::string& name) {
-    if (at.node->contains("x-source")) source = &(*at.node)["x-source"];
-    for (int hops = 0; at.node->contains("$ref") && hops < 8; ++hops) {
-        std::string ref = (*at.node)["$ref"];
-        if (name.empty()) name = refName(ref);
-        size_t hash = ref.find('#');
-        if (hash != 0) at.stem = schemaStem(ref.substr(0, hash));
-        at.pointer = ref.substr(hash + 1);
-        at.node = &schemaFor(at.stem).at(json::json_pointer(at.pointer));
-        if (!source && at.node->contains("x-source")) source = &(*at.node)["x-source"];
-    }
-    return at;
-}
-
 std::string escapeKey(const std::string& key) {
     std::string out;
     for (char c : key) {
@@ -75,7 +59,28 @@ std::string branchLabel(const json& branch, size_t index) {
 
 struct Expander {
     std::vector<PathEntry>& out;
+    // The kind being expanded; not necessarily embedded (lintSchemaText).
+    std::string rootStem;
+    const json& root;
     std::vector<std::string> expanding;  // "<stem>#<pointer>" of the definitions on the current path
+
+    const json& schemaAt(const std::string& stem) const { return stem == rootStem ? root : schemaFor(stem); }
+
+    // A $ref chain's end, and the first x-source met on the way: a property's
+    // own x-source wins over its definition's.
+    Located follow(Located at, const json*& source, std::string& name) const {
+        if (at.node->contains("x-source")) source = &(*at.node)["x-source"];
+        for (int hops = 0; at.node->contains("$ref") && hops < 8; ++hops) {
+            std::string ref = (*at.node)["$ref"];
+            if (name.empty()) name = refName(ref);
+            size_t hash = ref.find('#');
+            if (hash != 0) at.stem = schemaStem(ref.substr(0, hash));
+            at.pointer = ref.substr(hash + 1);
+            at.node = &schemaAt(at.stem).at(json::json_pointer(at.pointer));
+            if (!source && at.node->contains("x-source")) source = &(*at.node)["x-source"];
+        }
+        return at;
+    }
 
     bool enter(const std::string& name, const std::string& key) {
         if (name.empty()) return true;
@@ -146,12 +151,14 @@ struct Expander {
     }
 };
 
-std::vector<PathEntry> documentPaths(const std::string& kind) {
+std::vector<PathEntry> documentPaths(const std::string& kind, const json& schema) {
     std::vector<PathEntry> out;
-    Expander expander{out, {}};
-    expander.children("", {kind, "", &schemaFor(kind)}, nullptr, "");
+    Expander expander{out, kind, schema, {}};
+    expander.children("", {kind, "", &schema}, nullptr, "");
     return out;
 }
+
+std::vector<PathEntry> documentPaths(const std::string& kind) { return documentPaths(kind, schemaFor(kind)); }
 
 // ---------------------------------------------------------------- rendering
 
@@ -270,19 +277,37 @@ std::string descriptionOf(const PathEntry& e) {
 
 }  // namespace
 
-std::vector<Problem> sourceGaps() {
-    std::vector<Problem> out;
-    std::set<std::string> seen;
-    for (const std::string& kind : kinds()) {
-        for (const PathEntry& e : documentPaths(kind)) {
-            // A constant's origin is the format itself.
-            if (!e.leaf || e.recursive || e.source || e.resolved->contains("const")) continue;
-            if (!seen.insert(e.where).second) continue;
-            out.push_back({e.where, "leaf property has no x-source, own or inherited (" + kind + " document path " + e.path + ")"});
-        }
+namespace internal {
+
+void collectSourceGaps(const std::string& kind, const json& schema, SourceGapPaths& gaps) {
+    for (const PathEntry& e : documentPaths(kind, schema)) {
+        // A constant's origin is the format itself.
+        if (!e.leaf || e.recursive || e.source || e.resolved->contains("const")) continue;
+        gaps[e.where].push_back(kind + " document path " + e.path);
     }
-    std::sort(out.begin(), out.end(), [](const Problem& a, const Problem& b) { return a.where < b.where; });
+}
+
+// Every path is named, not only the first: a shared definition's leaf is
+// usually fixed at each use site, and naming one site at a time hides the
+// rest until the first is annotated.
+std::vector<Problem> sourceGapProblems(const SourceGapPaths& gaps) {
+    std::vector<Problem> out;
+    for (const auto& [where, paths] : gaps) {
+        std::string listed;
+        for (const std::string& p : paths) listed += (listed.empty() ? "" : "; ") + p;
+        out.push_back({where, "leaf property has no x-source, own or inherited (" + listed +
+                                  "): annotate it, its $ref target or an enclosing property at each path "
+                                  "(REFACTOR/BUNDLE_FORMAT.md \"Where values come from: x-source\")"});
+    }
     return out;
+}
+
+}  // namespace internal
+
+std::vector<Problem> sourceGaps() {
+    SourceGapPaths gaps;
+    for (const std::string& kind : kinds()) collectSourceGaps(kind, schemaFor(kind), gaps);
+    return sourceGapProblems(gaps);
 }
 
 std::string schemaDoc() {
@@ -302,7 +327,7 @@ std::string schemaDoc() {
        << "- **Links**: `index into` an array (`x-index-into`: a bare name is a property of an enclosing object, "
           "`/...` a pointer into the document), or `id in` an array whose entries carry ids (`x-id-in`).\n"
        << "- **Source**: where the value comes from (`x-source`); \"from `p`\" when inherited from path `p`; "
-          "— when not annotated yet.\n"
+          "— when not annotated (a lint error).\n"
        << "- **Description**: what the value is (the first sentence), then *Why:* the reason it is so.\n\n";
     for (const std::string& kind : kinds()) {
         const json& schema = schemaFor(kind);

@@ -29,7 +29,8 @@
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The material.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"table": "ChrModelMaterial"}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",

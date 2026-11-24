@@ -331,12 +331,16 @@ therefore covers everything inside it that doesn't say otherwise. A
 constant needs none: its origin is the format.
 
 **Coverage.** Every leaf property (one with nothing below it) of every
-kind must resolve an `x-source`. `bundle_schema::sourceGaps()` lists the
-leaves that don't, once per schema location, with a document path that
-reaches each. Until the annotation pass is done the check is a warning:
-`husk validate-bundle --lint-schema` prints each gap and a count per schema
-file. `bundle_schema::kSourceRequired` (`bundle_schema.hpp`) turns it into
-a lint error once the count is zero.
+kind must resolve an `x-source`; one that doesn't is a lint error
+(`husk validate-bundle --lint-schema`, and the schema lint test).
+`bundle_schema::sourceGaps()` lists them, once per schema location, with
+every document path that reaches it, so a new key names where to annotate. A
+shared definition's leaves usually take their origin from the use site:
+`creatures[].source.id` annotates the `identity` it `$ref`s with
+`Creature.ID`, and that covers each `oneOf` branch's `value`, `table` and
+`row`. `bundle_schema::kSourceRequired` (`bundle_schema.hpp`) can turn the
+error back into a warning for a bulk annotation pass; the command then
+prints each gap and a count per schema file.
 
 ### Descriptions: what, then why
 

@@ -29,7 +29,8 @@
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The place.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"listfile": true}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",
@@ -299,7 +300,8 @@
       "properties": {
         "ref": {
           "$ref": "common.schema.json#/definitions/ref",
-          "description": "The Map row, named from Map.MapName_lang."
+          "description": "The Map row, named from Map.MapName_lang.",
+          "x-source": [{"table": "Map"}, {"table": "Map", "column": "MapName_lang"}]
         },
         "instance_type_name": {
           "enum": [
@@ -326,15 +328,18 @@
         },
         "parent": {
           "$ref": "common.schema.json#/definitions/ref",
-          "description": "The map this one belongs to (Map.ParentMapID), a Map row named from its MapName_lang: e.g. a phased copy's original. Absent when stored as -1."
+          "description": "The map this one belongs to (Map.ParentMapID), a Map row named from its MapName_lang: e.g. a phased copy's original. Absent when stored as -1.",
+          "x-source": [{"table": "Map", "column": "ParentMapID"}, {"table": "Map", "column": "MapName_lang"}]
         },
         "cosmetic_parent": {
           "$ref": "common.schema.json#/definitions/ref",
-          "description": "The map this one looks like (Map.CosmeticParentMapID), a Map row named from its MapName_lang. Absent when stored as -1."
+          "description": "The map this one looks like (Map.CosmeticParentMapID), a Map row named from its MapName_lang. Absent when stored as -1.",
+          "x-source": [{"table": "Map", "column": "CosmeticParentMapID"}, {"table": "Map", "column": "MapName_lang"}]
         },
         "area": {
           "$ref": "common.schema.json#/definitions/ref",
-          "description": "The map's own area (Map.AreaTableID), an AreaTable row named from AreaTable.AreaName_lang: what the client names the map's ground outside any zone. Absent when stored as 0."
+          "description": "The map's own area (Map.AreaTableID), an AreaTable row named from AreaTable.AreaName_lang: what the client names the map's ground outside any zone. Absent when stored as 0.",
+          "x-source": [{"table": "Map", "column": "AreaTableID"}, {"table": "AreaTable", "column": "AreaName_lang"}]
         },
         "source": {
           "type": "object",
