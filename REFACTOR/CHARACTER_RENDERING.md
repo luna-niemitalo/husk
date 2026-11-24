@@ -114,7 +114,8 @@ plus the bake as a `skin` slot option and the equipment as `garments` ids
 presets"). That is the large set of client-authored defaults a consumer can
 pick from or scroll through. Measured on `humanmale_hd` (2026-11-09, live
 12.1.5): 5,748 presets from 6,384 displays, 5,728 with customization, 30 with
-unresolved picks, **4,617 distinct customization sets**. They take 4.7 MB of
+unresolved picks; 4,745 distinct bodies (2026-11-24; current counts:
+BUNDLE_FORMAT.md "Appearances"). They take 4.7 MB of
 the minified manifest, about 800 B each; the `rig` section is 48.7 MB.
 Old bodies get none: `humanmale.m2` has no ChrModel (§2) and no humanoid
 displays.
@@ -125,7 +126,7 @@ BUNDLE_FORMAT.md "Appearances"):
   display's texture variations, geosets, particle colours, opacity). The
   preset keeps what is worn and who wears it: bake, items, sources and
   users. The cut falls there because the bake and gear are what separate
-  5,748 presets over 4,617 bodies on `humanmale_hd`: scrolling bodies is
+  5,748 presets over 4,745 bodies on `humanmale_hd`: scrolling bodies is
   scrolling the appearance list, with no reader-side dedup.
 - The preset's `appearance` is a plain id; the list is the model's
   `appearances` reference, inline (`husk export`, self-contained) or

@@ -636,9 +636,9 @@ own selectable piece, CANONICAL_MODEL.md "Items by identity, not slot").
 On a character model (`humanmale_hd` etc.), `selection.presets` holds one
 entry per distinct humanoid NPC look the client data defines: thousands of
 complete, Blizzard-authored appearances (`humanmale_hd`, 12.1.5: 5,748
-presets from 6,384 displays, 4,617 distinct customization sets, about
-800 B each). None is marked default and the order means nothing. Any of
-them is a real look rather than a guessed one: pick one as a starting
+presets from 6,384 displays over 4,745 bodies, "Appearances" below).
+None is marked default and the order means nothing. Any of them is a
+real look rather than a guessed one: pick one as a starting
 point, or let a user scroll through them. Creature models get the same
 list from their texture-variation displays.
 
@@ -711,17 +711,41 @@ body's look itself: it points at an **appearance**, an entry of an
   `particle_colors` and customization indices index the definition of the
   model whose preset points at it, wherever the appearance is stored.
 - **Ids from source identity.** Appearance: `nameUuid("appearance/<identity
-  key of the model>/<body key>")`, the body key being the source values in
-  source order (choice rows, texture FileDataIDs by display slot, geoset
-  ids, ParticleColor row, alpha), so renumbered options or a re-export
-  keep it. Preset: `preset/<identity key of the model>/<body key><outfit
+  key of the model>/<body key>")`, the body key being the source values
+  (choice rows ascending, texture FileDataIDs by display slot, geoset ids,
+  ParticleColor row, alpha), so renumbered options or a re-export keep
+  it. Choices are sorted because extras list one choice set in different
+  `CreatureDisplayInfoOption` row orders, and an `--appearance` string in
+  any `cust` order; `customization` is written in that order too. Preset: `preset/<identity key of the model>/<body key><outfit
   key>` (bake FileDataID, item rows by slot); an `--appearance` preset adds
   the appearance string. Presets get ids because a character model holds
   thousands, and the creature catalog points at them.
-- **Dedup**: one appearance per distinct body per model. `humanmale_hd`
-  (12.1.5): 5,748 presets over 4,617 distinct customization sets, so the
-  body list is stated once and scrolling bodies needs no reader-side
-  dedup.
+- **Dedup**: one appearance per distinct body per model, so the body list
+  is stated once and scrolling bodies needs no reader-side dedup.
+  Measured on live 12.1.5 (2026-11-24):
+
+  | model | displays | presets | presets with a body | appearances |
+  |---|---|---|---|---|
+  | `wolf` | 71 | 15 | 15 | 15 |
+  | `humanmale_hd` (ChrModel 1) | 6,384 | 5,748 | 5,747 | 4,745 |
+  | `humanfemale_hd` (ChrModel 2) | 3,976 | 3,646 | 3,645 | 3,104 |
+
+  A creature display's preset is its body, so wolf's counts match; on the
+  human models bake and garments split one body into several presets
+  (1.2 presets per body). Every appearance is pointed at, no two have
+  equal content, and the bodies' `unresolved` is only
+  `ChrCustomizationChoiceID` (`humanmale_hd`: 26 bodies, 18 of them with
+  no choice resolved; which catalog those rows belong to is unchecked).
+  The garments
+  bodies wear: `humanmale_hd` 5,743 bakes, each one's `covers_garments`
+  equal to its preset's `garments`, all 39,348 ids resolving in the
+  model's 13,021 garments; `humanfemale_hd` 3,640 bakes, 25,199 ids,
+  9,994 garments. A tree of these three plus two pvpzone04 doodads
+  (`export-appearances`): 7,866 shared entries, the sum of the five
+  lists; per model the same ids and bodies as inline.
+- **Determinism** (2026-11-24, the three models above): two exports are
+  byte-identical, two `export-appearances` runs over copies of one tree
+  are, and a rerun over the external tree changes no byte.
 
 **The reference.** Presets reach their appearances through the model's
 one `references` entry of kind `appearances`, the same `reference` shape
