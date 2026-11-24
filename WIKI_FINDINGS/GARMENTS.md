@@ -216,22 +216,39 @@ results `sample_result.csv`).
   the footprint is the thigh area itself and cannot tell a painted hem from
   trousers.
 
+## The body's own hem: geoset 1102 — measured on humanfemale_hd
+
+Group 13 holds no hem, but group 11 does (Luna found it in Blender on an
+export of transmog set 3540, Peculiar Peddler's Breeches, display 676797):
+
+- **1102 is a short hem flare under the belt**: 148 triangles, z 0.947 to
+  1.153 on humanfemale_hd, UV rows 448–508 (the top 60 rows of LegUpper),
+  `husk uv-footprint --layout-id 104 --geoset 1102`. Masks:
+  `/media/luna/work/cache/husk_garments/png/humanfemale_hem/`.
+- **The legs item switches it on**, not the chest: legs
+  `GeosetGroup[0]` = 1 → 1102, on 89 legs displays (value 0, none: 3,445;
+  3 → 1104: 620; 4 → 1105: 199). So the hem mesh ships with the trousers
+  and the hem's paint is the top band of the legs item's LegUpper texture;
+  in set 3540 the tunic paints no leg section at all.
+- **Its pixels are also the thigh mesh's top band**: 1301's footprint
+  (rows 448–703) contains all of 1102's (overlap 30,120 px of 30,120). The
+  thigh vertices on those rows sit at the waist, under the hem's flare, so
+  the repeat never shows while the hem is worn (Luna saw none).
+- 1104 (z 0.605–1.153) and 1105 resample the thigh footprint (1104 ∩ 1301 =
+  all of 1301): knee-length shapes, not a hem; not yet looked at.
+
 ## What this means for `REFACTOR/GARMENTS.md` stage 2
 
-- Its premise, "the hem is its own mesh whose UVs sample a fixed area of
-  the composite", does not hold for any playable body model in 12.1.5. The
-  only group-13 meshes are full-length skirts (1302, 1303) that resample
-  the thigh and calf areas, plus 1301, which is a thigh variant.
-- So the hem mesh's UV footprint cannot cut a hem out of a legs texture:
-  it is all of LegUpper below the belt rows plus LegLower, the same pixels
-  the thighs show. A hem painted by a legs item is visible on the thighs
-  whatever is worn, which matches what the hem-in-trousers items look like.
-- Disjointness (decision 4): the skirt and the thigh footprints coincide
-  rather than being disjoint. They are never both visible in one place,
-  since a skirt covers the thighs, so no texture repeats on screen; but
-  "nothing needs to be painted in under a removed hem" has no footing,
-  because there is no separate hem area to remove.
-- A modern hem lives on the item's own model, not the body: next section.
+- Its premise holds, with group 11 instead of 13: the hem is a body mesh
+  (1102) whose UVs sample a fixed band of the composite, rows 448–508.
+  That footprint cuts the hem out of a legs texture exactly.
+- Disjointness (decision 4) does not hold: the thigh mesh's top band reads
+  the same rows. With the hem removed, that band (at the waist, under the
+  belt) shows the hem's paint unless it is masked out; what the leggings
+  look like there was never drawn.
+- The group-13 meshes are robe skirts (1302, 1303) and a thigh variant
+  (1301), never hems (Luna confirms robes hide the thighs).
+- Modern item-model hems (next section) are a second, separate case.
 
 ## Item models (collection models) — data, slot rule ref
 
