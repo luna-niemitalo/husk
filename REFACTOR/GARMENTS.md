@@ -1,7 +1,6 @@
 # Garments: what a body wears, independent of source item slots
 
-**Status: proposal (2026-11-24), awaiting Luna's decisions at the end.
-Nothing here exists yet.** Replaces the model's `definition.items`,
+**Status: design approved (Luna, 2026-11-24); not built yet.** Replaces the model's `definition.items`,
 `selection.equipped` and `presets[].items` in schema 0.4.0.
 
 ## The problem
@@ -54,7 +53,32 @@ source numbers for each live under its `source`.
 | **Body region** | An area of the body's composited skin texture: `arm_upper`, `arm_lower`, `hand`, `torso_upper`, `torso_lower`, `leg_upper`, `leg_lower`, `foot` (plus head/scalp regions). The definition gives each region's rectangle in the composite. | `CharComponentTextureSections` (SectionType + rect per layout) — **data** |
 | **Body part** | A swappable piece of body mesh, with variants: `sleeve`, `glove_cuff`, `boot_shaft`, `boot_foot`, `knee`, `thigh`, `skirt`, `tabard`, `belt`, `chest`, … | geoset group number. The names come from our own visual read (`WIKI_FINDINGS/M2.md` table); a group not yet read keeps a neutral name `group_<n>` until it is. |
 | **Attachment point** | Where a rigid model hangs: `head`, `shoulder_left`, `shoulder_right`, `back`, `hand_right`, `hand_left`, `hip_left`, … | `M2Attachment` id (**ref**, wiki table) |
-| **Layer** | Stacking order, an ordered set: `skin` < `underwear` < `base` (shirt, leggings, socks) < `mid` (tunic, robe, dress, skirt) < `outer` (tabard, belt, bracers over sleeves, gloves) < `over` (cloak, pauldrons, helm) | none: derived per garment kind (rule `garment_layer`), overridable by authoring |
+| **Layer** | Stacking order: a named layer plus an integer `order` within it (default 0). Layers, bottom up: `skin` < `underwear` < `base` (shirt, leggings, socks) < `mid` (tunic, robe, dress, skirt, trousers, overalls) < `outer` (tabard, belt, bracers over sleeves, gloves, boots) < `over` (cloak, pauldrons, helm) | none: derived per garment kind (rule `garment_layer`), overridable by authoring |
+
+Kinds are open strings. The schema carries a validated list of preset
+kinds (`tunic`, `robe`, `leggings`, `skirt`, `boots`, …) and the default
+layer of each. A kind outside that list, or a layer or order that differs
+from the kind's default, is a warning:
+
+- Declared on purpose (`"deviates": true` on the garment): reported as a
+  known warning.
+- Not declared: an unexpected warning. Something upstream is wrong (a
+  misclassified item, a typo).
+
+**Order within a layer.** Garments of one layer stack by `order`, lower
+first. Overalls and trousers both sit in `mid` and both cover the thighs.
+`mid -1` overalls under `mid 0` trousers, or the reverse, is a stated
+choice rather than an accident of slot. A boot is `outer`, so it sits over
+both whatever their order.
+
+**Conflicts are reported, not guessed.** Among the garments a selection
+wears, any group of two or more that share a layer *and* an order, and
+overlap in coverage (a body region's pixels, or a body part's geometry), is
+a conflict. Any number of garments can be in one conflict. The validator
+(`validate-bundle`, and a `husk garments-check <selection>` report) lists
+each conflict with its garments and the regions or parts they fight over.
+A consumer resolves it by giving one of them another order; the format
+never picks silently.
 
 ## Document shape (sketch)
 
@@ -68,8 +92,10 @@ references it inline or externally, exactly like `appearances`.
   "garments": [{
     "id": "<uuid>",
     "name": { "text": "Defias Tunic", "name_source": "source_item" },
-    "kind": "tunic",                       // open vocabulary, recommended list in the schema
+    "kind": "tunic",                       // open string; validated preset list in the schema
     "layer": "mid",
+    "order": 0,                            // within the layer; default 0
+    // "deviates": true                    // kind/layer/order off the preset on purpose
     "covers": ["torso_upper", "torso_lower", "arm_upper", "leg_upper"],
     "pieces": [
       { "overlay":  { "region": "torso_upper", "texture": "<texture id>" },
@@ -77,7 +103,7 @@ references it inline or externally, exactly like `appearances`.
       { "overlay":  { "region": "leg_upper", "texture": "<texture id>",
                       "mask": "<texture id>" },          // the hem cut out of the legs texture
         "source":   { "item": "<legs source item id>", "section": 5 },
-        "x-derived": "hem_split" },
+        "x-derived": "hem_uv_footprint" },
       { "geometry": { "part": "sleeve", "variant": 2 },
         "source":   { "item": "<source item id>", "geoset_group": 8, "value": 1 } },
       { "geometry": { "part": "skirt", "variant": 1 } , "source": { … } }
@@ -156,32 +182,35 @@ Which geoset group each slot's `GeosetGroup[n]` drives is **ref** (WMV
 real models before the rules ship. Every stage-1 garment records its rule,
 as `x-source {derived: garment_split}`.
 
-### Stage 2: pixel-level splits (the hem in the legs texture)
+### Stage 2: the hem in the legs texture, from the body model's geometry
 
-DB2 data can't say which pixels of a legs item's `LegUpper` texture are a
-tunic hem. The format is ready for it in 0.4.0: masks, plus pieces that
-move between garments. How the masks get made:
+The DB2 tables can't say which pixels of a legs item's `LegUpper` texture
+are a tunic hem, but the body model can. The hem is its own mesh: the body
+model's skirt/hem geoset variants (group 13). That mesh's UVs sample a fixed
+area of the composite skin texture. Every tunic Luna has looked at paints
+its hem into exactly that area. So:
 
-1. **Authored first**: a mask drawn in the Blender addon or as a mask file,
-   with provenance `{authored: …}`. This is exact, but it is manual.
-2. **Detected later, as a research track**, with a heuristic and evidence:
-   - The candidates are a legs item and a chest item of the same set
-     (`TransmogSet` / `ItemSet` / shared ItemAppearance naming).
-   - The hem is the band of the legs texture's `LegUpper` that continues
-     the chest's `TorsoLower` across the waist seam (colour/pattern
-     continuity) and differs from the legs' own `LegLower` material.
-   - Before it is trusted: measured on a seeded sample against hand-made
-     masks, with renders against in-game screenshots. It is labelled
-     `{derived: hem_split}` with its confidence.
-3. The hem piece moves to the tunic from the same set. If no tunic is
-   identified, it becomes a `hem` garment of its own: still separable from
-   the leggings, just not yet joined to a tunic.
+1. **The hem mask is the hem mesh's UV footprint.** Rasterize the hem
+   geoset's triangles in UV space, once per body model and hem variant, and
+   intersect the result with each region's rectangle. That gives the mask.
+   It is computed from model data, so it is exact and automatic, labelled
+   `{derived: hem_uv_footprint}`. A one-off look in Blender with a tunic
+   texture loaded confirms it per body model; it isn't a manual step per
+   item.
+2. **Splitting a legs item:** the `LegUpper`/`LegLower` pixels inside the
+   footprint form the hem piece, and the rest stay with the leggings. Both
+   pieces keep the legs item as their source, so the split loses nothing.
+3. The hem piece joins the tunic from the same set (`TransmogSet` /
+   `ItemSet`). If no tunic is identified, it becomes a `hem` garment of its
+   own: still separable from the leggings, just not yet joined to a tunic.
+4. Masks authored in the Blender addon (`{authored: …}`) remain possible,
+   for a body model whose footprint turns out wrong.
 
-**What shows under a removed hem.** The source never drew the leggings
-under the hem. The default is honest: the masked area shows whatever is
-below (body skin, underwear, another garment). An optional `underpaint`
-piece can fill it in, authored or inpainted, flagged `synthesized: true` so
-a consumer knows the source never drew it.
+**What shows under a removed hem.** The hem is a separate mesh. Without it,
+the thigh mesh underneath shows whatever the character wears there
+(leggings, trousers, skin), so nothing needs to be painted in. This holds
+only if the hem's UV footprint and the thigh mesh's footprint don't
+overlap; see the evidence list below.
 
 ## Bakes
 
@@ -203,25 +232,30 @@ means compositing from the pieces instead.
   only tests. The gear an `--appearance` file names already goes to
   `presets[].items`. Under this design it becomes `presets[].garments`.
 
-## Decisions for Luna
+## Decisions (Luna, 2026-11-24)
 
-1. **Garment `kind`: open string or closed enum?** Recommend open, with a
-   recommended list in the schema description. New kinds then need no
-   schema bump.
-2. **Layer: a named ordered set (above) or a number?** Recommend named.
-   Names read better and an authoring tool can't produce ties.
-3. **Hem split order: authored masks in 0.4.0 and detection as a later
-   research track?** Recommend yes. The format carries masks from day one,
-   and detection fills them in later, which is an additive change.
-4. **Under a removed hem: show what's below by default, optional
-   synthesized `underpaint`?** Recommend yes.
-5. **Pairs (pauldrons, gloves, bracers): one garment with sided pieces,
-   wearable per side?** Recommend yes.
+1. **`kind`** is an open string. A validated preset list is the default,
+   and anything off it warns. A deviation declared on purpose is a known
+   warning; an undeclared one flags that something upstream is wrong.
+2. **Layer** is named, with an integer `order` within it, and conflicts
+   are reported across any number of garments (above).
+3. **Hem masks** are in 0.4.0, made from the hem mesh's UV footprint
+   (stage 2).
+4. **Under a removed hem**: whatever is worn below. The hem is its own
+   mesh, so no fill is needed.
+5. **Pairs** are one garment with sided pieces, wearable per side.
 
-## Evidence still needed before stage 1 ships
+## Evidence still needed before it ships
 
-- The slot → geoset-group table on 2+ races (**ref** today).
-- Region rectangles per texture layout from `CharComponentTextureSections`
+- The slot → geoset-group table, on 2+ races (**ref** today).
+- Region rectangles per texture layout, from `CharComponentTextureSections`
   (**data**, not yet read).
-- How many chest items carry `LegUpper` / `LegLower` overlays, and how many
-  legs items carry a skirt geoset: a corpus count that sizes stage 2.
+- The hem geoset's UV footprint per body model:
+  - Is it inside `LegUpper`/`LegLower`, and disjoint from the thigh mesh's
+    footprint (decision 4 depends on that)?
+  - Is it the same across hem variants?
+- Corpus counts:
+  - chest items with `LegUpper`/`LegLower` overlays;
+  - legs items with a skirt geoset;
+  - legs textures with non-empty pixels inside the hem footprint (the
+    hem-in-trousers cases).
