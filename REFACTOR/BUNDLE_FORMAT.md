@@ -285,6 +285,20 @@ Several origins mean the value combines them, or comes from whichever one
 the source has. The lint rejects any other form, an unknown file kind or a
 rule that isn't snake_case.
 
+Rules the model kind names (`schema/model.schema.json`):
+
+| Rule | What husk computes |
+|---|---|
+| `always_on_set` | An owned placement set is always on when it is a WMO's first doodad set (MODS[0], additive by WMO.md), an M2's effects set, or either of a terrain tile's two sets (its own content). |
+| `m2_effect_set` | An M2's ribbon and particle emitters placed as one owned set, `effects`, on their anchor joints. |
+| `structural_bone_label` | A label for every joint from its place in the hierarchy (`canon_bone_naming.hpp`): unique, deterministic, with a mirror axis checked against real skeletons. |
+| `layer_role` | M2: `env` for an environment-mapped layer, else its M2Texture.type's wiki name, else `diffuse` for a batch's first layer and `unknown` after it. WMO: `diffuse` for the shader's base unit (t0; t1 for shader 23, t2 for 22), `unknown` for the rest. A material's `diffuse_layer` is the layer this calls diffuse. |
+| `wmo_layer_uv` | The uv set a WMO shader samples texture unit n with: set n, except shader 23 (t0 environment-mapped, layer i at set i - 1) and 22 (t1 environment-mapped, the others by its parallax table) (WMO.md "Shader types"). |
+| `wmo_liquid_type` | The LiquidType row of a WMO group's MLIQ by WMO.md "how to determine LiquidTypeRec to use": MOGP groupLiquid under the root's MOHD flag 0x4 (basic types 1-20 mapped to the WMO water/ocean/magma/slime rows), legacy green lava (15) by its tiles' liquid nibbles; undecided when the rules give no row. |
+| `texture_slot_name` | A texture slot's name: the wiki's name for its M2 texture type (`monster_1`, `skin`, ...), `type_<n>` for a type without one, `variation_4` for CreatureDisplayInfo's fourth texture variation, which no type takes. |
+| `component_file_pick` | The one file of a ModelFileData/TextureFileData resource the wearer draws: by ComponentModelFileData/ComponentTextureFileData race, sex and side tags, with the race's model fallbacks (ChrRaces); unresolved with a reason when the wearer is unknown, several files fit equally, or none fits. |
+| `appearance_file` | Values read from the `--appearance` file the export was given (chosen customization choices, gear slot tokens), not from the client's files. |
+
 **Inheritance.** A property without its own `x-source` takes its `$ref`
 target's (the use site's wins when both have one), else the nearest
 annotated ancestor's along the document path, across `$ref`s, array

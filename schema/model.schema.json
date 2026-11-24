@@ -47,7 +47,8 @@
       "properties": {
         "placement_sets": {
           "type": "array",
-          "description": "Placement sets this model owns: furniture, decorations, anything it places. Order is identity: selections index this list.",
+          "description": "Placement sets this model owns, furniture, decorations, anything it places: a WMO's doodad sets (MODS), a terrain tile's doodads (MDDF) and map objects (MODF), an M2's effects (rule m2_effect_set). Order is identity: selections index this list.",
+          "x-source": [{"file": "wmo", "field": "MODS"}, {"file": "adt_obj0", "field": "MDDF"}, {"file": "adt_obj0", "field": "MODF"}, {"derived": "m2_effect_set"}],
           "items": {
             "type": "object",
             "description": "One owned set.",
@@ -60,12 +61,14 @@
               },
               "always_on": {
                 "type": "boolean",
-                "description": "Shown wherever the model is placed, regardless of selection."
+                "description": "Shown wherever the model is placed, regardless of selection: a WMO's first doodad set, an M2's effects and both of a terrain tile's sets (rule always_on_set).",
+                "x-source": [{"derived": "always_on_set"}]
               },
               "instance_count": {
                 "type": "integer",
                 "description": "Number of instances in the set.",
-                "minimum": 0
+                "minimum": 0,
+                "x-source": [{"format": true}]
               }
             },
             "additionalProperties": false,
@@ -78,14 +81,16 @@
         },
         "texture_slots": {
           "type": "array",
-          "description": "Textures the model takes from outside. A layer reading a slot has its own texture as a default; any option may replace it, whether or not the source ever used it on this model. A slot no layer reads still lists its options.",
+          "description": "Textures the model takes from outside: one slot per distinct non-zero M2Texture.type, plus each CreatureDisplayInfo texture variation entry that fills a type the model lacks. A layer reading a slot has its own texture as a default; any option may replace it, whether or not the source ever used it on this model. A slot no layer reads still lists its options.",
+          "x-source": [{"file": "m2", "field": "M2Texture.type"}, {"table": "CreatureDisplayInfo", "column": "TextureVariationFileDataID"}],
           "items": {
             "type": "object",
             "description": "One slot.",
             "properties": {
               "name": {
                 "type": "string",
-                "description": "The slot, e.g. monster_1."
+                "description": "The slot, e.g. monster_1: the wiki's name for its texture type, type_<n> for an unnamed one, variation_4 for the fourth variation entry.",
+                "x-source": [{"derived": "texture_slot_name"}]
               },
               "source": {
                 "type": "object",
@@ -94,7 +99,8 @@
                   "texture_type": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "The source's replaceable texture type (M2 texture type)."
+                    "description": "The source's replaceable texture type (M2 texture type; TextureVariationFileDataID[i] fills type 11 + i).",
+                    "x-source": [{"file": "m2", "field": "M2Texture.type"}]
                   }
                 },
                 "additionalProperties": false,
@@ -104,11 +110,13 @@
               },
               "inferred_from": {
                 "type": "string",
-                "description": "How husk tied the slot to the model when the source doesn't state it; absent: stated by the source."
+                "description": "How husk tied the slot to the model when the source doesn't state it; absent: stated by the source.",
+                "x-source": [{"format": true}]
               },
               "options": {
                 "type": "array",
-                "description": "Textures the slot may hold.",
+                "description": "Textures the slot may hold: the texture variations of the model's CreatureDisplayInfo rows, and a humanoid NPC's baked skin (CreatureDisplayInfoExtra HDBakeMaterialResourcesID or BakeMaterialResourcesID, by TextureFileData) on the slot of the model's lowest texture type.",
+                "x-source": [{"table": "CreatureDisplayInfo", "column": "TextureVariationFileDataID"}, {"table": "CreatureDisplayInfoExtra", "column": "HDBakeMaterialResourcesID"}, {"table": "CreatureDisplayInfoExtra", "column": "BakeMaterialResourcesID"}, {"table": "TextureFileData", "column": "FileDataID"}],
                 "items": {
                   "$ref": "common.schema.json#/definitions/texture_id",
                   "description": "One option."
@@ -130,18 +138,21 @@
         },
         "particle_colors": {
           "type": "array",
-          "description": "Ways to recolour the model's particles; any may be chosen.",
+          "description": "Ways to recolour the model's particles, each ParticleColor row its CreatureDisplayInfo rows name (ParticleColorID), once; any may be chosen.",
+          "x-source": [{"table": "ParticleColor"}, {"table": "CreatureDisplayInfo", "column": "ParticleColorID"}],
           "items": {
             "type": "object",
             "description": "One recolouring.",
             "properties": {
               "ref": {
                 "$ref": "common.schema.json#/definitions/ref",
-                "description": "The source row."
+                "description": "The source row.",
+                "x-source": [{"table": "ParticleColor"}]
               },
               "ramps": {
                 "type": "array",
-                "description": "Ramp i recolours emitters whose particle_color_index is 11 + i.",
+                "description": "Ramp i recolours emitters whose particle_color_index is 11 + i: the row's Start[i], MID[i] and End[i], ARGB as stored.",
+                "x-source": [{"table": "ParticleColor", "column": "Start"}, {"table": "ParticleColor", "column": "MID"}, {"table": "ParticleColor", "column": "End"}],
                 "items": {
                   "type": "object",
                   "description": "One ramp over a particle's life.",
@@ -149,17 +160,20 @@
                     "start": {
                       "$ref": "common.schema.json#/definitions/rgba",
                       "description": "At birth.",
-                      "x-unit": "1"
+                      "x-unit": "1",
+                      "x-source": [{"table": "ParticleColor", "column": "Start"}]
                     },
                     "mid": {
                       "$ref": "common.schema.json#/definitions/rgba",
                       "description": "At mid life.",
-                      "x-unit": "1"
+                      "x-unit": "1",
+                      "x-source": [{"table": "ParticleColor", "column": "MID"}]
                     },
                     "end": {
                       "$ref": "common.schema.json#/definitions/rgba",
                       "description": "At death.",
-                      "x-unit": "1"
+                      "x-unit": "1",
+                      "x-source": [{"table": "ParticleColor", "column": "End"}]
                     }
                   },
                   "additionalProperties": false,
@@ -180,18 +194,21 @@
         },
         "items": {
           "type": "array",
-          "description": "Items the model can wear, by identity, and what each draws when resolved.",
+          "description": "Items the model can wear, by identity, and what each draws when resolved: NPC equipment (NPCModelItemSlotDisplayInfo) or --appearance gear (ItemModifiedAppearance, through ItemAppearance to ItemDisplayInfo).",
+          "x-source": [{"table": "NPCModelItemSlotDisplayInfo", "column": "ItemDisplayInfoID"}, {"table": "ItemModifiedAppearance"}, {"table": "ItemAppearance", "column": "ItemDisplayInfoID"}],
           "items": {
             "type": "object",
             "description": "One item.",
             "properties": {
               "ref": {
                 "$ref": "common.schema.json#/definitions/ref",
-                "description": "The item: an ItemDisplayInfo row (NPC equipment) or an ItemModifiedAppearance row (--appearance gear)."
+                "description": "The item: an ItemDisplayInfo row (NPC equipment) or an ItemModifiedAppearance row (--appearance gear).",
+                "x-source": [{"table": "ItemDisplayInfo"}, {"table": "ItemModifiedAppearance"}]
               },
               "models": {
                 "type": "array",
-                "description": "The item's own models, one per model position, each the file the wearer's race and sex draw.",
+                "description": "The item's own models, one per non-zero ItemDisplayInfo.ModelResourcesID, each the ModelFileData file the wearer's race and sex draw (rule component_file_pick).",
+                "x-source": [{"table": "ItemDisplayInfo", "column": "ModelResourcesID"}, {"table": "ModelFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}],
                 "items": {
                   "type": "object",
                   "description": "One model position.",
@@ -200,7 +217,8 @@
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 1,
-                      "description": "ItemDisplayInfo.ModelResourcesID index; on shoulders 0 is the left model, 1 the right."
+                      "description": "ItemDisplayInfo.ModelResourcesID index; on shoulders 0 is the left model, 1 the right.",
+                      "x-source": [{"table": "ItemDisplayInfo", "column": "ModelResourcesID"}]
                     },
                     "model": {
                       "$ref": "common.schema.json#/definitions/asset_ref",
@@ -208,7 +226,8 @@
                     },
                     "unresolved_reason": {
                       "type": "string",
-                      "description": "Why no file was picked: the wearer is unknown, several files fit equally, or none fits."
+                      "description": "Why no file was picked: the wearer is unknown, several files fit equally, or none fits.",
+                      "x-source": [{"derived": "component_file_pick"}]
                     }
                   },
                   "additionalProperties": false,
@@ -231,7 +250,8 @@
               },
               "textures": {
                 "type": "array",
-                "description": "Textures the item's models take (ItemDisplayInfoModelMatRes).",
+                "description": "Textures the item's models take (ItemDisplayInfoModelMatRes), each the TextureFileData file of its MaterialResourcesID the wearer draws.",
+                "x-source": [{"table": "ItemDisplayInfoModelMatRes"}, {"table": "TextureFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}],
                 "items": {
                   "type": "object",
                   "description": "One texture.",
@@ -239,13 +259,15 @@
                     "texture_type": {
                       "type": "integer",
                       "minimum": 0,
-                      "description": "The item model's M2 texture type it fills."
+                      "description": "The item model's M2 texture type it fills.",
+                      "x-source": [{"table": "ItemDisplayInfoModelMatRes", "column": "TextureType"}]
                     },
                     "model_position": {
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 1,
-                      "description": "The model position (models[].position) whose model it textures."
+                      "description": "The model position (models[].position) whose model it textures.",
+                      "x-source": [{"table": "ItemDisplayInfoModelMatRes", "column": "ModelIndex"}]
                     },
                     "texture": {
                       "$ref": "common.schema.json#/definitions/texture_id",
@@ -262,7 +284,8 @@
               },
               "overlays": {
                 "type": "array",
-                "description": "Textures the item draws onto the wearer's body sections (ItemDisplayInfoMaterialRes).",
+                "description": "Textures the item draws onto the wearer's body sections (ItemDisplayInfoMaterialRes), each the TextureFileData file of its MaterialResourcesID the wearer draws.",
+                "x-source": [{"table": "ItemDisplayInfoMaterialRes"}, {"table": "TextureFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}],
                 "items": {
                   "type": "object",
                   "description": "One overlay.",
@@ -270,7 +293,8 @@
                     "component_section": {
                       "type": "integer",
                       "minimum": 0,
-                      "description": "The body section, CharComponentTextureSections.SectionType."
+                      "description": "The body section, CharComponentTextureSections.SectionType.",
+                      "x-source": [{"table": "ItemDisplayInfoMaterialRes", "column": "ComponentSection"}]
                     },
                     "texture": {
                       "$ref": "common.schema.json#/definitions/texture_id",
@@ -297,34 +321,41 @@
           "properties": {
             "options": {
               "type": "array",
-              "description": "Options in display order.",
+              "description": "Options in display order: the ChrCustomizationOption rows of each ChrModel whose DisplayID draws this model file.",
+              "x-source": [{"table": "ChrCustomizationOption"}, {"table": "ChrModel", "column": "DisplayID"}],
               "items": {
                 "type": "object",
                 "description": "One option.",
                 "properties": {
                   "ref": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The option."
+                    "description": "The option, named from ChrCustomizationOption.Name_lang.",
+                    "x-source": [{"table": "ChrCustomizationOption"}, {"table": "ChrCustomizationOption", "column": "Name_lang"}]
                   },
                   "chr_model": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The character model the option belongs to: a ChrModel row, named \"<race> <sex>\" (e.g. \"Human male\") from the ChrRaceXChrModel rows that use it: the ChrRaces.Name_lang of the lowest race row with a name (NPC placeholder races share the playable races' models), then ChrRaceXChrModel.Sex (0 male, 1 female; left off when the races disagree or the value is neither). Unnamed when no race uses the model. Lets a reader tell which body a customization catalog is for without the race tables."
+                    "description": "The character model the option belongs to: a ChrModel row (ChrCustomizationOption.ChrModelID), named \"<race> <sex>\" (e.g. \"Human male\") from the ChrRaceXChrModel rows that use it, the ChrRaces.Name_lang of the lowest race row with a name (NPC placeholder races share the playable races' models), then ChrRaceXChrModel.Sex (0 male, 1 female; left off when the races disagree or the value is neither); unnamed when no race uses the model. The name lets a reader tell which body a customization catalog is for without the race tables.",
+                    "x-source": [{"table": "ChrCustomizationOption", "column": "ChrModelID"}, {"table": "ChrRaceXChrModel"}, {"table": "ChrRaces", "column": "Name_lang"}]
                   },
                   "order": {
                     "type": "integer",
-                    "description": "Display order."
+                    "description": "Display order.",
+                    "x-source": [{"table": "ChrCustomizationOption", "column": "OrderIndex"}]
                   },
                   "category": {
                     "type": "object",
-                    "description": "The category the option is listed under; absent when the option has none (CategoryID 0).",
+                    "description": "The category the option is listed under (ChrCustomizationOption.ChrCustomizationCategoryID); absent when the option has none (CategoryID 0).",
+                    "x-source": [{"table": "ChrCustomizationCategory"}],
                     "properties": {
                       "ref": {
                         "$ref": "common.schema.json#/definitions/ref",
-                        "description": "The category."
+                        "description": "The category, named from ChrCustomizationCategory.CategoryName_lang.",
+                        "x-source": [{"table": "ChrCustomizationOption", "column": "ChrCustomizationCategoryID"}, {"table": "ChrCustomizationCategory", "column": "CategoryName_lang"}]
                       },
                       "order": {
                         "type": "integer",
-                        "description": "Display order."
+                        "description": "Display order.",
+                        "x-source": [{"table": "ChrCustomizationCategory", "column": "OrderIndex"}]
                       }
                     },
                     "additionalProperties": false,
@@ -335,32 +366,38 @@
                   },
                   "choices": {
                     "type": "array",
-                    "description": "Valid choices for the option.",
+                    "description": "Valid choices for the option: its ChrCustomizationChoice rows (ChrCustomizationOptionID), resolved through their ChrCustomizationElement rows.",
+                    "x-source": [{"table": "ChrCustomizationChoice", "column": "ChrCustomizationOptionID"}, {"table": "ChrCustomizationElement"}],
                     "items": {
                       "type": "object",
                       "description": "One choice.",
                       "properties": {
                         "ref": {
                           "$ref": "common.schema.json#/definitions/ref",
-                          "description": "The choice."
+                          "description": "The choice, named from ChrCustomizationChoice.Name_lang.",
+                          "x-source": [{"table": "ChrCustomizationChoice"}, {"table": "ChrCustomizationChoice", "column": "Name_lang"}]
                         },
                         "order": {
                           "type": "integer",
-                          "description": "Display order."
+                          "description": "Display order.",
+                          "x-source": [{"table": "ChrCustomizationChoice", "column": "OrderIndex"}]
                         },
                         "geoset_id": {
                           "type": "integer",
-                          "description": "Mesh geoset the choice shows; group * 100 + variant."
+                          "description": "Mesh geoset the choice shows, group * 100 + variant: its element's ChrCustomizationGeoset GeosetType * 100 + GeosetID.",
+                          "x-source": [{"table": "ChrCustomizationElement", "column": "ChrCustomizationGeosetID"}, {"table": "ChrCustomizationGeoset", "column": "GeosetType"}, {"table": "ChrCustomizationGeoset", "column": "GeosetID"}]
                         },
                         "correction_set": {
                           "type": "integer",
                           "minimum": 0,
-                          "description": "The .bone correction set the choice selects.",
-                          "x-index-into": "/resources/rig/correction_sets"
+                          "description": "The .bone correction set the choice selects: the loaded set whose file is its element's ChrCustomizationBoneSet.BoneFileDataID.",
+                          "x-index-into": "/resources/rig/correction_sets",
+                          "x-source": [{"table": "ChrCustomizationElement", "column": "ChrCustomizationBoneSetID"}, {"table": "ChrCustomizationBoneSet", "column": "BoneFileDataID"}]
                         },
                         "textures": {
                           "type": "array",
-                          "description": "Textures the choice binds to a material document's image inputs.",
+                          "description": "Textures the choice binds to a material document's image inputs: each element's ChrCustomizationMaterial, its MaterialResourcesID's TextureFileData file bound to the input of its ChrModelTextureTargetID.",
+                          "x-source": [{"table": "ChrCustomizationElement", "column": "ChrCustomizationMaterialID"}, {"table": "ChrCustomizationMaterial"}, {"table": "TextureFileData", "column": "FileDataID"}],
                           "items": {
                             "type": "object",
                             "description": "One bound texture.",
@@ -373,7 +410,8 @@
                               },
                               "input": {
                                 "type": "string",
-                                "description": "The image input it binds."
+                                "description": "The image input it binds, target_<ChrModelTextureTargetID>.",
+                                "x-source": [{"table": "ChrCustomizationMaterial", "column": "ChrModelTextureTargetID"}]
                               },
                               "texture": {
                                 "$ref": "common.schema.json#/definitions/texture_id",
@@ -381,7 +419,8 @@
                               },
                               "only_with": {
                                 "type": "object",
-                                "description": "Bound only while this other choice is also made.",
+                                "description": "Bound only while this other choice is also made (the element's RelatedChrCustomizationChoiceID).",
+                                "x-source": [{"table": "ChrCustomizationElement", "column": "RelatedChrCustomizationChoiceID"}],
                                 "properties": {
                                   "option": {
                                     "type": "integer",
@@ -469,7 +508,8 @@
       "properties": {
         "placement_sets": {
           "type": "array",
-          "description": "Owned sets shown beyond the always-on ones.",
+          "description": "Owned sets shown beyond the always-on ones; husk's exports choose none, so it is written empty.",
+          "x-source": [{"format": true}],
           "items": {
             "type": "integer",
             "minimum": 0,
@@ -479,7 +519,8 @@
         },
         "customization": {
           "type": "array",
-          "description": "Chosen customization choices.",
+          "description": "Chosen customization choices: the --appearance file's ChrCustomizationChoice IDs, as option and choice indices (rule appearance_file).",
+          "x-source": [{"derived": "appearance_file"}],
           "items": {
             "type": "object",
             "description": "One chosen choice.",
@@ -518,7 +559,8 @@
               },
               "slots": {
                 "type": "array",
-                "description": "Equipment slots it occupies.",
+                "description": "Equipment slots it occupies: the --appearance gear entries' slot tokens naming this item (rule appearance_file).",
+                "x-source": [{"derived": "appearance_file"}],
                 "items": {
                   "type": "string",
                   "description": "A slot name."
@@ -902,8 +944,8 @@
                       },
                       "areas": {
                         "type": "array",
-                        "description": "What the client names a player's location inside this part, one entry per name set, ascending, from the WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the name set (NameSetID) and the group's MOGP groupID (WMOGroupID); absent without a WMO area table, or when the WMO has no rows. A WMO placement's name set (MODF nameSet) picks the entry, since one building placed in two towns carries two names.",
-                        "x-source": [{"table": "WMOAreaTable"}, {"file": "wmo", "field": "MOHD.wmoID"}, {"file": "wmo_group", "field": "MOGP.groupID"}],
+                        "description": "What the client names a player's location inside this part, one entry per name set, ascending, from the WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the name set (NameSetID) and the group's MOGP uniqueID (WMOGroupID); absent without a WMO area table, or when the WMO has no rows. A WMO placement's name set (MODF nameSet) picks the entry, since one building placed in two towns carries two names.",
+                        "x-source": [{"table": "WMOAreaTable"}, {"file": "wmo", "field": "MOHD.wmoID"}, {"file": "wmo_group", "field": "MOGP.uniqueID"}],
                         "items": {
                           "type": "object",
                           "description": "The part's area under one name set.",
