@@ -592,6 +592,11 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   WMOID 59) has only model-wide rows, under name sets 0 and 1. The client's
   own lookup order for a missing part row is not checked; the
   `whole_model` flag lets a consumer choose.
+- Names on refs that were written as identities only (additive, with
+  `--db2-dir`): a tile's chunk `areas` (AreaTable `AreaName_lang`) and a
+  zone light's `skybox.ref` (`LightSkybox.Name`, the sky model's old
+  path). A tile liquid's `liquid_type` was already named; a
+  `liquid_object` stays unnamed, as LiquidObject has no name column.
 
 ## Embed or reference — one rule
 

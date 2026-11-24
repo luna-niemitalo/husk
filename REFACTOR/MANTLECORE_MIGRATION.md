@@ -185,6 +185,9 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
   with `AreaName_lang`, its AreaTable row named). Pick the entry whose
   `name_set` is the placement's MODF name set (`BUNDLE_FORMAT.md` "Schema
   0.4.0").
+- **More named refs.** With `--db2-dir`, a tile's
+  `resources.terrain.chunks.areas[]` carry AreaTable names and a zone
+  light's `skybox.ref` its LightSkybox name; identities unchanged.
 - **Animation fallbacks.** `resources.rig.animation_fallbacks`:
   `[animation, fallback]` pairs from AnimationData, written with
   `--db2-dir`; follow them when a model has no clip for an animation.

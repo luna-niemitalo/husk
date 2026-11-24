@@ -2496,7 +2496,7 @@
           "properties": {
             "ref": {
               "$ref": "#/definitions/ref",
-              "description": "The LightSkybox row."
+              "description": "The LightSkybox row, named from LightSkybox.Name: the sky model's pre-FileDataID path (e.g. \"ENVIRONMENTS\\Stars\\DeathSkybox.mdx\"), the only name the client gives a sky."
             },
             "model": {
               "$ref": "#/definitions/asset_ref",

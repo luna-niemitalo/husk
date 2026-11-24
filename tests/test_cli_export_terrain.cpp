@@ -669,4 +669,10 @@ TEST_CASE("husk export-terrain: a live tile names its map"* doctest::skip(!haveL
     nlohmann::json map = m["definition"]["terrain"]["map"];
     CHECK(map["id"]["row"] == 36);
     CHECK(map["name"] == "Deadmines");
+    const nlohmann::json& areas = m["resources"]["terrain"]["chunks"]["areas"];
+    REQUIRE_FALSE(areas.empty());
+    for (const nlohmann::json& area : areas) {
+        if (area["id"]["row"] == 0) continue;
+        CHECK(area["name_source"] == "db2");
+    }
 }

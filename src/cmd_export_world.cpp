@@ -569,7 +569,8 @@ int exportWorld(int argc, char** args) {
                                                   tileTextures.mapTexture, tileTextures.mapNormalTexture,
                                                   tileTextures.liquidFlow};
                     canon::Terrain terrain = adtinput::buildCanonTerrain(
-                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
+                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr,
+                                  areas ? &*areas : nullptr});
                     nameModelRefs(terrain, *listfile);
                     dropMissingDoodadSets(terrain.mapObjects, wmoSetCounts,
                                           [&](const std::string& w) { errors.add("placement", t.root.string(), w); });
@@ -588,7 +589,7 @@ int exportWorld(int argc, char** args) {
                                                                   obj1Sidecar.value.has_value(), flags.has_value(),
                                                                   listfile.get(), opts.listfile, !groundEffects.empty(),
                                                                   liquids.has_value(), surfaces.has_value(),
-                                                                  mapRows.has_value(), false),
+                                                                  mapRows.has_value(), areas.has_value()),
                                                 modelUris, textureUris);
                 }
             } catch (...) {

@@ -215,8 +215,15 @@ int exportTerrain(int argc, char** args) {
                                       lodSidecar.value ? &*lodSidecar.value : nullptr,
                                       obj1Sidecar.value ? &*obj1Sidecar.value : nullptr, tileTextures.mapTexture,
                                       tileTextures.mapNormalTexture, tileTextures.liquidFlow};
+        std::optional<areadb::Data> areas;
+        {
+            std::string note;
+            areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
+            announce(note);
+        }
         canon::Terrain terrain = adtinput::buildCanonTerrain(
-            sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
+            sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr,
+                      areas ? &*areas : nullptr});
         if (listfile) nameModelRefs(terrain, *listfile);
         std::optional<mapdb::Data> maps;
         {
@@ -251,7 +258,7 @@ int exportTerrain(int argc, char** args) {
                                     terrainProvenance(obj.has_value(), tex.has_value(), lodSidecar.value.has_value(),
                                                       obj1Sidecar.value.has_value(), wdtFlags.has_value(), listfile.get(), listfilePath,
                                                       !groundEffects.empty(), liquids.has_value(), surfaces.has_value(),
-                                                      maps.has_value(), false),
+                                                      maps.has_value(), areas.has_value()),
                                     modelUris);
         std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, "
                   << terrain.lod.levels.size() << " coarser levels, " << terrain.textures.size()

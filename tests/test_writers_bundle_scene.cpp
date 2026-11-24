@@ -510,6 +510,8 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     CHECK(settings["hide_sun"] == true);
     CHECK(settings["skybox"]["model"]["uri"] == "../../deathskybox.bundle/manifest.json");
     CHECK(settings["skybox"]["source"]["flags"] == "0x2");
+    CHECK(settings["skybox"]["ref"]["name"] == "ENVIRONMENTS\\Stars\\DeathSkybox.mdx");
+    CHECK(settings["skybox"]["ref"]["name_source"] == "db2");
     CHECK_FALSE(settings.contains("unresolved"));
     const auto& key = table[0]["keys"][0];
     CHECK(key["time"] == 43200.0);

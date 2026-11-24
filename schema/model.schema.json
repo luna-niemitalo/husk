@@ -2588,7 +2588,7 @@
                   "description": "Areas the chunks belong to.",
                   "items": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "One area."
+                    "description": "One area: the AreaTable row an MCNK's areaId names, named from AreaTable.AreaName_lang with --db2-dir so a tile read alone can label its ground (unnamed without, or when the table lacks the row)."
                   }
                 },
                 "layers": {
