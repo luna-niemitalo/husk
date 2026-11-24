@@ -303,7 +303,7 @@
                   },
                   "chr_model": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The character model the option belongs to: a ChrModel row, named \"<race> <sex>\" (e.g. \"Human male\") from the ChrRaceXChrModel rows that use it: their ChrRaces.Name_lang, distinct and joined by \" / \" when several races share the model, then ChrRaceXChrModel.Sex (0 male, 1 female; left off when the races disagree or the value is neither). Unnamed when no race uses the model. Lets a reader tell which body a customization catalog is for without the race tables."
+                    "description": "The character model the option belongs to: a ChrModel row, named \"<race> <sex>\" (e.g. \"Human male\") from the ChrRaceXChrModel rows that use it: the ChrRaces.Name_lang of the lowest race row with a name (NPC placeholder races share the playable races' models), then ChrRaceXChrModel.Sex (0 male, 1 female; left off when the races disagree or the value is neither). Unnamed when no race uses the model. Lets a reader tell which body a customization catalog is for without the race tables."
                   },
                   "order": {
                     "type": "integer",

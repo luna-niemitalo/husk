@@ -588,8 +588,9 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   the group's MOGP groupID; a part without a row of its own under a name
   set gets the model-wide row (WMOGroupID -1), marked `whole_model`.
   `ref` is the WMOAreaTable row named from `AreaName_lang`, `area` the
-  AreaTable row it counts as, named. Northshire Abbey (`nsabbey.wmo`,
-  WMOID 59) has only model-wide rows, under name sets 0 and 1. The client's
+  AreaTable row it counts as, named. `nsabbey.wmo` (WMOID 59): part 0,
+  "Main Hall", has rows under name sets 0-3, counting as Northshire Abbey
+  under set 1 and Tyr's Hand under sets 2 and 3. The client's
   own lookup order for a missing part row is not checked; the
   `whole_model` flag lets a consumer choose.
 - Names on refs that were written as identities only (additive, with
@@ -598,10 +599,11 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   path). A tile liquid's `liquid_type` was already named; a
   `liquid_object` stays unnamed, as LiquidObject has no name column.
 - A customization option's `chr_model` ref is named `"<race> <sex>"`
-  (additive): the ChrRaces `Name_lang` of every ChrRaceXChrModel row
-  using the model, distinct and joined by `" / "`, then the row's `Sex`
-  (0 male, 1 female) when the races agree on it. ChrModel 1 is "Human
-  male".
+  (additive): the ChrRaces `Name_lang` of the lowest-row race using the
+  model (ChrModel 1 is also used by "TBD NPC Race 1" and "2"), then the
+  ChrRaceXChrModel `Sex` (0 male, 1 female) when the rows agree on it.
+  ChrModel 1 is "Human male". Without the race tables the ref stays
+  unnamed.
 
 ## Embed or reference — one rule
 

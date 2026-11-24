@@ -645,17 +645,21 @@ TEST_CASE("husk export-wmo: live Northshire Abbey's parts name the abbey under b
     REQUIRE(r.exitCode == 0);
     nlohmann::json parts = readTile(out / "manifest.json")["resources"]["geometry"]["mesh"]["parts"];
     REQUIRE_FALSE(parts.empty());
-    // WMOAreaTable has only model-wide rows for this WMO (WMOID 59): 13747 and 19755.
+    // Part 0 has its own row under four name sets: the same building is
+    // Northshire Abbey in Elwynn and Tyr's Hand elsewhere.
     const nlohmann::json& areas = parts[0]["areas"];
-    REQUIRE(areas.size() == 2);
+    INFO(areas.dump());
+    REQUIRE(areas.size() == 4);
     CHECK(areas[0]["name_set"] == 0);
-    CHECK(areas[0]["ref"]["id"]["row"] == 13747);
-    CHECK(areas[0]["ref"]["name"] == "Northshire Abbey");
-    CHECK(areas[0]["whole_model"] == true);
+    CHECK(areas[0]["ref"]["id"]["row"] == 13748);
+    CHECK(areas[0]["ref"]["name"] == "Main Hall");
+    CHECK(areas[0]["whole_model"] == false);
     CHECK_FALSE(areas[0].contains("area"));
     CHECK(areas[1]["name_set"] == 1);
     CHECK(areas[1]["area"]["id"]["row"] == 24);
     CHECK(areas[1]["area"]["name"] == "Northshire Abbey");
+    CHECK(areas[2]["name_set"] == 2);
+    CHECK(areas[2]["area"]["name"] == "Tyr's Hand");
 }
 
 TEST_CASE("husk export-terrain: a live tile names its map"* doctest::skip(!haveLiveMap("deadminesinstance"))) {

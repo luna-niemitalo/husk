@@ -32,15 +32,9 @@ std::array<uint32_t, N> words(const std::optional<std::vector<uint32_t>>& v) {
 
 std::string chrModelName(std::vector<RaceUse> uses) {
     std::sort(uses.begin(), uses.end(), [](const RaceUse& a, const RaceUse& b) { return a.race < b.race; });
-    std::vector<std::string> names;
-    for (const RaceUse& use : uses) {
-        if (!use.raceName.empty() && std::find(names.begin(), names.end(), use.raceName) == names.end()) {
-            names.push_back(use.raceName);
-        }
-    }
-    if (names.empty()) return "";
-    std::string out = names[0];
-    for (size_t i = 1; i < names.size(); ++i) out += " / " + names[i];
+    auto named = std::find_if(uses.begin(), uses.end(), [](const RaceUse& u) { return !u.raceName.empty(); });
+    if (named == uses.end()) return "";
+    std::string out = named->raceName;
     bool oneSex = std::all_of(uses.begin(), uses.end(), [&](const RaceUse& u) { return u.sex == uses[0].sex; });
     if (oneSex && uses[0].sex <= 1) out += uses[0].sex == 0 ? " male" : " female";
     return out;
@@ -83,12 +77,14 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     auto raceModels = db2table::readNamedColumns(tablePath(db2Dir, "chrracexchrmodel.db2"), dbdDir,
                                                  {"ChrRacesID", "ChrModelID", "Sex"}, err);
     if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !creatures || !creatureNames ||
-        !textures || !chrModels || !customization || !layouts || !races || !raceNames || !raceModels) {
+        !textures || !chrModels || !customization || !layouts) {
         return std::nullopt;
     }
-    if (races->size() != raceNames->size()) {
-        err << racesPath << ": column reads disagree on row count (" << races->size() << ", " << raceNames->size() << ")\n";
-        return std::nullopt;
+    // The race tables only name ChrModels: without them the models stay unnamed.
+    bool haveRaces = races && raceNames && raceModels && races->size() == raceNames->size();
+    if (races && raceNames && races->size() != raceNames->size()) {
+        err << racesPath << ": column reads disagree on row count (" << races->size() << ", " << raceNames->size()
+            << "), ChrModels left unnamed\n";
     }
 
     Data out;
@@ -131,9 +127,11 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     }
     for (auto& [file, ids] : out.chrModelsByFile) std::sort(ids.begin(), ids.end());
     std::unordered_map<uint32_t, std::string> raceName;
-    for (size_t r = 0; r < races->size(); ++r) raceName.emplace((*races)[r][0].value_or(0), (*raceNames)[r][0].value_or(""));
     std::unordered_map<uint32_t, std::vector<RaceUse>> usesByModel;
-    for (const auto& row : *raceModels) {
+    if (haveRaces) {
+        for (size_t r = 0; r < races->size(); ++r) raceName.emplace((*races)[r][0].value_or(0), (*raceNames)[r][0].value_or(""));
+    }
+    for (const auto& row : haveRaces ? *raceModels : std::vector<db2table::ColumnValues>{}) {
         uint32_t race = row[0].value_or(0);
         auto name = raceName.find(race);
         usesByModel[row[1].value_or(0)].push_back({race, name != raceName.end() ? name->second : "", row[2].value_or(0)});

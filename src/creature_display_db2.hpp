@@ -104,10 +104,12 @@ struct Data {
     chrmodel::Data layouts;  // texture layouts, their canvases, sections and layers
 };
 
-// A ChrModel's name from the races that use it: their ChrRaces.Name_lang,
-// distinct, ascending by race row, joined by " / ", then the
-// ChrRaceXChrModel.Sex word (0 male, 1 female; another value, or races
-// disagreeing, adds none). Empty when no race names it.
+// A ChrModel's name from the races that use it: the ChrRaces.Name_lang of
+// the lowest race row with a name, then the ChrRaceXChrModel.Sex word (0
+// male, 1 female; another value, or races disagreeing, adds none). Lowest
+// row because NPC placeholder races share the playable ones' models
+// (ChrModel 1: Human, "TBD NPC Race 1", "TBD NPC Race 2" in 12.1.0).
+// Empty when no race names it.
 struct RaceUse {
     uint32_t race = 0;
     std::string raceName;
