@@ -5,6 +5,8 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <map>
+#include <set>
 
 #include "canon_garment_builder.hpp"
 
@@ -189,4 +191,57 @@ TEST_CASE("NPC garments: a legs hem joins the NPC's own tunic, else its own hem 
     size_t count = out.garments.size();
     CHECK(npc.wear({{40, 3, std::string("chest"), &tunic}, {42, 5, std::string("legs"), &legs}}) == inTunic);
     CHECK(out.garments.size() == count);
+    CHECK(joined.order == out.garments[out.sourceItems[0].garments[0]].order);
+}
+
+TEST_CASE("NPC garments: one display worn in two slots is split once per slot") {
+    canon::Item shared = item(60, "", {3, 4}, {});
+    canon::Garments out;
+    canon::garments::NpcGarments npc(inputs(true), out);
+    std::vector<uint32_t> worn = npc.wear({{60, 2, std::string("shirt"), &shared}, {60, 3, std::string("chest"), &shared}});
+    REQUIRE(worn.size() == 2);
+    CHECK(out.garments[worn[0]].kind == "shirt");
+    CHECK(out.garments[worn[1]].kind == "tunic");
+    CHECK(out.garments[worn[0]].order < out.garments[worn[1]].order);
+    REQUIRE(out.sourceItems.size() == 2);
+    CHECK(out.sourceItems[0].key != out.sourceItems[1].key);
+}
+
+TEST_CASE("garments: source items stack by their slot's draw rank, so no two of an outfit share layer and order") {
+    canon::Item shirt = item(50, "shirt", {0, 5}, {});
+    canon::Item robe = item(51, "chest", {0, 1, 5, 6}, {});
+    robe.geosetGroups = {0, 0, 1, 0, 0, 0};
+    canon::Item legs = item(52, "legs", {5, 6}, {});
+    legs.geosetGroups = {1, 0, 1, 0, 0, 0};  // hem 1102, skirt 1302
+    canon::Item belt = item(53, "waist", {4}, {});
+    canon::Item tabard = item(54, "tabard", {3, 4}, {});
+    canon::Item bracers = item(55, "wrist", {1}, {});
+    canon::Item gloves = item(56, "hands", {1, 2}, {});
+    canon::Item boots = item(57, "feet", {6, 7}, {});
+    canon::Garments out;
+    canon::garments::NpcGarments npc(inputs(true), out);
+    std::vector<uint32_t> worn = npc.wear({{50, 4, std::string("shirt"), &shirt},   {51, 3, std::string("chest"), &robe},
+                                           {52, 5, std::string("legs"), &legs},     {53, 6, std::string("waist"), &belt},
+                                           {54, 19, std::string("tabard"), &tabard}, {55, 9, std::string("wrist"), &bracers},
+                                           {56, 10, std::string("hands"), &gloves}, {57, 8, std::string("feet"), &boots}});
+    std::map<std::string, std::pair<std::string, int32_t>> stack;
+    std::set<std::pair<std::string, int32_t>> distinct;
+    for (uint32_t g : worn) {
+        const canon::Garment& garment = out.garments[g];
+        CHECK(garment.layerRule == "source_slot_priority");
+        stack[garment.kind] = {garment.layer, garment.order};
+        distinct.insert({garment.layer, garment.order});
+    }
+    CHECK(stack["shirt"] == std::pair<std::string, int32_t>{"base", 1});
+    CHECK(stack["leggings"] == std::pair<std::string, int32_t>{"base", 2});
+    CHECK(stack["skirt"] == std::pair<std::string, int32_t>{"mid", 2});
+    CHECK(stack["boots"] == std::pair<std::string, int32_t>{"mid", 4});
+    CHECK(stack["robe"] == std::pair<std::string, int32_t>{"mid", 6});
+    CHECK(stack["tabard"] == std::pair<std::string, int32_t>{"outer", 7});
+    CHECK(stack["belt"] == std::pair<std::string, int32_t>{"outer", 8});
+    CHECK(stack["bracers"] == std::pair<std::string, int32_t>{"outer", 9});
+    CHECK(stack["gloves"] == std::pair<std::string, int32_t>{"outer", 10});
+    // The legs' own hem shares the skirt's stack, but not its coverage (thigh, not skirt).
+    CHECK(stack["hem"] == std::pair<std::string, int32_t>{"mid", 2});
+    CHECK(distinct.size() == worn.size() - 1);
 }

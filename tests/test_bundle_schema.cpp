@@ -533,7 +533,7 @@ TEST_CASE("bundle_schema: a leaf without x-source fails the lint, naming its sch
 }
 
 TEST_CASE("checkGarments: three garments of one layer and order overlapping in coverage are one conflict; "
-          "kind and layer deviations warn, known when declared") {
+          "kind and layer deviations warn, known when declared, none under source_slot_priority") {
     fs::path file = husk::test::testRunDir() / "husk-schema-garments" / "manifest.json";
     fs::create_directories(file.parent_path());
     auto overlay = [](const char* region) { return std::string(R"({"item": "i", "rule": "garment_split", "overlay": {"region": ")") + region + R"(", "texture": "t"}})"; };
@@ -542,8 +542,9 @@ TEST_CASE("checkGarments: three garments of one layer and order overlapping in c
         {"id": "b", "kind": "robe", "layer": "mid", "order": 0, "pieces": [)" << overlay("torso_upper") << "," << overlay("leg_upper") << R"(]},
         {"id": "c", "kind": "skirt", "layer": "mid", "order": 0, "pieces": [)" << overlay("leg_upper") << R"(]},
         {"id": "d", "kind": "skirt", "layer": "mid", "order": 1, "deviates": true, "pieces": [)" << overlay("leg_upper") << R"(]},
-        {"id": "e", "kind": "cape", "layer": "over", "order": 0, "pieces": []}]}}],
-        "selection": {"presets": [{"id": "p", "garments": ["a", "b", "c", "d", "e"]}]}})";
+        {"id": "e", "kind": "cape", "layer": "over", "order": 0, "pieces": []},
+        {"id": "f", "kind": "boots", "layer": "mid", "order": 4, "layer_rule": "source_slot_priority", "pieces": [)" << overlay("leg_upper") << R"(]}]}}],
+        "selection": {"presets": [{"id": "p", "garments": ["a", "b", "c", "d", "e", "f"]}]}})";
     std::vector<bundle_schema::GarmentFinding> findings = bundle_schema::checkGarments(file, "");
     size_t conflicts = 0, known = 0, unexpected = 0;
     for (const auto& f : findings) {
@@ -557,6 +558,6 @@ TEST_CASE("checkGarments: three garments of one layer and order overlapping in c
     }
     CHECK(conflicts == 1);
     CHECK(known == 1);       // d: order 1 on purpose
-    CHECK(unexpected == 1);  // e: 'cape' is no preset kind
+    CHECK(unexpected == 1);  // e: 'cape' is no preset kind; f's layer and order are its rule's
     CHECK(bundle_schema::checkGarments(file, "other").size() == 2);  // deviations only
 }

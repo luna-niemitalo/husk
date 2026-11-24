@@ -64,13 +64,34 @@ std::string itemKey(const Item& item) {
     return "source_item/db2_row/" + row.table + "/" + std::to_string(row.row);
 }
 
-uint32_t addGarment(Garments& out, std::string key, std::string kind) {
+// The slot's rank in the body composite's draw order, lowest drawn first
+// (REFACTOR/GARMENTS.md "Source slot priority"): wow.export EquipmentSlots.js
+// SLOT_LAYER, its ties in slot-id order as its stable sort leaves them.
+std::optional<int32_t> slotRank(const std::string& slot) {
+    static const std::map<std::string, int32_t> kRanks = {
+        {"shirt", 1}, {"legs", 2},  {"head", 3},   {"feet", 4},       {"shoulder", 5}, {"chest", 6},
+        {"tabard", 7}, {"waist", 8}, {"wrist", 9}, {"hands", 10},     {"main_hand", 11}, {"ranged", 11},
+        {"off_hand", 12}, {"back", 13},
+    };
+    auto it = kRanks.find(slot);
+    if (it == kRanks.end()) return std::nullopt;
+    return it->second;
+}
+
+// `slot`: the source item's slot the garment was cut from.
+uint32_t addGarment(Garments& out, std::string key, std::string kind, const std::string& slot) {
     Garment g;
     g.key = std::move(key);
     g.layer = defaultLayer(kind);
     // An unnamed source slot (NPC ItemSlot 11) gives no kind to stand on;
     // declared, so the validator reports it as known.
     g.deviates = g.layer.empty() && kind == "item";
+    if (auto rank = slotRank(slot); rank && !g.layer.empty()) {
+        g.order = *rank;
+        g.layerRule = "source_slot_priority";
+        // The feet slot draws its LegLower paint under the chest's; `outer` would put it over.
+        if (slot == "feet") g.layer = "mid";
+    }
     g.kind = std::move(kind);
     out.garments.push_back(std::move(g));
     return static_cast<uint32_t>(out.garments.size() - 1);
@@ -92,7 +113,7 @@ ItemSplit splitItem(const Item& item, const std::string& slot, const std::string
                     std::map<std::pair<uint32_t, uint32_t>, uint32_t>* itemHemOwner) {
     ItemSplit split;
     std::string kind = kindFor(slot, &item);
-    split.main = addGarment(out, key + "/" + kind, kind);
+    split.main = addGarment(out, key + "/" + kind, kind, slot);
     uint32_t garment = split.main;
     auto add = [&](uint32_t g, PieceKind what, std::string derived = "") {
         out.garments[g].pieces.push_back({std::move(what), sourceIndex, std::move(derived)});
@@ -115,7 +136,7 @@ ItemSplit splitItem(const Item& item, const std::string& slot, const std::string
             if (slot == "legs" && group * 100 + piece.variant == kBodyHemGeoset) {
                 split.hem.push_back({piece, sourceIndex, "hem_body_geoset"});
             } else if (slot == "legs" && group == 13) {
-                if (!split.skirt) split.skirt = addGarment(out, key + "/skirt", "skirt");
+                if (!split.skirt) split.skirt = addGarment(out, key + "/skirt", "skirt", slot);
                 add(*split.skirt, piece);
             } else {
                 add(garment, piece);
@@ -238,12 +259,15 @@ std::string defaultLayer(const std::string& kind) {
 }
 
 const NpcGarments::Split& NpcGarments::split(const NpcItem& npcItem) {
-    auto [it, added] = byDisplay_.try_emplace(npcItem.itemDisplayInfo);
+    // NPCs wear one display in several slots (3454 in seven); the slot decides
+    // the split (geoset groups, kind, draw rank), so it is part of the identity.
+    auto [it, added] = byDisplay_.try_emplace({npcItem.itemDisplayInfo, npcItem.itemSlot});
     Split& split = it->second;
     if (!added) return split;
     split.slot = npcItem.slot.value_or("");
 
-    std::string key = "source_item/db2_row/ItemDisplayInfo/" + std::to_string(npcItem.itemDisplayInfo);
+    std::string key = "source_item/db2_row/ItemDisplayInfo/" + std::to_string(npcItem.itemDisplayInfo) + "/slot/" +
+                      std::to_string(npcItem.itemSlot);
     uint32_t sourceIndex = static_cast<uint32_t>(out_.sourceItems.size());
     SourceItem source;
     source.key = key;
@@ -255,7 +279,7 @@ const NpcGarments::Split& NpcGarments::split(const NpcItem& npcItem) {
 
     if (!npcItem.item) {
         // Unresolved: the display's identity only, as a garment of the slot's kind.
-        split.main = addGarment(out_, key + "/garment", npcItem.slot ? kindFor(*npcItem.slot, nullptr) : "item");
+        split.main = addGarment(out_, key + "/garment", npcItem.slot ? kindFor(*npcItem.slot, nullptr) : "item", split.slot);
         split.garments = {*split.main};
         out_.sourceItems[sourceIndex].garments = split.garments;
         return split;
@@ -271,7 +295,7 @@ const NpcGarments::Split& NpcGarments::split(const NpcItem& npcItem) {
     split.garments.push_back(parts.main);
     if (parts.skirt) split.garments.push_back(*parts.skirt);
     if (!parts.hem.empty()) {
-        split.hem = addGarment(out_, key + "/hem", "hem");
+        split.hem = addGarment(out_, key + "/hem", "hem", split.slot);
         for (GarmentPiece& piece : parts.hem) {
             if (piece.derived != "hem_uv_footprint") piece.derived = "hem_own_garment";
             out_.garments[*split.hem].pieces.push_back(std::move(piece));
@@ -285,31 +309,35 @@ const NpcGarments::Split& NpcGarments::split(const NpcItem& npcItem) {
 
 std::vector<uint32_t> NpcGarments::wear(const std::vector<NpcItem>& equipment) {
     std::set<uint32_t> worn;
-    std::optional<uint32_t> chestDisplay;
-    std::vector<uint32_t> legsDisplays;
+    std::optional<DisplayInSlot> chestDisplay;
+    std::vector<DisplayInSlot> legsDisplays;
     for (const NpcItem& npcItem : equipment) {
         const Split& s = split(npcItem);
         worn.insert(s.garments.begin(), s.garments.end());
-        if (s.slot == "chest" && !chestDisplay && s.main) chestDisplay = npcItem.itemDisplayInfo;
-        if (s.hem) legsDisplays.push_back(npcItem.itemDisplayInfo);
+        DisplayInSlot at{npcItem.itemDisplayInfo, npcItem.itemSlot};
+        if (s.slot == "chest" && !chestDisplay && s.main) chestDisplay = at;
+        if (s.hem) legsDisplays.push_back(at);
     }
     std::optional<uint32_t> tunic;
     if (chestDisplay && out_.garments[*byDisplay_.at(*chestDisplay).main].kind == "tunic") {
         tunic = byDisplay_.at(*chestDisplay).main;
     }
-    for (uint32_t legs : legsDisplays) {
-        uint32_t ownHem = *byDisplay_.at(legs).hem;
+    for (const DisplayInSlot& legsAt : legsDisplays) {
+        uint32_t legs = legsAt.first;
+        uint32_t ownHem = *byDisplay_.at(legsAt).hem;
         if (!tunic) {
             worn.insert(ownHem);
             continue;
         }
-        auto [it, added] = joined_.try_emplace({*chestDisplay, legs}, 0);
+        auto [it, added] = joined_.try_emplace({chestDisplay->first, legs}, 0);
         if (added) {
             const Garment& chest = out_.garments[*tunic];
             Garment joined;
             joined.key = chest.key + "/hem/" + std::to_string(legs);
             joined.kind = chest.kind;
             joined.layer = chest.layer;
+            joined.order = chest.order;
+            joined.layerRule = chest.layerRule;
             joined.pieces = chest.pieces;
             std::set<std::pair<uint32_t, std::vector<uint32_t>>> shown;
             for (const GarmentPiece& piece : chest.pieces) {
@@ -378,7 +406,7 @@ std::vector<uint32_t> fromGear(const std::vector<Item>& gear, const Inputs& inpu
             if (out.garments[mainGarment[j]].kind == "tunic") tunic = mainGarment[j];
             break;
         }
-        uint32_t target = tunic ? *tunic : addGarment(out, itemKey(legs) + "/hem", "hem");
+        uint32_t target = tunic ? *tunic : addGarment(out, itemKey(legs) + "/hem", "hem", slotOf[hem.gearIndex]);
         for (GarmentPiece& piece : hem.pieces) {
             if (piece.derived != "hem_uv_footprint") piece.derived = tunic ? "hem_join_set" : "hem_own_garment";
             out.garments[target].pieces.push_back(std::move(piece));

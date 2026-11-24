@@ -97,13 +97,18 @@
           },
           "layer": {
             "enum": ["skin", "underwear", "base", "mid", "outer", "over"],
-            "description": "Stacking layer, bottom up in the listed order. Overlays composite bottom-up by layer, and where two garments set the same body part the higher layer wins; this replaces the source's slot priorities.",
-            "x-source": [{"derived": "garment_layer"}]
+            "description": "Stacking layer, bottom up in the listed order. Overlays composite bottom-up by layer, then by order, and where two garments set the same body part the higher layer, then order, wins; this replaces the source's slot priorities.",
+            "x-source": [{"stated_by": "layer_rule"}]
           },
           "order": {
             "type": "integer",
             "description": "Stacking order within the layer, lower first. Garments of one layer and order that overlap in coverage are a conflict a consumer resolves by giving one another order; the format never picks.",
-            "x-source": [{"derived": "garment_layer"}]
+            "x-source": [{"stated_by": "layer_rule"}]
+          },
+          "layer_rule": {
+            "enum": ["garment_layer", "source_slot_priority"],
+            "description": "The rule that set layer and order (REFACTOR/BUNDLE_FORMAT.md derived-rule table); absent: garment_layer, the kind's default. source_slot_priority: a garment cut from a source item, stacked by its slot's draw rank (REFACTOR/GARMENTS.md \"Source slot priority\"), so its layer and order are no deviation.",
+            "x-source": [{"format": true}]
           },
           "deviates": {
             "type": "boolean",
@@ -295,7 +300,7 @@
         "properties": {
           "id": {
             "$ref": "common.schema.json#/definitions/uuid",
-            "description": "Stable id from the item's source row.",
+            "description": "Stable id from the item's source row; for NPC equipment, the display row and the slot it is worn in (one display is worn in several slots, and the slot decides its garments).",
             "x-source": [{"format": true}]
           },
           "ref": {

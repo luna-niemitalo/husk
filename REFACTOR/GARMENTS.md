@@ -6,14 +6,16 @@ Replaces the model's `definition.items`, `selection.equipped` and `presets[].ite
 - **Built**: the `garments` document (`schema/garments.schema.json`), inline in the model's `garments`
   reference; the model's `definition.body` (regions with the layout's rectangles, parts, attachment points);
   presets' `garments` and bakes' `covers_garments`; stage 1 by slot (`src/canon_garment_builder.cpp`, rules
-  `garment_split`, `item_geoset`, `garment_layer`); the body hem 1102 moved to the tunic of the same
+  `garment_split`, `item_geoset`, `garment_layer`); layer and order of every garment cut from a source item by
+  its slot's draw priority (`source_slot_priority`); the body hem 1102 moved to the tunic of the same
   TransmogSet, or a `hem` garment, with its paint as an overlay masked to 1102's UV footprint
   (`hem_uv_footprint`); item-model group-13 hems as their own pieces, deduplicated by model file and geoset
   (`item_model_hem`); outfits per TransmogSet; validate-bundle checks preset garment ids and warns on
   conflicts and kind/layer/order deviations, `husk garments-check <bundle> [--preset ID]` lists them.
 - **Built, NPC equipment** (`NpcGarments`): each display resolved through the same stage-1 split
   (models, model textures, overlays, geosets, files picked for the body model's race and sex), split once
-  and shared by every NPC wearing it; item models are referenced by file, not exported as bundles. A
+  per slot it is worn in (NPCs wear one display in several slots, 3454 in seven, and the slot decides the
+  split) and shared by every NPC wearing it there; item models are referenced by file, not exported as bundles. A
   display that draws nothing makes no garment (NPC slot 11's only display is one,
   `WIKI_FINDINGS/GARMENTS.md` "NPC item slot 11"). The hem rule, with no TransmogSet: see "NPC
   equipment: the hem by the NPC's own outfit" below.
@@ -73,7 +75,7 @@ source numbers for each live under its `source`.
 | **Body region** | An area of the body's composited skin texture: `arm_upper`, `arm_lower`, `hand`, `torso_upper`, `torso_lower`, `leg_upper`, `leg_lower`, `foot` (plus head/scalp regions). The definition gives each region's rectangle in the composite. | `CharComponentTextureSections` (SectionType + rect per layout) — **data** |
 | **Body part** | A swappable piece of body mesh, with variants: `sleeve`, `glove_cuff`, `boot_shaft`, `boot_foot`, `knee`, `thigh`, `skirt`, `tabard`, `belt`, `chest`, … | geoset group number. The names come from our own visual read (`WIKI_FINDINGS/M2.md` table); a group not yet read keeps a neutral name `group_<n>` until it is. |
 | **Attachment point** | Where a rigid model hangs: `head`, `shoulder_left`, `shoulder_right`, `back`, `hand_right`, `hand_left`, `hip_left`, … | `M2Attachment` id (**ref**, wiki table) |
-| **Layer** | Stacking order: a named layer plus an integer `order` within it (default 0). Layers, bottom up: `skin` < `underwear` < `base` (shirt, leggings, socks) < `mid` (tunic, robe, dress, skirt, trousers, overalls) < `outer` (tabard, belt, bracers over sleeves, gloves, boots) < `over` (cloak, pauldrons, helm) | none: derived per garment kind (rule `garment_layer`), overridable by authoring |
+| **Layer** | Stacking order: a named layer plus an integer `order` within it (default 0). Layers, bottom up: `skin` < `underwear` < `base` (shirt, leggings, socks) < `mid` (tunic, robe, dress, skirt, trousers, overalls) < `outer` (tabard, belt, bracers over sleeves, gloves, boots) < `over` (cloak, pauldrons, helm) | none: derived per garment kind (rule `garment_layer`), or for a garment cut from a source item per its slot (rule `source_slot_priority`, below); overridable by authoring |
 
 Kinds are open strings. The schema carries a validated list of preset
 kinds (`tunic`, `robe`, `leggings`, `skirt`, `boots`, …) and the default
@@ -99,6 +101,52 @@ a conflict. Any number of garments can be in one conflict. The validator
 each conflict with its garments and the regions or parts they fight over.
 A consumer resolves it by giving one of them another order; the format
 never picks silently.
+
+**Source slot priority.** Where the source states which of two garments
+draws on top, that is not a conflict: WoW composites item textures and
+picks shared body geosets by slot. So every garment husk cuts from a source
+item takes its layer and order from the item's slot (`"layer_rule":
+"source_slot_priority"`), not from its kind's default:
+
+| Slot | Order | Layer (kind default when not named) |
+|---|---|---|
+| shirt | 1 | |
+| legs (leggings, skirt, own hem) | 2 | |
+| head | 3 | |
+| feet | 4 | `mid` (kind default `outer`) |
+| shoulder | 5 | |
+| chest (tunic, robe, joined tunic) | 6 | |
+| tabard | 7 | |
+| waist | 8 | |
+| wrist | 9 | |
+| hands | 10 | |
+| main hand, ranged | 11 | |
+| off hand | 12 | |
+| back | 13 | |
+
+- The order is the slot's rank in the body composite's draw order, wow.export
+  `src/js/wow/EquipmentSlots.js` `SLOT_LAYER` (shirt and legs 10, head and
+  feet 11, shoulder and chest 13, tabard 17, waist 18, wrist 19, hands 20,
+  main hand 21, off hand 22, back 23; the texture target is `SLOT_LAYER × 100
+  + section`, drawn ascending, `CharMaterialRenderer.js` `update`). Ties are
+  in slot-id order (shirt 4 before legs 7), as that stable sort leaves them:
+  trousers draw over a shirt's thighs. **ref**: wow.export, which reads no
+  table for it; the client's own order is not checked.
+- Geometry agrees: wow.export `src/js/db/caches/DBItemGeosets.js`
+  `GEOSET_PRIORITY` (from WMV `WoWItem.cpp`) gives sleeves to gloves over
+  chest over shirt, the chest group to chest over shirt, and the skirt group
+  to chest over legs. Every pair it ranks is ranked the same way by the
+  texture order, so one order per garment carries both; no piece needs its
+  own order.
+- Boots move to `mid`: the feet slot draws its `LegLower` paint under a
+  chest's (11 < 13), which `outer` would invert. Every other slot's kind
+  layer already agrees with the draw order.
+- A garment with this rule is not a layer or order deviation: the rule, not
+  the kind, sets them. Its kind is still checked.
+- Rank 1 and up keeps derived garments apart from authored ones, which
+  default to order 0 and so sit under every derived garment of their layer.
+  Two authored garments at one order still conflict, as do two derived
+  garments the source does not rank (the same slot twice).
 
 ## Document shape (sketch)
 
@@ -166,10 +214,11 @@ sex (`component_file_pick`). So each piece names its file per body, in
 - **Resolving what the worn garments show** is a pure function of layer and
   coverage, written in the schema as the consumer's rule:
   - Overlays composite bottom-up by layer.
-  - When two garments set the same body part, the higher layer wins: robe
-    skirt over trouser thighs, glove cuff over sleeve. This is WoW's
-    priority table (gloves > chest > shirt for sleeves, chest > pants for
-    trousers) expressed as layers instead of slots.
+  - When two garments set the same body part, the higher layer wins, then
+    the higher order: robe skirt over trouser thighs, glove cuff over
+    sleeve. This is WoW's priority table (gloves > chest > shirt for
+    sleeves, chest > pants for trousers) expressed as layers and orders
+    instead of slots ("Source slot priority").
   - A garment fully covered by a higher layer's geometry is hidden: leggings
     under a long robe.
 - **Outfits** are named groups of garments: a transmog set, an NPC's

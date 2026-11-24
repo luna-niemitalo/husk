@@ -360,6 +360,10 @@ void writeInlineGarments(json::Writer& w, const canon::Garments& garments, const
         w.value(garment.layer.empty() ? "mid" : garment.layer);
         w.key("order");
         w.value(static_cast<int64_t>(garment.order));
+        if (!garment.layerRule.empty()) {
+            w.key("layer_rule");
+            w.value(garment.layerRule);
+        }
         if (garment.deviates) {
             w.key("deviates");
             w.value(garment.deviates);

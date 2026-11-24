@@ -87,6 +87,7 @@ struct Garment {
     std::string kind;
     std::string layer;
     int32_t order = 0;
+    std::string layerRule;  // the rule that set layer and order; empty = garment_layer
     bool deviates = false;
     std::vector<GarmentPiece> pieces;
 };

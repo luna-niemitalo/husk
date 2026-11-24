@@ -858,6 +858,8 @@ std::vector<GarmentFinding> garmentFindings(const json& garments, const json& pr
             deviation("garment " + id + ": kind '" + kind + "' is not a preset kind");
             continue;
         }
+        // The source's slot priority sets layer and order instead of the kind (REFACTOR/GARMENTS.md).
+        if (g.value("layer_rule", "garment_layer") == "source_slot_priority") continue;
         if (g["layer"] != kinds[kind]) {
             deviation("garment " + id + " (" + kind + "): expected layer " + kinds[kind].get<std::string>() + ", got " +
                       g["layer"].get<std::string>());

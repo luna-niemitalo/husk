@@ -227,14 +227,22 @@ changes:
   set, with its paint masked out of the legs texture (`overlay.mask`, a
   white-on-black texture); wearing a legs item's `items[].garments`
   still reproduces the client.
-  NPC equipment (an `items[]` entry per ItemDisplayInfo) has pieces too,
-  each display split once and shared by every NPC preset wearing it. A
+  NPC equipment (an `items[]` entry per ItemDisplayInfo and slot: one
+  display is worn as a shirt by some NPCs and a chest by others) has pieces
+  too, each split once and shared by every NPC preset wearing it there. A
   display that draws nothing has no garment (`items[].garments` empty;
   NPC slot 11 is always such a display). An NPC whose chest is a tunic
   wears a joined tunic holding its legs' hem (piece rule
   `hem_join_outfit`), listed under neither item; wear the preset's
   `garments` for the NPC's look, an item's `garments` for that display
   alone.
+  Every garment cut from a source item says `"layer_rule":
+  "source_slot_priority"`: its `order` is its slot's draw rank (shirt 1 …
+  back 13) and boots sit in `mid`, so garments of one layer stack as the
+  client draws them (bracers under gloves, a belt over a tabard, a robe's
+  skirt over a legs skirt). Stack by layer, then order; within one layer and
+  order an overlap is a conflict the bundle reports, never one husk wrote
+  from source items.
 - **Animation fallbacks are a shared document.**
   `resources.rig.animation_fallbacks` (`[animation, fallback]` AnimationData
   id pairs, copied into every model; in earlier 0.4.0 builds only) is

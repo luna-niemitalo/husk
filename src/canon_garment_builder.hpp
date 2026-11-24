@@ -59,8 +59,9 @@ struct NpcItem {
     const Item* item = nullptr;
 };
 
-// NPC equipment as garments, each display split once (its source item's
-// garments are the display worn alone) and shared by every NPC wearing it.
+// NPC equipment as garments, each display split once per slot it is worn in
+// (its source item's garments are the display worn alone in that slot) and
+// shared by every NPC wearing it there.
 // The hem rule is decided per NPC: see wear().
 class NpcGarments {
 public:
@@ -84,9 +85,10 @@ private:
     };
     const Split& split(const NpcItem& npcItem);
 
+    using DisplayInSlot = std::pair<uint32_t, uint32_t>;  // ItemDisplayInfo, NPC ItemSlot
     Inputs inputs_;
     Garments& out_;
-    std::map<uint32_t, Split> byDisplay_;
+    std::map<DisplayInSlot, Split> byDisplay_;
     std::map<std::pair<uint32_t, uint32_t>, uint32_t> joined_;  // (chest, legs display) -> tunic with the hem
 };
 

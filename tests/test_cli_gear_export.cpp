@@ -246,7 +246,10 @@ TEST_CASE("husk export --appearance: an object-skin section-overlay gear entry (
     CHECK(doc["items"][0]["ref"]["id"]["row"] == 367);
     REQUIRE(doc["garments"].size() == 1);
     CHECK(doc["garments"][0]["kind"] == "boots");
-    CHECK(doc["garments"][0]["layer"] == "outer");
+    // Under a chest's LegLower paint, as the feet slot draws (rule source_slot_priority).
+    CHECK(doc["garments"][0]["layer"] == "mid");
+    CHECK(doc["garments"][0]["order"] == 4);
+    CHECK(doc["garments"][0]["layer_rule"] == "source_slot_priority");
     nlohmann::json pieces = doc["garments"][0]["pieces"];
     REQUIRE(pieces.size() == 2);
     CHECK(pieces[0]["overlay"]["region"] == "leg_lower");
