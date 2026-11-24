@@ -597,6 +597,11 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   zone light's `skybox.ref` (`LightSkybox.Name`, the sky model's old
   path). A tile liquid's `liquid_type` was already named; a
   `liquid_object` stays unnamed, as LiquidObject has no name column.
+- A customization option's `chr_model` ref is named `"<race> <sex>"`
+  (additive): the ChrRaces `Name_lang` of every ChrRaceXChrModel row
+  using the model, distinct and joined by `" / "`, then the row's `Sex`
+  (0 male, 1 female) when the races agree on it. ChrModel 1 is "Human
+  male".
 
 ## Embed or reference — one rule
 

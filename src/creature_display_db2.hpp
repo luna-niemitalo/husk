@@ -97,9 +97,23 @@ struct Data {
     // and 45).
     std::unordered_map<uint32_t, std::vector<uint32_t>> chrModelsByFile;
     std::unordered_map<uint32_t, uint32_t> layoutByChrModel;  // CharComponentTextureLayoutID
+    // ChrModelID -> "<race> <sex>" (chrModelName), for each ChrModel some
+    // ChrRaceXChrModel row names.
+    std::unordered_map<uint32_t, std::string> chrModelNames;
     chrcustomization::Data customization;
     chrmodel::Data layouts;  // texture layouts, their canvases, sections and layers
 };
+
+// A ChrModel's name from the races that use it: their ChrRaces.Name_lang,
+// distinct, ascending by race row, joined by " / ", then the
+// ChrRaceXChrModel.Sex word (0 male, 1 female; another value, or races
+// disagreeing, adds none). Empty when no race names it.
+struct RaceUse {
+    uint32_t race = 0;
+    std::string raceName;
+    uint32_t sex = 0;
+};
+std::string chrModelName(std::vector<RaceUse> uses);
 
 // Loads the tables from `db2Dir`. nullopt when any can't be read.
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err);

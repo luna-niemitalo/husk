@@ -30,6 +30,22 @@ std::array<uint32_t, N> words(const std::optional<std::vector<uint32_t>>& v) {
 
 }  // namespace
 
+std::string chrModelName(std::vector<RaceUse> uses) {
+    std::sort(uses.begin(), uses.end(), [](const RaceUse& a, const RaceUse& b) { return a.race < b.race; });
+    std::vector<std::string> names;
+    for (const RaceUse& use : uses) {
+        if (!use.raceName.empty() && std::find(names.begin(), names.end(), use.raceName) == names.end()) {
+            names.push_back(use.raceName);
+        }
+    }
+    if (names.empty()) return "";
+    std::string out = names[0];
+    for (size_t i = 1; i < names.size(); ++i) out += " / " + names[i];
+    bool oneSex = std::all_of(uses.begin(), uses.end(), [&](const RaceUse& u) { return u.sex == uses[0].sex; });
+    if (oneSex && uses[0].sex <= 1) out += uses[0].sex == 0 ? " male" : " female";
+    return out;
+}
+
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::string modelPath = tablePath(db2Dir, "creaturemodeldata.db2");
     std::string displayPath = tablePath(db2Dir, "creaturedisplayinfo.db2");
@@ -61,8 +77,17 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
                                                      {"ID", "DisplayID", "CharComponentTextureLayoutID"}, err);
     auto customization = chrcustomization::load(db2Dir, dbdDir, err);
     auto layouts = chrmodel::load(db2Dir, dbdDir, err);
+    std::string racesPath = tablePath(db2Dir, "chrraces.db2");
+    auto races = db2table::readNamedColumns(racesPath, dbdDir, {"ID"}, err);
+    auto raceNames = db2table::readNamedStringColumns(racesPath, dbdDir, {"Name_lang"}, err);
+    auto raceModels = db2table::readNamedColumns(tablePath(db2Dir, "chrracexchrmodel.db2"), dbdDir,
+                                                 {"ChrRacesID", "ChrModelID", "Sex"}, err);
     if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !creatures || !creatureNames ||
-        !textures || !chrModels || !customization || !layouts) {
+        !textures || !chrModels || !customization || !layouts || !races || !raceNames || !raceModels) {
+        return std::nullopt;
+    }
+    if (races->size() != raceNames->size()) {
+        err << racesPath << ": column reads disagree on row count (" << races->size() << ", " << raceNames->size() << ")\n";
         return std::nullopt;
     }
 
@@ -105,6 +130,18 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
         if (file != fileByDisplay.end()) out.chrModelsByFile[file->second].push_back(first(row[0]));
     }
     for (auto& [file, ids] : out.chrModelsByFile) std::sort(ids.begin(), ids.end());
+    std::unordered_map<uint32_t, std::string> raceName;
+    for (size_t r = 0; r < races->size(); ++r) raceName.emplace((*races)[r][0].value_or(0), (*raceNames)[r][0].value_or(""));
+    std::unordered_map<uint32_t, std::vector<RaceUse>> usesByModel;
+    for (const auto& row : *raceModels) {
+        uint32_t race = row[0].value_or(0);
+        auto name = raceName.find(race);
+        usesByModel[row[1].value_or(0)].push_back({race, name != raceName.end() ? name->second : "", row[2].value_or(0)});
+    }
+    for (auto& [chrModel, uses] : usesByModel) {
+        std::string name = chrModelName(std::move(uses));
+        if (!name.empty()) out.chrModelNames.emplace(chrModel, std::move(name));
+    }
     out.customization = std::move(*customization);
     out.layouts = std::move(*layouts);
     out.textureFiles = std::move(*textures);
