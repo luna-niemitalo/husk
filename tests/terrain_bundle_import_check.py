@@ -350,6 +350,10 @@ def load_model(bundle_dir, uri):
     return mesh
 
 
+def references_by_id(doc):
+    return {r["id"]: r for r in doc["references"]}
+
+
 def build_placements(tile, seen):
     """`seen` holds (set name, id) pairs already placed: a placement
     straddling a tile border is listed by every tile it touches. Doodad and
@@ -358,11 +362,12 @@ def build_placements(tile, seen):
     coll = bpy.data.collections.new("placements")
     bpy.context.scene.collection.children.link(coll)
     for entry in tile.m["definition"]["placement_sets"]:
-        asset = tile.m["references"][entry["reference"]]["asset"]
+        asset = references_by_id(tile.m)[entry["reference"]]["asset"]
         set_name = asset["name"]
         set_path = os.path.join(tile.dir, asset["uri"])
         set_dir = os.path.dirname(set_path)
         set_doc = json.load(open(set_path))
+        set_refs = references_by_id(set_doc)
         for p in set_doc["instances"]:
             total += 1
             if (set_name, p["id"]) in seen:
@@ -381,7 +386,7 @@ def build_placements(tile, seen):
                     r, c = min(int(fr), 7), min(int(fc), 7)
                     measured += 1
                     near += abs(tile.height_at(ci, r, c, fr - r, fc - c) - z) < 1.0
-            uri = set_doc["references"][p["reference"]]["asset"].get("uri")
+            uri = set_refs[p["reference"]]["asset"].get("uri")
             if not uri:
                 continue
             linked += 1
@@ -489,8 +494,9 @@ def main():
     world = json.load(open(os.path.join(world_dir, "manifest.json")))
     grid = world["grid"]
     bundle_dirs = []
+    world_refs = references_by_id(world)
     for cell in grid["cells"]:
-        asset = world["references"][cell["tile"]]["asset"]
+        asset = world_refs[cell["tile"]]["asset"]
         if asset["name"] not in wanted:
             continue
         if "uri" not in asset:
@@ -499,7 +505,7 @@ def main():
         offset = tuple(grid["origin"][k] + (cell["i"] * grid["axis_i"][k] + cell["j"] * grid["axis_j"][k])
                        * grid["cell_size"] for k in range(2))
         bundle_dirs.append((os.path.dirname(os.path.join(world_dir, asset["uri"])), offset))
-    missing = set(wanted) - {world["references"][c["tile"]]["asset"]["name"] for c in grid["cells"]}
+    missing = set(wanted) - {world_refs[c["tile"]]["asset"]["name"] for c in grid["cells"]}
     if missing:
         raise SystemExit("not in the world's grid: " + ", ".join(sorted(missing)))
     # Absolute: Blender resolves a bare relative output path against its own idea of the base dir.

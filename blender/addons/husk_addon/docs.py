@@ -5,8 +5,13 @@ else works on numpy arrays and plain dicts.
 """
 import json
 import os
+import uuid
 
 import numpy as np
+
+# Duplicate of the namespace in src/uuid.cpp: ids made here and by the
+# exporter come from the same space.
+HUSK_UUID_NAMESPACE = uuid.UUID("6f0f3a52-8d1c-4b7e-9a42-5c3e1d7b2f10")
 
 # The schema version every document the addon writes conforms to; its
 # counterpart is writeContractHeader in src/writers/bundle_common.cpp. Older
@@ -93,6 +98,38 @@ def absolute_uris(value, doc_dir):
     if isinstance(value, list):
         return [absolute_uris(v, doc_dir) for v in value]
     return value
+
+
+def identity_key(ref):
+    """Mirror of identityKey in src/writers/bundle_common.cpp: the stable-id
+    key of an asset ref's identity (BUNDLE_FORMAT.md "Stable ids")."""
+    ident = ref["id"]
+    kind = ident["kind"]
+    if kind == "file_data_id":
+        return "file_data_id/%d" % ident["value"]
+    if kind == "db2_row":
+        return "db2_row/%s/%d" % (ident["table"], ident["row"])
+    if kind == "record_index":
+        key = "record_index/%d" % ident["value"]
+        return key + "/name/" + ref["name"] if ref.get("name") else key
+    if not ref.get("name"):
+        raise FormatError("%r has neither identity nor name, so no stable id" % (ref,))
+    return "name/" + ref["name"]
+
+
+def reference_id(kind, asset):
+    """A reference's stable id; stableId/referenceId in src/writers/bundle_common.hpp."""
+    return str(uuid.uuid3(HUSK_UUID_NAMESPACE, kind + "/" + identity_key(asset)))
+
+
+def reference(kind, asset, **more):
+    """A references[] entry for `asset`, carrying its id."""
+    return dict({"id": reference_id(kind, asset), "kind": kind, "asset": asset}, **more)
+
+
+def references_by_id(doc):
+    """A document's references keyed by id: everything points at them by id."""
+    return {r["id"]: r for r in doc["references"]}
 
 
 def relative_uris(value, doc_dir):

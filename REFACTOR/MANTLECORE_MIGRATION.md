@@ -138,6 +138,26 @@ changes:
   model they dress. Each model and texture is the file for the wearer's
   race and sex (ComponentModelFileData / ComponentTextureFileData); an
   unpicked texture is `known_unresolved` with the reason.
+- **References are named by id.** Every document's `references[]` entry
+  has a required `id` (a UUID derived from the kind and the referenced
+  asset's identity, `BUNDLE_FORMAT.md` "Stable ids"), and every pointer
+  into references holds that id string, not an integer index: model
+  `definition.placement_sets[].reference`, `texture_slots[].composite`,
+  customization choice `textures[].material`, `selection.equipped[].reference`,
+  material `techniques[]`; placement_set `instances[].reference`; world
+  `grid.cells[].tile` and `placements[]`. Build an id → reference map per
+  document and look pointers up in it; don't assume an order of
+  references (owned sets first, tiles first) any more. A set placing one
+  file under two names now has one reference for it.
+- **Mesh parts are named by id.** `resources.geometry.mesh.parts[]` has a
+  required `id` (from the model's identity and the WMO group index); part
+  `portals[].to_part`, liquid `part`, static light `part`, primitive
+  `part` (mesh and every LOD level) and LOD `source.part_levels[].part`
+  hold that id. Map ids to parts once per model.
+- **Light parameter sets are named by id.** A placement set's
+  `resources.light_params[]` entries have a required `id` (from the
+  LightParams row); a zone light's `clear`, `clear_underwater`, `storm`,
+  `storm_underwater` and `death` hold that id.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Creature catalog, a new document kind.** `husk export-creatures`

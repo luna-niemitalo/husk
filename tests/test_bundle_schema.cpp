@@ -39,9 +39,9 @@ std::string modelDocument() {
     return std::string("{") + kHeader + R"(
   "kind": "model",
   "subject": {"id": {"kind": "file_data_id", "value": 1}, "name": "crate", "name_source": "listfile"},
-  "definition": {"placement_sets": [{"reference": 0, "always_on": true, "instance_count": 1}]},
+  "definition": {"placement_sets": [{"reference": "00000000-0000-3000-8000-00000000000a", "always_on": true, "instance_count": 1}]},
   "selection": {"placement_sets": []},
-  "references": [{"kind": "placement_set",
+  "references": [{"id": "00000000-0000-3000-8000-00000000000a", "kind": "placement_set",
                   "asset": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized", "uri": "sets/0.json"}}],
   "resources": {
     "geometry": {
@@ -63,8 +63,8 @@ std::string setDocument() {
   "kind": "placement_set",
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
-  "references": [{"kind": "model", "asset": {"id": {"kind": "file_data_id", "value": 2}, "name": "chair", "name_source": "listfile"}}],
-  "instances": [{"id": 7, "reference": 0, "translation": [1, 2, 3], "rotation": [0, 0, 0, 1], "scale": 1,
+  "references": [{"id": "00000000-0000-3000-8000-00000000000b", "kind": "model", "asset": {"id": {"kind": "file_data_id", "value": 2}, "name": "chair", "name_source": "listfile"}}],
+  "instances": [{"id": 7, "reference": "00000000-0000-3000-8000-00000000000b", "translation": [1, 2, 3], "rotation": [0, 0, 0, 1], "scale": 1,
                  "selection": {"placement_sets": []}, "source": {"flags": "0x0"}}]
 })";
 }
@@ -119,7 +119,7 @@ std::string effectSetDocument(const std::string& effect, const std::string& inst
   "kind": "placement_set",
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
-  "references": [{"kind": "effect", "asset": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
+  "references": [{"id": "00000000-0000-3000-8000-00000000000c", "kind": "effect", "asset": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
                   "document": )" + effect + R"(}],
   "instances": [)" + instance + R"(]
 })";
@@ -138,7 +138,7 @@ std::string glowEffect(const std::string& status = R"("status": "placeholder",)"
 })";
 }
 
-constexpr const char* kGlowInstance = R"({"id": 1, "reference": 0, "translation": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": 1,
+constexpr const char* kGlowInstance = R"({"id": 1, "reference": "00000000-0000-3000-8000-00000000000c", "translation": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": 1,
   "inputs": {"center": [1, 2, 3], "radius": 4},
   "style": {"glow": {"distance_fog": {"linear": {"start": 1, "end": 10, "color": [1, 1, 1]}}}},
   "source": {"flags": "0x0", "record": {"table": "test", "index": 0}}})";
@@ -333,10 +333,12 @@ TEST_CASE("bundle_schema: structural checks the schema can't express, each repor
     dir = writeBundle("husk-schema-escape", replaced(model, R"("file": "mesh.bin")", R"("file": "../mesh.bin")"), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "inside the document's directory"));
 
-    dir = writeBundle("husk-schema-set", model, replaced(setDocument(), R"("reference": 0)", R"("reference": 1)"));
+    dir = writeBundle("husk-schema-set", model,
+                      replaced(setDocument(), R"("reference": "00000000-0000-3000-8000-00000000000b")",
+                               R"("reference": "00000000-0000-3000-8000-0000000000ff")"));
     problems = bundle_schema::validateDocument(dir);
     CHECK(mentions(problems, "sets/0.json"));
-    CHECK(mentions(problems, "expected an index < 1 into '/references', got 1"));
+    CHECK(mentions(problems, "expected the id of an entry of '/references', got '00000000-0000-3000-8000-0000000000ff'"));
 
     dir = writeBundle("husk-schema-uri", replaced(model, R"("uri": "sets/0.json")", R"("uri": "sets/9.json")"), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "expected 'sets/9.json' to exist"));

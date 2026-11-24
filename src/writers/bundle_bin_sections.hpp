@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "canon_model.hpp"
@@ -29,6 +30,11 @@ struct MeshSlices {
     BufferSlice indices;
     std::vector<BufferSlice> attributes;
 };
+
+// Mesh part `part`'s stable id: nameUuid of "part/<identityKey of the
+// model's subject>/<the part's source index>" (a WMO group's index in its
+// root file), so it names the same group across re-exports and documents.
+std::string partId(const canon::Model& model, size_t part);
 
 // resources.mesh -- appends every mesh BufferSlice to `meshBin` and writes
 // the section to `w`. Returns the slices, which mesh level 0 repeats.

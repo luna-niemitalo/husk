@@ -94,9 +94,16 @@ TEST_CASE("husk export-wmo: GFID rows become mesh levels, a group past its last 
     nlohmann::json m = nlohmann::json::parse(std::ifstream(bundle / "manifest.json"));
     const nlohmann::json& lod = m["resources"]["geometry"]["lod"];
     REQUIRE(lod["max_level"] == 3);
+    const nlohmann::json& parts = m["resources"]["geometry"]["mesh"]["parts"];
+    auto partIndex = [&](const nlohmann::json& id) {
+        for (size_t i = 0; i < parts.size(); ++i) {
+            if (parts[i]["id"] == id) return static_cast<int>(i);
+        }
+        return -1;
+    };
     auto partLevels = [&](size_t level) {
         std::vector<std::pair<int, int>> out;
-        for (const auto& p : lod["levels"][level]["source"]["part_levels"]) out.emplace_back(p["part"], p["level"]);
+        for (const auto& p : lod["levels"][level]["source"]["part_levels"]) out.emplace_back(partIndex(p["part"]), p["level"]);
         return out;
     };
     CHECK(partLevels(1) == std::vector<std::pair<int, int>>{{0, 1}, {1, 1}});

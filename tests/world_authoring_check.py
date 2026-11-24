@@ -33,8 +33,9 @@ def arg(argv, name, default=None):
 def tiles_of(world_dir):
     world = docs.load(world_dir)
     out = {}
+    refs = docs.references_by_id(world)
     for c in world["grid"]["cells"]:
-        asset = world["references"][c["tile"]]["asset"]
+        asset = refs[c["tile"]]["asset"]
         if "uri" in asset:
             out[(c["i"], c["j"])] = os.path.normpath(os.path.join(world_dir, asset["uri"]))
     return world, out
@@ -57,7 +58,7 @@ def instances(world, cell, path):
     doc = docs.load(path)
     out = {}
     for entry in doc["definition"]["placement_sets"]:
-        ref = doc["references"][entry["reference"]]["asset"]
+        ref = docs.references_by_id(doc)[entry["reference"]]["asset"]
         s = docs.load(os.path.normpath(os.path.join(os.path.dirname(path), ref["uri"])))
         for i in s["instances"]:
             out[(ref["name"], i["id"])] = (corner(world, cell) + i["translation"], np.array(i["rotation"]), i["scale"])
@@ -234,7 +235,7 @@ def main():
         for path in tiles.values():
             doc = docs.load(path)
             for entry in doc["definition"]["placement_sets"]:
-                ref = doc["references"][entry["reference"]]["asset"]
+                ref = docs.references_by_id(doc)[entry["reference"]]["asset"]
                 s = docs.load(os.path.normpath(os.path.join(os.path.dirname(path), ref["uri"])))
                 scales += [i["scale"] for i in s["instances"]]
         probe("scaled_instance_scale_min_max", "%.4f/%.4f" % (min(scales), max(scales)) if scales else "none")

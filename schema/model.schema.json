@@ -48,10 +48,9 @@
             "description": "One owned set.",
             "properties": {
               "reference": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The placement_set document.",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the placement_set document's reference.",
+                "x-id-in": "/references"
               },
               "always_on": {
                 "type": "boolean",
@@ -110,10 +109,9 @@
                 }
               },
               "composite": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The material document whose composite builds the slot's texture from customization choices (REFACTOR/MATERIALS.md).",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the reference to the material document whose composite builds the slot's texture from customization choices (REFACTOR/MATERIALS.md).",
+                "x-id-in": "/references"
               }
             },
             "additionalProperties": false,
@@ -361,10 +359,9 @@
                             "description": "One bound texture.",
                             "properties": {
                               "material": {
-                                "type": "integer",
-                                "minimum": 0,
-                                "description": "The material document.",
-                                "x-index-into": "/references"
+                                "$ref": "common.schema.json#/definitions/uuid",
+                                "description": "The id of the material document's reference.",
+                                "x-id-in": "/references"
                               },
                               "input": {
                                 "type": "string",
@@ -500,10 +497,9 @@
             "description": "One worn item.",
             "properties": {
               "reference": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "The item model.",
-                "x-index-into": "/references"
+                "$ref": "common.schema.json#/definitions/uuid",
+                "description": "The id of the item model's reference.",
+                "x-id-in": "/references"
               },
               "slots": {
                 "type": "array",
@@ -806,6 +802,10 @@
                     "type": "object",
                     "description": "One part.",
                     "properties": {
+                      "id": {
+                        "$ref": "common.schema.json#/definitions/uuid",
+                        "description": "This part's stable id, derived from the model's identity and the part's source index (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); everything that names a part uses it."
+                      },
                       "ref": {
                         "$ref": "common.schema.json#/definitions/ref",
                         "description": "The part."
@@ -882,10 +882,9 @@
                               "x-index-into": "/resources/geometry/mesh/portals"
                             },
                             "to_part": {
-                              "type": "integer",
-                              "minimum": 0,
-                              "description": "The part on the other side.",
-                              "x-index-into": "/resources/geometry/mesh/parts"
+                              "$ref": "common.schema.json#/definitions/uuid",
+                              "description": "The id of the part on the other side.",
+                              "x-id-in": "/resources/geometry/mesh/parts"
                             },
                             "side": {
                               "type": "integer",
@@ -921,6 +920,7 @@
                     },
                     "additionalProperties": false,
                     "required": [
+                      "id",
                       "ref",
                       "bounds_min",
                       "bounds_max",
@@ -1036,10 +1036,9 @@
                 "description": "A liquid surface as a height grid over tiles; vertex (x, y) is at corner + (x, y) * tile_size with height heights[y * verts_x + x].",
                 "properties": {
                   "part": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Part the liquid belongs to.",
-                    "x-index-into": "/resources/geometry/mesh/parts"
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "The id of the part the liquid belongs to.",
+                    "x-id-in": "/resources/geometry/mesh/parts"
                   },
                   "material_index": {
                     "type": "integer",
@@ -1838,10 +1837,9 @@
                 "type": "array",
                 "description": "The techniques the material is drawn with (its shader, its framebuffer blend), as references.",
                 "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "One technique.",
-                  "x-index-into": "/references"
+                  "$ref": "common.schema.json#/definitions/uuid",
+                  "description": "The id of one technique's reference.",
+                  "x-id-in": "/references"
                 }
               }
             },
@@ -2244,10 +2242,9 @@
                     "x-index-into": "/definition/placement_sets"
                   },
                   "part": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "The mesh part whose own light this is (a WMO group's light-set light); absent for a model-wide light.",
-                    "x-index-into": "/resources/geometry/mesh/parts"
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "The id of the mesh part whose own light this is (a WMO group's light-set light); absent for a model-wide light.",
+                    "x-id-in": "/resources/geometry/mesh/parts"
                   },
                   "unresolved": {
                     "$ref": "common.schema.json#/definitions/unresolved",
@@ -2869,10 +2866,9 @@
           "x-index-into": "/resources/materials"
         },
         "part": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Part it belongs to.",
-          "x-index-into": "/resources/geometry/mesh/parts"
+          "$ref": "common.schema.json#/definitions/uuid",
+          "description": "The id of the part it belongs to.",
+          "x-id-in": "/resources/geometry/mesh/parts"
         }
       },
       "additionalProperties": false,
@@ -2987,10 +2983,9 @@
                 "description": "One part.",
                 "properties": {
                   "part": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "The part.",
-                    "x-index-into": "/resources/geometry/mesh/parts"
+                    "$ref": "common.schema.json#/definitions/uuid",
+                    "description": "The id of the part.",
+                    "x-id-in": "/resources/geometry/mesh/parts"
                   },
                   "level": {
                     "type": "integer",

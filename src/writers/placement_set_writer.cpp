@@ -23,35 +23,21 @@ void writeFloats(json::Writer& w, std::initializer_list<float> values) {
     w.endArray();
 }
 
-// Identity key for deduplicating a set's referenced assets.
-std::string identityKey(const canon::Ref& ref) {
-    std::ostringstream key;
-    std::visit(
-        [&key](const auto& id) {
-            using T = std::decay_t<decltype(id)>;
-            if constexpr (std::is_same_v<T, canon::None>) {
-                key << "none";
-            } else if constexpr (std::is_same_v<T, canon::Db2Row>) {
-                key << "db2:" << id.table << ":" << id.row;
-            } else if constexpr (std::is_same_v<T, canon::FileDataId>) {
-                key << "fdid:" << id.value;
-            } else {
-                key << "record:" << id.value;
-            }
-        },
-        ref.id);
-    key << "/" << ref.name;
-    return key.str();
-}
+const char* instanceKind(const canon::PlacedInstance& instance) { return instance.effect ? "effect" : "model"; }
 
 void writeVec3(json::Writer& w, const canon::Vec3& v) { writeFloats(w, {v.x, v.y, v.z}); }
 
-// Writes an image input's texture index and a mesh input's asset ref; the
-// caller holds the document's texture table and knows where bundles are.
+// Writes an image input's texture index, a mesh input's asset ref and a
+// zone light's parameter-set id; the caller holds the document's tables and
+// knows where bundles are.
 struct InputAssets {
     std::function<void(const canon::TextureRef&)> texture;
     std::function<void(const canon::Ref&)> mesh;
+    std::function<void(uint32_t)> lightParams;  // an index into the set's lightParams
 };
+
+// A light parameter set's stable id: its LightParams row.
+std::string lightParamsId(const canon::LightParams& params) { return stableId("light_params", params.ref); }
 
 void writeInputValue(json::Writer& w, const canon::InputValue& value, const InputAssets& assets) {
     std::visit(
@@ -238,6 +224,8 @@ void writeLightParams(json::Writer& w, const std::vector<canon::LightParams>& ta
     w.beginArray();
     for (const canon::LightParams& params : table) {
         w.beginObject();
+        w.key("id");
+        w.value(lightParamsId(params));
         w.key("ref");
         writeRef(w, params.ref);
         if (params.settings) {
@@ -352,7 +340,7 @@ void writeParticleSystem(json::Writer& w, const canon::ParticleSystem& p) {
     w.endObject();
 }
 
-void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
+void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style, const InputAssets& assets) {
     w.beginObject();
     if (style.distanceFog) {
         w.key("distance_fog");
@@ -394,7 +382,7 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
         for (size_t slot = 0; slot < canon::ZoneLight::SlotCount; ++slot) {
             if (!style.zoneLight->params[slot]) continue;
             w.key(kSlots[slot]);
-            w.value(static_cast<int64_t>(*style.zoneLight->params[slot]));
+            assets.lightParams(*style.zoneLight->params[slot]);
         }
         w.endObject();
     }
@@ -442,11 +430,11 @@ void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& ef
         for (const canon::SourceStyle& style : effect.style) {
             w.key(style.source);
             if (!style.perElement) {
-                writeStyleBlock(w, style.blocks.at(0));
+                writeStyleBlock(w, style.blocks.at(0), assets);
                 continue;
             }
             w.beginArray();
-            for (const canon::StyleBlock& block : style.blocks) writeStyleBlock(w, block);
+            for (const canon::StyleBlock& block : style.blocks) writeStyleBlock(w, block, assets);
             w.endArray();
         }
         w.endObject();
@@ -488,14 +476,15 @@ std::string effectUri(const canon::Ref& effect) { return "effects/" + effect.nam
 std::string placementSetText(const canon::PlacementSet& set, const std::string& prefix, const AssetUris& uris,
                              const Provenance& provenance, const std::filesystem::path& bundleDir,
                              std::unordered_set<std::string>& writtenTextures, const AssetUris& textureUris) {
+    // One reference per distinct id: identity alone decides, so one file
+    // placed under two names is one reference.
     std::vector<const canon::PlacedInstance*> assets;
-    std::unordered_map<std::string, size_t> assetIndex;
-    std::vector<size_t> instanceAsset;
+    std::set<std::string> seen;
+    std::vector<std::string> instanceAsset;
     for (const canon::PlacedInstance& instance : set.instances) {
-        std::string key = (instance.effect ? "effect/" : "model/") + identityKey(instance.asset);
-        auto [it, added] = assetIndex.emplace(key, assets.size());
-        if (added) assets.push_back(&instance);
-        instanceAsset.push_back(it->second);
+        std::string id = referenceId(instanceKind(instance), instance.asset);
+        if (seen.insert(id).second) assets.push_back(&instance);
+        instanceAsset.push_back(std::move(id));
     }
 
     TextureTable textures(bundleDir, writtenTextures, prefix, &textureUris);
@@ -513,8 +502,10 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
     w.beginArray();
     for (const canon::PlacedInstance* asset : assets) {
         w.beginObject();
+        w.key("id");
+        w.value(referenceId(instanceKind(*asset), asset->asset));
         w.key("kind");
-        w.value(asset->effect ? "effect" : "model");
+        w.value(instanceKind(*asset));
         w.key("asset");
         if (asset->effect) {
             writeRef(w, asset->asset, prefix + effectUri(asset->asset));
@@ -532,7 +523,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         w.key("id");
         w.value(static_cast<int64_t>(instance.id));
         w.key("reference");
-        w.value(static_cast<int64_t>(instanceAsset[i]));
+        w.value(instanceAsset[i]);
         if (instance.anchor) {
             w.key("anchor");
             writeRef(w, *instance.anchor);
@@ -547,7 +538,8 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
             writeEffectInstanceFields(
                 w, *instance.effect,
                 {[&](const canon::TextureRef& texture) { w.value(static_cast<int64_t>(textures.add(texture))); },
-                 [&](const canon::Ref& model) { writeAssetRef(w, model, uris); }});
+                 [&](const canon::Ref& model) { writeAssetRef(w, model, uris); },
+                 [&](uint32_t params) { w.value(lightParamsId(set.lightParams.at(params))); }});
             w.key("source");
             w.beginObject();
             w.key("flags");
@@ -614,7 +606,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         json::Writer lw(lightParams);
         writeLightParams(lw, set.lightParams,
                          {[&](const canon::TextureRef& texture) { lw.value(static_cast<int64_t>(textures.add(texture))); },
-                          [&](const canon::Ref& model) { writeAssetRef(lw, model, uris); }});
+                          [&](const canon::Ref& model) { writeAssetRef(lw, model, uris); }, {}});
     }
     if (!textures.empty() || !set.lightParams.empty()) {
         w.key("resources");
@@ -684,7 +676,7 @@ void writeOwnedSetDefinitions(json::Writer& w, const std::vector<SetDocument>& s
     for (size_t i = 0; i < sets.size(); ++i) {
         w.beginObject();
         w.key("reference");
-        w.value(static_cast<int64_t>(i));
+        w.value(referenceId("placement_set", sets[i].ref));
         w.key("always_on");
         w.value(sets[i].alwaysOn);
         w.key("instance_count");
@@ -709,6 +701,8 @@ void writeOwnedSetSelectionAndReferences(json::Writer& w, const std::vector<SetD
     w.beginArray();
     for (const SetDocument& set : sets) {
         w.beginObject();
+        w.key("id");
+        w.value(referenceId("placement_set", set.ref));
         w.key("kind");
         w.value("placement_set");
         w.key("asset");

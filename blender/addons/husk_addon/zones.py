@@ -9,10 +9,7 @@ import json
 import uuid
 
 from . import terrain as tr
-
-# Duplicate of the namespace in src/uuid.cpp: ids made here and by the
-# exporter come from the same space.
-HUSK_UUID_NAMESPACE = uuid.UUID("6f0f3a52-8d1c-4b7e-9a42-5c3e1d7b2f10")
+from .docs import HUSK_UUID_NAMESPACE
 
 REEXPORT_HINT = ("re-export its world document with zones: husk export-map <maps>/<map> <out>/<map>.world.bundle "
                  "--db2-dir <dbfilesclient> --dbd-dir <WoWDBDefs> --tiles-from <tree>/maps/<map>")

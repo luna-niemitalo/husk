@@ -224,13 +224,7 @@ source of truth; prose like this file explains it but does not define it.
   `x-id-in` references (the id must belong to an entry of the named array,
   and the array's ids must be unique), and referenced placement sets,
   validated recursively.
-- **Stable ids** (Luna, 2026-10-28): an array that can hold more than about
-  50-100 entries gets an `id` per entry (a `uuid`, `common.schema.json`),
-  and references use `x-id-in`, not `x-index-into`. `zones` and the
-  creature catalog's `creatures`, `displays` and `references` have them; the other large arrays (other
-  documents' `references`, mesh `parts`,
-  `light_params`, `surface_types`, `textures`) still use indices until
-  each is audited.
+- **Stable ids**: see "Stable ids" below.
 - **Schema lint** (a test over `schema/` itself) rejects known antipatterns:
   - no storage opinions: a key, enum value or constant naming a container
     or API (`dds`, `png`, `blp`, `glb`, `gltf`, `vk`, `bpy`, ...) fails.
@@ -247,6 +241,63 @@ source of truth; prose like this file explains it but does not define it.
     written by a writer fails validation.
   - `uri` appears only in the shared `Payload` and asset-reference
     definitions.
+
+## Stable ids
+
+**Rule** (Luna, 2026-10-28; applied to every large array 2026-11-24): an
+array that holds or can hold more than about 50-100 entries, or that other
+documents point into, gives each entry an `id` (`common.schema.json`
+`uuid`), and every pointer into it holds that id (`x-id-in`), never a
+position. Positions renumber whenever an array is filtered, merged or
+re-sorted; an id survives that and a re-export. Positions (`x-index-into`)
+stay where position *is* the identity: intrinsic geometry and small,
+fixed-scale tables.
+
+**Ids come from source identity, never from output position.** Each is
+`husk::nameUuid` (UUID v3 in husk's namespace, `src/uuid.hpp`) of a key
+string. Most keys are `<space>/<identity key>` (`writers::stableId`), the
+identity key being `file_data_id/<value>`, `db2_row/<table>/<row>`,
+`record_index/<value>` (plus `/name/<name>` when the ref has a name: a
+record index is a position in a list only the name tells apart, e.g. a
+WMO's doodad set 0 and its effects set), or `name/<name>` for an entry
+with no identity of its own. The Blender addon mirrors it
+(`docs.identity_key`, `docs.reference_id`).
+
+| Array | Key | Why that key |
+|---|---|---|
+| `references` (every kind) | `<kind>/<identity key of asset>` | The referenced document's identity: a model by file id has the same id in every document that references it, the creature catalog's included. A reference without identity (owned sets, effects, techniques) is keyed by its name. |
+| world `zones` | `zone/<map>/AreaTable/<row>` | AreaTable row, per map. |
+| creatures `creatures`, `displays` | `creature/Creature/<row>`, `creature_display/CreatureDisplayInfo/<row>` | Their DB2 rows. |
+| mesh `parts` | `part/<identity key of the model>/<source index>` | A WMO group's index in its root file; the model's identity makes it unique across documents. |
+| `light_params` | `light_params/db2_row/LightParams/<row>` | The LightParams row. |
+
+One reference per id: two placements of one file under different names
+are one reference, and a model's item models are deduplicated the same
+way. Checked-in technique bodies (`techniques/`) carry their references'
+ids as text; the writer checks each against the derived one.
+
+**Classification of every pointer** (2026-11-24):
+
+| Pointer | Target | |
+|---|---|---|
+| model `definition.placement_sets[].reference`, `texture_slots[].composite`, customization choice `textures[].material`, `selection.equipped[].reference`, material `techniques[]`; placement_set `instances[].reference`; world `grid.cells[].tile`, `placements[]` | `/references` | id |
+| part `portals[].to_part`, liquid `part`, static light `part`, primitive `part`, LOD `part_levels[].part` | `/resources/geometry/mesh/parts` | id |
+| zone light `clear` / `clear_underwater` / `storm` / `storm_underwater` / `death` | `/resources/light_params` | id |
+| `texture_index` (material layers, slot options, item/choice textures, liquid frames, light cookies, terrain `diffuse`/`normal`, effect image inputs) | `/resources/textures` | index, pending: a WMO or character model can list hundreds; next to convert |
+| primitive / liquid `material_index` | `/resources/materials` | index, pending: a WMO's materials reach ~100-200 |
+| part `lights[]`, `light_sets[][]` | `/resources/scene/static_lights` | index, pending: a WMO's lights reach the hundreds |
+| `surface_type_index` | `/resources/surface_types` | index, kept: the face channel `surface_type` (a binary attribute) indexes the same table, and a document lists only the few surfaces it uses |
+| part `portals[].portal` | `/resources/geometry/mesh/portals` | index, kept: portal polygons are geometry, paired with the parts' links |
+| `joint_index` | `/resources/rig/skeleton/joints` | index, kept: vertex joint buffers index joints |
+| layer `uv_map` | `/resources/uv_maps` | index, kept: a handful per model |
+| choice `correction_set` | `/resources/rig/correction_sets` | index, kept: a few .bone sets per model |
+| `instance_ref.set`, `selection.placement_sets[]`, light `placement_set`, instance `selection.placement_sets[]` | `/definition/placement_sets` | index, kept: a model owns a few sets (WMO doodad sets, terrain's two) |
+| `slot` | `/definition/texture_slots` | index, kept: a dozen replaceable texture types at most |
+| preset `particle_colors` | `/definition/particle_colors` | index, kept: a few per model |
+| preset/customization `option`, preset `item` | `/definition/customization/options`, `/definition/items` | index, out of scope here: presets become appearance references |
+| physics `shapes[]`, joint `body_a`/`body_b` | `/resources/physics/*` | index, kept: a few bodies per model |
+| terrain layer `texture_index`, `ground_effect_index` | the tile's `textures`, `ground_effects` | index, kept: per-tile tables of a few dozen |
+| terrain chunk arrays (`area_index`, layers, per-chunk slices) | per-chunk position | index, kept: chunk position in the 16×16 tile is its identity |
 
 ## Attribute channels — per-element data without a dedicated key
 
@@ -1056,10 +1107,10 @@ and is not per zone.
   `model/file_data_id/<fdid>`); a creature names its displays and a
   display its model by id (`x-id-in`), so filtering or reordering any of
   the three arrays never breaks a reference and a re-export keeps them.
-  The catalog's references run to thousands, so its reference items are
-  its own (common `reference` plus `id`, `kind` fixed to `model`); other
-  documents' `references` are still indexed by position ("Stable ids"
-  above).
+  The catalog's reference items are its own (`kind` fixed to `model`),
+  with the same id key as every document's references ("Stable ids"
+  above), so a model has one id across the catalog and the documents that
+  place it.
 - **Written by `husk export-creatures <tree>`**, which `export-corpus`
   runs after `index-tree` whenever it has `--db2-dir` and `--dbd-dir`.
   Not part of `index-tree`: `index/` is derived from the tree alone, and

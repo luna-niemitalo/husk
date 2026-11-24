@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "bundle_schema_embedded.hpp"
+#include "uuid.hpp"
 
 namespace husk::writers {
 
@@ -85,6 +86,33 @@ void writeIdentity(json::Writer& w, const canon::Identity& identity) {
         },
         identity);
     w.endObject();
+}
+
+std::string identityKey(const canon::Ref& ref) {
+    std::ostringstream key;
+    std::visit(
+        [&](const auto& id) {
+            using T = std::decay_t<decltype(id)>;
+            if constexpr (std::is_same_v<T, canon::None>) {
+                if (ref.name.empty()) throw std::runtime_error("bundle writer: an entry has neither identity nor name, so no stable id");
+                key << "name/" << ref.name;
+            } else if constexpr (std::is_same_v<T, canon::FileDataId>) {
+                key << "file_data_id/" << id.value;
+            } else if constexpr (std::is_same_v<T, canon::Db2Row>) {
+                key << "db2_row/" << id.table << "/" << id.row;
+            } else {
+                // A record index is a position in a list only the name tells
+                // apart: a WMO's doodad set 0 and its effects set are both 0.
+                key << "record_index/" << id.value;
+                if (!ref.name.empty()) key << "/name/" << ref.name;
+            }
+        },
+        ref.id);
+    return key.str();
+}
+
+std::string stableId(std::string_view space, const canon::Ref& ref) {
+    return nameUuid(std::string(space) + "/" + identityKey(ref));
 }
 
 void writeName(json::Writer& w, const canon::Ref& ref) {
@@ -268,6 +296,8 @@ const bundle_schema::EmbeddedSchema* embeddedTechnique(const std::string& name) 
 
 std::string techniqueUri(const std::string& name) { return "techniques/" + name + ".json"; }
 
+canon::Ref techniqueRef(const std::string& name) { return canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}; }
+
 std::vector<std::string> materialTechniques(const canon::Material& material) {
     std::vector<std::string> candidates;
     if (material.pixelShader) {
@@ -298,12 +328,21 @@ void writeTechniqueDocuments(const std::vector<std::string>& names, const std::f
         const bundle_schema::EmbeddedSchema* body = embeddedTechnique(name);
         if (!body) throw std::runtime_error("bundle writer: no technique document '" + name + "' in techniques/");
         for (const nlohmann::json& ref : nlohmann::json::parse(body->text)["references"]) {
-            if (ref["kind"] == "technique") pending.push_back(ref["asset"]["name"]);
+            if (ref["kind"] != "technique") continue;
+            std::string target = ref["asset"]["name"];
+            // The body is checked in and spliced as is, so its ids are
+            // written there; they must be the ones the scheme derives.
+            std::string expected = referenceId("technique", techniqueRef(target));
+            if (ref.value("id", "") != expected) {
+                throw std::runtime_error("bundle writer: technique '" + name + "' names '" + target + "' with id '" +
+                                         ref.value("id", "") + "', expected '" + expected + "'");
+            }
+            pending.push_back(target);
         }
         std::ostringstream text;
         json::Writer w(text);
         w.beginObject();
-        writeContractHeader(w, "technique", canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, provenance);
+        writeContractHeader(w, "technique", techniqueRef(name), provenance);
         w.rawMembers(std::string(body->text));
         w.endObject();
         std::filesystem::path path = bundleDir / techniqueUri(name);

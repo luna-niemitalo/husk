@@ -427,9 +427,9 @@ TEST_CASE("writeBundle: material documents beside the model; a slot's composite 
     const auto& ref = manifest["references"][0];
     CHECK(ref["kind"] == "material");
     CHECK(ref["asset"]["uri"] == "materials/0.json");
-    CHECK(manifest["definition"]["texture_slots"][0]["composite"] == 0);
+    CHECK(manifest["definition"]["texture_slots"][0]["composite"] == ref["id"]);
     const auto& bound = manifest["definition"]["customization"]["options"][0]["choices"][0]["textures"][0];
-    CHECK(bound["material"] == 0);
+    CHECK(bound["material"] == ref["id"]);
     CHECK(bound["input"] == "target_4");
     CHECK(bound["only_with"]["option"] == 0);
     CHECK(textureAt(manifest, bound["texture"])["identity"]["id"]["value"] == 1700);

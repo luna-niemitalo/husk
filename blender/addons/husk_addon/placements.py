@@ -36,12 +36,13 @@ def import_set(set_path, set_name, frame_corner, grid, parent, assets, seen, wor
         coll = bpy.data.collections.new(set_name)
         parent.children.link(coll)
     made = 0
+    refs = docs.references_by_id(set_doc)
     for inst in set_doc["instances"]:
         key = (world_level, set_name, inst["id"])
         if key in seen:
             continue
         seen.add(key)
-        reference = docs.absolute_uris(set_doc["references"][inst["reference"]], set_dir)
+        reference = docs.absolute_uris(refs[inst["reference"]], set_dir)
         rest = docs.absolute_uris({k: v for k, v in inst.items() if k not in _CARRIED_AS_TRANSFORM}, set_dir)
         # Stored in the world frame so a move between cells is one subtraction.
         rest = _shift_distant(rest, frame_corner)
@@ -142,15 +143,17 @@ def assign_ids(placements, taken_by_set):
 def set_document(name, placements, frame_corner, doc_dir, schema_version, source_detail, resources=None):
     """`resources`: the source set's own (uris absolute), which its
     instances index into (an effect's image inputs); carried unchanged."""
-    references, index = [], {}
+    references, seen = [], set()
     instances = []
     for p in sorted(placements, key=lambda p: p.id):
-        key = json.dumps(p.reference, sort_keys=True)
-        if key not in index:
-            index[key] = len(references)
-            references.append(p.reference)
+        # Recomputed rather than carried: an asset collection made before
+        # references had ids holds none.
+        ref_id = docs.reference_id(p.reference["kind"], p.reference["asset"])
+        if ref_id not in seen:
+            seen.add(ref_id)
+            references.append(dict(p.reference, id=ref_id))
         t = p.world_t - frame_corner
-        inst = {"id": p.id, "reference": index[key], "translation": [float(v) for v in t],
+        inst = {"id": p.id, "reference": ref_id, "translation": [float(v) for v in t],
                 "rotation": [float(v) for v in p.rotation], "scale": p.scale}
         inst.update(_shift_distant(json.loads(json.dumps(p.rest)), -frame_corner))
         instances.append(inst)

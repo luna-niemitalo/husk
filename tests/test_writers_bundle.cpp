@@ -17,6 +17,8 @@
 #include <doctest/doctest.h>
 
 #include "test_bundle_fixtures.hpp"
+#include "uuid.hpp"
+#include "writers/bundle_common.hpp"
 
 TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files exist") {
     canon::Model model = buildSyntheticModel();
@@ -230,7 +232,7 @@ TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when th
     nlohmann::json manifest = parseManifest(wet);
     const auto& written = manifest["resources"]["geometry"]["liquids"][0];
 
-    CHECK(written["part"] == 0);
+    CHECK(written["part"] == manifest["resources"]["geometry"]["mesh"]["parts"][0]["id"]);
     CHECK(written["liquid_type"]["id"]["row"] == 13);
     CHECK(written["verts_x"] == 3);
     CHECK(written["heights"]["file"] == "liquid.bin");
@@ -318,7 +320,7 @@ TEST_CASE("writeBundle: portals on the mesh, links on their parts") {
     CHECK(mesh["portals"][1]["unresolved"]["extra_record"].size() == 16);
     const auto& link = mesh["parts"][0]["portals"][0];
     CHECK(link["portal"] == 1);
-    CHECK(link["to_part"] == 1);
+    CHECK(link["to_part"] == mesh["parts"][1]["id"]);
     CHECK(link["side"] == -1);
     CHECK_FALSE(link.contains("unresolved"));
 }
@@ -381,7 +383,9 @@ TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set fil
     CHECK(mesh["parts"][0]["ref"]["name"] == "hall");
     CHECK(mesh["parts"][0]["ref"]["name_source"] == "wmo_embedded");
     CHECK(mesh["parts"][0]["source"]["flags"] == "0x8");
-    CHECK(mesh["primitives"][0]["part"] == 0);
+    // A part's id comes from the model's identity and the group's source index.
+    CHECK(mesh["parts"][0]["id"] == husk::nameUuid("part/" + writers::identityKey(model.subject) + "/0"));
+    CHECK(mesh["primitives"][0]["part"] == mesh["parts"][0]["id"]);
     CHECK(mesh["colors"][0]["component_type"] == "u8");
     CHECK(mesh["colors"][0]["semantic"] == "COLOR_0");
     const auto& material = resources["materials"][0];
@@ -393,7 +397,7 @@ TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set fil
     const auto& set = manifest["definition"]["placement_sets"][0];
     CHECK(set["always_on"] == true);
     CHECK(set["instance_count"] == 1);
-    const auto& reference = manifest["references"][set["reference"].get<size_t>()];
+    const auto& reference = referenceById(manifest, set["reference"]);
     CHECK(reference["kind"] == "placement_set");
     CHECK(reference["asset"]["uri"] == "sets/0.json");
     CHECK(reference["asset"]["name"] == "Set_$DefaultGlobal");
@@ -402,7 +406,7 @@ TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set fil
     CHECK(setFile["subject"]["name"] == "Set_$DefaultGlobal");
     const auto& written = setFile["instances"][0];
     CHECK(written["id"] == 7);
-    const auto& asset = setFile["references"][written["reference"].get<size_t>()]["asset"];
+    const auto& asset = referenceById(setFile, written["reference"])["asset"];
     CHECK(asset["uri"] == "../models/7001.canon.bundle/manifest.json");
     CHECK(asset["name"] == "barrel01");
     CHECK(written["scale"] == 2.0);

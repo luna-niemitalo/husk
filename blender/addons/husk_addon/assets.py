@@ -132,8 +132,9 @@ class Assets:
         if model is None:
             return []
         doc = model[0]
+        refs = docs.references_by_id(doc)
         return [(k, s["always_on"]) for k, s in enumerate(doc["definition"]["placement_sets"])
-                if "uri" in doc["references"][s["reference"]]["asset"]]
+                if "uri" in refs[s["reference"]]["asset"]]
 
     def set_collection(self, reference, index):
         """An owned set (a WMO doodad set) as a collection of instancing empties, asset-local."""
@@ -142,15 +143,16 @@ class Assets:
             return self.set_colls[key]
         doc, doc_dir = self.models[self.key(reference)]
         entry = doc["definition"]["placement_sets"][index]
-        set_ref = doc["references"][entry["reference"]]["asset"]
+        set_ref = docs.references_by_id(doc)[entry["reference"]]["asset"]
         coll = bpy.data.collections.new("%s.set_%d" % (set_ref.get("name", "set"), index))
         self.root.children.link(coll)
         self.set_colls[key] = coll
         set_path = os.path.normpath(os.path.join(doc_dir, set_ref["uri"]))
         set_doc = docs.load(set_path)
         set_dir = os.path.dirname(set_path)
+        set_refs = docs.references_by_id(set_doc)
         for inst in set_doc["instances"]:
-            ref = docs.absolute_uris(set_doc["references"][inst["reference"]], set_dir)
+            ref = docs.absolute_uris(set_refs[inst["reference"]], set_dir)
             obj = bpy.data.objects.new("%s_%d" % (coll.name, inst["id"]), None)
             obj.instance_type = "COLLECTION"
             obj.instance_collection = self.collection(ref)

@@ -72,10 +72,9 @@
             "minimum": 0
           },
           "reference": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The placed model or effect.",
-            "x-index-into": "/references"
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "The id of the placed model's or effect's reference.",
+            "x-id-in": "/references"
           },
           "anchor": {
             "$ref": "common.schema.json#/definitions/ref",

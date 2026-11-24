@@ -17,8 +17,10 @@
 
 #include "../src/adt.hpp"
 #include "../src/adt_canon_input.hpp"
+#include "../src/uuid.hpp"
 #include "../src/writers/terrain_bundle_writer.hpp"
 #include "test_adt_fixtures.hpp"
+#include "test_bundle_read.hpp"
 
 using namespace adtfx;
 namespace adt = husk::adt;
@@ -53,7 +55,7 @@ nlohmann::json readPlacements(const fs::path& setFile) {
     REQUIRE(in.good());
     nlohmann::json set = nlohmann::json::parse(in);
     nlohmann::json instances = set["instances"];
-    for (auto& instance : instances) instance["asset"] = set["references"][instance["reference"].get<size_t>()]["asset"];
+    for (auto& instance : instances) instance["asset"] = referenceById(set, instance["reference"])["asset"];
     return instances;
 }
 
@@ -347,7 +349,9 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK(owned[0]["always_on"] == true);
     CHECK(owned[0]["instance_count"] == 1);
     REQUIRE(m["references"].size() == 2);
-    CHECK(m["references"][owned[0]["reference"].get<size_t>()]["asset"]["name"] == "doodads");
+    CHECK(referenceById(m, owned[0]["reference"])["asset"]["name"] == "doodads");
+    // A reference's id is derived from its kind and identity, never its position.
+    CHECK(m["references"][0]["id"] == husk::nameUuid("placement_set/name/doodads"));
     CHECK(m["references"][0]["asset"]["uri"] == "sets/0.json");
     CHECK(m["references"][1]["asset"]["name"] == "map_objects");
     CHECK(m["references"][1]["asset"]["uri"] == "sets/1.json");

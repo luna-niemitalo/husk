@@ -8,6 +8,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
@@ -64,10 +65,10 @@ using ChoiceTextures = std::map<std::pair<uint32_t, uint32_t>, std::vector<const
 // resources.rig.correction_sets.
 using ChoiceCorrectionSets = std::map<std::pair<uint32_t, uint32_t>, uint32_t>;
 
-// `materialBase`: the reference index of material document 0.
+// `materialIds[i]`: material document i's reference id.
 void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon::Option& option, uint32_t optionIndex,
                               const ChoiceTextures& choiceTextures, const ChoiceCorrectionSets& correctionSets,
-                              uint32_t materialBase, TextureTable& textures) {
+                              const std::vector<std::string>& materialIds, TextureTable& textures) {
     w.beginObject();
     w.key("ref");
     writeRef(w, option.ref);
@@ -108,7 +109,7 @@ void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon:
             for (const canon::ChoiceTexture* t : bound->second) {
                 w.beginObject();
                 w.key("material");
-                w.value(static_cast<int64_t>(materialBase + t->material));
+                w.value(materialIds.at(t->material));
                 w.key("input");
                 w.value(t->input);
                 w.key("texture");
@@ -186,7 +187,8 @@ void writeItem(json::Writer& w, const canon::ItemEntry& item, TextureTable& text
     w.endObject();
 }
 
-void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures, uint32_t materialBase) {
+void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures,
+                  const std::vector<std::string>& materialIds) {
     if (!model.textureSlots.empty()) {
         w.key("texture_slots");
         w.beginArray();
@@ -211,7 +213,7 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
             w.endArray();
             if (slot.composite) {
                 w.key("composite");
-                w.value(static_cast<int64_t>(materialBase + *slot.composite));
+                w.value(materialIds.at(*slot.composite));
             }
             w.endObject();
         }
@@ -232,7 +234,7 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
         for (const canon::Definition& definition : model.customization) {
             for (const canon::Option& option : definition.options) {
                 writeCustomizationOption(w, definition.chrModelId, option, optionIndex++, choiceTextures, correctionSets,
-                                         materialBase, textures);
+                                         materialIds, textures);
             }
         }
         w.endArray();
@@ -463,9 +465,9 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
     w.endObject();
 }
 
-// `techniques[i]`: material i's technique reference indices.
+// `techniques[i]`: material i's technique reference ids.
 void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials, TextureTable& textures,
-                           UvMapTable& uvMaps, const std::vector<std::vector<uint32_t>>& techniques) {
+                           UvMapTable& uvMaps, const std::vector<std::vector<std::string>>& techniques) {
     w.beginArray();
     for (size_t m = 0; m < materials.size(); ++m) {
         const canon::Material& material = materials[m];
@@ -473,7 +475,7 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
         if (!techniques[m].empty()) {
             w.key("techniques");
             w.beginArray();
-            for (uint32_t t : techniques[m]) w.value(static_cast<int64_t>(t));
+            for (const std::string& t : techniques[m]) w.value(t);
             w.endArray();
         }
 
@@ -613,7 +615,8 @@ void writeSourceBlock(json::Writer& w, uint32_t flags, const canon::SourceRecord
     w.endObject();
 }
 
-void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lights, TextureTable& textures) {
+void writeLocalLights(json::Writer& w, const canon::Model& model, TextureTable& textures) {
+    const std::vector<canon::LocalLight>& lights = model.scene.localLights;
     w.beginArray();
     for (const canon::LocalLight& l : lights) {
         w.beginObject();
@@ -671,7 +674,10 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
             w.value(static_cast<int64_t>(textures.add(*l.cookie)));
         }
         if (l.placementSet) writeIntField(w, "placement_set", placementSetIndex(*l.placementSet));
-        if (l.part) writeIntField(w, "part", *l.part);
+        if (l.part) {
+            w.key("part");
+            w.value(partId(model, *l.part));
+        }
         if (!l.unresolved.empty()) {
             w.key("unresolved");
             writeUnresolved(w, l.unresolved);
@@ -712,30 +718,28 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     manifestProvenance.sources.insert(manifestProvenance.sources.end(), manifestSources.begin(), manifestSources.end());
     writeContractHeader(w, "model", model.subject, manifestProvenance);
 
-    // Owned placement sets are the model's first references, so set i is
-    // reference i.
     std::unordered_set<std::string> writtenTextures;
     TextureTable textures(bundleDir, writtenTextures, "", &textureUris);
+    std::vector<std::string> materialIds;
+    for (const canon::MaterialDocument& document : model.materialDocuments) {
+        materialIds.push_back(referenceId("material", document.subject));
+    }
     w.key("definition");
     w.beginObject();
     writeOwnedSetDefinitions(w, sets);
-    uint32_t materialBase = static_cast<uint32_t>(sets.size());
-    writeOptions(w, model, textures, materialBase);
+    writeOptions(w, model, textures, materialIds);
     w.endObject();
     for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
         writeMaterialDocument(model.materialDocuments[i], bundleDir / "materials" / (std::to_string(i) + ".json"), provenance,
                               bundleDir, "../", writtenTextures);
     }
-    // Techniques follow the material documents in the references.
     std::vector<std::string> techniqueNames;
-    std::vector<std::vector<uint32_t>> materialTechniqueRefs;
-    uint32_t techniqueBase = materialBase + static_cast<uint32_t>(model.materialDocuments.size());
+    std::vector<std::vector<std::string>> materialTechniqueRefs;
     for (const canon::Material& material : model.materials) {
-        std::vector<uint32_t> refs;
+        std::vector<std::string> refs;
         for (const std::string& name : materialTechniques(material)) {
-            auto at = std::find(techniqueNames.begin(), techniqueNames.end(), name);
-            if (at == techniqueNames.end()) at = techniqueNames.insert(techniqueNames.end(), name);
-            refs.push_back(techniqueBase + static_cast<uint32_t>(at - techniqueNames.begin()));
+            if (std::find(techniqueNames.begin(), techniqueNames.end(), name) == techniqueNames.end()) techniqueNames.push_back(name);
+            refs.push_back(referenceId("technique", techniqueRef(name)));
         }
         materialTechniqueRefs.push_back(std::move(refs));
     }
@@ -745,6 +749,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         [&](json::Writer& rw) {
             for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
                 rw.beginObject();
+                rw.key("id");
+                rw.value(materialIds[i]);
                 rw.key("kind");
                 rw.value("material");
                 rw.key("asset");
@@ -753,17 +759,24 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
             }
             for (const std::string& name : techniqueNames) {
                 rw.beginObject();
+                rw.key("id");
+                rw.value(referenceId("technique", techniqueRef(name)));
                 rw.key("kind");
                 rw.value("technique");
                 rw.key("asset");
-                writeRef(rw, canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}, techniqueUri(name));
+                writeRef(rw, techniqueRef(name), techniqueUri(name));
                 rw.endObject();
             }
             // Item model bundles exported beside this one (definition.items[].models).
+            std::set<std::string> itemModelIds;
             for (const canon::ItemEntry& item : model.items) {
                 for (const canon::ItemModel& itemModel : item.models) {
                     if (itemModel.uri.empty()) continue;
+                    std::string id = referenceId("model", *itemModel.ref);
+                    if (!itemModelIds.insert(id).second) continue;
                     rw.beginObject();
+                    rw.key("id");
+                    rw.value(id);
                     rw.key("kind");
                     rw.value("model");
                     rw.key("asset");
@@ -843,7 +856,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("animated_lights");
     writeLights(w, model.scene.lights);
     w.key("static_lights");
-    writeLocalLights(w, model.scene.localLights, textures);
+    writeLocalLights(w, model, textures);
     if (model.defaultFog) {
         w.key("default_fog");
         writeInstanceRef(w, *model.defaultFog);
@@ -899,11 +912,12 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     w.beginObject();
     w.endObject();
 
-    // Cell i's tile is reference i; the off-grid sets follow.
     w.key("references");
     w.beginArray();
     for (size_t i = 0; i < world.cells.size(); ++i) {
         w.beginObject();
+        w.key("id");
+        w.value(referenceId("model", world.cells[i].tile));
         w.key("kind");
         w.value("model");
         w.key("asset");
@@ -912,6 +926,8 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     }
     for (const SetDocument& set : sets) {
         w.beginObject();
+        w.key("id");
+        w.value(referenceId("placement_set", set.ref));
         w.key("kind");
         w.value("placement_set");
         w.key("asset");
@@ -936,7 +952,8 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
         w.beginObject();
         writeIntField(w, "i", cell.tileX);
         writeIntField(w, "j", cell.tileY);
-        writeIntField(w, "tile", static_cast<int64_t>(i));
+        w.key("tile");
+        w.value(referenceId("model", cell.tile));
         writeVec3Field(w, "bounds_min", cell.boundsMin);
         writeVec3Field(w, "bounds_max", cell.boundsMax);
         w.endObject();
@@ -946,7 +963,7 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
 
     w.key("placements");
     w.beginArray();
-    for (size_t i = 0; i < sets.size(); ++i) w.value(static_cast<int64_t>(world.cells.size() + i));
+    for (const SetDocument& set : sets) w.value(referenceId("placement_set", set.ref));
     w.endArray();
 
     w.key("zones");

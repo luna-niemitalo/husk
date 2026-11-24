@@ -54,6 +54,8 @@ canon::CreatureCatalog assemble(const creaturedb::Data& data) {
     for (const canon::CreatureDisplay& display : out.displays) {
         if (display.model) models.insert(*display.model);
     }
+    // The key is writers::referenceId's for a model by file id, so a model
+    // has the same id here as in every other document's references.
     for (uint32_t fdid : models) {
         out.models.push_back({nameUuid("model/file_data_id/" + std::to_string(fdid)),
                               {canon::FileDataId{fdid}, "", canon::NameSource::None}});
