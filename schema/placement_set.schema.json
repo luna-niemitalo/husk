@@ -29,7 +29,8 @@
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The set.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"file": "wmo", "field": "MODS"}, {"format": true}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",
@@ -87,7 +88,8 @@
           },
           "anchor": {
             "$ref": "common.schema.json#/definitions/ref",
-            "description": "A joint of the model that owns the set: the instance moves with it. Its translation stays in that model's frame at the bind pose. Absent: the set's frame."
+            "description": "A joint of the model that owns the set: the instance moves with it. Its translation stays in that model's frame at the bind pose. Absent: the set's frame.",
+            "x-source": [{"file": "m2", "field": "M2Ribbon.boneIndex"}, {"file": "m2", "field": "M2Particle.bone"}]
           },
           "translation": {
             "$ref": "common.schema.json#/definitions/vec3",

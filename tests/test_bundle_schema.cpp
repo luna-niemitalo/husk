@@ -446,7 +446,7 @@ TEST_CASE("bundle_schema: the lint rejects DB2 table and column names and as-sto
         "model_resources_id": {"type": "integer", "description": "d", "x-layer": "resource"},
         "rank": {"type": "integer", "description": "The rank as stored.", "x-layer": "resource"},
         "map": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"table": "Map", "column": "Directory"}]},
-        "source": {"type": "object", "description": "d", "x-layer": "resource", "additionalProperties": false, "properties": {
+        "source": {"type": "object", "description": "d", "x-layer": "resource", "x-source": [{"table": "ItemDisplayInfo"}], "additionalProperties": false, "properties": {
           "raw": {"type": "object", "description": "d", "additionalProperties": false, "properties": {
             "item_display_info": {"type": "integer", "description": "As stored."},
             "texture_type": {"type": "integer", "description": "As stored."}}}}}
@@ -488,23 +488,45 @@ TEST_CASE("bundle_schema: schema-doc lists every kind's document paths with type
     CHECK(row("provenance.sources[].name").find("Why:") == std::string::npos);
 }
 
-TEST_CASE("bundle_schema: source gaps name a schema location and a document path, once each") {
+TEST_CASE("bundle_schema: a leaf without x-source fails the lint, naming its schema location and document path once") {
+    REQUIRE(bundle_schema::kSourceRequired);
     std::vector<bundle_schema::Problem> gaps = bundle_schema::sourceGaps();
-    REQUIRE_FALSE(gaps.empty());
-    std::vector<std::string> where;
-    for (const bundle_schema::Problem& g : gaps) where.push_back(g.where);
-    CHECK(std::is_sorted(where.begin(), where.end()));
-    CHECK(std::adjacent_find(where.begin(), where.end()) == where.end());
-    CHECK(gaps.front().message.find("document path ") != std::string::npos);
+    INFO(describe(gaps));
+    CHECK(gaps.empty());
 
-    // The pilot annotation: the effect schema and the contract header's
-    // shared definitions resolve everywhere.
-    for (const char* annotated : {"effect.schema.json#", "common.schema.json#/definitions/space/",
-                                  "common.schema.json#/definitions/provenance/", "common.schema.json#/definitions/ref/",
-                                  "common.schema.json#/definitions/asset_ref/", "common.schema.json#/definitions/reference/"}) {
-        CAPTURE(annotated);
-        CHECK_FALSE(mentions(gaps, annotated));
-    }
+    // A use site's x-source covers the oneOf branches of the definition it
+    // $refs; unannotated uses of that definition leave its branch leaves
+    // open, reported once at the definition with every path that reaches it.
+    constexpr const char* kBad = R"({
+      "$schema": "http://json-schema.org/draft-07/schema#", "x-status": "implemented",
+      "type": "object", "description": "A bad kind.",
+      "properties": {
+        "annotated": {"$ref": "#/definitions/either", "description": "d", "x-layer": "resource", "x-source": [{"table": "Creature", "column": "ID"}]},
+        "bare": {"$ref": "#/definitions/either", "description": "d", "x-layer": "resource"},
+        "repeat": {"$ref": "#/definitions/either", "description": "d", "x-layer": "resource"},
+        "loose_leaf": {"type": "string", "description": "d", "x-layer": "resource"},
+        "tag": {"const": "x", "description": "d", "x-layer": "resource"}
+      },
+      "definitions": {"either": {"description": "d", "oneOf": [
+        {"type": "object", "description": "d", "properties": {"kind": {"const": "a", "description": "d"}, "value": {"type": "integer", "description": "d"}}, "required": ["kind"], "additionalProperties": false},
+        {"type": "object", "description": "d", "properties": {"kind": {"const": "b", "description": "d"}, "row": {"type": "integer", "description": "d"}}, "required": ["kind"], "additionalProperties": false}]}},
+      "additionalProperties": false
+    })";
+    std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemaText("bad", kBad);
+    INFO(describe(problems));
+    auto gapAt = [&](const std::string& where, const std::string& paths) {
+        return std::count_if(problems.begin(), problems.end(), [&](const bundle_schema::Problem& p) {
+            return p.where == where && p.message.starts_with("leaf property has no x-source, own or inherited (" + paths + "): ");
+        });
+    };
+    CHECK(gapAt("bad.schema.json#/properties/loose_leaf", "bad document path loose_leaf") == 1);
+    CHECK(gapAt("bad.schema.json#/definitions/either/oneOf/0/properties/value",
+                "bad document path bare{kind=a}.value; bad document path repeat{kind=a}.value") == 1);
+    CHECK(gapAt("bad.schema.json#/definitions/either/oneOf/1/properties/row",
+                "bad document path bare{kind=b}.row; bad document path repeat{kind=b}.row") == 1);
+    CHECK_FALSE(mentions(problems, "document path annotated"));
+    CHECK_FALSE(mentions(problems, "document path tag"));
+
     std::string doc = bundle_schema::schemaDoc();
     CHECK(doc.find("| `sources[].id` | yes | string |  |  |  | authored in `effects/<name>.json` (from `sources`) |") != std::string::npos);
     CHECK(doc.find("| `subject.name` |  | string | length ≥ 1 |  |  | stated per value by `name_source` |") != std::string::npos);

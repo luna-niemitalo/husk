@@ -29,7 +29,8 @@
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The catalog; it has no identity of its own.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"format": true}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",
@@ -75,7 +76,8 @@
           },
           "asset": {
             "$ref": "common.schema.json#/definitions/asset_ref",
-            "description": "The model file, named from the listfile when the exporter had one; uri when its document is in the tree."
+            "description": "The model file, named from the listfile when the exporter had one; uri when its document is in the tree.",
+            "x-source": [{"table": "CreatureModelData", "column": "FileDataID"}]
           }
         },
         "required": [
@@ -160,7 +162,8 @@
             "properties": {
               "id": {
                 "$ref": "common.schema.json#/definitions/identity",
-                "description": "The source's own record of the creature."
+                "description": "The source's own record of the creature.",
+                "x-source": [{"table": "Creature", "column": "ID"}]
               },
               "classification": {
                 "type": "integer",
@@ -258,7 +261,8 @@
             "properties": {
               "id": {
                 "$ref": "common.schema.json#/definitions/identity",
-                "description": "The source's own record of the display."
+                "description": "The source's own record of the display.",
+                "x-source": [{"table": "CreatureDisplayInfo", "column": "ID"}]
               },
               "size_class": {
                 "type": "integer",

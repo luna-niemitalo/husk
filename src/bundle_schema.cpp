@@ -1349,7 +1349,13 @@ std::vector<Problem> lintSchemas() {
 
 std::vector<Problem> lintSchemaText(const std::string& stem, const std::string& text) {
     std::vector<Problem> problems;
-    lintOne(stem, json::parse(text), problems);
+    json schema = json::parse(text);
+    lintOne(stem, schema, problems);
+    if (kSourceRequired) {
+        SourceGapPaths gaps;
+        collectSourceGaps(stem, schema, gaps);
+        for (Problem& gap : sourceGapProblems(gaps)) problems.push_back(std::move(gap));
+    }
     return problems;
 }
 
