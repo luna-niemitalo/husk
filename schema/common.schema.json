@@ -2240,11 +2240,12 @@
           "x-unit": "1",
           "x-source": [{"table": "LightData", "column": "FogScaler"}]
         },
-        "density": {
+        "extinction": {
           "type": "number",
-          "description": "The client's exponential-fog parameter, not an extinction. The shader fogs by exp(-e * k), e the yards past the fog start; how the client turns this value into k is not known (REFACTOR/EFFECTS.md, fog_density_to_extinction).",
-          "x-unit": "1",
-          "x-source": [{"table": "LightData", "column": "FogDensity"}]
+          "minimum": 0,
+          "description": "Extinction per yard of the exponential fog: the fraction of the scene colour left at e yards past the fog start is exp(-extinction * e), the rest is fog colour. Derived by fog_density_to_extinction: the stored density times 0.0005, floored at density 0.9, and a missing density (0) filled from the linear fog span. The 0.0005 scale, the floor and the fill come from one reimplementation (WebWowViewerCpp), not from client code (grade ref); the exp form is the client shader's (REFACTOR/EFFECTS.md). The floor applies after the client blends two zone lights, so it is exact per key only where both keys are above it.",
+          "x-unit": "1/yard",
+          "x-source": [{"table": "LightData", "column": "FogDensity"}, {"derived": "fog_density_to_extinction"}]
         },
         "start_offset": {
           "type": "number",
@@ -2264,11 +2265,12 @@
           "x-unit": "1",
           "x-source": [{"table": "LightData", "column": "FogHeightScaler"}]
         },
-        "height_density": {
+        "height_extinction": {
           "type": "number",
-          "description": "The client's exponential-fog parameter inside the height fog, not an extinction. Its transform is unknown, as for density.",
-          "x-unit": "1",
-          "x-source": [{"table": "LightData", "column": "FogHeightDensity"}]
+          "minimum": 0,
+          "description": "Extinction per yard inside the height fog, blended with extinction by the height weight. Derived by fog_density_to_extinction: the stored height density times 0.0005, no floor; a key whose height scaler is 0 takes the main density instead (grade ref, as for extinction).",
+          "x-unit": "1/yard",
+          "x-source": [{"table": "LightData", "column": "FogHeightDensity"}, {"table": "LightData", "column": "FogHeightScaler"}, {"derived": "fog_density_to_extinction"}]
         },
         "z_scalar": {
           "type": "number",
@@ -2353,16 +2355,39 @@
           "description": "Height-density cubic coefficients x^3, x^2, x, 1.",
           "x-unit": "1",
           "x-source": [{"table": "LightData", "column": "HeightDensityFogCoeff"}]
+        },
+        "source": {
+          "type": "object",
+          "description": "Source-specific raw values.",
+          "properties": {
+            "density": {
+              "type": "number",
+              "description": "LightData.FogDensity as stored: the client's exponential-fog parameter, the input of fog_density_to_extinction.",
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "FogDensity"}]
+            },
+            "height_density": {
+              "type": "number",
+              "description": "LightData.FogHeightDensity as stored: the client's parameter inside the height fog.",
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "FogHeightDensity"}]
+            }
+          },
+          "required": [
+            "density",
+            "height_density"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
         "end",
         "scaler",
-        "density",
+        "extinction",
         "start_offset",
         "height",
         "height_scaler",
-        "height_density",
+        "height_extinction",
         "z_scalar",
         "curve_start",
         "curve_end",
@@ -2376,7 +2401,8 @@
         "end_height_color",
         "height_coefficients",
         "main_coefficients",
-        "height_density_coefficients"
+        "height_density_coefficients",
+        "source"
       ],
       "additionalProperties": false
     },

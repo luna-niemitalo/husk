@@ -902,6 +902,10 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   described "as stored" outside `source`/`unresolved`; the item keys
   `texture_type` and `component_section` are exempt until
   `REFACTOR/GARMENTS.md` replaces them.
+- Zone fog keys carry `extinction` and `height_extinction` in 1/yard,
+  derived by `fog_density_to_extinction` (`EFFECTS.md` "Derivation
+  rules", grade ref); the client's `density` and `height_density` moved
+  to the fog's `source`.
 
 ## Embed or reference — one rule
 

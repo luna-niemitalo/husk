@@ -212,6 +212,18 @@ changes:
     `sun_position_override` → `light_params[].source.{...}`.
   Descriptions of colours and densities no longer say "as stored"; their
   values are unchanged.
+- **Zone fog has an extinction; its density moved under `source`.** A
+  light key's `fog.density` and `fog.height_density` (the client's
+  parameters, unit `1`, never an extinction) are now
+  `fog.source.density` and `fog.source.height_density`. New required
+  `fog.extinction` and `fog.height_extinction`, in 1/yard: the fog keeps
+  `exp(-extinction · e)` of the scene colour at `e` yards past the fog
+  start, the rest is fog colour; inside the height fog blend the two by
+  the height weight. Derived by `fog_density_to_extinction`
+  (`0.0005 · density`, floored, missing values filled), grade ref: the
+  scale comes from one reimplementation, not client code. A typical key
+  (density 4.5) reaches half fog 308 yards past the start
+  (`WIKI_FINDINGS/RENDERING.md` "Zone fog density").
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Creature catalog, a new document kind.** `husk export-creatures`
@@ -231,11 +243,6 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
   (two channels; needs screen derivatives of `p` and `uv`, so the
   renderer evaluates it). Definitions: `schema/technique.schema.json`'s
   `expression`. UnkDFShader (23) sums its weights with `dot`.
-- **Zone fog density relabelled.** `density` and `height_density` of a
-  zone light's fog are the client's exponential-fog parameter, unit `1`,
-  not an extinction in 1/yard. The values are unchanged; a reader that
-  used them as extinction must stop (the client's transform to `k` in
-  `exp(-e·k)` is unknown, `REFACTOR/EFFECTS.md`).
 - **Physics from the model itself.** `resources.physics` is filled from
   the M2's `PFDC` chunk or its `PFID` file, not only from a `.phys`
   beside it, so physics capes and mounts ship their rigid-body chains. The

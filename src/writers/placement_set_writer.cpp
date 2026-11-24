@@ -87,9 +87,10 @@ void writeRgba(json::Writer& w, const std::array<float, 4>& c) { writeFloats(w, 
 
 void writeZoneFogValues(json::Writer& w, const canon::ZoneFogValues& f) {
     w.beginObject();
-    for (auto [key, value] : {std::pair{"end", f.end}, std::pair{"scaler", f.scaler}, std::pair{"density", f.density},
+    for (auto [key, value] : {std::pair{"end", f.end}, std::pair{"scaler", f.scaler}, std::pair{"extinction", f.extinction},
                               std::pair{"start_offset", f.startOffset}, std::pair{"height", f.height},
-                              std::pair{"height_scaler", f.heightScaler}, std::pair{"height_density", f.heightDensity},
+                              std::pair{"height_scaler", f.heightScaler},
+                              std::pair{"height_extinction", f.heightExtinction},
                               std::pair{"z_scalar", f.zScalar}, std::pair{"curve_start", f.curveStart},
                               std::pair{"curve_end", f.curveEnd}, std::pair{"sun_angle", f.sunAngle},
                               std::pair{"sun_strength", f.sunStrength},
@@ -106,6 +107,11 @@ void writeZoneFogValues(json::Writer& w, const canon::ZoneFogValues& f) {
                               std::pair{"height_density_coefficients", &f.heightDensityCoefficients}}) {
         writeFloatArrayField(w, key, cubic->data(), cubic->size());
     }
+    w.key("source");
+    w.beginObject();
+    writeFloatField(w, "density", f.density);
+    writeFloatField(w, "height_density", f.heightDensity);
+    w.endObject();
     w.endObject();
 }
 

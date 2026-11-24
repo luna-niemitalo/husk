@@ -44,11 +44,11 @@ the instance holds. `MFOG` gets no medium: the client applies it to a
 viewer inside the parts that list it (`parts[].interior_fogs`), so its sphere is where that viewer
 sees the fog, not a fog volume (12 of 17 records mantlecore sampled have
 radii 0.28 and 2.8 yards with linear fog over 1.4 to 28 yards; a medium
-there would be a small dense ball). Not yet:
-`fog_density_to_extinction` and `fog_color_to_albedo` (their source, the
-zone light below, is keyed by time of day, a medium is one value so far,
-and the density's transform to extinction is unknown: see the rule
-table), the gate. A third rule, `blend_to_light_role`, gives each
+there would be a small dense ball). `fog_density_to_extinction` gives
+every zone light key its fog's `extinction` and `height_extinction` per
+yard (see the rule table). Not yet: a zone medium from them and
+`fog_color_to_albedo` (their source, the zone light below, is keyed by
+time of day, and a medium is one value so far), the gate. A third rule, `blend_to_light_role`, gives each
 WMO and map particle-volume emitter its light role (content
 `particles.light.role`): emission for `EGxBlend` Add, albedo for Alpha
 (846/846 map emitters). It replaces the planned `additive_to_emission`/
@@ -390,8 +390,8 @@ Two inputs are kept out of the gate:
 - **`distance_fog`**: the shader fog record in blocks. Each block and field
   is optional, and absent means inherit.
   - `linear`: `start`, `end`, `color`.
-  - `exponential`: `density`.
-  - `height`: `plane`, `scale`, `density`, `falloff` (cubic), `color`
+  - `exponential`: `extinction`.
+  - `height`: `plane`, `scale`, `extinction`, `falloff` (cubic), `color`
     (near → far).
   - `color_gradient`: `near_color`, `far_color`, `start`, `length`.
   - `sun`: `color`, `angle`, `strength`.
@@ -513,7 +513,7 @@ the field stays absent.
 
 | Rule | Computes | From |
 |---|---|---|
-| `fog_density_to_extinction` | medium `extinction` per yard from the zone fog's density. Not buildable yet: the shader's `exp(−e·[0].z)` takes `e` in yards past the fog start (`../SHADER_FINDINGS/notes/fog.md`), but `FogDensity` (1.8 to 130 in azeroth's keys) reaches `[0].z` through a CPU-side transform that no shader, wiki page or DB2 field states. Copied as is, it would make the fog opaque within a yard. So `density` is the client's parameter (unit `1`), not an extinction | zone fog `density`, `height_density` |
+| `fog_density_to_extinction` | zone fog `extinction` and `height_extinction` per yard, the `[0].z` and `[4].x` of the shader's `exp(−e·k)` with `e` in yards past the fog start (verified, `../SHADER_FINDINGS/notes/fog.md`). `k = 0.0005 · max(D, 0.9)` for the main fog, `0.0005 · H` in the height fog; `D = 0` is filled with `1.5 + 5.5·(1 − s/500)` from the linear span `s = end·(1 − scaler)` (1.5 when `s` ≤ 0 or > 500), and `H` = the unfloored `D` when the height scaler is 0. Built (`src/zone_fog_extinction.cpp`), grade ref: the constants come from WebWowViewerCpp alone, not client code; the 500-yard span limit assumes a far clip ≥ 700 yards (inferred). Evidence and value ranges: `../WIKI_FINDINGS/RENDERING.md` "Zone fog density" | zone fog `source.density`, `source.height_density`, `end`, `scaler`, `height_scaler` |
 | `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog |
 | `fog_level_to_priority` | `priority` | `VFOG.fogLevel` |
 | `blend_to_light_role` | particle `light.role`: emission or albedo | WMO/map particle emitters' `EGxBlend` (Add, Alpha); not M2, whose blend ids are unsettled |

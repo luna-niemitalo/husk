@@ -154,6 +154,8 @@ TEST_CASE("buildMapEffects: a map's Light zones index one shared light-params ta
     const canon::LightKey& key = p12.keys.at(0);
     CHECK(key.time == 43200.0f);
     CHECK(key.fog.density == 9.0f);
+    CHECK(key.fog.extinction == doctest::Approx(0.0045));
+    CHECK(key.fog.heightExtinction == doctest::Approx(0.0045));  // height scaler 0: the main density
     CHECK(key.fog.endColor.x == doctest::Approx(0x33 / 255.0));
     REQUIRE(key.colorGrading);
     CHECK(std::get<canon::FileDataId>(key.colorGrading->resolved.id).value == 1140733u);
