@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "bundle_schema.hpp"
 #include "bundle_schema_embedded.hpp"
 
 namespace husk::writers {
@@ -124,6 +125,8 @@ canon::Ref subjectRef(const std::filesystem::path& file, std::optional<uint32_t>
 }
 
 void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& subject, const Provenance& provenance) {
+    w.key("$schema");
+    w.value(bundle_schema::schemaId(kind));
     w.key("format");
     w.value("husk-bundle");
     w.key("kind");

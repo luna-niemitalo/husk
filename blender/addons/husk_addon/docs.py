@@ -13,6 +13,11 @@ import numpy as np
 # documents are read as long as nothing they lack is needed.
 SCHEMA_VERSION = "0.4.0"
 
+
+def schema_id(kind):
+    """The `$schema` a document of `kind` carries: its schema's `$id` (schema/<kind>.schema.json)."""
+    return "https://husk.invalid/schema/%s.schema.json" % kind
+
 SPACE = {
     "length_unit": "yard",
     "angle_unit": "radian",

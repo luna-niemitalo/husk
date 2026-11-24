@@ -189,6 +189,7 @@ belong to the world, since a volume can span many tiles.
 Every document opens with the same header, then its data:
 
 ```
+$schema         the kind's schema `$id`: "https://husk.invalid/schema/<kind>.schema.json"
 format          "husk-bundle", constant
 kind            "model" | "placement_set" | "world" | "effect" | "material" | "technique" | "creatures"
 schema_version  version of the schema/ definitions the document conforms to
@@ -205,6 +206,24 @@ world: grid, placements, scene
 effect: sources
 creatures: creatures, displays
 ```
+
+`$schema` (schema 0.4.0) names the schema a document follows, so a
+consumer holding only the document knows which definition to open. It
+is the schema's `$id`, not a path, because:
+- a document's place in a tree varies (bundle manifests, `sets/`,
+  `effects/`, `techniques/`, store objects deduplicated across trees), so
+  a relative path to a shipped `schema/` copy would differ per document
+  and break whenever a document is moved or mounted elsewhere;
+- exports don't ship the schemas: they are embedded in the husk binary,
+  and the pair (`$schema`, `schema_version`) names one file at one version
+  of husk's `schema/` exactly;
+- `$schema` is the key editors and JSON Schema tools already read: mapping
+  `https://husk.invalid/schema/*` to a checkout's `schema/` gives
+  completion and validation in an editor. The `.invalid` host never
+  resolves, so the id can't be mistaken for a download location.
+
+`validate-bundle` requires `$schema` to equal the `$id` of the schema its
+`kind` selects, and reports the expected and actual id when it doesn't.
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
 "Settled"): per table, because the real failure is one empty table among

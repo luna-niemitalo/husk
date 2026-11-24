@@ -24,6 +24,10 @@ constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0
   "provenance": {"producer": "husk test", "input_format": "test",
                  "sources": [{"name": "listfile", "role": "names", "available": true}]},)";
 
+std::string header(const std::string& kind) {
+    return std::string(kHeader) + "\n  \"kind\": \"" + kind + "\", \"$schema\": \"https://husk.invalid/schema/" + kind + ".schema.json\",";
+}
+
 std::string slice(size_t offset, size_t length, const char* type, int components, size_t count) {
     return R"({"file": "mesh.bin", "byte_offset": )" + std::to_string(offset) + R"(, "byte_length": )" +
            std::to_string(length) + R"(, "component_type": ")" + type + R"(", "component_count": )" +
@@ -36,8 +40,7 @@ std::string modelDocument() {
                          R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) +
                          R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
                "attributes": []})";
-    return std::string("{") + kHeader + R"(
-  "kind": "model",
+    return std::string("{") + header("model") + R"(
   "subject": {"id": {"kind": "file_data_id", "value": 1}, "name": "crate", "name_source": "listfile"},
   "definition": {"placement_sets": [{"reference": 0, "always_on": true, "instance_count": 1}]},
   "selection": {"placement_sets": []},
@@ -59,8 +62,7 @@ std::string modelDocument() {
 }
 
 std::string setDocument() {
-    return std::string("{") + kHeader + R"(
-  "kind": "placement_set",
+    return std::string("{") + header("placement_set") + R"(
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
   "references": [{"kind": "model", "asset": {"id": {"kind": "file_data_id", "value": 2}, "name": "chair", "name_source": "listfile"}}],
@@ -115,8 +117,7 @@ namespace {
 
 // A placement set placing one instance of `effect`, written inline.
 std::string effectSetDocument(const std::string& effect, const std::string& instance) {
-    return std::string("{") + kHeader + R"(
-  "kind": "placement_set",
+    return std::string("{") + header("placement_set") + R"(
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
   "references": [{"kind": "effect", "asset": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
@@ -126,8 +127,7 @@ std::string effectSetDocument(const std::string& effect, const std::string& inst
 }
 
 std::string glowEffect(const std::string& status = R"("status": "placeholder",)") {
-    return std::string("{") + kHeader + R"(
-  "kind": "effect",
+    return std::string("{") + header("effect") + R"(
   "subject": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
   "definition": {)" + status + R"( "inputs": {
     "center": {"kind": "position", "description": "Centre."},
@@ -186,7 +186,7 @@ TEST_CASE("bundle_schema: every technique husk carries validates, with its refer
 TEST_CASE("bundle_schema: a technique's expressions are one node kind each and name declared inputs") {
     fs::path file = fs::temp_directory_path() / "husk-schema-technique-bad" / "t.json";
     fs::remove_all(file.parent_path());
-    writeText(file, std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+    writeText(file, std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "m2_pixel_shader", "status": "verified", "evidence": "test",
                        "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x"}},
                        "outputs": {"diffuse": {"op": "lerp", "args": [{"input": "t0"}, {"input": "t9"}]},
@@ -201,7 +201,7 @@ TEST_CASE("bundle_schema: a technique's expressions are one node kind each and n
 TEST_CASE("bundle_schema: a technique's input coordinates are checked, and a cycle through one fails") {
     fs::path file = fs::temp_directory_path() / "husk-schema-technique-cycle" / "t.json";
     fs::remove_all(file.parent_path());
-    writeText(file, std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+    writeText(file, std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "wmo_shader", "status": "verified", "evidence": "test",
                        "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x",
                                          "coordinate": {"op": "div", "args": [{"term": "offset"}, {"input": "uv9"}]}},
@@ -217,7 +217,7 @@ TEST_CASE("bundle_schema: a technique's input coordinates are checked, and a cyc
 
 TEST_CASE("bundle_schema: min, dot and tangent_frame are ops with their operand counts") {
     auto technique = [](const char* outputs) {
-        return std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+        return std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "wmo_shader", "status": "verified", "evidence": "test",
                        "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x"},
                                   "p": {"kind": "renderer_value", "description": "x"},
@@ -311,6 +311,13 @@ TEST_CASE("bundle_schema: schema violations -- an unknown key, a missing kind, a
 
     dir = writeBundle("husk-schema-kind", replaced(model, R"("kind": "model",)", ""), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "expected one of the document kinds"));
+
+    dir = writeBundle("husk-schema-pointer", replaced(model, "schema/model.schema.json", "schema/world.schema.json"), setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir),
+                   R"(expected "https://husk.invalid/schema/model.schema.json" for kind 'model', got "https://husk.invalid/schema/world.schema.json")"));
+    dir = writeBundle("husk-schema-no-pointer",
+                      replaced(model, R"("$schema": "https://husk.invalid/schema/model.schema.json",)", ""), setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir), "for kind 'model', got none"));
 
     dir = writeBundle("husk-schema-units", replaced(model, R"("length_unit": "yard")", R"("length_unit": "metre")"), setDocument());
     CHECK_FALSE(bundle_schema::validateDocument(dir).empty());

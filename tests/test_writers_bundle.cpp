@@ -31,6 +31,7 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     CHECK(fs::exists(dir / "animation.bin"));
 
     nlohmann::json manifest = parseManifest(dir);
+    CHECK(manifest["$schema"] == "https://husk.invalid/schema/model.schema.json");
     CHECK(manifest["format"] == "husk-bundle");
     CHECK(manifest["kind"] == "model");
     CHECK(manifest["schema_version"] == "0.4.0");

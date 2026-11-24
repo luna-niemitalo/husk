@@ -31,6 +31,10 @@ struct Problem {
 // The document kinds schema/ defines.
 std::vector<std::string> kinds();
 
+// The `$id` of `kind`'s schema: what a document of that kind carries as
+// `$schema`.
+std::string schemaId(const std::string& kind);
+
 std::vector<Problem> lintSchemas();
 
 // Lints one kind schema given as text, against the embedded common

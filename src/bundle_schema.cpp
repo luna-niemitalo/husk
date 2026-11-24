@@ -75,7 +75,7 @@ const std::set<std::string> kSourceJargon = {
 
 const std::set<std::string> kLayers = {"contract", "definition", "selection", "resource"};
 
-const std::vector<std::string> kHeader = {"format", "kind", "schema_version", "subject", "space",
+const std::vector<std::string> kHeader = {"$schema", "format", "kind", "schema_version", "subject", "space",
                                           "provenance", "definition", "selection", "references"};
 
 // Definitions that are real-valued and so need a unit where they are used.
@@ -193,7 +193,9 @@ struct Linter {
 
     void checkProperty(const std::string& pointer, const std::string& key, const json& sub, std::vector<const json*>& objects, const std::string& definition) {
         static const std::regex snake("^[a-z][a-z0-9_]*$");
-        if (!std::regex_match(key, snake)) fail(pointer, "key '" + key + "' is not lowercase snake_case");
+        // `$schema` keeps the name editors and validators already look for.
+        bool schemaPointer = key == "$schema" && pointer == "/properties/$schema";
+        if (!schemaPointer && !std::regex_match(key, snake)) fail(pointer, "key '" + key + "' is not lowercase snake_case");
         for (const std::string& t : tokens(key)) {
             if (kSourceJargon.count(t)) fail(pointer, "key '" + key + "' contains source-format name '" + t + "'; describe the meaning, and put raw values under 'source'");
         }
@@ -267,6 +269,10 @@ void lintKindHeader(const std::string& stem, const json& schema, std::vector<Pro
         }
     }
     if (schema.value("x-status", "") != "implemented") fail("x-status must be 'implemented'");
+    json pointer = props.contains("$schema") ? props["$schema"].value("const", json()) : json();
+    if (pointer != schema.value("$id", json())) {
+        fail("'$schema' must be the constant " + schema.value("$id", json()).dump() + " (the schema's $id), got " + pointer.dump());
+    }
 }
 
 // ---------------------------------------------------------------- validation
@@ -694,6 +700,15 @@ struct Validation {
             problems.push_back({path.string() + "#" + prefix + "/kind", "expected one of the document kinds schema/ defines, got '" + kind + "'"});
             return false;
         }
+        // Checked before the schema so a mismatch says which schema the kind
+        // needs, not only that a constant differs.
+        const json& expected = schemaFor(kind)["$id"];
+        json declared = document.value("$schema", json());
+        if (declared != expected) {
+            problems.push_back({path.string() + "#" + prefix + "/$schema",
+                                "expected " + expected.dump() + " for kind '" + kind + "', got " + (declared.is_null() ? "none" : declared.dump())});
+            return false;
+        }
         size_t before = problems.size();
         nlohmann::json_schema::json_validator validator(loadEmbedded);
         validator.set_root_schema(schemaFor(kind));
@@ -933,6 +948,10 @@ void lintOne(const std::string& stem, const json& schema, std::vector<Problem>& 
     }
     lintKindHeader(stem, schema, problems);
     linter.walk(schema, "", objects, "");
+}
+
+std::string schemaId(const std::string& kind) {
+    return schemaFor(kind).at("$id");
 }
 
 std::vector<Problem> lintSchemas() {

@@ -6,6 +6,11 @@
   "x-status": "implemented",
   "type": "object",
   "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/effect.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
     "format": {
       "const": "husk-bundle",
       "description": "Identifies a husk document.",
@@ -87,6 +92,7 @@
     }
   },
   "required": [
+    "$schema",
     "format",
     "kind",
     "schema_version",
