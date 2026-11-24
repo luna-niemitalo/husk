@@ -69,10 +69,14 @@ struct FieldValues {
 // needed). `sectionIndex` is `section`'s own index into `file.sections` --
 // needed by the fixed-width path's string offsets, which are relative to a
 // virtual all-sections blob, not to this file's own bytes directly (see
-// db2::stringOffsetSectionCorrection).
+// db2::stringOffsetSectionCorrection). `dbdNames`, when given, decides
+// which fixed-width fields are strings; without it the string-table
+// heuristic guesses, and an int whose value lands on a string start (ChrRaces
+// MaleModelFallbackSex -1) reads as that string.
 std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Section& section,
                                              size_t sectionIndex, const std::vector<uint8_t>& fileBytes,
-                                             size_t recordIndex) {
+                                             size_t recordIndex,
+                                             const std::vector<dbd::Column>* dbdNames = nullptr) {
     std::vector<FieldValues> out;
     if (section.hasOffsetMap()) {
         std::vector<db2::OffsetMapFieldValue> fields = db2::decodeOffsetMapRecord(file, section, recordIndex);
@@ -88,8 +92,10 @@ std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Se
         std::vector<uint64_t> values = db2::decodeField(file, section, recordIndex, f);
         bool isScalarNone =
             values.size() == 1 && file.fieldStorageInfo[f].storageType == db2::FieldCompression::None;
+        bool mayBeString = !dbdNames || (*dbdNames)[f].type == dbd::ColumnType::String ||
+                           (*dbdNames)[f].type == dbd::ColumnType::LocString;
         std::optional<std::string> str;
-        if (isScalarNone) {
+        if (isScalarNone && mayBeString) {
             int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
                                    static_cast<int64_t>(recordIndex) * file.header.recordSize +
                                    file.fieldStructures[f].position + db2::stringOffsetSectionCorrection(file, sectionIndex);
@@ -299,7 +305,8 @@ struct OutputColumn {
 std::vector<std::vector<OutputColumn>> buildColumnPlan(
     const db2::File& file, const db2::Section& sampleSection, size_t sampleSectionIndex,
     const std::vector<uint8_t>& sampleBytes, const std::optional<std::vector<dbd::Column>>& dbdNames) {
-    std::vector<FieldValues> sample = decodeRecordValues(file, sampleSection, sampleSectionIndex, sampleBytes, 0);
+    std::vector<FieldValues> sample = decodeRecordValues(file, sampleSection, sampleSectionIndex, sampleBytes, 0,
+                                                         dbdNames ? &*dbdNames : nullptr);
     std::vector<std::vector<OutputColumn>> plan(file.fieldStorageInfo.size());
     for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
         std::string baseName = dbdNames ? sanitizeIdentifier((*dbdNames)[f].name)
@@ -499,7 +506,8 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
             }
             ++bindIndex;
         }
-        std::vector<FieldValues> fields = decodeRecordValues(lf.file, section, sectionIndex, lf.bytes, r);
+        std::vector<FieldValues> fields =
+            decodeRecordValues(lf.file, section, sectionIndex, lf.bytes, r, lf.dbdNames ? &*lf.dbdNames : nullptr);
         for (size_t f = 0; f < fields.size(); ++f) {
             if (lf.dbdNames) {
                 for (uint64_t& v : fields[f].raw) v = dbd::asDeclaredType((*lf.dbdNames)[f], v);
