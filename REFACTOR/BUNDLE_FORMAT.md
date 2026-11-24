@@ -147,8 +147,10 @@ This is the rule that makes the bundle traceable — see `CANONICAL_FORMAT.md`
 §5 for the JSON shape of a resource entry (`id`/`name`/`name_source`, plus
 `uri` when the payload is external rather than inline).
 
-`name_source` is one of `m2_embedded` / `adt_embedded` / `wmo_embedded` / `listfile` / `db2` / `synthesized`
-(I6). A ref with no name (most DB2 rows) carries only its `id`: `name` and
+`name_source` is one of `m2_embedded` / `adt_embedded` / `wmo_embedded` / `listfile` / `db2` / `community` / `synthesized`
+(I6). `community` is a community-maintained name table outside the client
+(today: clip names from `--anim-names`, wow.export's list), as opposed to
+`db2`, the client's own data. A ref with no name (most DB2 rows) carries only its `id`: `name` and
 `name_source` appear together or not at all (2026-10-11). It exists because most naming in this project comes from the
 community listfile — unreliable at best — or is invented by husk. A consumer
 reading `"scalpupperhair00_08"` must be able to tell whether that came from the
@@ -536,6 +538,12 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   curves with `sequence_kind: global_sequence` index. A `.skel` model's
   joint clips index the `.skel`'s table, so the clip's own `duration` is
   the one to use for them.
+- **Community clip names (0.4.0).** Where the client's AnimationData has no
+  name for a clip's id (every 12.x clip), `export --anim-names <wow.export
+  checkout>` names it from wow.export's list, `name_source: community`; a
+  client name (`db2`) wins. The model document's provenance gains a source
+  `animation names` (repo, file, commit), `available: false` without the
+  flag. Detail: `REFACTOR/ANIMATION.md` "Which animation a clip is".
 - **Animation fallbacks (0.4.0).** `resources.rig.animation_fallbacks`:
   AnimationData's `Fallback` column as `[animation, fallback]` pairs, for
   every row whose fallback isn't 0 (an unlisted id falls back to 0,

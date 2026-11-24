@@ -291,6 +291,7 @@ struct ExportWorldOptions {
     std::string listfileRoot;
     std::string db2Dir;
     std::string dbdDir;
+    std::string animNames;  // export's --anim-names, forwarded to the model pass
     unsigned jobs = 0;
     bool skipModels = false;
     bool allAssets = false;
@@ -323,6 +324,7 @@ struct ExportCorpusOptions {
     std::string listfileRoot;
     std::string db2Dir;
     std::string dbdDir;
+    std::string animNames;
     unsigned jobs = 0;
     std::vector<std::string> maps;
     size_t sample = 0;
@@ -337,6 +339,7 @@ struct SnapshotOptions {
     std::string source;  // the source mount's tag link, e.g. /media/luna/wow_export/live
     std::string listfile;
     std::string dbdDir;
+    std::string animNames;
     std::string store;
     unsigned jobs = 0;
     std::string tag = "live";
@@ -391,6 +394,7 @@ struct ExportOptions {
     std::string knowledgeDbArg;
     std::string listfileArg;
     std::string listfileRootArg;
+    std::string animNamesArg;
     std::string fromListArg;
     std::string outputDirArg;
     std::string glbArg;

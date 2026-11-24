@@ -503,10 +503,15 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     if (sidecars.noAnimation) build.model.animations.clear();
     for (canon::AnimationClip& clip : build.model.animations) {
         if (!clip.info) continue;
-        auto name = sidecars.animationNames.find(std::get<canon::Db2Row>(clip.info->animation.id).row);
-        if (name == sidecars.animationNames.end()) continue;
-        clip.info->animation.name = name->second;
-        clip.info->animation.source = canon::NameSource::Db2;
+        uint32_t row = std::get<canon::Db2Row>(clip.info->animation.id).row;
+        if (auto name = sidecars.animationNames.find(row); name != sidecars.animationNames.end()) {
+            clip.info->animation.name = name->second;
+            clip.info->animation.source = canon::NameSource::Db2;
+        } else if (auto community = sidecars.communityAnimationNames.find(row);
+                   community != sidecars.communityAnimationNames.end()) {
+            clip.info->animation.name = community->second;
+            clip.info->animation.source = canon::NameSource::Community;
+        }
     }
     if (!build.model.animations.empty()) build.model.animationFallbacks = sidecars.animationFallbacks;
     size_t jointCount = build.model.skeleton.joints.size();
@@ -544,7 +549,11 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);
     writers::Provenance::Source physSource{"phys", "rigid bodies and joints (resources.physics)",
                                            sidecars.physics.available, sidecars.physics.detail};
-    writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris, {physSource});
+    bool haveAnimNames = !sidecars.communityAnimationNamesDetail.empty();
+    writers::Provenance::Source animNamesSource{"animation names", "clip names by AnimationData id (community list)",
+                                                haveAnimNames,
+                                                haveAnimNames ? sidecars.communityAnimationNamesDetail : "not given"};
+    writers::writeBundle(build.model, bundleDir, m2Provenance(), {}, textureUris, {physSource, animNamesSource});
 }
 
 }  // namespace husk::commands

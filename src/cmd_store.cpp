@@ -548,6 +548,8 @@ void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts) {
         ->group("Resolution");
     app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, or 'none'")->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--anim-names", opts.animNames, "wow.export checkout naming model clips, or 'none'")
+        ->group("Resolution");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
     app.add_option("--store", opts.store,
                    "record the tree as a build in this store, or 'none'; each output is linked into the store as it "
@@ -583,6 +585,7 @@ int exportCorpus(int argc, char** args) {
                                               "--listfile-root", opts.listfileRoot,
                                               "--db2-dir", opts.db2Dir.empty() ? "none" : opts.db2Dir,
                                               "--dbd-dir", opts.dbdDir.empty() ? "none" : opts.dbdDir,
+                                              "--anim-names", opts.animNames.empty() ? "none" : opts.animNames,
                                               "--config", "/dev/null",
                                               "--all-assets"};
         if (opts.jobs > 0) {
@@ -643,6 +646,8 @@ void addSnapshotOptions(CLI::App& app, SnapshotOptions& opts) {
         ->group("Source");
     app.add_option("--listfile", opts.listfile, "community listfile CSV")->required()->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--anim-names", opts.animNames, "wow.export checkout naming model clips, or 'none'")
+        ->group("Resolution");
     app.add_option("--store", opts.store, "the canonical store directory")->required()->group("Store");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
     app.add_option("--tag", opts.tag, "the tag to point at the snapshot")->capture_default_str()->group("Store");
@@ -680,6 +685,7 @@ int snapshot(int argc, char** args) {
                                                    "--listfile-root", build.string(),
                                                    "--db2-dir", (build / "dbfilesclient").string(),
                                                    "--dbd-dir", opts.dbdDir.empty() ? "none" : opts.dbdDir,
+                                                   "--anim-names", opts.animNames.empty() ? "none" : opts.animNames,
                                                    "--store", store.root().string(),
                                                    "--game", game,
                                                    "--tag", opts.tag,

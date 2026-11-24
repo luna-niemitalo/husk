@@ -10,7 +10,7 @@ _husk_file_or_none_value() { _alternative 'value:value:(none)' 'files:file:_file
 _husk() {
     local -a subcommands
     subcommands=(
-        'export:export a mesh (+ skin/animation) to glTF'
+        'export:export an M2 model to a canonical model bundle'
         'info:parse and print an M2 header'
         'dump-chunks:extract misc chunks to JSON'
         'db2-info:parse and print a WDC5 DB2 file'
@@ -44,7 +44,7 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--config[--config]:value:_files' \
                 '(-i --input)'{-i,--input}'[the .m2 file to export]:value:_files' \
-                '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
+                '(-o --output)'{-o,--output}'[output path]:value:_files' \
                 '--from-list[--from-list]:value:_files' \
                 '--output-dir[--output-dir]:value:_files' \
                 '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
@@ -67,6 +67,7 @@ _husk() {
                 '--knowledge-db[--knowledge-db]:value:_files' \
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
+                '--anim-names[wow.export checkout, for clip names, or none]:value:_husk_dir_or_none_value' \
                 '1:model:_files'
             ;;
         info)
@@ -85,7 +86,7 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--config[--config]:value:_files' \
                 '--rows[--rows]:value:_files' \
-                '--dbd-dir[WoWDBDefs checkout, for column names and string fields]:value:_husk_dir_or_none_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
                 '1:model:_files'
             ;;
         db2-export)
@@ -103,7 +104,7 @@ _husk() {
                 '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
-                '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
+                '(-o --output)'{-o,--output}'[output path]:value:_files' \
                 '1:model:_files'
             ;;
         blp-export)
@@ -191,6 +192,7 @@ _husk() {
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
                 '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_or_none_value' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
+                '--anim-names[wow.export checkout, for clip names, or none]:value:_husk_dir_or_none_value' \
                 '--jobs[--jobs]:value:_files' \
                 '--skip-models[--skip-models]' \
                 '--all-assets[--all-assets]' \
@@ -229,6 +231,7 @@ _husk() {
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
                 '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--anim-names[wow.export checkout, for clip names, or none]:value:_husk_dir_or_none_value' \
                 '--jobs[--jobs]:value:_files' \
                 '--store[--store]:value:_files' \
                 '--game[--game]:value:_files' \
@@ -243,6 +246,7 @@ _husk() {
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--anim-names[wow.export checkout, for clip names, or none]:value:_husk_dir_or_none_value' \
                 '--store[--store]:value:_files' \
                 '--jobs[--jobs]:value:_files' \
                 '--tag[--tag]:value:_files' \

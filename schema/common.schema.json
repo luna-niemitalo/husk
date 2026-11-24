@@ -113,10 +113,11 @@
             "wmo_embedded",
             "listfile",
             "db2",
+            "community",
             "synthesized",
             "none"
           ],
-          "description": "Where the name came from: embedded in the source file, a community file list, a data table, or made up by the exporter. Present exactly when name is."
+          "description": "Where the name came from: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter. Present exactly when name is."
         }
       },
       "required": [
@@ -147,7 +148,7 @@
         },
         "name_source": {
           "$ref": "#/definitions/ref/properties/name_source",
-          "description": "Where the name came from: embedded in the source file, a community file list, a data table, or made up by the exporter. Present exactly when name is."
+          "description": "Where the name came from: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter. Present exactly when name is."
         },
         "uri": {
           "type": "string",
