@@ -5,6 +5,7 @@
 #include <bit>
 #include <cmath>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -651,6 +652,40 @@ std::vector<canon::MeshLevel> buildMeshLevels(const WmoInputs& in, const std::ve
     return out;
 }
 
+canon::Ref namedRow(const char* table, uint32_t row, const std::string& name) {
+    return canon::Ref{canon::Db2Row{table, row}, name, name.empty() ? canon::NameSource::None : canon::NameSource::Db2};
+}
+
+// For each name set the WMO's rows (MOHD wmoID) cover: the part's own row
+// (MOGP groupID; nullopt when the group file is missing) or else the
+// model-wide one, WMOGroupID -1.
+std::vector<canon::PartArea> partAreas(const WmoInputs& in, uint32_t wmoId, std::optional<int32_t> groupId) {
+    std::vector<canon::PartArea> out;
+    if (!in.wmoAreas) return out;
+    const wmoareadb::Data& rows = *in.wmoAreas;
+    auto first = rows.lower_bound({wmoId, 0, std::numeric_limits<int32_t>::min()});
+    auto last = rows.lower_bound({wmoId + 1, 0, std::numeric_limits<int32_t>::min()});
+    for (auto it = first; it != last; ++it) {
+        uint32_t nameSet = std::get<1>(it->first);
+        if (!out.empty() && out.back().nameSet == nameSet) continue;
+        auto own = groupId ? rows.find({wmoId, nameSet, *groupId}) : rows.end();
+        auto whole = rows.find({wmoId, nameSet, -1});
+        auto pick = own != rows.end() ? own : whole;
+        if (pick == rows.end()) continue;
+        const wmoareadb::Row& row = pick->second;
+        canon::PartArea area{nameSet, namedRow("WMOAreaTable", row.id, row.name), std::nullopt, own == rows.end()};
+        if (row.areaTableId != 0) {
+            std::string name;
+            if (in.areas) {
+                if (auto a = in.areas->find(row.areaTableId); a != in.areas->end()) name = a->second.name;
+            }
+            area.area = namedRow("AreaTable", row.areaTableId, name);
+        }
+        out.push_back(std::move(area));
+    }
+    return out;
+}
+
 }  // namespace
 
 const char* shaderName(uint32_t id) {
@@ -721,6 +756,10 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
                 meshPart.portals.push_back({ref.portal, ref.group, ref.side});
             }
         }
+        std::optional<int32_t> groupId;
+        // MOGP's groupID is the WMOAreaTable.WMOGroupID key (wowdev.wiki WMO#MOGP).
+        if (in.groups[part]) groupId = static_cast<int32_t>(in.groups[part]->wmoAreaTableId);
+        meshPart.areas = partAreas(in, root.header.wmoAreaTableId, groupId);
         mesh.parts.push_back(meshPart);
     }
     std::vector<PartGroup> base = baseGroups(in);

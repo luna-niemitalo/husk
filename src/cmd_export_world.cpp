@@ -287,6 +287,10 @@ int exportWorld(int argc, char** args) {
         std::string mapNote;
         const std::optional<mapdb::Data> mapRows = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), mapNote);
         std::cout << mapNote << std::endl;
+        std::string wmoAreaNote;
+        const std::optional<wmoareadb::Data> wmoAreas =
+            loadWmoAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), wmoAreaNote);
+        std::cout << wmoAreaNote << std::endl;
         std::string creatureNote;
         const std::optional<creaturedisplay::Data> creatures =
             loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
@@ -477,7 +481,8 @@ int exportWorld(int argc, char** args) {
                         auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
                         canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot,
                                                           liquids ? &*liquids : nullptr,
-                                                          surfaces ? &*surfaces : nullptr, warn);
+                                                          surfaces ? &*surfaces : nullptr,
+                                                          wmoAreas ? &*wmoAreas : nullptr, areas ? &*areas : nullptr, warn);
                         writers::AssetUris doodadUris;
                         for (uint32_t doodad : placedAssets(model)) {
                             if (exportedModels.count(doodad)) {
@@ -486,7 +491,8 @@ int exportWorld(int argc, char** args) {
                         }
                         writers::AssetUris textureUris;
                         writers::externalizeTextures(model, textureStore, modelTextures.uriToStore, textureUris);
-                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value(), surfaces.has_value()),
+                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value(), surfaces.has_value(),
+                                                                                   wmoAreas.has_value()),
                                              doodadUris, textureUris);
                     }
                 } catch (...) {

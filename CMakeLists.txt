@@ -208,6 +208,7 @@ add_library(husk-lib STATIC
   src/liquid_db2.cpp
   src/area_db2.cpp
   src/map_db2.cpp
+  src/wmo_area_db2.cpp
   src/light_db2.cpp
   src/liquid_canon_input.cpp
   src/surface_db2.cpp

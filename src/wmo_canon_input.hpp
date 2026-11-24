@@ -6,10 +6,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "area_db2.hpp"
 #include "canon_model.hpp"
 #include "liquid_db2.hpp"
 #include "surface_db2.hpp"
 #include "wmo.hpp"
+#include "wmo_area_db2.hpp"
 
 // husk::wmoinput: WMO root + group files -> canon::Model. A WMO is an
 // ordinary object model (REFACTOR/PLACEMENT_SETS.md): no skeleton, one mesh
@@ -40,6 +42,9 @@ struct WmoInputs {
     std::unordered_map<uint32_t, std::string> assetNames;  // listfile names for doodad and light-cookie FileDataIDs
     const liquiddb::Data* liquids = nullptr;  // nullptr: liquid types are identities only
     const surfacedb::Data* surfaces = nullptr;  // nullptr: surface types are TerrainType ids only
+    // nullptr: parts carry no areas. `areas` names the AreaTable rows they map to.
+    const wmoareadb::Data* wmoAreas = nullptr;
+    const areadb::Data* areas = nullptr;
 };
 
 // The lights buildCanonWmo leaves out (root MNLD/MOLT, group MOLS/MOLP): any

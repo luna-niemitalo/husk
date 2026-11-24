@@ -121,6 +121,21 @@ std::optional<areadb::Data> loadAreas(const std::string& db2Dir, const std::stri
     return data;
 }
 
+std::optional<wmoareadb::Data> loadWmoAreas(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "wmo part areas: none (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<wmoareadb::Data> data = wmoareadb::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "wmo part areas: none (wmoareatable.db2 unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "wmo part areas: " + std::to_string(data->size()) + " WMOAreaTable rows from " + db2Dir;
+    return data;
+}
+
 std::optional<mapdb::Data> loadMaps(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
     if (db2Dir.empty() || dbdDir.empty()) {
         note = "map identity: none (needs --db2-dir and --dbd-dir)";
@@ -354,12 +369,15 @@ std::optional<std::filesystem::path> findWmoGroupFile(const std::filesystem::pat
 // doesn't parse fails the export.
 canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<uint32_t> fileDataId,
                           const ListfileIndex* listfile, const std::string& listfileRoot,
-                          const liquiddb::Data* liquids, const surfacedb::Data* surfaces, const std::function<void(const std::string&)>& warn) {
+                          const liquiddb::Data* liquids, const surfacedb::Data* surfaces, const wmoareadb::Data* wmoAreas,
+                          const areadb::Data* areas, const std::function<void(const std::string&)>& warn) {
     wmo::RootFile root = wmo::parseRoot(adt::readFile(rootPath));
     wmoinput::WmoInputs inputs;
     inputs.root = &root;
     inputs.liquids = liquids;
     inputs.surfaces = surfaces;
+    inputs.wmoAreas = wmoAreas;
+    inputs.areas = areas;
     for (uint32_t g = 0; g < root.groups.size(); ++g) {
         std::optional<std::filesystem::path> path = findWmoGroupFile(rootPath, root, g, 0, listfile, listfileRoot);
         if (!path) {
@@ -439,12 +457,13 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
 }
 
 writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids,
-                                  bool haveSurfaces) {
+                                  bool haveSurfaces, bool haveWmoAreas) {
     writers::Provenance out{std::string("husk ") + husk::version(), "wmo", {}};
     out.sources.push_back({"listfile", "group files, textures and doodad names by FileDataID", listfile != nullptr,
                            listfile ? listfilePath : "not given"});
     out.sources.push_back({"liquid db2", "liquid type names, materials and textures", haveLiquids, ""});
     out.sources.push_back({"surface db2", "surface type names, footstep sounds and sprays", haveSurfaces, ""});
+    out.sources.push_back({"wmo area db2", "part area names per name set (WMOAreaTable, AreaTable)", haveWmoAreas, ""});
     return out;
 }
 

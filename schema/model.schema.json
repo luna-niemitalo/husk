@@ -872,6 +872,39 @@
                           }
                         }
                       },
+                      "areas": {
+                        "type": "array",
+                        "description": "What the client names a player's location inside this part, one entry per name set, ascending: a WMO placement's name set (MODF nameSet) picks the entry, since one building placed in two towns carries two names. From WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the placement's name set (NameSetID) and the group's MOGP groupID (WMOGroupID). Absent without a WMO area table, or when the WMO has no rows.",
+                        "items": {
+                          "type": "object",
+                          "description": "The part's area under one name set.",
+                          "properties": {
+                            "name_set": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "WMOAreaTable.NameSetID: the MODF nameSet of placements this entry applies to."
+                            },
+                            "ref": {
+                              "$ref": "common.schema.json#/definitions/ref",
+                              "description": "The WMOAreaTable row, named from WMOAreaTable.AreaName_lang (unnamed when the row stores none; then the area's name is the one shown)."
+                            },
+                            "area": {
+                              "$ref": "common.schema.json#/definitions/ref",
+                              "description": "The AreaTable row the part counts as (WMOAreaTable.AreaTableID), named from AreaTable.AreaName_lang. Absent when stored as 0."
+                            },
+                            "whole_model": {
+                              "type": "boolean",
+                              "description": "true: the part has no row of its own under this name set, and ref is the model-wide row (WMOGroupID -1)."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "name_set",
+                            "ref",
+                            "whole_model"
+                          ]
+                        }
+                      },
                       "portals": {
                         "type": "array",
                         "description": "Openings onto other parts.",

@@ -52,6 +52,17 @@ struct Portal {
     std::vector<uint8_t> sourceExtra;  // WMO MOPE record, raw; empty when absent
 };
 
+// The name the source shows inside a part under one name set (a WMO
+// placement's MODF nameSet picks the set): the source's record of it and
+// the area it counts as. wholeModel: the record is the model-wide one
+// (WMOAreaTable WMOGroupID -1), the part having none of its own.
+struct PartArea {
+    uint32_t nameSet = 0;
+    Ref ref;  // WMOAreaTable row, named from AreaName_lang
+    std::optional<Ref> area;  // AreaTable row, named from AreaName_lang; absent when stored as 0
+    bool wholeModel = false;
+};
+
 // A named, separately addressable piece of a model -- a WMO group (a room,
 // a wing, an outside shell). Its primitives point back at it through
 // PrimitiveGeoset::part.
@@ -74,6 +85,7 @@ struct MeshPart {
     // indices (WMO MLSS/MLSP windows into the group's MOLS/MOLP; set k pairs
     // the k-th window of each, inferred from their parallel layout).
     std::vector<std::vector<uint32_t>> lightSets;
+    std::vector<PartArea> areas;  // one per name set, ascending; empty without a WMO area table
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space

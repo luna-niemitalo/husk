@@ -294,8 +294,18 @@ int exportWmo(int argc, char** args) {
         std::string surfaceNote;
         std::optional<surfacedb::Data> surfaces = loadSurfaces(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), surfaceNote);
         announce(surfaceNote);
+        std::string wmoAreaNote;
+        std::optional<wmoareadb::Data> wmoAreas = loadWmoAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), wmoAreaNote);
+        announce(wmoAreaNote);
+        std::optional<areadb::Data> areas;
+        if (wmoAreas) {
+            std::string areaNote;
+            areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), areaNote);
+            announce(areaNote);
+        }
         canon::Model model = loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot,
-                                          liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr, warn);
+                                          liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr,
+                                          wmoAreas ? &*wmoAreas : nullptr, areas ? &*areas : nullptr, warn);
 
         writers::AssetUris modelUris;
         if (!opts.modelsDir.empty()) {
@@ -308,7 +318,9 @@ int exportWmo(int argc, char** args) {
                 }
             }
         }
-        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath, liquids.has_value(), surfaces.has_value()), modelUris);
+        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath, liquids.has_value(), surfaces.has_value(),
+                                                                    wmoAreas.has_value()),
+                            modelUris);
         size_t instances = 0;
         for (const auto& owned : model.placementSets) instances += owned.set.instances.size();
         std::cout << "wrote " << opts.output << ": " << model.mesh.parts.size() << " parts, "

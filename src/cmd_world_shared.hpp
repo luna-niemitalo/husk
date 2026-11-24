@@ -20,6 +20,7 @@
 #include "map_db2.hpp"
 #include "surface_db2.hpp"
 #include "volume_condition_db2.hpp"
+#include "wmo_area_db2.hpp"
 #include "listfile_index.hpp"
 #include "writers/bundle_common.hpp"
 
@@ -101,6 +102,7 @@ adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, c
                                                     std::string& note);
 std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
 std::optional<areadb::Data> loadAreas(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
+std::optional<wmoareadb::Data> loadWmoAreas(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
 std::optional<mapdb::Data> loadMaps(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
 // The Map row whose Directory is `mapDirectory` as a world's map block,
 // parents and area named from `maps` and `areas`; nullopt without `maps` or
@@ -124,7 +126,7 @@ std::string modelBundleName(uint32_t fdid);
 
 canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<uint32_t> fileDataId,
                           const ListfileIndex* listfile, const std::string& listfileRoot, const liquiddb::Data* liquids,
-                          const surfacedb::Data* surfaces,
+                          const surfacedb::Data* surfaces, const wmoareadb::Data* wmoAreas, const areadb::Data* areas,
                           const std::function<void(const std::string&)>& warn);
 std::set<uint32_t> placedAssets(const canon::Model& model);
 // A placement can select a doodad set its WMO doesn't have (azeroth_39_16,
@@ -135,7 +137,8 @@ std::set<uint32_t> placedAssets(const canon::Model& model);
 void dropMissingDoodadSets(canon::PlacementSet& set, const std::unordered_map<uint32_t, size_t>& setCounts,
                            const std::function<void(const std::string&)>& warn);
 
-writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids, bool haveSurfaces);
+writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids, bool haveSurfaces,
+                                  bool haveWmoAreas);
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveLod, bool haveObj1, bool haveWdt,
                                       const ListfileIndex* listfile, const std::string& listfilePath,
                                       bool haveGroundEffects, bool haveLiquids, bool haveSurfaces, bool haveMaps,

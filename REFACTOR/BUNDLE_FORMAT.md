@@ -581,6 +581,17 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
 - WMO mesh parts: `portals[].side` (+1/-1, the part's half-space of the
   portal plane) is a resolved field; `interior_fogs` (was `fog_volumes`)
   lists the fogs a viewer inside the part sees.
+- WMO mesh parts: `areas` (optional, additive; with `--db2-dir`) names
+  where a player inside the part is: one entry per WMOAreaTable name set,
+  because a placement's MODF `nameSet` picks among them (one building,
+  two towns). Rows are keyed by the root's MOHD wmoID, the name set and
+  the group's MOGP groupID; a part without a row of its own under a name
+  set gets the model-wide row (WMOGroupID -1), marked `whole_model`.
+  `ref` is the WMOAreaTable row named from `AreaName_lang`, `area` the
+  AreaTable row it counts as, named. Northshire Abbey (`nsabbey.wmo`,
+  WMOID 59) has only model-wide rows, under name sets 0 and 1. The client's
+  own lookup order for a missing part row is not checked; the
+  `whole_model` flag lets a consumer choose.
 
 ## Embed or reference — one rule
 

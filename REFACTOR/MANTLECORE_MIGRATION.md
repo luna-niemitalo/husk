@@ -180,6 +180,11 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
   and `area` (AreaTable ref), each named. A tile carries the same map ref
   as `definition.terrain.map`. Use these for the place's name, not the
   WDT file stem.
+- **WMO interior names.** With `--db2-dir`, a WMO mesh part has `areas`:
+  per name set, `{name_set, ref, area, whole_model}` (WMOAreaTable row
+  with `AreaName_lang`, its AreaTable row named). Pick the entry whose
+  `name_set` is the placement's MODF name set (`BUNDLE_FORMAT.md` "Schema
+  0.4.0").
 - **Animation fallbacks.** `resources.rig.animation_fallbacks`:
   `[animation, fallback]` pairs from AnimationData, written with
   `--db2-dir`; follow them when a model has no clip for an animation.
