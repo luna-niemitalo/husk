@@ -266,12 +266,12 @@
             "description": "One texture."
           }
         },
-        "light_params": {
+        "light_conditions": {
           "type": "array",
-          "description": "Every light parameter set an instance's zone_light style uses, each once.",
+          "description": "Every light condition an instance's zone_light style uses, each once.",
           "items": {
-            "$ref": "common.schema.json#/definitions/light_params",
-            "description": "One set."
+            "$ref": "common.schema.json#/definitions/light_condition",
+            "description": "One condition."
           }
         }
       },

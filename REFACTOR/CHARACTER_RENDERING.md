@@ -34,7 +34,7 @@ Every rule below is tagged with the strongest evidence behind it:
 | 1 | Body: race/sex → ChrModel → M2 | `ChrRaceXChrModel`, `ChrModel.DisplayID` → `CreatureDisplayInfo` → `CreatureModelData` (**data**) | yes (`chrrace_db2.cpp`, `creature_display_db2.cpp:57-102`) | one catalog per ChrModel drawing the file | reads |
 | 2 | Customization menu | `ChrCustomizationOption/Choice/Element` (**data**) | Option, Choice, Element: geoset, bone set, material | `definition.customization` | skin lab reads |
 | 3 | Option gating | `ChrCustomizationReq`, `ReqChoice`, `VisReq` (**data**) | **no** | no | no |
-| 4 | Geosets | `ChrCustomizationGeoset` (Type·100+ID) (**data**); base visibility rule (**ref**) | yes; only the last geoset element per choice; `Modifier` unread | `choices[].geoset_id`, no base rule | lowest variant per group, or the first preset |
+| 4 | Geosets | `ChrCustomizationGeoset` (Type·100+ID) (**data**); base visibility rule (**ref**) | yes; only the last geoset element per choice; `Modifier` unread | `choices[].geoset`, no base rule | lowest variant per group, or the first preset |
 | 5 | Skin composite | `ChrModelMaterial` (canvases), `CharComponentTextureSections` (rects), `ChrModelTextureLayer` (layers), `ChrCustomizationMaterial` → `TextureFileData` (**data**); compositor cases 0–13 (**client**) | yes; `BitMask2`, `OverlapSectionMask`, `TargetID[1]` unread | `materials/<n>.json` composites, `blend_mapping: unverified` | CPU compose, live upload (`skin_lab.cpp`) |
 | 6 | Surface shading | M2 batch: shader ID, blend, flags, color/weight/UV tracks (**data**); combiner math (**client**) | yes | material + technique documents; with the gaps in §5 | 77% baked by technique; the rest use their first texture |
 | 7 | Items: models | `ItemModifiedAppearance` → `ItemAppearance` → `ItemDisplayInfo.ModelResourcesID[0..1]` → `ModelFileData` → `ComponentModelFileData` race/sex/class/side (**data**) | both positions; the wearer's file picked (`component_file_db2.hpp`), class-specific files skipped | NPC equipment: bare `ItemDisplayInfo` refs; `--appearance` gear: `definition.items[].models` by `position`, each an item bundle under `items/` or an `unresolved_reason` | nothing |
@@ -45,7 +45,7 @@ Every rule below is tagged with the strongest evidence behind it:
 | 12 | Bone corrections | Choice → `ChrCustomizationBoneSet` → `.bone` (**data**); how to apply (**none**) | parsed; choice → set resolved | `resources.rig.correction_sets`; a choice names its `correction_set` | no |
 | 13 | Skinned / conditional / display-info elements | `ChrCustomizationSkinnedModel`, `CondModel`, `DisplayInfo`, `ChrCustItemGeoModify`, `GeoComponentLink` (**data**) | **no** | no | no |
 | 14 | Animation | sequences, `.anim`/`.skel` (**data**) | yes | clips with AnimationData row, variation, duration, move speed, frequency, blend times, source flags | CPU pose, GPU skin |
-| 15 | Lighting / scene | lighting math (**client**); char-create / viewer light rig (**none**) | zone `light_params` only | no character scene | hand-set |
+| 15 | Lighting / scene | lighting math (**client**); char-create / viewer light rig (**none**) | zone `light_conditions` only | no character scene | hand-set |
 
 ## 2. Body selection: old and HD models
 
@@ -273,7 +273,7 @@ The forward lighting model is decoded (`SHADER_FINDINGS/notes/
 lighting_model.md`); its constants come from `LightData` by an **inferred**
 mapping. Nothing is known about the character-create or model-viewer light
 rig, and the bundle states no texture colour space. Matching "in game"
-needs a chosen reference scene: a zone `light_params` at a stated time of
+needs a chosen reference scene: a zone `light_conditions` entry at a stated time of
 day is the one fully data-backed option today.
 
 ## 9. Known-wrong in the reference implementation

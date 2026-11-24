@@ -5,7 +5,6 @@
 // body bone references. See TEST_DESIGN.md#Four-tier-architecture for how
 // this tier relates to the others.
 
-#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
@@ -193,7 +192,7 @@ TEST_CASE("husk export: a PFID not found locally leaves physics out and marks th
 
 // Real-data-gated: catmount.m2 keeps its physics in PFDC (the listfile's
 // catmount.phys isn't in the build), and its physics bones carry 0x400.
-TEST_CASE("husk export: real catmount.m2 gets its PFDC physics on kinematic joints" *
+TEST_CASE("husk export: real catmount.m2 gets its PFDC physics on physics-driven joints" *
           doctest::skip(!fs::exists("/media/luna/wow_export/live/creature/catmount/catmount.m2"))) {
     auto dir = defaultsDir("physcatmount");
     auto bundle = dir / "catmount.bundle";
@@ -211,8 +210,7 @@ TEST_CASE("husk export: real catmount.m2 gets its PFDC physics on kinematic join
         if (body["source"]["type"] == 0) continue;  // type 0 bodies follow their bone; only dynamic ones need physics to drive it
         const nlohmann::json& joint = joints[body["joint"].get<size_t>()];
         INFO(joint.dump());
-        REQUIRE(joint.contains("flags"));
-        CHECK(std::find(joint["flags"].begin(), joint["flags"].end(), "kinematic_bone") != joint["flags"].end());
+        CHECK(joint.value("driven_by", "") == "physics");
     }
 
     fs::remove_all(dir);

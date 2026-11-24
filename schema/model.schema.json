@@ -332,9 +332,9 @@
                     "description": "The option, named from ChrCustomizationOption.Name_lang.",
                     "x-source": [{"table": "ChrCustomizationOption"}, {"table": "ChrCustomizationOption", "column": "Name_lang"}]
                   },
-                  "chr_model": {
+                  "body": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The character model the option belongs to: a ChrModel row (ChrCustomizationOption.ChrModelID), named \"<race> <sex>\" (e.g. \"Human male\") from the ChrRaceXChrModel rows that use it, the ChrRaces.Name_lang of the lowest race row with a name (NPC placeholder races share the playable races' models), then ChrRaceXChrModel.Sex (0 male, 1 female; left off when the races disagree or the value is neither); unnamed when no race uses the model. The name lets a reader tell which body a customization catalog is for without the race tables.",
+                    "description": "The body model the option belongs to: a ChrModel row (ChrCustomizationOption.ChrModelID), named \"<race> <sex>\" (e.g. \"Human male\") from the ChrRaceXChrModel rows that use it, the ChrRaces.Name_lang of the lowest race row with a name (NPC placeholder races share the playable races' models), then ChrRaceXChrModel.Sex (0 male, 1 female; left off when the races disagree or the value is neither); unnamed when no race uses the model. The name lets a reader tell which body a customization catalog is for without the race tables.",
                     "x-source": [{"table": "ChrCustomizationOption", "column": "ChrModelID"}, {"table": "ChrRaceXChrModel"}, {"table": "ChrRaces", "column": "Name_lang"}]
                   },
                   "order": {
@@ -382,10 +382,26 @@
                           "description": "Display order.",
                           "x-source": [{"table": "ChrCustomizationChoice", "column": "OrderIndex"}]
                         },
-                        "geoset_id": {
-                          "type": "integer",
-                          "description": "Mesh geoset the choice shows, group * 100 + variant: its element's ChrCustomizationGeoset GeosetType * 100 + GeosetID.",
+                        "geoset": {
+                          "$ref": "common.schema.json#/definitions/geoset",
+                          "description": "Mesh geoset the choice shows: its element's ChrCustomizationGeoset, GeosetType the group and GeosetID the variant.",
                           "x-source": [{"table": "ChrCustomizationElement", "column": "ChrCustomizationGeosetID"}, {"table": "ChrCustomizationGeoset", "column": "GeosetType"}, {"table": "ChrCustomizationGeoset", "column": "GeosetID"}]
+                        },
+                        "source": {
+                          "type": "object",
+                          "description": "Source-specific raw values; present exactly when geoset is.",
+                          "properties": {
+                            "geoset": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "The geoset in the source's packed form, GeosetType * 100 + GeosetID: the number a mesh range's source.skin_section_id is compared with.",
+                              "x-source": [{"table": "ChrCustomizationGeoset", "column": "GeosetType"}, {"table": "ChrCustomizationGeoset", "column": "GeosetID"}]
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "geoset"
+                          ]
                         },
                         "correction_set": {
                           "type": "integer",
@@ -461,7 +477,7 @@
                 "additionalProperties": false,
                 "required": [
                   "ref",
-                  "chr_model",
+                  "body",
                   "order",
                   "choices"
                 ]
@@ -1325,21 +1341,39 @@
                         "description": "Label derived from the hierarchy (rule structural_bone_label), on every joint, named or not. It gives every joint a stable, collision-free name where the source names only key bones.",
                         "x-source": [{"derived": "structural_bone_label"}]
                       },
-                      "flags": {
-                        "type": "array",
-                        "description": "The joint's named flag bits, absent when none is set: kinematic_bone, physics drives the joint (a resources.physics body follows it); ignore_parent_*, the joint doesn't inherit that part of its parent's transform; transformed and helmet_anim_scaled, named by the source, effect not established; billboard bits are in billboard instead.",
-                        "x-source": [{"file": "m2", "field": "M2CompBone.flags"}],
-                        "items": {
-                          "enum": [
-                            "ignore_parent_translate",
-                            "ignore_parent_scale",
-                            "ignore_parent_rotation",
-                            "transformed",
-                            "kinematic_bone",
-                            "helmet_anim_scaled"
-                          ],
-                          "description": "One flag."
-                        }
+                      "inherit": {
+                        "type": "object",
+                        "description": "Which parts of its parent's transform the joint takes on; false means the joint ignores that part.",
+                        "properties": {
+                          "translation": {
+                            "type": "boolean",
+                            "description": "Takes on the parent's translation: M2CompBone.flags bit 0x1 (ignore parent translate) clear.",
+                            "x-source": [{"file": "m2", "field": "M2CompBone.flags"}]
+                          },
+                          "rotation": {
+                            "type": "boolean",
+                            "description": "Takes on the parent's rotation: bit 0x4 (ignore parent rotation) clear.",
+                            "x-source": [{"file": "m2", "field": "M2CompBone.flags"}]
+                          },
+                          "scale": {
+                            "type": "boolean",
+                            "description": "Takes on the parent's scale: bit 0x2 (ignore parent scale) clear.",
+                            "x-source": [{"file": "m2", "field": "M2CompBone.flags"}]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "translation",
+                          "rotation",
+                          "scale"
+                        ]
+                      },
+                      "driven_by": {
+                        "enum": [
+                          "physics"
+                        ],
+                        "description": "What moves the joint instead of the animation, absent when only the animation does: physics, a resources.physics body follows it (M2CompBone.flags bit 0x400).",
+                        "x-source": [{"file": "m2", "field": "M2CompBone.flags"}]
                       },
                       "source": {
                         "type": "object",
@@ -1347,7 +1381,7 @@
                         "properties": {
                           "flags": {
                             "$ref": "common.schema.json#/definitions/flags",
-                            "description": "M2: the bone's flag word (M2CompBone.flags), every bit.",
+                            "description": "M2: the bone's flag word (M2CompBone.flags), every bit; a bit inherit, billboard and driven_by don't read (meaning not established) is only here.",
                             "x-source": [{"file": "m2", "field": "M2CompBone.flags"}]
                           }
                         },
@@ -1361,6 +1395,7 @@
                     "required": [
                       "ref",
                       "billboard",
+                      "inherit",
                       "structural_label"
                     ]
                   }
@@ -2928,17 +2963,17 @@
                 "layers"
               ]
             },
-            "liquid_objects": {
+            "liquid_settings": {
               "type": "array",
-              "description": "Each LiquidObject the liquids name, once; an id the client builds itself (42, the ocean, and others absent from the table) has only its identity.",
+              "description": "Each liquid setting (a LiquidObject row: flow and other per-body settings) the liquids name, once; an id the client builds itself (42, the ocean, and others absent from the table) has only its identity.",
               "x-source": [{"table": "LiquidObject"}],
               "items": {
                 "type": "object",
-                "description": "One liquid object.",
+                "description": "One liquid setting.",
                 "properties": {
                   "identity": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The LiquidObject row; a liquid's liquid_object equals one entry's identity."
+                    "description": "The LiquidObject row; a liquid's liquid_setting equals one entry's identity."
                   },
                   "flow_direction": {
                     "type": "number",
@@ -3006,9 +3041,9 @@
                     "description": "Liquid type: the LiquidType row.",
                     "x-source": [{"file": "adt", "field": "SMLiquidInstance.liquid_type"}]
                   },
-                  "liquid_object": {
+                  "liquid_setting": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Liquid object: the LiquidObject row, when liquid_object_or_lvf is 42 or more (below that it is a vertex format number).",
+                    "description": "The liquid setting it uses: the LiquidObject row (an entry of liquid_settings), when liquid_object_or_lvf is 42 or more (below that it is a vertex format number).",
                     "x-source": [{"file": "adt", "field": "SMLiquidInstance.liquid_object_or_lvf"}]
                   },
                   "quad_rect": {
@@ -3171,20 +3206,26 @@
       "description": "An index range drawn with one material: an M2 batch (.skin M2Batch over its M2SkinSection) or a WMO group batch (MOBA).",
       "x-source": [{"file": "skin", "field": "M2Batch"}, {"file": "wmo_group", "field": "MOBA"}],
       "properties": {
-        "geoset_id": {
-          "type": "integer",
-          "description": "Geoset the range belongs to, group * 100 + variant: the submesh's M2SkinSection.skinSectionId; 0 (always shown) on a WMO, which has no geosets.",
+        "geoset": {
+          "$ref": "common.schema.json#/definitions/geoset",
+          "description": "Geoset the range belongs to: the submesh's M2SkinSection.skinSectionId, group skinSectionId / 100 and variant skinSectionId % 100; group 0 variant 0 (always shown) on a WMO, which has no geosets.",
           "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}, {"format": true}]
         },
-        "geoset_group": {
-          "type": "integer",
-          "description": "Geoset group: geoset_id / 100.",
-          "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}, {"format": true}]
-        },
-        "geoset_variant": {
-          "type": "integer",
-          "description": "Variant within the group: geoset_id % 100.",
-          "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}, {"format": true}]
+        "source": {
+          "type": "object",
+          "description": "Source-specific raw values; absent on a WMO batch, which has no skin section.",
+          "properties": {
+            "skin_section_id": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "M2SkinSection.skinSectionId as stored, group * 100 + variant.",
+              "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "skin_section_id"
+          ]
         },
         "index_start": {
           "type": "integer",
@@ -3213,9 +3254,7 @@
       },
       "additionalProperties": false,
       "required": [
-        "geoset_id",
-        "geoset_group",
-        "geoset_variant",
+        "geoset",
         "index_start",
         "index_count",
         "material"

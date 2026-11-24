@@ -228,7 +228,7 @@ TEST_CASE("husk export: a model without collision data gets no geometry.collisio
 namespace {
 std::set<int> geosetIds(const nlohmann::json& manifest) {
     std::set<int> ids;
-    for (const auto& p : manifest["resources"]["geometry"]["mesh"]["primitives"]) ids.insert(p["geoset_id"].get<int>());
+    for (const auto& p : manifest["resources"]["geometry"]["mesh"]["primitives"]) ids.insert(p["source"]["skin_section_id"].get<int>());
     return ids;
 }
 }  // namespace
@@ -413,7 +413,7 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: a joint carries its raw bone flags and the named bits, kinematic_bone included") {
+TEST_CASE("husk export: a joint carries its raw bone flags, inherit from the ignore-parent bits and driven_by physics from 0x400") {
     auto m2 = tinyValidM2();
     uint32_t boneOff = static_cast<uint32_t>(m2.size());
     uint32_t boneCount = 1;
@@ -440,7 +440,9 @@ TEST_CASE("husk export: a joint carries its raw bone flags and the named bits, k
     nlohmann::json m = parseManifest(dir / "flags.bundle");
     const nlohmann::json& joint = m["resources"]["rig"]["skeleton"]["joints"][0];
     CHECK(joint["source"]["flags"] == "0x240c");
-    CHECK(joint["flags"] == nlohmann::json::array({"ignore_parent_rotation", "kinematic_bone"}));
+    CHECK(joint["inherit"] == nlohmann::json{{"translation", true}, {"rotation", false}, {"scale", true}});
+    CHECK(joint["driven_by"] == "physics");
+    CHECK_FALSE(joint.contains("flags"));
     CHECK(joint["billboard"] == "spherical");
 
     fs::remove_all(dir);

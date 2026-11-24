@@ -212,7 +212,7 @@ void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uin
     w.key("liquid_type");
     writeRef(w, l.liquidType);
     if (!std::holds_alternative<canon::None>(l.liquidObject.id)) {
-        w.key("liquid_object");
+        w.key("liquid_setting");
         writeRef(w, l.liquidObject);
     }
     w.key("quad_rect");
@@ -358,7 +358,7 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     writeChunksSection(w, terrain.chunks, terrainBin);
     w.key("lod");
     writeLodSection(w, terrain.lod, table, terrainBin);
-    w.key("liquid_objects");
+    w.key("liquid_settings");
     writeLiquidObjects(w, terrain.liquidObjects);
     w.key("liquids");
     w.beginArray();

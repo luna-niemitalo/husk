@@ -74,7 +74,7 @@ void writeCustomizationOption(json::Writer& w, const canon::Definition& definiti
     w.beginObject();
     w.key("ref");
     writeRef(w, option.ref);
-    w.key("chr_model");
+    w.key("body");
     writeRef(w, canon::Ref{canon::Db2Row{"ChrModel", definition.chrModelId}, definition.chrModelName,
                            definition.chrModelName.empty() ? canon::NameSource::None : canon::NameSource::Db2});
     w.key("order");
@@ -97,8 +97,13 @@ void writeCustomizationOption(json::Writer& w, const canon::Definition& definiti
         w.key("order");
         w.value(static_cast<int64_t>(choice.orderIndex));
         if (choice.geoset) {
-            w.key("geoset_id");
+            w.key("geoset");
+            writeGeoset(w, *choice.geoset);
+            w.key("source");
+            w.beginObject();
+            w.key("geoset");
             w.value(static_cast<int64_t>(choice.geoset->group * 100 + choice.geoset->variant));
+            w.endObject();
         }
         std::pair<uint32_t, uint32_t> pick{optionIndex, static_cast<uint32_t>(&choice - option.choices.data())};
         if (auto set = correctionSets.find(pick); set != correctionSets.end()) {
@@ -330,7 +335,7 @@ void writeInlineAppearances(json::Writer& w, const canon::Model& model, const st
         if (appearance.shownGeosets) {
             w.key("shown_geosets");
             w.beginArray();
-            for (uint32_t id : *appearance.shownGeosets) w.value(static_cast<int64_t>(id));
+            for (uint32_t id : *appearance.shownGeosets) writeGeoset(w, canon::Geoset::fromRawId(id));
             w.endArray();
         }
         if (appearance.particleColors) {

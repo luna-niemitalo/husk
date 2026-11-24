@@ -269,7 +269,7 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(p["appearance"] == a["id"]);
     CHECK_FALSE(a.contains("model"));
     CHECK(a["textures"][0]["slot"] == 1);
-    CHECK(a["shown_geosets"] == nlohmann::json::array({0, 203}));
+    CHECK(a["shown_geosets"] == nlohmann::json::parse(R"([{"group": 0, "variant": 0}, {"group": 2, "variant": 3}])"));
     CHECK(a["particle_colors"] == 0);
     CHECK(a["opacity"] == 0.5);
     CHECK(a["customization"][0]["option"] == 0);
@@ -277,11 +277,12 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(a["unresolved"]["fields"][0]["value"] == 404);
     const auto& option = definition["customization"]["options"][0];
     CHECK(option["ref"]["name"] == "Hair Style");
-    CHECK(option["chr_model"]["id"]["row"] == 45);
-    CHECK(option["chr_model"]["name"] == "Human male");
-    CHECK(option["chr_model"]["name_source"] == "db2");
+    CHECK(option["body"]["id"]["row"] == 45);
+    CHECK(option["body"]["name"] == "Human male");
+    CHECK(option["body"]["name_source"] == "db2");
     CHECK(option["choices"][0]["ref"]["id"]["row"] == 30);
-    CHECK(option["choices"][0]["geoset_id"] == 203);
+    CHECK(option["choices"][0]["geoset"] == nlohmann::json{{"group", 2}, {"variant", 3}});
+    CHECK(option["choices"][0]["source"]["geoset"] == 203);
     CHECK(p["items"][0]["slot"] == "head");
     CHECK(p["items"][1]["item"] == 1);
     CHECK(definition["items"][1]["ref"]["id"]["row"] == 9011);

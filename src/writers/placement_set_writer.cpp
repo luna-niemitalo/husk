@@ -36,8 +36,8 @@ struct InputAssets {
     std::function<void(uint32_t)> lightParams;  // an index into the set's lightParams
 };
 
-// A light parameter set's stable id: its LightParams row.
-std::string lightParamsId(const canon::LightParams& params) { return stableId("light_params", params.ref); }
+// A light condition's stable id: its LightParams row.
+std::string lightParamsId(const canon::LightParams& params) { return stableId("light_condition", params.ref); }
 
 void writeInputValue(json::Writer& w, const canon::InputValue& value, const InputAssets& assets) {
     std::visit(
@@ -218,8 +218,8 @@ void writeLightSettings(json::Writer& w, const canon::LightSettings& s, const In
     w.endObject();
 }
 
-// resources.light_params: each parameter set once, as zone_light styles
-// index it.
+// resources.light_conditions: each LightParams row once, as zone_light
+// styles index it.
 void writeLightParams(json::Writer& w, const std::vector<canon::LightParams>& table, const InputAssets& assets) {
     w.beginArray();
     for (const canon::LightParams& params : table) {
@@ -617,7 +617,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         w.beginObject();
         if (!textures.empty()) textures.write(w);
         if (!set.lightParams.empty()) {
-            w.key("light_params");
+            w.key("light_conditions");
             w.rawValue(lightParams.str());
         }
         w.endObject();

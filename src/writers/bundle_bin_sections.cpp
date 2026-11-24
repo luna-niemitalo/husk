@@ -134,12 +134,16 @@ void writePrimitives(json::Writer& w, const canon::Model& model, const std::vect
     for (size_t i = 0; i < primitives.size(); ++i) {
         const canon::PrimitiveGeoset& prim = primitives[i];
         w.beginObject();
-        w.key("geoset_id");
-        w.value(static_cast<int64_t>(prim.geoset.group * 100 + prim.geoset.variant));
-        w.key("geoset_group");
-        w.value(static_cast<int64_t>(prim.geoset.group));
-        w.key("geoset_variant");
-        w.value(static_cast<int64_t>(prim.geoset.variant));
+        w.key("geoset");
+        writeGeoset(w, prim.geoset);
+        // A WMO batch has no skin section: its geoset carries no source id.
+        if (const auto* section = std::get_if<canon::RecordIndex>(&prim.geoset.ref.id)) {
+            w.key("source");
+            w.beginObject();
+            w.key("skin_section_id");
+            w.value(static_cast<int64_t>(section->value));
+            w.endObject();
+        }
         w.key("index_start");
         w.value(static_cast<int64_t>(prim.indexStart));
         w.key("index_count");
@@ -397,11 +401,18 @@ void writeSkeletonSection(json::Writer& w, const canon::Skeleton& skeleton, std:
         writeRef(w, joint.ref);
         w.key("structural_label");
         w.value(joint.structuralLabel);
-        if (!joint.flagNames.empty()) {
-            w.key("flags");
-            w.beginArray();
-            for (const std::string& name : joint.flagNames) w.value(name);
-            w.endArray();
+        w.key("inherit");
+        w.beginObject();
+        w.key("translation");
+        w.value(joint.inherit.translation);
+        w.key("rotation");
+        w.value(joint.inherit.rotation);
+        w.key("scale");
+        w.value(joint.inherit.scale);
+        w.endObject();
+        if (joint.physicsDriven) {
+            w.key("driven_by");
+            w.value("physics");
         }
         w.key("source");
         w.beginObject();

@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "canon_geoset.hpp"
 #include "canon_liquid.hpp"
 #include "canon_material.hpp"
 #include "canon_placement.hpp"
@@ -81,6 +82,8 @@ void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri = "
 void writeIdentity(json::Writer& w, const canon::Identity& identity);
 // A Ref's `name` and `name_source` keys, both or neither, into the open object.
 void writeName(json::Writer& w, const canon::Ref& ref);
+// common.schema.json's `geoset`: {group, variant}.
+void writeGeoset(json::Writer& w, const canon::Geoset& geoset);
 
 // `ref`'s identity as a stable-id key: file_data_id/<value>,
 // db2_row/<table>/<row>, record_index/<value>[/name/<name>], or, for a ref

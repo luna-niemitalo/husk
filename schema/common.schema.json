@@ -1672,27 +1672,27 @@
         },
         "zone_light": {
           "type": "object",
-          "description": "The classic zone light: the light parameter set the client uses under each condition the zone states (wowdev.wiki DB/Light), from Light LightParamsID.",
+          "description": "The classic zone light: the light condition the client uses under each condition the zone states (wowdev.wiki DB/Light), from Light LightParamsID.",
           "x-source": [{"table": "Light", "column": "LightParamsID"}],
           "properties": {
             "clear": {
-              "$ref": "#/definitions/light_params_id",
+              "$ref": "#/definitions/light_condition_id",
               "description": "In clear weather."
             },
             "clear_underwater": {
-              "$ref": "#/definitions/light_params_id",
+              "$ref": "#/definitions/light_condition_id",
               "description": "In clear weather, under water."
             },
             "storm": {
-              "$ref": "#/definitions/light_params_id",
+              "$ref": "#/definitions/light_condition_id",
               "description": "In rain, snow or sandstorm."
             },
             "storm_underwater": {
-              "$ref": "#/definitions/light_params_id",
+              "$ref": "#/definitions/light_condition_id",
               "description": "In storm weather, under water."
             },
             "death": {
-              "$ref": "#/definitions/light_params_id",
+              "$ref": "#/definitions/light_condition_id",
               "description": "While the viewer is dead."
             }
           },
@@ -2380,10 +2380,31 @@
       ],
       "additionalProperties": false
     },
-    "light_params_id": {
+    "geoset": {
+      "type": "object",
+      "description": "A geoset: a group of alternative mesh ranges (customization choices and gear pick among them) and the variant within it.",
+      "properties": {
+        "group": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The group."
+        },
+        "variant": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The variant within the group."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "group",
+        "variant"
+      ]
+    },
+    "light_condition_id": {
       "$ref": "#/definitions/uuid",
-      "description": "A light parameter set: the id of an entry of the document's resources.light_params, where each set is listed once.",
-      "x-id-in": "/resources/light_params",
+      "description": "A light condition: the id of an entry of the document's resources.light_conditions, where each is listed once.",
+      "x-id-in": "/resources/light_conditions",
       "x-source": [{"format": true}]
     },
     "light_key": {
@@ -2796,14 +2817,14 @@
       ],
       "additionalProperties": false
     },
-    "light_params": {
+    "light_condition": {
       "type": "object",
-      "description": "A light parameter set: what a zone light shows under one condition.",
+      "description": "A light condition: what a zone light shows under one condition (a LightParams row).",
       "properties": {
         "id": {
           "$ref": "#/definitions/uuid",
           "x-source": [{"format": true}],
-          "description": "This set's stable id, derived from its LightParams row (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); zone lights name it by this id."
+          "description": "This condition's stable id, derived from its LightParams row (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); zone lights name it by this id."
         },
         "ref": {
           "$ref": "#/definitions/ref",

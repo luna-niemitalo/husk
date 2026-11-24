@@ -134,12 +134,11 @@
           },
           "shown_geosets": {
             "type": "array",
-            "description": "Mesh geoset ids the body shows, as a creature display chooses them; every other geoset is hidden. Absent: the body doesn't choose geosets. Never gear-driven: geosets an item shows or hides (a robe skirt, boots) belong to the item, so a garment swap never changes the appearance.",
+            "description": "Mesh geosets the body shows, as a creature display chooses them; every other geoset is hidden. Absent: the body doesn't choose geosets. Never gear-driven: geosets an item shows or hides (a robe skirt, boots) belong to the item, so a garment swap never changes the appearance.",
             "x-source": [{"table": "CreatureDisplayInfoGeosetData", "column": "GeosetValue"}, {"file": "skin"}],
             "items": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "A geoset id, group * 100 + variant."
+              "$ref": "common.schema.json#/definitions/geoset",
+              "description": "A geoset."
             }
           },
           "particle_colors": {

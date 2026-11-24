@@ -64,8 +64,8 @@ sphere fading between the falloff radii) or `classic_zone_light_global`
 through `lightdb` (`Light`, `LightData`, `LightParams`, `LightSkybox`,
 `Map`). Their style is `zone_light`: per condition the client picks
 (clear, clear underwater, storm, storm underwater, death: `LightParams`
-slots 0..4), an index into the set's `resources.light_params`, which
-lists each parameter set once: its `LightParams` settings (sky model,
+slots 0..4), the id of an entry of the set's `resources.light_conditions`,
+which lists each `LightParams` row once: its `LightParams` settings (sky model,
 glow, water opacity, sun, hidden sky bodies) and every `LightData`
 column by time of day in seconds since midnight (direct, ambient, sky,
 sun, cloud, water and shadow colours, colour-grading lookup textures,
@@ -531,7 +531,7 @@ then lives in one reviewable place, not on every instance.
 
 | Source | Effect | Anchor, region | Content | Style |
 |---|---|---|---|---|
-| Zone light (`Light`/`LightParams`/`LightData`) | `classic_zone_light` | world, `everywhere`/`sphere` | medium (`base`, derived) | `zone_light` → `light_params` by `day_time` |
+| Zone light (`Light`/`LightParams`/`LightData`) | `classic_zone_light` | world, `everywhere`/`sphere` | medium (`base`, derived) | `zone_light` → `light_conditions` by `day_time` |
 | WMO `MFOG` | `classic_local_fog` | instance, `sphere`: where a viewer inside the listing parts sees the fog | — (a viewer's distance fog, not a volume) | `distance_fog.linear`, `looks.underwater` |
 | `MFOG` flag 0x1 | `classic_local_fog` | instance | — | `exit_blend` |
 | `VFOG`+`VFEX`+`VFE2` | `classic_volumetric_fog` | world, `shape` | medium (`pinned`), values absent until known | `volumetric_fog` |
@@ -601,7 +601,7 @@ emitter float semantics, `VFOG` density.
 **Phase 4: zone lights.**
 - A `light_db2` reader (same pattern as `liquid_db2`). Done.
 - A world instance of `classic_zone_light` per `Light` zone, its
-  parameter sets in the set's `light_params`. Done.
+  light conditions in the set's `light_conditions`. Done.
 - Open: a derived `base` medium (zone fog is keyed by time of day; a
   medium is one value).
 

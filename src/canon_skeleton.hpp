@@ -44,10 +44,18 @@ struct Joint {
 
     BillboardMode billboard = BillboardMode::None;
 
-    // M2CompBone.flags as stored, and its named non-billboard bits
-    // (m2::boneFlagNames): kinematic_bone marks a bone physics drives.
+    // Which parts of the parent's transform the joint takes on.
+    struct Inherit {
+        bool translation = true;
+        bool rotation = true;
+        bool scale = true;
+    };
+    Inherit inherit;
+    bool physicsDriven = false;  // a physics body moves it (WIKI_FINDINGS/M2.md "Cloth")
+
+    // M2CompBone.flags as stored, every bit: the ones without an
+    // established meaning live only here.
     uint32_t sourceFlags = 0;
-    std::vector<std::string> flagNames;
 
     // id = RecordIndex{bone index} via boneRef; name/source are
     // NameSource::M2Embedded (m2::keyBoneName table hit) or

@@ -460,7 +460,7 @@ TEST_CASE("nameUuid: deterministic version-3 UUID text") {
     CHECK(std::string("89ab").find(a[19]) != std::string::npos);
 }
 
-TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set written once") {
+TEST_CASE("writeWorldBundle: zone lights index the set's light_conditions, each written once") {
     canon::World world;
     world.subject = canon::Ref{canon::FileDataId{775971}, "azeroth", canon::NameSource::Listfile};
     lightdb::Data lights;
@@ -509,11 +509,11 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     nlohmann::json set = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     CHECK(set["subject"]["name"] == "zone_lights");
     REQUIRE(set["instances"].size() == 2);
-    const auto& table = set["resources"]["light_params"];
+    const auto& table = set["resources"]["light_conditions"];
     REQUIRE(table.size() == 1);
     CHECK(set["instances"][1]["style"]["light"]["zone_light"] ==
           nlohmann::json{{"clear", table[0]["id"]}, {"clear_underwater", table[0]["id"]}});
-    CHECK(table[0]["id"] == husk::nameUuid("light_params/db2_row/LightParams/" + table[0]["ref"]["id"]["row"].dump()));
+    CHECK(table[0]["id"] == husk::nameUuid("light_condition/db2_row/LightParams/" + table[0]["ref"]["id"]["row"].dump()));
     const auto& settings = table[0]["settings"];
     CHECK(settings["hide_sun"] == true);
     CHECK(settings["skybox"]["model"]["uri"] == "../../deathskybox.bundle/manifest.json");

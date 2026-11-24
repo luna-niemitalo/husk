@@ -164,10 +164,11 @@ changes:
   `portals[].to_part`, liquid `part`, static light `part`, primitive
   `part` (mesh and every LOD level) and LOD `source.part_levels[].part`
   hold that id. Map ids to parts once per model.
-- **Light parameter sets are named by id.** A placement set's
-  `resources.light_params[]` entries have a required `id` (from the
-  LightParams row); a zone light's `clear`, `clear_underwater`, `storm`,
-  `storm_underwater` and `death` hold that id.
+- **Light conditions are named by id.** A placement set's
+  `resources.light_conditions[]` (0.3 `light_params[]`, renamed below)
+  entries have a required `id` (from the LightParams row); a zone light's
+  `clear`, `clear_underwater`, `storm`, `storm_underwater` and `death`
+  hold that id.
 - **Textures are named by id.** Every `resources.textures[]` entry of a
   model, terrain tile or placement set has an `id` (from the texture's
   identity, state and what else tells two entries of one file apart), and
@@ -204,14 +205,33 @@ changes:
   stores them, with no meaning a consumer of another source could use,
   left the canonical keys:
   - terrain `resources.terrain.liquid_objects[]`: `flow_speed`,
-    `fishable`, `reflection` → `liquid_objects[].source.{flow_speed,
+    `fishable`, `reflection` → `liquid_settings[].source.{flow_speed,
     fishable, reflection}` (`flow_direction` stays);
   - model `resources.physics.bodies[].type` →
     `bodies[].source.type`;
   - placement set `resources.light_params[]`: `celestial_sphere_override`,
-    `sun_position_override` → `light_params[].source.{...}`.
+    `sun_position_override` → `light_conditions[].source.{...}`.
   Descriptions of colours and densities no longer say "as stored"; their
   values are unchanged.
+- **Keys named after the source renamed.** Values unchanged unless said:
+  - model `definition.customization.options[].chr_model` →
+    `options[].body` (the body model the option belongs to);
+  - placement set `resources.light_params[]` →
+    `resources.light_conditions[]`, and its entries' ids change with it
+    (key `light_condition/db2_row/LightParams/<row>`, `BUNDLE_FORMAT.md`
+    "Stable ids");
+  - terrain `resources.terrain.liquid_objects[]` →
+    `resources.terrain.liquid_settings[]`; a liquid's `liquid_object` →
+    `liquid_setting`;
+  - customization choice `geoset_id` (group·100+variant) →
+    `geoset: {group, variant}`, the packed number kept as
+    `source.geoset`;
+  - primitive (mesh and every LOD level) `geoset_id`, `geoset_group`,
+    `geoset_variant` → `geoset: {group, variant}`, the packed number kept
+    as `source.skin_section_id` (absent on a WMO batch). Match a choice to
+    ranges on `geoset`;
+  - appearance `shown_geosets[]`: packed numbers → `{group, variant}`
+    objects.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Creature catalog, a new document kind.** `husk export-creatures`
@@ -241,9 +261,12 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
   beside it, so physics capes and mounts ship their rigid-body chains. The
   manifest's provenance source `phys` says which was read (`available:
   false` = not found, unknown, not "has none").
-- **Joint flags.** `skeleton.joints[].source.flags` (raw) and `flags`
-  (named bits). `kinematic_bone` marks the joints a dynamic physics body
-  drives: drive those from the simulation, the rest from animation.
+- **Joint flags.** `skeleton.joints[].inherit: {translation, rotation,
+  scale}` (false: the joint ignores that part of its parent's transform)
+  and `driven_by: "physics"` on the joints a dynamic physics body drives:
+  drive those from the simulation, the rest from animation.
+  `source.flags` keeps the raw word; bits with no established meaning are
+  only there.
 - **Global-sequence lengths.** A `global_sequence` clip has `duration`
   (its loop); `resources.rig.global_sequences[i].duration` is the loop
   table other curves index. Use these as the period, not the last key.
@@ -267,7 +290,7 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
   (raw) and unnamed row refs `object_effect_package`, `state_spell_visual_kit`,
   `anim_replacement_set`, `dissolve_effect`, `mount_poof_spell_visual_kit`
   (CreatureDisplayInfo columns of the same names), each absent at 0.
-- **Character model names.** A customization option's `chr_model` ref
+- **Character model names.** A customization option's `body` ref
   is named "<race> <sex>" from ChrRaces and ChrRaceXChrModel ("Human
   male"); match on the ChrModel row, show the name.
 - **Animation fallbacks.** `resources.rig.animation_fallbacks`:
@@ -430,12 +453,12 @@ Renamed to row/column. The values are the same numbers: "row" steps −X,
 | `quad_rect.width` / `.height` | `quad_rect.columns` / `.rows` |
 | `heights`, `quad_exists` | unchanged; heights count `(columns + 1) · (rows + 1)` |
 | `height_source: "heightmap"` | `"stored"` (`min_height_level` and `zero` unchanged) |
-| — | new: `liquid_type`, `liquid_object` (DB2 refs, named when the liquid DB2s were read), optional `depth` |
+| — | new: `liquid_type`, `liquid_setting` (DB2 refs, named when the liquid DB2s were read), optional `depth` |
 
 New beside it: `resources.liquid_types` lists each named type once (name,
 material, texture slots whose frames are ordinary texture entries, e.g.
-Water's 30 animated `lake_a` frames), and `resources.terrain.liquid_objects`
-each object's flow. Match a liquid to its type by `identity`.
+Water's 30 animated `lake_a` frames), and `resources.terrain.liquid_settings`
+each setting's flow. Match a liquid to its type by `identity`.
 
 ### `Placements()`: replaced
 
@@ -525,8 +548,8 @@ on husk's side (`BUNDLE_FORMAT.md` "Seams between tiles").
 - Outdoor lighting: the `zone_lights` set (was `zone_fogs`; effects
   `classic_zone_light`/`_global`, were `classic_zone_fog`/`_global`).
   Each instance's `style.light.zone_light` maps a condition (clear,
-  clear_underwater, storm, storm_underwater, death) to an index into the
-  set's `resources.light_params`. An entry holds its `settings` (sky
+  clear_underwater, storm, storm_underwater, death) to the id of an entry
+  of the set's `resources.light_conditions`. An entry holds its `settings` (sky
   model, glow, water opacity, sun, hide_sun/moon/stars; absent for
   1,196 ids the build's LightParams file lacks) and `keys` by time of
   day: direct/ambient/horizon/ground colours, `sky`, `clouds`, `water`,

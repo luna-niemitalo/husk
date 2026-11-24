@@ -383,7 +383,7 @@ with no identity of its own. The Blender addon mirrors it
 | appearances `appearances` | `appearance/<identity key of the model>/<body key>` | The same, body only; the model's identity keeps ids unique in a tree's shared list. |
 | creatures `creatures`, `displays` | `creature/Creature/<row>`, `creature_display/CreatureDisplayInfo/<row>` | Their DB2 rows. |
 | mesh `parts` | `part/<identity key of the model>/<source index>` | A WMO group's index in its root file; the model's identity makes it unique across documents. |
-| `light_params` | `light_params/db2_row/LightParams/<row>` | The LightParams row. |
+| `light_conditions` | `light_condition/db2_row/LightParams/<row>` | The LightParams row. |
 | `resources.textures` (model, terrain tile, placement set) | `texture/<identity key or none>[/named/<name>/<name_source>]/<state>` + `/payload/<uri>` (resolved with a payload), `/reason/<reason>` (known_unresolved), `/candidates/<identity key>/<category>…` (ambiguous) | The table lists each distinct entry once, and one file can have two: an own payload and the shared store's, two unresolved reasons, or one name synthesized by one producer and read from a DB2 by another. The identity alone would give both one id, so the key adds what the entry says beyond it. The writer (`TextureTable`) throws when two different entries still share a key. |
 | `resources.materials` | `material/<identity key of the model>/<identity key of the material's ref>` | The ref names the material's source record: its position in the source's material list (M2 batch material, WMO MOMT). |
 | `resources.scene.static_lights` | `static_light/<identity key of the model>/<record table>/<record index>`, plus `/part/<part source index>` for MOLS/MOLP | The light's source record (MNLD, MOLT, MOLS, MOLP); a group's own lights count from 0 in every group, so the group's index is part of the key. |
@@ -399,7 +399,7 @@ ids as text; the writer checks each against the derived one.
 |---|---|---|
 | model `definition.placement_sets[].reference`, `texture_slots[].composite`, customization choice `textures[].material`, `selection.equipped[].reference`, material `techniques[]`; placement_set `instances[].reference`; world `grid.cells[].tile`, `placements[]` | `/references` | id |
 | part `portals[].to_part`, liquid `part`, static light `part`, primitive `part`, LOD `part_levels[].part` | `/resources/geometry/mesh/parts` | id |
-| zone light `clear` / `clear_underwater` / `storm` / `storm_underwater` / `death` | `/resources/light_params` | id |
+| zone light `clear` / `clear_underwater` / `storm` / `storm_underwater` / `death` | `/resources/light_conditions` | id |
 | `texture_id` (material layers, slot options, item/choice textures, liquid frames, light cookies, terrain ground `diffuse`/`height`, LOD `diffuse`/`normal`, `liquid_flow`, effect image inputs) | `/resources/textures` | id: a WMO or character model can list hundreds |
 | material document layer and composite layer `texture` | the material document's `/resources/textures` | index, kept: a material document lists a handful, and composites have no identity of their own |
 | primitive / liquid `material` | `/resources/materials` | id: a WMO's materials reach ~100-200 |
@@ -605,7 +605,7 @@ of a character model) is a preset too: its baked skin is an option of
 the lowest-type slot (`skin`). A character model's
 `definition.customization` lists its options and choices (with each
 choice's geoset), one catalog per ChrModel that draws the file, each
-option naming its `chr_model` (a race's alternate form shares another's
+option naming its `body` (a race's alternate form shares another's
 mesh: `humanmale_hd` is ChrModel 1 and 45). A preset's `customization`
 is `{option, choice}` indices into that list; a choice from a catalog
 that doesn't draw the file is the preset's `unresolved`. Its equipment
@@ -829,11 +829,14 @@ consumer reads options by index today; a later step, not this one.
   followed until a clip exists. Written when `--db2-dir`/`--dbd-dir` read
   the table (not by `export-world`'s model pass).
 - **Joint flags (0.4.0).** `skeleton.joints[].source.flags` is
-  `M2CompBone.flags` as stored; `flags` names the bits wowdev.wiki names
-  (`ignore_parent_translate`/`_scale`/`_rotation`, `transformed`,
-  `kinematic_bone`, `helmet_anim_scaled`), billboard bits stay
-  `billboard`. `kinematic_bone` (0x400) marks the joints physics drives:
-  in the 12.1.5 corpus it occurs exactly on models with physics.
+  `M2CompBone.flags` as stored. Bits with an established meaning are
+  canonical fields: `inherit: {translation, rotation, scale}` (false where
+  wowdev.wiki's ignore-parent bits 0x1/0x4/0x2 are set), `billboard`
+  (0x8-0x40) and `driven_by: "physics"` (0x400, the wiki's
+  `kinematic_bone`; in the 12.1.5 corpus it occurs exactly on models with
+  physics, `WIKI_FINDINGS/M2.md` "Cloth"). Every other bit (the wiki's
+  `transformed` 0x200 and `helmet_anim_scaled` 0x1000 among them, effects
+  not established) is only in `source.flags`.
 - **Material tracks.** Layer `tint`, `color_alpha`, `texture_weight` and
   `uv_maps[].transform`: a constant tint, alpha, texture weight or UV
   transform is a one-key `step` curve; identity values stay absent; a
@@ -886,15 +889,15 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   `--db2-dir`): a tile's chunk `areas` (AreaTable `AreaName_lang`) and a
   zone light's `skybox.ref` (`LightSkybox.Name`, the sky model's old
   path). A tile liquid's `liquid_type` was already named; a
-  `liquid_object` stays unnamed, as LiquidObject has no name column.
-- A customization option's `chr_model` ref is named `"<race> <sex>"`
+  `liquid_setting` stays unnamed, as LiquidObject has no name column.
+- A customization option's `body` ref is named `"<race> <sex>"`
   (additive): the ChrRaces `Name_lang` of the lowest-row race using the
   model (ChrModel 1 is also used by "TBD NPC Race 1" and "2"), then the
   ChrRaceXChrModel `Sex` (0 male, 1 female) when the rows agree on it.
   ChrModel 1 is "Human male". Without the race tables the ref stays
   unnamed.
 - Raw values left canonical keys for `source` objects (CANONICAL_FORMAT.md
-  §2): liquid objects' flow speed, fishable and reflection, physics
+  §2): liquid settings' flow speed, fishable and reflection, physics
   bodies' `type`, light parameters' celestial-sphere and sun-position
   overrides, the world `map`'s `directory`, `instance_type` and
   `map_type`, creatures' `classification` and displays' `size_class`. The
@@ -902,6 +905,15 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   described "as stored" outside `source`/`unresolved`; the item keys
   `texture_type` and `component_section` are exempt until
   `REFACTOR/GARMENTS.md` replaces them.
+- Keys named after the source renamed to say what they are: an option's
+  `body` (was `chr_model`), a placement set's `light_conditions` (was
+  `light_params`; stable-id key `light_condition/...`), a tile's
+  `liquid_settings` and a liquid's `liquid_setting` (were
+  `liquid_objects`/`liquid_object`). A geoset is `{group, variant}`
+  (common.schema.json `geoset`) on primitives, customization choices and
+  appearances' `shown_geosets`; the packed group * 100 + variant stays
+  only as the source's number, a primitive's `source.skin_section_id` and
+  a choice's `source.geoset`.
 
 ## Embed or reference — one rule
 
@@ -1187,11 +1199,12 @@ layout). These are `resources.terrain.liquids`, not the WMO-shaped
 `resources.geometry.liquids`.
 
 Every liquid names a `LiquidType`, and a terrain liquid also its
-`LiquidObject` (absent when the instance stored a vertex format instead).
+`liquid_setting`, a `LiquidObject` row (absent when the instance stored a
+vertex format instead).
 With the liquid DB2s, `resources.liquid_types` (terrain and WMO documents
 alike) lists each named type once: its name, material and texture slots,
 each slot's frames in animation order as ordinary texture entries. A
-terrain's `resources.terrain.liquid_objects` gives each object's flow direction,
+terrain's `resources.terrain.liquid_settings` gives each setting's flow direction,
 and under `source` its raw flow speed (unit unverified), fishable and
 reflection values. Without the DB2s both tables hold identities only. A liquid's own
 arrays (`depth`, `uv`) say what it stores: Ocean's material claims height

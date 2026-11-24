@@ -39,7 +39,7 @@ std::string slice(size_t offset, size_t length, const char* type, int components
 std::string modelDocument() {
     std::string level0 = R"({"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
                          R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) +
-                         R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
+                         R"(, "primitives": [{"geoset": {"group": 0, "variant": 0}, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
                "attributes": []})";
     return std::string("{") + header("model") + R"(
   "subject": {"id": {"kind": "file_data_id", "value": 1}, "name": "crate", "name_source": "listfile"},
@@ -51,7 +51,7 @@ std::string modelDocument() {
     "geometry": {
       "mesh": {"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
            R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) + R"(,
-               "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
+               "primitives": [{"geoset": {"group": 0, "variant": 0}, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
                "parts": [], "portals": [], "attributes": []},
       "lod": {"max_level": 0, "levels": [)" + level0 + R"(]},
       "liquids": []},

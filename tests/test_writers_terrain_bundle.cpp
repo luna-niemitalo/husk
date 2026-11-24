@@ -334,13 +334,13 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     REQUIRE(t["liquids"].size() == 2);
     const nlohmann::json& river = t["liquids"][0];
     CHECK(river["height_source"] == "stored");
-    CHECK(river["liquid_object"]["id"]["row"] == 100);
+    CHECK(river["liquid_setting"]["id"]["row"] == 100);
     CHECK(readSlice<float>(dir, river["heights"]) == std::vector<float>(4, 3.0f));
     CHECK(readSlice<float>(dir, river["depth"]) == std::vector<float>(4, 1.0f));
     CHECK(river["liquid_type"]["name"] == "Slow Water");
-    REQUIRE(t["liquid_objects"].size() == 1);
-    CHECK(t["liquid_objects"][0]["identity"]["id"]["row"] == 100);
-    CHECK(t["liquid_objects"][0]["flow_direction"].get<double>() == doctest::Approx(3.14159265));
+    REQUIRE(t["liquid_settings"].size() == 1);
+    CHECK(t["liquid_settings"][0]["identity"]["id"]["row"] == 100);
+    CHECK(t["liquid_settings"][0]["flow_direction"].get<double>() == doctest::Approx(3.14159265));
     const nlohmann::json& types = m["resources"]["liquid_types"];
     REQUIRE(types.size() == 2);
     CHECK(types[0]["identity"]["name"] == "Slow Water");
@@ -355,7 +355,7 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK_FALSE(types[1].contains("material"));
     const nlohmann::json& ocean = t["liquids"][1];
     CHECK(ocean["height_source"] == "min_height_level");
-    CHECK_FALSE(ocean.contains("liquid_object"));
+    CHECK_FALSE(ocean.contains("liquid_setting"));
     CHECK(ocean["quad_rect"]["columns"] == 8);
     CHECK(readSlice<uint8_t>(dir, ocean["quad_exists"]) == std::vector<uint8_t>(64, 1));
 

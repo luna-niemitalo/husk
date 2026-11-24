@@ -125,6 +125,15 @@ void writeName(json::Writer& w, const canon::Ref& ref) {
     w.value(nameSourceName(ref.source));
 }
 
+void writeGeoset(json::Writer& w, const canon::Geoset& geoset) {
+    w.beginObject();
+    w.key("group");
+    w.value(static_cast<int64_t>(geoset.group));
+    w.key("variant");
+    w.value(static_cast<int64_t>(geoset.variant));
+    w.endObject();
+}
+
 void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri) {
     w.beginObject();
     w.key("id");

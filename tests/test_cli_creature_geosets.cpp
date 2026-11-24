@@ -63,7 +63,8 @@ TEST_CASE("husk export --db2-dir/--dbd-dir: a creature display's CreatureDisplay
     INFO(m["selection"].dump());
     nlohmann::json presets = m["selection"]["presets"];
     REQUIRE(presets.size() == 1);
-    CHECK(appearanceOf(m, presets[0])["shown_geosets"] == std::vector<int>{0, 401});
+    CHECK(appearanceOf(m, presets[0])["shown_geosets"] ==
+          nlohmann::json::parse(R"([{"group": 0, "variant": 0}, {"group": 4, "variant": 1}])"));
     REQUIRE(presets[0]["sources"].size() == 1);
     CHECK(presets[0]["sources"][0]["ref"]["id"]["table"] == "CreatureDisplayInfo");
     CHECK(presets[0]["sources"][0]["ref"]["id"]["row"] == 42);
@@ -119,7 +120,7 @@ TEST_CASE("husk export-appearances: a tree's inline lists move into one appearan
         CHECK(shared["references"][0]["asset"]["uri"] == "models/" + std::to_string(kModelFdid) + ".canon.bundle/manifest.json");
         nlohmann::json entry = entryById(shared["appearances"], pointer);
         CHECK(entry["model"] == shared["references"][0]["id"]);
-        CHECK(entry["shown_geosets"] == std::vector<int>{0, 401});
+        CHECK(entry["shown_geosets"] == nlohmann::json::parse(R"([{"group": 0, "variant": 0}, {"group": 4, "variant": 1}])"));
         outputs.push_back(readTextFile(manifestPath) + readTextFile(tree / "appearances.json"));
     }
 
@@ -167,7 +168,7 @@ TEST_CASE("husk export --db2-dir/--dbd-dir: a display with no geoset rows, on a 
     nlohmann::json m = parseManifest(bundle);
     nlohmann::json presets = m["selection"]["presets"];
     REQUIRE(presets.size() == 1);
-    CHECK(appearanceOf(m, presets[0])["shown_geosets"] == std::vector<int>{0});
+    CHECK(appearanceOf(m, presets[0])["shown_geosets"] == nlohmann::json::parse(R"([{"group": 0, "variant": 0}])"));
 
     fs::remove_all(dir);
 }

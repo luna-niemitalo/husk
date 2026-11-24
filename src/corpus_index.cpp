@@ -64,7 +64,7 @@ void indexManifest(const json& doc, const std::string& model, Rows& rows) {
     }
     if (doc.contains("definition") && doc["definition"].contains("customization")) {
         for (const json& option : doc["definition"]["customization"]["options"]) {
-            if (auto chrModel = db2Row(option["chr_model"], "ChrModel")) rows.chrModels.insert({*chrModel, model});
+            if (auto chrModel = db2Row(option["body"], "ChrModel")) rows.chrModels.insert({*chrModel, model});
         }
     }
 }
