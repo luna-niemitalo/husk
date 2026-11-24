@@ -2098,32 +2098,38 @@
           "properties": {
             "attachments": {
               "type": "array",
-              "description": "Attachment points.",
+              "description": "Attachment points: the M2's M2Attachment list, or its .skel's (SKA1).",
+              "x-source": [{"file": "m2", "field": "M2Attachment"}, {"file": "skel", "field": "SKA1"}],
               "items": {
                 "type": "object",
                 "description": "A point other models attach to.",
                 "properties": {
                   "ref": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The attachment point."
+                    "description": "The attachment point: its index, named after its kind id from the wiki's attachment table.",
+                    "x-source": [{"file": "m2", "field": "M2Attachment.id"}]
                   },
                   "point_id": {
                     "type": "integer",
-                    "description": "Attachment point kind id."
+                    "description": "Attachment point kind id.",
+                    "x-source": [{"file": "m2", "field": "M2Attachment.id"}]
                   },
                   "bone": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints.",
+                    "x-source": [{"file": "m2", "field": "M2Attachment.bone"}]
                   },
                   "position": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Position in model space (not relative to the joint).",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "m2", "field": "M2Attachment.position"}]
                   },
                   "animate_attached": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "Whether attached models animate, 0 or 1.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "m2", "field": "M2Attachment.animate_attached"}]
                   }
                 },
                 "additionalProperties": false,
@@ -2138,27 +2144,32 @@
             },
             "events": {
               "type": "array",
-              "description": "Event trigger points.",
+              "description": "Event trigger points (M2Event).",
+              "x-source": [{"file": "m2", "field": "M2Event"}],
               "items": {
                 "type": "object",
                 "description": "A named trigger point.",
                 "properties": {
                   "identifier": {
                     "type": "string",
-                    "description": "Event name."
+                    "description": "Event name: the 4 identifier bytes as ASCII, typically '$' and a 3-character code (e.g. $DTH).",
+                    "x-source": [{"file": "m2", "field": "M2Event.identifier"}]
                   },
                   "data": {
                     "type": "integer",
-                    "description": "Event parameter."
+                    "description": "Event parameter, raw: the wiki documents that it is passed when the event fires, not what it means per event.",
+                    "x-source": [{"file": "m2", "field": "M2Event.data"}]
                   },
                   "bone": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints.",
+                    "x-source": [{"file": "m2", "field": "M2Event.bone"}]
                   },
                   "position": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Position in model space (not relative to the joint).",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "m2", "field": "M2Event.position"}]
                   }
                 },
                 "additionalProperties": false,
@@ -2172,7 +2183,8 @@
             },
             "animated_lights": {
               "type": "array",
-              "description": "Lights attached to joints.",
+              "description": "Lights attached to joints (M2Light).",
+              "x-source": [{"file": "m2", "field": "M2Light"}],
               "items": {
                 "type": "object",
                 "description": "A light attached to a joint, with animated colour and range.",
@@ -2183,51 +2195,61 @@
                       "point",
                       "unknown"
                     ],
-                    "description": "Light kind; unknown when the source type has no established meaning."
+                    "description": "Light kind (type 0 directional, 1 point); unknown when the source type has no established meaning.",
+                    "x-source": [{"file": "m2", "field": "M2Light.type"}]
                   },
                   "bone": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints.",
+                    "x-source": [{"file": "m2", "field": "M2Light.bone"}]
                   },
                   "position": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Position in model space (not relative to the joint).",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "m2", "field": "M2Light.position"}]
                   },
                   "ambient_color": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "Ambient colour.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "m2", "field": "M2Light.ambient_color"}]
                   },
                   "ambient_intensity": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "Ambient intensity.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "m2", "field": "M2Light.ambient_intensity"}]
                   },
                   "diffuse_color": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "Diffuse colour.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "m2", "field": "M2Light.diffuse_color"}]
                   },
                   "diffuse_intensity": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "Diffuse intensity.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "m2", "field": "M2Light.diffuse_intensity"}]
                   },
                   "attenuation_start": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "Distance where falloff begins.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "m2", "field": "M2Light.attenuation_start"}]
                   },
                   "attenuation_end": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "Distance where the light reaches zero.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "m2", "field": "M2Light.attenuation_end"}]
                   },
                   "visibility": {
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "On or off, 0 or 1.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "m2", "field": "M2Light.visibility"}]
                   },
                   "source": {
                     "type": "object",
@@ -2235,7 +2257,8 @@
                     "properties": {
                       "type": {
                         "type": "integer",
-                        "description": "Light type as stored."
+                        "description": "Light type as stored.",
+                        "x-source": [{"file": "m2", "field": "M2Light.type"}]
                       }
                     },
                     "required": [
@@ -2261,7 +2284,8 @@
             },
             "static_lights": {
               "type": "array",
-              "description": "Placed, unanimated lights.",
+              "description": "Placed, unanimated lights: a WMO root's MNLD then MOLT records, then each group's own MOLS and MOLP lights; a record with a non-finite value is left out (and reported).",
+              "x-source": [{"file": "wmo", "field": "MNLD"}, {"file": "wmo", "field": "MOLT"}, {"file": "wmo_group", "field": "MOLS"}, {"file": "wmo_group", "field": "MOLP"}],
               "items": {
                 "type": "object",
                 "description": "A light placed in the model, not animated.",
@@ -2273,7 +2297,8 @@
                   },
                   "ref": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The light."
+                    "description": "The light: its position in this list, named light_<index>; where it came from is source.record.",
+                    "x-source": [{"format": true}]
                   },
                   "kind": {
                     "enum": [
@@ -2282,70 +2307,84 @@
                       "directional",
                       "ambient"
                     ],
-                    "description": "Light kind."
+                    "description": "Light kind: MNLD type (0 point, 1 spot), MOLT type (0..3 point, spot, directional, ambient); MOLS lights are spots, MOLP lights points.",
+                    "x-source": [{"file": "wmo", "field": "MNLD.type"}, {"file": "wmo", "field": "SMOLight.type"}, {"file": "wmo_group", "field": "MOLS"}, {"file": "wmo_group", "field": "MOLP"}]
                   },
                   "position": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Position in model space (not relative to the joint).",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "wmo", "field": "MNLD.position"}, {"file": "wmo", "field": "SMOLight.position"}, {"file": "wmo_group", "field": "MOLS.position"}, {"file": "wmo_group", "field": "MOLP.position"}]
                   },
                   "rotation": {
                     "$ref": "common.schema.json#/definitions/quat",
-                    "description": "Orientation, when stored as a quaternion.",
-                    "x-unit": "1"
+                    "description": "Orientation, when stored as a quaternion (MOLT spot and directional lights).",
+                    "x-unit": "1",
+                    "x-source": [{"file": "wmo", "field": "SMOLight.rotation"}]
                   },
                   "euler_rotation": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Orientation, when stored as Euler angles; axis order not established.",
-                    "x-unit": "radian"
+                    "x-unit": "radian",
+                    "x-source": [{"file": "wmo", "field": "MNLD.rotation"}, {"file": "wmo_group", "field": "MOLS.rotation"}]
                   },
                   "color": {
                     "$ref": "common.schema.json#/definitions/rgb",
                     "description": "Colour.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "wmo", "field": "MNLD.innerColor"}, {"file": "wmo", "field": "SMOLight.color"}, {"file": "wmo_group", "field": "MOLS.color"}, {"file": "wmo_group", "field": "MOLP.color"}]
                   },
                   "intensity": {
                     "type": "number",
                     "description": "Intensity.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "wmo", "field": "MNLD.intensity"}, {"file": "wmo", "field": "SMOLight.intensity"}, {"file": "wmo_group", "field": "MOLS.intensity"}, {"file": "wmo_group", "field": "MOLP.intensity"}]
                   },
                   "intensity_multiplier": {
                     "type": "number",
-                    "description": "Extra intensity factor.",
-                    "x-unit": "1"
+                    "description": "Extra intensity factor: MNLD's, a stored 0 read as 1 (as the client corrects it); 1 for every other record.",
+                    "x-unit": "1",
+                    "x-source": [{"file": "wmo", "field": "MNLD.intesityMultiplier"}, {"format": true}]
                   },
                   "attenuated": {
                     "type": "boolean",
-                    "description": "Whether it falls off with distance."
+                    "description": "Whether it falls off with distance: MOLT useAtten; true for every other record.",
+                    "x-source": [{"file": "wmo", "field": "SMOLight.useAtten"}, {"format": true}]
                   },
                   "attenuation_start": {
                     "type": "number",
                     "description": "Distance where falloff begins.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "wmo", "field": "MNLD.attenStart"}, {"file": "wmo", "field": "SMOLight.attenStart"}, {"file": "wmo_group", "field": "MOLS.attenuationStart"}, {"file": "wmo_group", "field": "MOLP.attenuationStart"}]
                   },
                   "attenuation_end": {
                     "type": "number",
                     "description": "Distance where the light reaches zero.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "wmo", "field": "MNLD.attenEnd"}, {"file": "wmo", "field": "SMOLight.attenEnd"}, {"file": "wmo_group", "field": "MOLS.attenuationEnd"}, {"file": "wmo_group", "field": "MOLP.attenuationEnd"}]
                   },
                   "gradient": {
                     "type": "object",
-                    "description": "Colour that changes with distance.",
+                    "description": "Colour that changes with distance (MNLD flag 0x1).",
+                    "x-source": [{"file": "wmo", "field": "MNLD.flags"}],
                     "properties": {
                       "outer_color": {
                         "$ref": "common.schema.json#/definitions/rgb",
                         "description": "Colour at blend_end.",
-                        "x-unit": "1"
+                        "x-unit": "1",
+                        "x-source": [{"file": "wmo", "field": "MNLD.outerColor"}]
                       },
                       "blend_start": {
                         "type": "number",
                         "description": "Distance where the blend begins.",
-                        "x-unit": "yard"
+                        "x-unit": "yard",
+                        "x-source": [{"file": "wmo", "field": "MNLD.blendStart"}]
                       },
                       "blend_end": {
                         "type": "number",
                         "description": "Distance where the blend ends.",
-                        "x-unit": "yard"
+                        "x-unit": "yard",
+                        "x-source": [{"file": "wmo", "field": "MNLD.blendEnd"}]
                       }
                     },
                     "additionalProperties": false,
@@ -2362,17 +2401,20 @@
                       "falloff_exponent": {
                         "type": "number",
                         "description": "Falloff exponent; absent when the source has none (WMO MOLS).",
-                        "x-unit": "1"
+                        "x-unit": "1",
+                        "x-source": [{"file": "wmo", "field": "MNLD.falloff"}]
                       },
                       "inner_angle": {
                         "type": "number",
                         "description": "Inner angle; half or whole cone not established.",
-                        "x-unit": "radian"
+                        "x-unit": "radian",
+                        "x-source": [{"file": "wmo", "field": "MNLD.innerAngle"}, {"file": "wmo_group", "field": "MOLS.innerAngle"}]
                       },
                       "outer_angle": {
                         "type": "number",
                         "description": "Outer angle.",
-                        "x-unit": "radian"
+                        "x-unit": "radian",
+                        "x-source": [{"file": "wmo", "field": "MNLD.outerAngle"}, {"file": "wmo_group", "field": "MOLS.outerAngle"}]
                       }
                     },
                     "additionalProperties": false,
@@ -2383,7 +2425,7 @@
                   },
                   "flicker": {
                     "type": "object",
-                    "description": "Procedural flicker.",
+                    "description": "Procedural flicker; absent when MNLD flickerMode is 0 (off).",
                     "properties": {
                       "mode": {
                         "enum": [
@@ -2391,17 +2433,20 @@
                           2,
                           3
                         ],
-                        "description": "1 sine, 2 noise, 3 noise step."
+                        "description": "1 sine, 2 noise, 3 noise step.",
+                        "x-source": [{"file": "wmo", "field": "MNLD.flickerMode"}]
                       },
                       "intensity": {
                         "type": "number",
                         "description": "Flicker strength.",
-                        "x-unit": "1"
+                        "x-unit": "1",
+                        "x-source": [{"file": "wmo", "field": "MNLD.flickerIntensity"}]
                       },
                       "speed": {
                         "type": "number",
                         "description": "Flicker speed.",
-                        "x-unit": "1"
+                        "x-unit": "1",
+                        "x-source": [{"file": "wmo", "field": "MNLD.flickerSpeed"}]
                       }
                     },
                     "additionalProperties": false,
@@ -2413,22 +2458,25 @@
                   },
                   "casts_shadows": {
                     "type": "boolean",
-                    "description": "Whether it casts shadows."
+                    "description": "Whether it casts shadows (MNLD flag 0x2; false for every other record).",
+                    "x-source": [{"file": "wmo", "field": "MNLD.flags"}, {"format": true}]
                   },
                   "shadow_scale": {
                     "type": "number",
-                    "description": "Shadow scale.",
-                    "x-unit": "1"
+                    "description": "Shadow scale, meaningful with casts_shadows (MNLD scale; 0 for every other record).",
+                    "x-unit": "1",
+                    "x-source": [{"file": "wmo", "field": "MNLD.scale"}, {"format": true}]
                   },
                   "cookie": {
                     "$ref": "common.schema.json#/definitions/texture_id",
-                    "description": "Texture projected by the light; a cube map for point lights."
+                    "description": "Texture projected by the light (MNLD lightCookieFileID); a cube map for point lights."
                   },
                   "placement_set": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Owned set the light switches with; absent means always on.",
-                    "x-index-into": "/definition/placement_sets"
+                    "description": "Owned set the light switches with (MNLD doodadSet); absent means always on.",
+                    "x-index-into": "/definition/placement_sets",
+                    "x-source": [{"file": "wmo", "field": "MNLD.doodadSet"}]
                   },
                   "part": {
                     "$ref": "common.schema.json#/definitions/uuid",
@@ -2438,7 +2486,8 @@
                   },
                   "unresolved": {
                     "$ref": "common.schema.json#/definitions/unresolved",
-                    "description": "Source values with no field here, carried raw."
+                    "description": "Source values with no field here, carried raw (MOLS lightIndex and its unknown word, MOLP's unknown words where they differ from the corpus-wide defaults).",
+                    "x-source": [{"file": "wmo_group", "field": "MOLS"}, {"file": "wmo_group", "field": "MOLP"}]
                   },
                   "source": {
                     "type": "object",
@@ -2446,11 +2495,13 @@
                     "properties": {
                       "flags": {
                         "$ref": "common.schema.json#/definitions/flags",
-                        "description": "The source's flag word."
+                        "description": "The source's flag word: MNLD flags, or MOLT's two pad bytes (probably flags).",
+                        "x-source": [{"file": "wmo", "field": "MNLD.flags"}, {"file": "wmo", "field": "SMOLight.pad"}]
                       },
                       "record": {
                         "$ref": "common.schema.json#/definitions/source_record",
-                        "description": "The source record this entry was decoded from."
+                        "description": "The source record this entry was decoded from.",
+                        "x-source": [{"format": true}]
                       }
                     },
                     "additionalProperties": false,
@@ -2480,7 +2531,8 @@
             },
             "default_fog": {
               "$ref": "common.schema.json#/definitions/instance_ref",
-              "description": "The fog instance a part's unlisted fog falls back to: the model's own default fog. Absent: the enclosing fog."
+              "description": "The fog instance a part's unlisted fog falls back to: the model's own default fog, the WMO's first MFOG entry; absent: the enclosing fog.",
+              "x-source": [{"file": "wmo", "field": "MFOG"}]
             }
           },
           "additionalProperties": false,
