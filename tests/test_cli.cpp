@@ -463,9 +463,17 @@ TEST_CASE("husk export: real AnimationData gives clip fallbacks and no Name warn
     REQUIRE(result.exitCode == 0);
     CHECK(result.output.find("string column 'Name'") == std::string::npos);
     nlohmann::json m = parseManifest(bundle);
-    const nlohmann::json& fallbacks = m["resources"]["rig"]["animation_fallbacks"];
-    REQUIRE(fallbacks.is_array());
-    CHECK(std::find(fallbacks.begin(), fallbacks.end(), nlohmann::json::array({6, 1})) != fallbacks.end());
+    const nlohmann::json* reference = nullptr;
+    for (const auto& r : m["references"]) {
+        if (r["kind"] == "animation_fallbacks") reference = &r;
+    }
+    REQUIRE(reference);
+    const nlohmann::json& fallbacks = (*reference)["document"]["fallbacks"];
+    CHECK((*reference)["document"]["otherwise"]["id"]["row"] == 0);
+    auto dead = std::find_if(fallbacks.begin(), fallbacks.end(),
+                             [](const nlohmann::json& f) { return f["animation"]["id"]["row"] == 6; });
+    REQUIRE(dead != fallbacks.end());
+    CHECK((*dead)["fallback"]["id"]["row"] == 1);
 
     fs::remove_all(dir);
 }

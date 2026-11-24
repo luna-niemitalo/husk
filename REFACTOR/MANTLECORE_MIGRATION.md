@@ -199,6 +199,21 @@ changes:
   `appearances[]`. Its indices are still this model's definition's. Apply
   the appearance first, then the preset's own `textures` and `items`
   (`BUNDLE_FORMAT.md` "Appearances").
+- **Animation fallbacks are a shared document.**
+  `resources.rig.animation_fallbacks` (`[animation, fallback]` AnimationData
+  id pairs, copied into every model; in earlier 0.4.0 builds only) is
+  gone. The table is the model's one `references[]` entry of kind
+  `animation_fallbacks` (new in the kind enum, new kind
+  `schema/animation_fallbacks.schema.json`): `document` inline
+  (`husk export` with `--db2-dir`), or `asset.uri` naming the tree's one
+  `animation_fallbacks.json` (`export-world`/`export-corpus` with
+  `--db2-dir`), the same two forms as appearances. Old pair `[a, f]` is now
+  a `fallbacks[]` entry `{id, animation, fallback}` whose
+  `animation.id.row` is a and `fallback.id.row` is f (refs named like a
+  clip's `animation`); the implicit "unlisted falls back to 0" is the
+  document's `otherwise` ref. Walk it by identity until a clip exists
+  (`REFACTOR/ANIMATION.md` "Fallbacks"). Load the shared file once per
+  tree, not per model.
 - **Creature display `preset` is an id.** `creatures.json` displays hold
   the preset's `id` string instead of its index into `selection.presets`.
 - **Raw source values moved under `source`.** Values kept as the source
@@ -300,9 +315,6 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Character model names.** A customization option's `body` ref
   is named "<race> <sex>" from ChrRaces and ChrRaceXChrModel ("Human
   male"); match on the ChrModel row, show the name.
-- **Animation fallbacks.** `resources.rig.animation_fallbacks`:
-  `[animation, fallback]` pairs from AnimationData, written with
-  `--db2-dir`; follow them when a model has no clip for an animation.
 - **Clip names on 12.x.** With `--anim-names <wow.export checkout>` (also
   on `export-world`, `export-corpus`, `snapshot`), a clip's `animation`
   ref is named from wow.export's list (`name_source: community`) where the
@@ -367,6 +379,7 @@ mesh layout as an M2, plus their own doodad sets.
 <out>/maps/<map>/<tile>.bundle/sets/1.json           placement set "map_objects" (WMOs)
 <out>/models/<fdid>.canon.bundle/manifest.json       model: M2 or WMO (a WMO has its own sets/)
 <out>/textures/<fdid>.dds                            ground textures, shared
+<out>/animation_fallbacks.json                       animation_fallbacks: every model's (with --db2-dir)
 ```
 
 Every path inside a document is relative to that document's own file,

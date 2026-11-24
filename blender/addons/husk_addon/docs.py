@@ -142,6 +142,48 @@ def references_by_id(doc):
     return by_id(doc["references"])
 
 
+def list_document(doc, doc_dir, kind):
+    """The document `doc`'s one reference of `kind` (appearances,
+    animation_fallbacks) holds, inline (`document`) or as its own file
+    (`asset.uri`, a tree's shared list); None without such a reference or
+    for an identity-only one (BUNDLE_FORMAT.md "Appearances")."""
+    refs = [r for r in doc["references"] if r["kind"] == kind]
+    if not refs:
+        return None
+    # IN, critical: a second list would leave which one holds an entry undecided.
+    if len(refs) > 1:
+        raise FormatError("expected at most one %s reference, got %d" % (kind, len(refs)))
+    ref = refs[0]
+    if "document" in ref:
+        return ref["document"]
+    if "uri" not in ref["asset"]:
+        return None
+    path = os.path.normpath(os.path.join(doc_dir, ref["asset"]["uri"]))
+    # IN, critical: a shared list the tree doesn't hold is a broken tree, not an absent list.
+    if not os.path.exists(path):
+        raise FormatError("expected the %s document at %s, got no such file" % (kind, path))
+    return load(path)
+
+
+def fallback_animation(table, wanted, clips):
+    """The animation a model plays for `wanted`: itself when `clips` (identity
+    keys of the model's clip animations) holds it, else the first of its
+    fallback chain that does; None when the chain ends without one or comes
+    back to where it started (the source's behaviour there is unknown).
+    `table`: an animation_fallbacks document; `wanted`: an animation ref
+    (REFACTOR/ANIMATION.md "Fallbacks")."""
+    following = {identity_key(f["animation"]): identity_key(f["fallback"]) for f in table["fallbacks"]}
+    otherwise = identity_key(table["otherwise"])
+    key = identity_key(wanted)
+    seen = set()
+    while key not in clips:
+        if key in seen:
+            return None
+        seen.add(key)
+        key = following.get(key, otherwise)
+    return key
+
+
 def relative_uris(value, doc_dir):
     """The inverse of absolute_uris, for a document written to `doc_dir`."""
     if isinstance(value, dict):

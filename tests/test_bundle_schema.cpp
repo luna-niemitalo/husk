@@ -106,9 +106,9 @@ std::string describe(const std::vector<bundle_schema::Problem>& problems) {
 
 }  // namespace
 
-TEST_CASE("bundle_schema: the embedded schema defines appearances, creatures, effect, material, model, placement_set, technique and world, and passes its own lint") {
-    CHECK(bundle_schema::kinds() == std::vector<std::string>{"appearances", "creatures", "effect", "material", "model",
-                                                             "placement_set", "technique", "world"});
+TEST_CASE("bundle_schema: the embedded schema defines animation_fallbacks, appearances, creatures, effect, material, model, placement_set, technique and world, and passes its own lint") {
+    CHECK(bundle_schema::kinds() == std::vector<std::string>{"animation_fallbacks", "appearances", "creatures", "effect",
+                                                             "material", "model", "placement_set", "technique", "world"});
     std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemas();
     INFO(describe(problems));
     CHECK(problems.empty());
@@ -477,7 +477,7 @@ TEST_CASE("bundle_schema: schema-doc lists every kind's document paths with type
         return doc.substr(at, doc.find('\n', at) - at);
     };
     // The first kind's row: kinds are listed in sorted order.
-    CHECK(row("$schema").find("| yes | constant | = `https://husk.invalid/schema/appearances.schema.json` |") != std::string::npos);
+    CHECK(row("$schema").find("| yes | constant | = `https://husk.invalid/schema/animation_fallbacks.schema.json` |") != std::string::npos);
     CHECK(row("sources[].region{kind=sphere}.inner_radius").find("| yes | `bound_number` (one of 2) |  | yard |") != std::string::npos);
     CHECK(row("displays[].model").find("| id in `/references` |") != std::string::npos);
     CHECK(row("definition.inputs.<name>.clock").find("one of `seconds`, `age`, `day_time`") != std::string::npos);

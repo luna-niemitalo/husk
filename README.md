@@ -175,6 +175,7 @@ Open items live in the linked TODO files (index: `TODO/README.md`).
 | M2 → lean glTF (`export --glb`) | `src/writers/gltf_lean.hpp` | Mesh, skin, animation, base-colour materials; nothing without a core glTF slot. Validator- and Blender-checked (`tests/test_conformance.cpp`) |
 | Creature options and presets | `REFACTOR/BUNDLE_FORMAT.md` "Options and presets" | Built from CreatureModelData → CreatureDisplayInfo whenever `--db2-dir` is given. Open: `TODO/CREATURE_OPTIONS_TODO.md` |
 | Appearances (`export-appearances`) | `REFACTOR/BUNDLE_FORMAT.md` "Appearances" | Built: a preset points at its body (customization, a display's texture variations, geosets, particle colours, opacity) by id; `husk export` writes the list inline in the model's `appearances` reference, `export-appearances`/`export-corpus` move a tree's lists into one shared `appearances.json` |
+| Animation fallbacks | `REFACTOR/ANIMATION.md` "Fallbacks" | Built with `--db2-dir`/`--dbd-dir`: AnimationData's client-wide fallback table as an `animation_fallbacks` document, inline in the model's reference (`husk export`) or one shared `animation_fallbacks.json` per tree that every model references (`export-world`, `export-corpus`) |
 | Creature catalog (`export-creatures`) | `REFACTOR/BUNDLE_FORMAT.md` "Creature catalogs" | Built: every client `Creature` row with type, family, classification, and each display's model reference (stable id, listfile name), preset, size class and effect rows (unnamed refs) |
 | Character customization and humanoid NPCs | `REFACTOR/BUNDLE_FORMAT.md`, `REFACTOR/MATERIALS.md` | Options and geosets (each option's ChrModel named by race and sex), skin composites as material documents (slice 1), choice textures bound to their image inputs, correction sets named by choice, `--appearance` gear as items with their own model bundles, each model and texture the wearer's race/sex variant. Open: `TODO/MATERIALS_TODO.md`, `REFACTOR/CHARACTER_RENDERING.md` §11 |
 | `.bone` correction application | `TODO/BONE_CORRECTION_APPLICATION_TODO.md` | Written as `resources.rig.correction_sets`, named by customization choice; never applied (semantics unverified against the client) |
@@ -341,7 +342,7 @@ when a table drifts.
 | `--map` | -- | only these map directories (repeatable); default every map | unset |
 | `--listfile` | -- | community listfile CSV: finds texture and model files by FileDataID, resolves name-table (MMDX/MWMO/MTEX) paths to FileDataIDs | -- (required) |
 | `--listfile-root` | -- | directory the listfile's paths are relative to | -- (required) |
-| `--db2-dir` | -- | DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions and creature options, or 'none' | unset |
+| `--db2-dir` | -- | DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions, creature options and animation fallbacks, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
 | `--anim-names` | -- | wow.export checkout naming the model bundles' clips (export's --anim-names), or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |

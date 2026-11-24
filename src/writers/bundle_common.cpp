@@ -215,15 +215,47 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     w.endObject();
 }
 
-void beginAppearancesReference(json::Writer& w, const std::string& uri) {
-    canon::Ref list{canon::None{}, "appearances", canon::NameSource::Synthesized};
+void beginListReference(json::Writer& w, const char* kind, const std::string& uri) {
+    canon::Ref list{canon::None{}, kind, canon::NameSource::Synthesized};
     w.beginObject();
     w.key("id");
-    w.value(referenceId("appearances", list));
+    w.value(referenceId(kind, list));
     w.key("kind");
-    w.value("appearances");
+    w.value(kind);
     w.key("asset");
     writeRef(w, list, uri);
+}
+
+void writeAnimationFallbacksDocument(json::Writer& w, const canon::AnimationFallbacks& fallbacks,
+                                     const Provenance& provenance) {
+    w.beginObject();
+    writeContractHeader(w, "animation_fallbacks",
+                        canon::Ref{canon::None{}, "animation_fallbacks", canon::NameSource::Synthesized}, provenance);
+    w.key("definition");
+    w.beginObject();
+    w.endObject();
+    w.key("selection");
+    w.beginObject();
+    w.endObject();
+    w.key("references");
+    w.beginArray();
+    w.endArray();
+    w.key("otherwise");
+    writeRef(w, fallbacks.otherwise);
+    w.key("fallbacks");
+    w.beginArray();
+    for (const canon::AnimationFallback& entry : fallbacks.entries) {
+        w.beginObject();
+        w.key("id");
+        w.value(stableId("animation_fallback", entry.animation));
+        w.key("animation");
+        writeRef(w, entry.animation);
+        w.key("fallback");
+        writeRef(w, entry.fallback);
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
 }
 
 std::string hexFlags(uint32_t flags) {

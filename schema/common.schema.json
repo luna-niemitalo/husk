@@ -410,7 +410,8 @@
             "effect",
             "material",
             "technique",
-            "appearances"
+            "appearances",
+            "animation_fallbacks"
           ],
           "description": "Kind of the referenced document.",
           "x-source": [{"format": true}]

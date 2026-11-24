@@ -6,7 +6,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "animationdata_db2.hpp"
 #include "canon_item.hpp"
+#include "canon_model.hpp"
 #include "creature_display_db2.hpp"
 #include "listfile_index.hpp"
 #include "skin_resolution.hpp"  // LodSkinPath
@@ -50,8 +52,20 @@ struct BundleSidecars {
     // detail is the bundle's "animation names" provenance source.
     std::unordered_map<uint32_t, std::string> communityAnimationNames;
     std::string communityAnimationNamesDetail;  // empty = not given
-    std::vector<std::pair<uint32_t, uint32_t>> animationFallbacks;  // animationdata::nonzeroFallbacks
+    // animationFallbacks(); its uri set when a tree holds the shared file.
+    std::optional<canon::AnimationFallbacks> animationFallbacks;
 };
+
+// AnimationData row `row` as an animation ref, named as a clip's is: the
+// client's Name, else the community list's, else unnamed.
+canon::Ref animationRef(uint32_t row, const std::unordered_map<uint32_t, std::string>& clientNames,
+                        const std::unordered_map<uint32_t, std::string>& communityNames);
+
+// The client's fallback table, inline form (empty uri). Global to the
+// client build: AnimationData rows have no model or skeleton key
+// (REFACTOR/ANIMATION.md "Fallbacks").
+canon::AnimationFallbacks animationFallbacks(const animationdata::Data& data,
+                                             const std::unordered_map<uint32_t, std::string>& communityNames);
 
 // One model bundle at `bundleDir`: the M2 assembled with the first skin
 // tier, its mesh levels from `lodSkins` (resolveLodSkinPaths), and the

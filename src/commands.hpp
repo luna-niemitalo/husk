@@ -432,12 +432,14 @@ void addExportOptions(CLI::App& app, ExportOptions& opts);
 // --from-list's loop and export-world's model pass call per model. Only
 // reads `app` (count()), so concurrent calls may share it. A caller that
 // knows the model's FileDataID passes it; otherwise the bundle's subject
-// looks it up (store name, else a listfile scan).
+// looks it up (store name, else a listfile scan). `fallbacksUri`, when not
+// empty, is the tree's shared animation_fallbacks document relative to the
+// bundle: the model references it instead of reading AnimationData itself.
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
                     const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
                     std::optional<uint32_t> modelFileDataId = std::nullopt,
                     const creaturedisplay::Data* creatures = nullptr,
-                    const writers::StoreLink* textureStore = nullptr);
+                    const writers::StoreLink* textureStore = nullptr, const std::string& fallbacksUri = "");
 
 // The creature display tables for a model bundle's options, loaded once
 // per run from --db2-dir/--dbd-dir; nullopt without them.

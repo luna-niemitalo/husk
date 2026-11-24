@@ -496,6 +496,31 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
 }
 }  // namespace
 
+canon::Ref animationRef(uint32_t row, const std::unordered_map<uint32_t, std::string>& clientNames,
+                        const std::unordered_map<uint32_t, std::string>& communityNames) {
+    canon::Ref ref{canon::Db2Row{"AnimationData", row}, "", canon::NameSource::None};
+    if (auto name = clientNames.find(row); name != clientNames.end()) {
+        ref.name = name->second;
+        ref.source = canon::NameSource::Db2;
+    } else if (auto community = communityNames.find(row); community != communityNames.end()) {
+        ref.name = community->second;
+        ref.source = canon::NameSource::Community;
+    }
+    return ref;
+}
+
+canon::AnimationFallbacks animationFallbacks(const animationdata::Data& data,
+                                             const std::unordered_map<uint32_t, std::string>& communityNames) {
+    std::unordered_map<uint32_t, std::string> clientNames = animationdata::toNameMap(data);
+    // 0 is the column's value on every row it doesn't list: Stand.
+    canon::AnimationFallbacks out{animationRef(0, clientNames, communityNames), {}, ""};
+    for (const auto& [animation, fallback] : animationdata::nonzeroFallbacks(data)) {
+        out.entries.push_back({animationRef(animation, clientNames, communityNames),
+                               animationRef(fallback, clientNames, communityNames)});
+    }
+    return out;
+}
+
 void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, const std::vector<LodSkinPath>& lodSkins,
                           sources::Catalog& catalog, const std::string& modelPath, std::optional<uint32_t> modelFileDataId,
                           uint32_t objectSkinTextureFileDataId,
@@ -515,14 +540,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
     for (canon::AnimationClip& clip : build.model.animations) {
         if (!clip.info) continue;
         uint32_t row = std::get<canon::Db2Row>(clip.info->animation.id).row;
-        if (auto name = sidecars.animationNames.find(row); name != sidecars.animationNames.end()) {
-            clip.info->animation.name = name->second;
-            clip.info->animation.source = canon::NameSource::Db2;
-        } else if (auto community = sidecars.communityAnimationNames.find(row);
-                   community != sidecars.communityAnimationNames.end()) {
-            clip.info->animation.name = community->second;
-            clip.info->animation.source = canon::NameSource::Community;
-        }
+        clip.info->animation = animationRef(row, sidecars.animationNames, sidecars.communityAnimationNames);
     }
     if (!build.model.animations.empty()) build.model.animationFallbacks = sidecars.animationFallbacks;
     size_t jointCount = build.model.skeleton.joints.size();

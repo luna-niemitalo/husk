@@ -44,12 +44,59 @@ translation, rotation, scale, each `times` + `values` + `interpolation`).
   `variation` 0 is the base clip, further variations are picked by
   `frequency`. `move_speed` (yard/second) is the ground speed the clip is
   authored for, to scale playback to the character's speed.
-- A model that lacks an animation has no clip for it. The client then falls
-  back along `AnimationData.Fallback` (e.g. Run to Walk):
-  `resources.rig.animation_fallbacks` holds that table as `[animation,
-  fallback]` pairs (an unlisted id falls back to 0, Stand); follow it until
-  a clip exists. Written only when the export reads AnimationData
-  (`--db2-dir`/`--dbd-dir`), so not by `export-world`'s model pass.
+- A model that lacks an animation has no clip for it: see "Fallbacks".
+
+### Fallbacks
+
+What plays when a model has no clip of the animation asked for (Run on a
+creature that only walks) is an `animation_fallbacks` document
+(`schema/animation_fallbacks.schema.json`), which the model reaches
+through its one `references` entry of that kind:
+
+- `fallbacks[]`: `{id, animation, fallback}`, one per animation whose
+  fallback isn't `otherwise`. `animation` and `fallback` are animation refs
+  named exactly as a clip's `animation` (identity `AnimationData` row, name
+  and `name_source` from the client or the community list); `id` is
+  `nameUuid("animation_fallback/<identity key of animation>")`.
+- `otherwise`: what every animation without an entry falls back to
+  (Stand, row 0). It can have an entry itself: in 12.1.5 Stand falls back
+  to row 147.
+- To pick a clip: if the model has a clip whose `animation` identity is the
+  one wanted, play it; else look the animation up in `fallbacks` (or take
+  `otherwise`) and repeat. Match identities, never names. What the client
+  does on a chain that comes back to where it started without a clip is
+  not known.
+
+**One table per client build, shared by every model.** The source is
+`AnimationData.Fallback`, a column of a client-wide table whose rows are
+keyed by animation id alone (WoWDBDefs `AnimationData.dbd`: `ID`,
+`Fallback`, `BehaviorID`, `BehaviorTier`, `Flags`; no model, skeleton or
+creature column). No model, `.skel` or `.anim` file carries a fallback of
+its own. So two skeletons never differ in their fallback set: the grouping
+key is the client build, one document per corpus, and every model with
+clips references it. The 12.1.5 table: 1866 rows, 1580 entries (every
+row whose Fallback isn't 0). Inlined, that is about 1580 entries in every
+model bundle, which is why a tree holds it once.
+
+**Inline or external**, the rule appearances use (BUNDLE_FORMAT.md
+"Appearances"): the reference's id is the same in both forms
+(`animation_fallbacks/name/animation_fallbacks`).
+
+- `husk export` with `--db2-dir`/`--dbd-dir` writes it inline
+  (`document`), so a single bundle stays self-contained.
+- `export-world` (and `export-corpus`, which runs it) with
+  `--db2-dir`/`--dbd-dir` reads AnimationData once, writes
+  `<tree>/animation_fallbacks.json`, and its model pass writes each model's
+  reference in the external form (`asset.uri`
+  `../../animation_fallbacks.json`). The model writer writes both forms
+  through one function (`writers::beginListReference`), so no splice like
+  `export-appearances`' is needed: the shared table exists before any
+  model is written. Without the DB2 flags neither form is written.
+
+Readers: `validate-bundle` validates the document in either form and
+reports a missing external file with the path it expected; the Blender
+addon reads it with `docs.list_document` and walks it with
+`docs.fallback_animation`.
 
 ### Inline, external and alias sequences
 
@@ -102,5 +149,6 @@ shares the one skeleton and the one clip list; LOD changes geometry only.
 `--anim auto`. Clips, external `.anim` sequences included, arrive as in a
 single `export`. Client clip names don't (a 12.x client has none);
 `--anim-names`, given to `export-world`, `export-corpus` or `snapshot`, is
-passed through, so community names do. `animation_fallbacks` is the one
-difference: it needs AnimationData, which this pass doesn't read.
+passed through, so community names do. Fallbacks come from the tree's one
+shared `animation_fallbacks.json`, written when `export-world` has
+`--db2-dir`/`--dbd-dir` ("Fallbacks").

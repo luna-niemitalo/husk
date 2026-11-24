@@ -381,6 +381,7 @@ with no identity of its own. The Blender addon mirrors it
 | world `zones` | `zone/<map>/AreaTable/<row>` | AreaTable row, per map. |
 | model `selection.presets` | `preset/<identity key of the model>/<body key><outfit key>` | The source values that make the look ("Appearances"); a character model lists thousands, and the creature catalog points at them. |
 | appearances `appearances` | `appearance/<identity key of the model>/<body key>` | The same, body only; the model's identity keeps ids unique in a tree's shared list. |
+| animation_fallbacks `fallbacks` | `animation_fallback/<identity key of the animation>` | The animation's AnimationData row; the table is one per client build, so the row alone is unique and the same in every tree. |
 | creatures `creatures`, `displays` | `creature/Creature/<row>`, `creature_display/CreatureDisplayInfo/<row>` | Their DB2 rows. |
 | mesh `parts` | `part/<identity key of the model>/<source index>` | A WMO group's index in its root file; the model's identity makes it unique across documents. |
 | `light_conditions` | `light_condition/db2_row/LightParams/<row>` | The LightParams row. |
@@ -742,7 +743,8 @@ reference to the external form (`uri` `../../appearances.json`; the
 manifest is replaced, never written through, since `--link-store` trees
 hardlink into the store). The rewrite replaces only that reference's
 text, with the bytes the model writer writes for the external form
-(`writers::beginAppearancesReference`, shared by both forms): store
+(`writers::beginListReference`, shared by both forms and by the
+`animation_fallbacks` reference, REFACTOR/ANIMATION.md "Fallbacks"): store
 objects are content-addressed, so the same inputs give the same bytes and
 nothing else in the manifest is re-encoded. A manifest already external
 keeps its entries from the existing list, so a rerun is idempotent.
@@ -822,12 +824,15 @@ consumer reads options by index today; a later step, not this one.
   client name (`db2`) wins. The model document's provenance gains a source
   `animation names` (repo, file, commit), `available: false` without the
   flag. Detail: `REFACTOR/ANIMATION.md` "Which animation a clip is".
-- **Animation fallbacks (0.4.0).** `resources.rig.animation_fallbacks`:
-  AnimationData's `Fallback` column as `[animation, fallback]` pairs, for
-  every row whose fallback isn't 0 (an unlisted id falls back to 0,
-  Stand). A model without a clip for an animation plays its fallback,
-  followed until a clip exists. Written when `--db2-dir`/`--dbd-dir` read
-  the table (not by `export-world`'s model pass).
+- **Animation fallbacks (0.4.0).** An `animation_fallbacks` document
+  (`schema/animation_fallbacks.schema.json`) the model reaches through its
+  one reference of that kind, inline (`husk export`) or the tree's shared
+  `animation_fallbacks.json` by `asset.uri` (`export-world`,
+  `export-corpus`), the same two forms as appearances ("Appearances").
+  Entries `{id, animation, fallback}` name animations by a clip's
+  `animation` ref; `otherwise` is what an unlisted animation falls back
+  to. One table per client build: AnimationData rows have no model key.
+  Detail and the grouping evidence: `REFACTOR/ANIMATION.md` "Fallbacks".
 - **Joint flags (0.4.0).** `skeleton.joints[].source.flags` is
   `M2CompBone.flags` as stored. Bits with an established meaning are
   canonical fields: `inherit: {translation, rotation, scale}` (false where

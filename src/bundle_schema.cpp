@@ -584,7 +584,8 @@ struct DocumentChecker {
             fail(pointer, "expected a relative uri, got '" + uri + "'");
             return;
         }
-        if (!fs::exists(file.parent_path() / uri)) fail(pointer, "expected '" + uri + "' to exist relative to the document");
+        fs::path target = (file.parent_path() / uri).lexically_normal();
+        if (!fs::exists(target)) fail(pointer, "expected '" + uri + "' to exist relative to the document, got no file at " + target.string());
     }
 
 };
@@ -898,7 +899,23 @@ struct Validation {
         if (kind == "model") checkMaterialBindings(document, referenced, checker);
         if (kind == "model") checkLevels(document, checker);
         if (kind == "model") checkPresetAppearances(document, referenced, checker);
+        if (kind == "model") listReferences(document, "animation_fallbacks", checker);
         return true;
+    }
+
+    // Positions of the model's references of a list kind (appearances,
+    // animation_fallbacks): a model has one list of each, so a second one
+    // would leave which list holds an entry undecided.
+    static std::vector<size_t> listReferences(const json& model, const char* kind, DocumentChecker& checker) {
+        const json& refs = model["references"];
+        std::vector<size_t> lists;
+        for (size_t i = 0; i < refs.size(); ++i) {
+            if (refs[i]["kind"] == kind) lists.push_back(i);
+        }
+        if (lists.size() > 1) {
+            checker.fail("/references", std::string("expected at most one ") + kind + " reference, got " + std::to_string(lists.size()));
+        }
+        return lists;
     }
 
     // A preset's appearance is an entry of the document the model's one
@@ -906,12 +923,7 @@ struct Validation {
     // indices fit this model's definition: the appearances schema can't say
     // so, because its indices index whichever model points at the entry.
     void checkPresetAppearances(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
-        const json& refs = model["references"];
-        std::vector<size_t> lists;
-        for (size_t i = 0; i < refs.size(); ++i) {
-            if (refs[i]["kind"] == "appearances") lists.push_back(i);
-        }
-        if (lists.size() > 1) checker.fail("/references", "expected at most one appearances reference, got " + std::to_string(lists.size()));
+        std::vector<size_t> lists = listReferences(model, "appearances", checker);
         const json& presets = model["selection"].value("presets", json::array());
         bool pointing = std::any_of(presets.begin(), presets.end(), [](const json& p) { return p.contains("appearance"); });
         if (!pointing) return;
@@ -1079,15 +1091,18 @@ struct Validation {
             const json& r = refs[i];
             std::string kind = r.value("kind", "");
             if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique" &&
-                kind != "appearances") {
+                kind != "appearances" && kind != "animation_fallbacks") {
                 out.push_back(nullptr);
                 continue;
             }
+            std::string at = prefix + "/references/" + std::to_string(i);
             if (r.contains("document")) {
-                bool ok = validate(r["document"], path, prefix + "/references/" + std::to_string(i) + "/document");
+                bool ok = validate(r["document"], path, at + "/document");
                 out.push_back(ok ? &r["document"] : nullptr);
             } else if (r["asset"].contains("uri")) {
-                out.push_back(file(path.parent_path() / r["asset"]["uri"].get<std::string>()));
+                fs::path target = path.parent_path() / r["asset"]["uri"].get<std::string>();
+                // checkUri reports a missing file once, with the path expected.
+                out.push_back(fs::exists(target) ? file(target) : nullptr);
             } else {
                 out.push_back(nullptr);
             }

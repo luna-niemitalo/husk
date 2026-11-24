@@ -9,6 +9,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -17,7 +18,10 @@
 #include <variant>
 #include <vector>
 
+#include "anim_names.hpp"
+#include "animationdata_db2.hpp"
 #include "cli_args.hpp"
+#include "cmd_export_canon.hpp"
 #include "cmd_world_shared.hpp"
 #include "commands.hpp"
 #include "corpus_store.hpp"
@@ -27,6 +31,7 @@
 #include "parallel.hpp"
 #include "progress.hpp"
 #include "sources/listfile_catalog.hpp"
+#include "version.hpp"
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_writer.hpp"
 #include "writers/terrain_bundle_writer.hpp"
@@ -53,8 +58,8 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
         ->required()
         ->group("Resolution");
     app.add_option("--db2-dir", opts.db2Dir,
-                   "DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions and creature "
-                   "options, or 'none'")
+                   "DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions, creature "
+                   "options and animation fallbacks, or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
     app.add_option("--anim-names", opts.animNames,
@@ -298,6 +303,31 @@ int exportWorld(int argc, char** args) {
         const std::optional<creaturedisplay::Data> creatures =
             loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
         std::cout << creatureNote << std::endl;
+        // AnimationData has no model or skeleton key: one fallback table is
+        // every model's, written once and referenced by each (REFACTOR/
+        // ANIMATION.md "Fallbacks").
+        const std::filesystem::path fallbacksFile = out / "animation_fallbacks.json";
+        bool haveFallbacks = false;
+        if (!unlessNone(opts.db2Dir).empty() && !unlessNone(opts.dbdDir).empty()) {
+            if (auto animData = animationdata::load(opts.db2Dir, opts.dbdDir, std::cerr)) {
+                animnames::Table names;
+                if (!unlessNone(opts.animNames).empty()) names = animnames::load(opts.animNames);
+                canon::AnimationFallbacks fallbacks = animationFallbacks(*animData, names.names);
+                writers::Provenance provenance{std::string("husk ") + husk::version(), "db2", {}};
+                provenance.sources.push_back({"AnimationData", "the Fallback column", true,
+                                              std::to_string(animData->entries.size()) + " rows"});
+                provenance.sources.push_back({"animation names", "animation names by AnimationData id (community list)",
+                                              !names.detail.empty(), names.detail.empty() ? "not given" : names.detail});
+                std::ostringstream text;
+                husk::json::Writer w(text);
+                writers::writeAnimationFallbacksDocument(w, fallbacks, provenance);
+                corpus::writeTextAtomic(fallbacksFile, text.str());
+                haveFallbacks = true;
+                std::cout << "animation fallbacks: " << fallbacks.entries.size() << " entries in "
+                          << fallbacksFile.filename().string() << std::endl;
+            }
+        }
+        if (!haveFallbacks) std::cout << "animation fallbacks: not written, they need --db2-dir and --dbd-dir" << std::endl;
 
         // Pass 1: references.
         std::set<uint32_t> modelIds;
@@ -446,7 +476,9 @@ int exportWorld(int argc, char** args) {
                         if (!src) {
                             errors.add("model", std::to_string(fdid), "no local file (listfile or _by_fdid)");
                         } else if (exportOneModel(modelOpts, modelApp, src->string(), bundle.string(), true,
-                                                  *listfile, fdid, creatures ? &*creatures : nullptr, &modelTextures) != 0) {
+                                                  *listfile, fdid, creatures ? &*creatures : nullptr, &modelTextures,
+                                                  haveFallbacks ? fallbacksFile.lexically_relative(bundle).generic_string()
+                                                                : "") != 0) {
                             errors.add("model", std::to_string(fdid), "export failed (see stderr): " + src->string());
                         }
                     }
