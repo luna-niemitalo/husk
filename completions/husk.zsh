@@ -83,7 +83,9 @@ _husk() {
         db2-info)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
                 '--rows[--rows]:value:_files' \
+                '--dbd-dir[WoWDBDefs checkout, for column names and string fields]:value:_husk_dir_or_none_value' \
                 '1:model:_files'
             ;;
         db2-export)

@@ -56,7 +56,7 @@ are the same text.
 | `index-tree <tree>` | (re)build `index/creature_displays.tsv`, `index/chr_models.tsv` |
 | `export-creatures <tree>` | the tree's creature catalog, `creatures.json`: type, family, each look's model and preset (after `index-tree`) |
 | **Data** | |
-| `db2-info <file.db2>` | WDC5 header, layout, sample rows |
+| `db2-info <file.db2>` | WDC5 header, layout, sample rows; column names and string fields with `--dbd-dir` |
 | `db2-export <file.db2>\|--dir <dir> <out.sqlite>` | DB2 → SQLite, real column names with `--dbd-dir` |
 | `db2-build ... -o <out.sqlite>` | knowledge-base database (disabled subsystem, see `STYLE_CLEANUP.md` item 2) |
 | `appearance-string --validate <string>` | validate a `husk-appearance/1` string; resolves `gear` with `--db2-dir`/`--dbd-dir` |

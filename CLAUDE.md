@@ -97,6 +97,17 @@ verbatim).
     match (through d82fdac). export-world's model pass still passed the
     removed `--bundle-only` and failed every run without `--skip-models`;
     fixed with a test that runs the model pass (fb09000).
+  - 2026-11-24, DB2 and gear:
+    - DB2 reads WDC5 copy-table rows and always sign-extends
+      BitpackedSigned (a939391): tables gain rows (ComponentModelFileData
+      65 → 59,539; ItemDisplayInfo +108k), and output built before it
+      lacks them. db2-export and db2-info take string and float columns
+      from the WoWDBDefs layout (08a9b01, f555015; `db2-info --dbd-dir`).
+    - Material layers carry `color_alpha` and `texture_weight` (967587e).
+    - Gear: every item model and texture is the wearer's race/sex file
+      (`src/component_file_db2.hpp`, f0e7c18). The bundle side is schema
+      0.4.0: branch `format04-items` (08dbcd0), merged into `format-0.4`,
+      worktree removed.
   - 2026-11-24: playwright removed from the flake; `casc-tool` input
     commented out of the dev shell (Luna, b13f953). No worktrees open.
 - **Next step** (pick one; each names where its detail lives):
@@ -118,6 +129,10 @@ verbatim).
     nothing on grassy quads, south-edge seam cracks, placement yaw sign,
     LOD bands, lighting, liquid, fog volumes), `TODO/CREATURE_OPTIONS_TODO.md`,
     `TODO/INVESTIGATIONS_TODO.md`.
+  - Re-measure ground-effect surface coverage with copy rows read
+    (`WIKI_FINDINGS/WORLD.md` "Surface types").
+  - Gear for a known class: class-specific item files (ClassID 6, 12) are
+    never picked (`REFACTOR/CHARACTER_RENDERING.md` §6 on `format-0.4`).
 - **Hazards** (standing facts, not narrative — see `CLAUDE_HISTORY.md` for
   the sessions that established each one):
   - **Hardware facts live outside this file**: crashes, RAM faults and GPU

@@ -363,11 +363,20 @@ struct OffsetMapFieldValue {
 // verified against any real offset-map file, since none of the 5 found
 // locally use anything but field_compression_none.
 //
+// `stringFields` (one flag per field, from the WoWDBDefs layout) replaces
+// that guess when given: a flagged field is read as a NUL-terminated
+// string of any length and bytes, every other field as raw values. The
+// guess cannot read a record of short strings (12.1.5 spell.db2 row 0:
+// three empty strings in a 4-byte record), since it rejects strings under 4
+// bytes wherever a raw 32-bit read would still fit. Bytes left after the
+// last field are not read (that row leaves one).
+//
 // Throws ParseError on an out-of-range record index, a record with no data
 // (a zero-offset offset_map entry), or any bit-cursor read that runs past
 // the record's own offset-map-declared length -- every read here is
 // bounds-checked the same way decodeField's readBits is.
 std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const Section& section,
-                                                         size_t recordIndex);
+                                                         size_t recordIndex,
+                                                         const std::vector<bool>* stringFields = nullptr);
 
 }  // namespace husk::db2

@@ -632,13 +632,15 @@ The wiki's `DB/Light` describes the old DBC. In this build:
   Grass 5, Leaves 6, Sand 7, Soggy 8, Dusty Grass 9, Default 10, Water
   11, Sea Floor 12, ... Carpet 131), each naming a `TerrainTypeSounds`
   row.
-- `GroundEffectTexture.Sound` is a `TerrainType` ID on all 2,750 rows.
-- Coverage for terrain is poor. Per quad, over 2,000 seeded tiles of the
-  f8c447c export: the dominant layer names a `GroundEffectTexture` row
-  the build's file lacks on 63.1% of quads; 30.1% of quads have no
-  layers; about 7% resolve to a surface (Dirt 2.0%, Grass 1.8%, Sand
-  1.1%, ...). The same file is in all three local builds that carry it,
-  so they don't show whether the missing rows ever existed.
+- `GroundEffectTexture` has 19,788 rows in 12.1.0: 2,745 stored records
+  and 17,043 copy-table rows (identical records listed under further IDs,
+  read since a939391). `.Sound` is a `TerrainType` ID on the stored
+  records.
+- Terrain coverage is not measured with the copy rows. The 2,000-tile
+  seeded count (f8c447c export: 63.1% of quads name a row "the file
+  lacks", 30.1% have no layers, about 7% resolve, Dirt 2.0%, Grass 1.8%,
+  Sand 1.1%) used a reader that dropped every copy row, so most of that
+  63.1% are probably copy rows; re-measure before relying on it.
 - `MCMT` names `TerrainMaterial` rows (shader and environment maps), not
   surfaces.
 
