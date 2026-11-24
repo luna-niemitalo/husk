@@ -285,6 +285,16 @@ Several origins mean the value combines them, or comes from whichever one
 the source has. The lint rejects any other form, an unknown file kind or a
 rule that isn't snake_case.
 
+Rules `x-source` names outside `EFFECTS.md`:
+
+| Rule | Computes | From |
+|---|---|---|
+| `map_tile_grid` | world `grid` `origin`, `cell_size`, `axis_i`, `axis_j`: the client's 64 x 64 tile map, tiles 533.33 yd, centred on the world origin, tile x stepping -Y and y stepping -X (`canon_terrain.hpp` `terrainTileCorner`) | the map layout every ADT assumes; no file stores it |
+| `tile_terrain_bounds` | a world cell's `bounds_min`/`bounds_max`: chunk footprints from their origins, heights from the vertices and liquids | the tile's `MCNK` positions and heights, its liquid heights |
+| `chunk_area_coverage` | a zone cell's `coverage`: chunks naming the area / 256 | `MCNK.areaid` |
+| `skin_canvas_material` | a texture-layout canvas's material: one `base` layer, texture 0 (the composite), `uv_set_0`, `replace`; lit, opaque | none: the canvas is drawn flat, as is |
+| `compositor_case_by_number` | a composite layer's `blend`: the compositor case whose number is the layer's `BlendMode`, and `blend_mapping: unverified` while the client is not shown to select cases that way | `ChrModelTextureLayer.BlendMode` |
+
 **Inheritance.** A property without its own `x-source` takes its `$ref`
 target's (the use site's wins when both have one), else the nearest
 annotated ancestor's along the document path, across `$ref`s, array
