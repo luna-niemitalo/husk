@@ -303,6 +303,15 @@ Rules `x-source` names outside `EFFECTS.md`:
 | `chunk_area_coverage` | a zone cell's `coverage`: chunks naming the area / 256 | `MCNK.areaid` |
 | `skin_canvas_material` | a texture-layout canvas's material: one `base` layer, texture 0 (the composite), `uv_set_0`, `replace`; lit, opaque | none: the canvas is drawn flat, as is |
 | `compositor_case_by_number` | a composite layer's `blend`: the compositor case whose number is the layer's `BlendMode`, and `blend_mapping: unverified` while the client is not shown to select cases that way | `ChrModelTextureLayer.BlendMode` |
+| `always_on_set` | an owned placement set is always on when it is a WMO's first doodad set (MODS[0], additive by WMO.md), an M2's effects set, or either of a terrain tile's two sets (its own content) | the set's kind |
+| `m2_effect_set` | an M2's ribbon and particle emitters placed as one owned set, `effects`, on their anchor joints | M2Ribbon, M2Particle |
+| `structural_bone_label` | a label for every joint from its place in the hierarchy (`canon_bone_naming.hpp`): unique, deterministic, with a mirror axis checked against real skeletons | the joint hierarchy |
+| `layer_role` | M2: `env` for an environment-mapped layer, else its M2Texture.type's wiki name, else `diffuse` for a batch's first layer and `unknown` after it. WMO: `diffuse` for the shader's base unit (t0; t1 for shader 23, t2 for 22), `unknown` for the rest. A material's `diffuse_layer` is the layer this calls diffuse | M2Texture.type, M2Batch, MOMT shader |
+| `wmo_layer_uv` | the uv set a WMO shader samples texture unit n with: set n, except shader 23 (t0 environment-mapped, layer i at set i - 1) and 22 (t1 environment-mapped, the others by its parallax table) (WMO.md "Shader types") | MOMT shader |
+| `wmo_liquid_type` | the LiquidType row of a WMO group's MLIQ by WMO.md "how to determine LiquidTypeRec to use": MOGP groupLiquid under the root's MOHD flag 0x4 (basic types 1-20 mapped to the WMO water/ocean/magma/slime rows), legacy green lava (15) by its tiles' liquid nibbles; undecided when the rules give no row | MOGP groupLiquid, MOHD flags, MLIQ |
+| `texture_slot_name` | a texture slot's name: the wiki's name for its M2 texture type (`monster_1`, `skin`, ...), `type_<n>` for a type without one, `variation_4` for CreatureDisplayInfo's fourth texture variation, which no type takes | M2Texture.type |
+| `component_file_pick` | the one file of a ModelFileData/TextureFileData resource the wearer draws: by ComponentModelFileData/ComponentTextureFileData race, sex and side tags, with the race's model fallbacks (ChrRaces); unresolved with a reason when the wearer is unknown, several files fit equally, or none fits | ComponentModelFileData, ComponentTextureFileData, ChrRaces |
+| `appearance_file` | values read from the `--appearance` file the export was given (chosen customization choices, gear slot tokens), not from the client's files | the `--appearance` file |
 
 **Inheritance.** A property without its own `x-source` takes its `$ref`
 target's (the use site's wins when both have one), else the nearest
