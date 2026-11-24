@@ -1255,21 +1255,25 @@
           "properties": {
             "skeleton": {
               "type": "object",
-              "description": "Joint hierarchy in bind pose.",
+              "description": "Joint hierarchy in bind pose: the M2's bones, or its .skel's (SKB1) when the model has one.",
+              "x-source": [{"file": "m2", "field": "M2CompBone"}, {"file": "skel", "field": "SKB1"}],
               "properties": {
                 "joint_count": {
                   "type": "integer",
                   "description": "Number of joints.",
-                  "minimum": 0
+                  "minimum": 0,
+                  "x-source": [{"format": true}]
                 },
                 "parents": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Parent joint per joint, i32, -1 for a root."
+                  "description": "Parent joint per joint, i32, -1 for a root.",
+                  "x-source": [{"file": "m2", "field": "M2CompBone.parent_bone"}, {"file": "skel", "field": "SKB1"}]
                 },
                 "bind_translation": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
-                  "description": "Bind translation relative to the parent, f32x3.",
-                  "x-unit": "yard"
+                  "description": "Bind translation relative to the parent, f32x3: the joint's pivot less its parent's.",
+                  "x-unit": "yard",
+                  "x-source": [{"file": "m2", "field": "M2CompBone.pivot"}, {"file": "skel", "field": "SKB1"}]
                 },
                 "joints": {
                   "type": "array",
@@ -1280,7 +1284,8 @@
                     "properties": {
                       "ref": {
                         "$ref": "common.schema.json#/definitions/ref",
-                        "description": "The joint."
+                        "description": "The joint: its bone index, named after its key bone (M2CompBone.key_bone_id) when it is one, else bone_<index>.",
+                        "x-source": [{"file": "m2", "field": "M2CompBone.key_bone_id"}]
                       },
                       "billboard": {
                         "enum": [
@@ -1290,15 +1295,18 @@
                           "cylindrical_lock_y",
                           "cylindrical_lock_z"
                         ],
-                        "description": "How the joint faces the camera."
+                        "description": "How the joint faces the camera: the billboard bits of the bone's flags.",
+                        "x-source": [{"file": "m2", "field": "M2CompBone.flags"}]
                       },
                       "structural_label": {
                         "type": "string",
-                        "description": "Label derived from the hierarchy."
+                        "description": "Label derived from the hierarchy (rule structural_bone_label), on every joint, named or not. It gives every joint a stable, collision-free name where the source names only key bones.",
+                        "x-source": [{"derived": "structural_bone_label"}]
                       },
                       "flags": {
                         "type": "array",
-                        "description": "The joint's named flag bits, absent when none is set. kinematic_bone: physics drives the joint (a resources.physics body follows it). ignore_parent_*: the joint doesn't inherit that part of its parent's transform. transformed, helmet_anim_scaled: named by the source, effect not established. Billboard bits are billboard.",
+                        "description": "The joint's named flag bits, absent when none is set: kinematic_bone, physics drives the joint (a resources.physics body follows it); ignore_parent_*, the joint doesn't inherit that part of its parent's transform; transformed and helmet_anim_scaled, named by the source, effect not established; billboard bits are in billboard instead.",
+                        "x-source": [{"file": "m2", "field": "M2CompBone.flags"}],
                         "items": {
                           "enum": [
                             "ignore_parent_translate",
@@ -1317,7 +1325,8 @@
                         "properties": {
                           "flags": {
                             "$ref": "common.schema.json#/definitions/flags",
-                            "description": "M2: the bone's flag word (M2CompBone.flags), every bit."
+                            "description": "M2: the bone's flag word (M2CompBone.flags), every bit.",
+                            "x-source": [{"file": "m2", "field": "M2CompBone.flags"}]
                           }
                         },
                         "additionalProperties": false,
@@ -1345,55 +1354,65 @@
             },
             "animation": {
               "type": "array",
-              "description": "Clips: per joint local transform curves for one sequence.",
+              "description": "Clips: per joint local transform curves for one sequence (M2Sequence, inline or the .skel's SKS1, keyframes inline or in its .anim file) or one global sequence; a pure alias sequence reuses its terminal's curves.",
+              "x-source": [{"file": "m2", "field": "M2Sequence"}, {"file": "skel", "field": "SKS1"}, {"file": "anim"}],
               "items": {
                 "type": "object",
                 "description": "One clip.",
                 "properties": {
                   "sequence_index": {
                     "type": "integer",
-                    "description": "Sequence or global sequence.",
-                    "minimum": 0
+                    "description": "Sequence or global sequence: its index in the source's sequence or global loop list.",
+                    "minimum": 0,
+                    "x-source": [{"format": true}]
                   },
                   "sequence_kind": {
                     "$ref": "common.schema.json#/definitions/sequence_kind",
-                    "description": "Sequence or global sequence."
+                    "description": "Sequence or global sequence.",
+                    "x-source": [{"format": true}]
                   },
                   "animation": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Sequence clips: which animation this is, an AnimationData row (Stand, Walk, ...). Named from the AnimationData table's Name column (name_source db2, pre-12 clients) when it has one, else from a community list (name_source community, export --anim-names) when given."
+                    "description": "Sequence clips: which animation this is, an AnimationData row (Stand, Walk, ...), named from the AnimationData table's Name column (name_source db2, pre-12 clients) when it has one, else from a community list (name_source community, export --anim-names) when given.",
+                    "x-source": [{"file": "m2", "field": "M2Sequence.id"}, {"table": "AnimationData", "column": "Name"}]
                   },
                   "variation": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Sequence clips: which of the animation's variations."
+                    "description": "Sequence clips: which of the animation's variations.",
+                    "x-source": [{"file": "m2", "field": "M2Sequence.variationIndex"}]
                   },
                   "duration": {
                     "type": "number",
                     "minimum": 0,
                     "description": "Sequence clips: length. Global sequence clips: the loop's length, the period its curves repeat with (the last keyframe can come before it).",
-                    "x-unit": "second"
+                    "x-unit": "second",
+                    "x-source": [{"file": "m2", "field": "M2Sequence.duration"}, {"file": "m2", "field": "global_loops"}]
                   },
                   "move_speed": {
                     "type": "number",
                     "description": "Sequence clips: the movement speed the animation is authored for.",
-                    "x-unit": "yard/second"
+                    "x-unit": "yard/second",
+                    "x-source": [{"file": "m2", "field": "M2Sequence.movespeed"}]
                   },
                   "frequency": {
                     "type": "integer",
-                    "description": "Sequence clips: play weight among the animation's variations."
+                    "description": "Sequence clips: play weight among the animation's variations.",
+                    "x-source": [{"file": "m2", "field": "M2Sequence.frequency"}]
                   },
                   "blend_in": {
                     "type": "number",
                     "minimum": 0,
                     "description": "Sequence clips: blend time into this clip.",
-                    "x-unit": "second"
+                    "x-unit": "second",
+                    "x-source": [{"file": "m2", "field": "M2Sequence.blendTimeIn"}]
                   },
                   "blend_out": {
                     "type": "number",
                     "minimum": 0,
                     "description": "Sequence clips: blend time out of this clip.",
-                    "x-unit": "second"
+                    "x-unit": "second",
+                    "x-source": [{"file": "m2", "field": "M2Sequence.blendTimeOut"}]
                   },
                   "source": {
                     "type": "object",
@@ -1401,11 +1420,13 @@
                     "properties": {
                       "flags": {
                         "$ref": "common.schema.json#/definitions/flags",
-                        "description": "M2Sequence flags."
+                        "description": "M2Sequence flags.",
+                        "x-source": [{"file": "m2", "field": "M2Sequence.flags"}]
                       },
                       "variation_next": {
                         "type": "integer",
-                        "description": "M2Sequence variationNext; -1 = the last variation."
+                        "description": "M2Sequence variationNext; -1 = the last variation.",
+                        "x-source": [{"file": "m2", "field": "M2Sequence.variationNext"}]
                       }
                     },
                     "additionalProperties": false,
@@ -1416,7 +1437,8 @@
                   },
                   "joints": {
                     "type": "array",
-                    "description": "Joints with curves in this clip.",
+                    "description": "Joints with curves in this clip: each bone's M2Track sub-array for the sequence, from the M2's own data or its .anim file (AFM2, or AFSB for a .skel model).",
+                    "x-source": [{"file": "m2", "field": "M2CompBone"}, {"file": "anim"}],
                     "items": {
                       "type": "object",
                       "description": "One joint's curves.",
@@ -1425,11 +1447,13 @@
                           "type": "integer",
                           "minimum": 0,
                           "description": "The joint.",
-                          "x-index-into": "/resources/rig/skeleton/joints"
+                          "x-index-into": "/resources/rig/skeleton/joints",
+                          "x-source": [{"format": true}]
                         },
                         "translation": {
                           "type": "object",
                           "description": "Translation curve.",
+                          "x-source": [{"file": "m2", "field": "M2CompBone.translation"}, {"file": "anim"}],
                           "properties": {
                             "times": {
                               "$ref": "common.schema.json#/definitions/buffer_slice",
@@ -1455,6 +1479,7 @@
                         "rotation": {
                           "type": "object",
                           "description": "Rotation curve, quaternion x, y, z, w.",
+                          "x-source": [{"file": "m2", "field": "M2CompBone.rotation"}, {"file": "anim"}],
                           "properties": {
                             "times": {
                               "$ref": "common.schema.json#/definitions/buffer_slice",
@@ -1480,6 +1505,7 @@
                         "scale": {
                           "type": "object",
                           "description": "Scale curve.",
+                          "x-source": [{"file": "m2", "field": "M2CompBone.scale"}, {"file": "anim"}],
                           "properties": {
                             "times": {
                               "$ref": "common.schema.json#/definitions/buffer_slice",
@@ -1520,7 +1546,8 @@
             },
             "global_sequences": {
               "type": "array",
-              "description": "The model's global sequences, by sequence_index: loops on their own timer that material, scene and effect curves with sequence_kind global_sequence play on. Absent when the model has none. A .skel model's joint clips index the .skel's table instead; each such clip carries its own duration.",
+              "description": "The model's global sequences, by sequence_index: loops on their own timer that material, scene and effect curves with sequence_kind global_sequence play on; absent when the model has none. A .skel model's joint clips index the .skel's table instead, so each such clip carries its own duration.",
+              "x-source": [{"file": "m2", "field": "global_loops"}],
               "items": {
                 "type": "object",
                 "description": "One global sequence.",
@@ -1540,7 +1567,8 @@
             },
             "animation_fallbacks": {
               "type": "array",
-              "description": "AnimationData.Fallback, the client's table of what a model without an animation plays instead: [animation, fallback] AnimationData IDs, ascending, for every row whose fallback isn't 0 (Stand); an ID not listed falls back to 0. Follow it until the model has a clip of the animation reached; what the client does on a chain that comes back to where it started is not known. Absent when the AnimationData table wasn't read or the model has no clips.",
+              "description": "AnimationData.Fallback, the client's table of what a model without an animation plays instead: [animation, fallback] AnimationData IDs, ascending, for every row whose fallback isn't 0 (Stand), an ID not listed falling back to 0; absent when the AnimationData table wasn't read or the model has no clips. Follow it until the model has a clip of the animation reached; what the client does on a chain that comes back to where it started is not known.",
+              "x-source": [{"table": "AnimationData", "column": "Fallback"}],
               "items": {
                 "type": "array",
                 "description": "One row: the animation, then its fallback.",
@@ -1555,14 +1583,16 @@
             },
             "correction_sets": {
               "type": "array",
-              "description": "Per-joint correction matrices, one set per correction file; customization choices name the set they select. Data only: how the client applies a correction is not known.",
+              "description": "Per-joint correction matrices, one set per .bone file the model's BFID lists; customization choices name the set they select. Data only: how the client applies a correction is not known.",
+              "x-source": [{"file": "bone"}, {"file": "m2", "field": "BFID"}, {"file": "skel", "field": "BFID"}],
               "items": {
                 "type": "object",
                 "description": "One correction file.",
                 "properties": {
                   "ref": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The correction file."
+                    "description": "The correction file, by its FileDataID.",
+                    "x-source": [{"file": "m2", "field": "BFID"}, {"file": "skel", "field": "BFID"}]
                   },
                   "corrections": {
                     "type": "array",
@@ -1574,11 +1604,13 @@
                         "joint": {
                           "type": "integer",
                           "minimum": 0,
-                          "description": "The joint, by index."
+                          "description": "The joint, by index.",
+                          "x-source": [{"file": "bone", "field": "BIDA"}]
                         },
                         "matrix": {
                           "type": "array",
                           "description": "4x4 matrix, row-major as stored; its space is not known.",
+                          "x-source": [{"file": "bone", "field": "BOMT"}],
                           "items": {
                             "type": "number",
                             "description": "One element."
@@ -1612,11 +1644,13 @@
         },
         "physics": {
           "type": "object",
-          "description": "Rigid bodies on joints, their collision shapes and the joints between them. Data only. Values whose layout or unit is not established stay under source as stored.",
+          "description": "Rigid bodies on joints, their collision shapes and the joints between them, from the model's .phys data (its PFDC chunk, its PFID file, or a .phys beside it); values whose layout or unit is not established stay under source as stored. Data only.",
+          "x-source": [{"file": "phys"}, {"file": "m2", "field": "PFDC"}, {"file": "m2", "field": "PFID"}],
           "properties": {
             "bodies": {
               "type": "array",
-              "description": "Bodies.",
+              "description": "Bodies: the newest body chunk present (BDY4, BDY3, BDY2, BODY).",
+              "x-source": [{"file": "phys", "field": "BODY"}],
               "items": {
                 "type": "object",
                 "description": "One body.",
@@ -1624,20 +1658,24 @@
                   "joint": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "The skeleton joint the body follows."
+                    "description": "The skeleton joint the body follows.",
+                    "x-source": [{"file": "phys", "field": "BODY.modelBoneIndex"}, {"file": "phys", "field": "BDY4.boneIndex"}]
                   },
                   "type": {
                     "type": "integer",
-                    "description": "Body type as stored."
+                    "description": "Body type as stored.",
+                    "x-source": [{"file": "phys", "field": "BODY.type"}]
                   },
                   "position": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Body origin, model frame.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "phys", "field": "BODY.position"}]
                   },
                   "shapes": {
                     "type": "array",
-                    "description": "The body's shapes.",
+                    "description": "The body's shapes: its shape index range.",
+                    "x-source": [{"file": "phys", "field": "BODY.shapes_base"}, {"file": "phys", "field": "BDY4.shapeIndex"}],
                     "items": {
                       "type": "integer",
                       "minimum": 0,
@@ -1647,7 +1685,8 @@
                   },
                   "source": {
                     "type": "object",
-                    "description": "Raw body values with no established meaning.",
+                    "description": "Raw body values with no established meaning (BDY3/BDY4's unk0, _x1c, drag, unk1, _x28; the wiki's defaults for older chunks).",
+                    "x-source": [{"file": "phys", "field": "BDY4"}],
                     "additionalProperties": {
                       "type": "number",
                       "description": "One raw value."
@@ -1666,7 +1705,8 @@
             },
             "shapes": {
               "type": "array",
-              "description": "Collision shapes.",
+              "description": "Collision shapes: SHP2 or SHAP, each with its kind's record.",
+              "x-source": [{"file": "phys", "field": "SHAP"}],
               "items": {
                 "type": "object",
                 "description": "One shape.",
@@ -1679,41 +1719,49 @@
                       "polytope",
                       "unknown"
                     ],
-                    "description": "Shape kind."
+                    "description": "Shape kind.",
+                    "x-source": [{"file": "phys", "field": "SHAP.shapeType"}]
                   },
                   "friction": {
                     "type": "number",
                     "description": "Friction coefficient.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "phys", "field": "SHAP.friction"}]
                   },
                   "restitution": {
                     "type": "number",
                     "description": "Restitution coefficient.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "phys", "field": "SHAP.restitution"}]
                   },
                   "density": {
                     "type": "number",
                     "description": "Density as stored.",
-                    "x-unit": "1"
+                    "x-unit": "1",
+                    "x-source": [{"file": "phys", "field": "SHAP.density"}]
                   },
                   "a": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Capsule: one end of the segment, body frame.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "phys", "field": "CAPS.localPosition1"}]
                   },
                   "b": {
                     "$ref": "common.schema.json#/definitions/vec3",
                     "description": "Capsule: the other end, body frame.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "phys", "field": "CAPS.localPosition2"}]
                   },
                   "radius": {
                     "type": "number",
                     "description": "Capsule radius.",
-                    "x-unit": "yard"
+                    "x-unit": "yard",
+                    "x-source": [{"file": "phys", "field": "CAPS.radius"}]
                   },
                   "vertices": {
                     "type": "array",
                     "description": "Polytope: hull vertices, body frame.",
+                    "x-source": [{"file": "phys", "field": "PLYT"}],
                     "items": {
                       "$ref": "common.schema.json#/definitions/vec3",
                       "description": "One vertex."
@@ -1722,7 +1770,8 @@
                   },
                   "source": {
                     "type": "object",
-                    "description": "Box and sphere geometry and polytope extras, as stored: their layouts are not verified.",
+                    "description": "Box and sphere geometry (BOXS, SPHS) and polytope extras (PLYT), as stored: their layouts are not verified.",
+                    "x-source": [{"file": "phys", "field": "BOXS"}, {"file": "phys", "field": "SPHS"}, {"file": "phys", "field": "PLYT"}],
                     "additionalProperties": {
                       "description": "One raw value or array."
                     }
@@ -1739,7 +1788,8 @@
             },
             "joints": {
               "type": "array",
-              "description": "Joints between bodies.",
+              "description": "Joints between bodies (JOIN), each with its kind's record.",
+              "x-source": [{"file": "phys", "field": "JOIN"}],
               "items": {
                 "type": "object",
                 "description": "One joint.",
@@ -1754,23 +1804,27 @@
                       "distance",
                       "unknown"
                     ],
-                    "description": "Joint kind."
+                    "description": "Joint kind.",
+                    "x-source": [{"file": "phys", "field": "JOIN.jointType"}]
                   },
                   "body_a": {
                     "type": "integer",
                     "minimum": 0,
                     "description": "First body.",
-                    "x-index-into": "/resources/physics/bodies"
+                    "x-index-into": "/resources/physics/bodies",
+                    "x-source": [{"file": "phys", "field": "JOIN.bodyAIdx"}]
                   },
                   "body_b": {
                     "type": "integer",
                     "minimum": 0,
                     "description": "Second body.",
-                    "x-index-into": "/resources/physics/bodies"
+                    "x-index-into": "/resources/physics/bodies",
+                    "x-source": [{"file": "phys", "field": "JOIN.bodyBIdx"}]
                   },
                   "source": {
                     "type": "object",
-                    "description": "The kind's record as stored: frames (3x4 row-major), limits, motor and spring values. The angle unit is not established.",
+                    "description": "The kind's record as stored (WELJ, SPHJ, SHOJ, REVJ, PRSJ or DSTJ, newest variant, at JOIN jointId): frames (3x4 row-major), limits, motor and spring values; the angle unit is not established.",
+                    "x-source": [{"file": "phys", "field": "WELJ"}, {"file": "phys", "field": "SPHJ"}, {"file": "phys", "field": "SHOJ"}, {"file": "phys", "field": "REVJ"}, {"file": "phys", "field": "PRSJ"}, {"file": "phys", "field": "DSTJ"}],
                     "additionalProperties": {
                       "description": "One raw value or array."
                     }
@@ -1787,7 +1841,8 @@
             },
             "source": {
               "type": "object",
-              "description": "File-level values as stored: version, the type word, and the per-file vector records.",
+              "description": "File-level values as stored: version (PHYS), the type word (PHYT), and the per-file vector records (PHYV).",
+              "x-source": [{"file": "phys", "field": "PHYS.version"}, {"file": "phys", "field": "PHYT"}, {"file": "phys", "field": "PHYV"}],
               "additionalProperties": {
                 "description": "One raw value or array."
               }
