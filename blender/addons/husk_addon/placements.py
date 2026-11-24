@@ -120,7 +120,7 @@ class Placement:
             kept = {k for k in rest["selection"]["placement_sets"] if k not in drawn}
             chosen = {int(c["husk_owned_set"]) for c in obj.children
                       if "husk_owned_set" in c and not c["husk_always_on"]}
-            rest["selection"] = {"placement_sets": sorted(kept | chosen)}
+            rest["selection"]["placement_sets"] = sorted(kept | chosen)
         self.rest = rest
 
 

@@ -187,6 +187,12 @@
                   "minimum": 0,
                   "description": "A set of the placed model."
                 }
+              },
+              "name_set": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Which names the placed model's parts carry here: picks, in each part of its definition, the areas[] entry whose name_set equals it, since one building placed in two towns carries two names. Present on every map object, absent on any other instance.",
+                "x-source": [{"file": "adt_obj0", "field": "MODF.nameSet"}, {"file": "wdt", "field": "MODF.nameSet"}]
               }
             },
             "required": [

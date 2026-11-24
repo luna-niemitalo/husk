@@ -869,8 +869,11 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   lists the fogs a viewer inside the part sees.
 - WMO mesh parts: `areas` (optional, additive; with `--db2-dir`) names
   where a player inside the part is: one entry per WMOAreaTable name set,
-  because a placement's MODF `nameSet` picks among them (one building,
-  two towns). Rows are keyed by the root's MOHD wmoID, the name set and
+  because a placement picks among them (one building, two towns). Every
+  map-object placement carries `selection.name_set` (from MODF
+  `nameSet`), and the entry whose `name_set` equals it applies: the same
+  definition/selection pair as `definition.placement_sets` and
+  `selection.placement_sets`. Rows are keyed by the root's MOHD wmoID, the name set and
   the group's MOGP groupID; a part without a row of its own under a name
   set gets the model-wide row (WMOGroupID -1), marked `whole_model`.
   `ref` is the WMOAreaTable row named from `AreaName_lang`, `area` the
@@ -890,6 +893,15 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   ChrRaceXChrModel `Sex` (0 male, 1 female) when the rows agree on it.
   ChrModel 1 is "Human male". Without the race tables the ref stays
   unnamed.
+- Raw values left canonical keys for `source` objects (CANONICAL_FORMAT.md
+  §2): liquid objects' flow speed, fishable and reflection, physics
+  bodies' `type`, light parameters' celestial-sphere and sun-position
+  overrides, the world `map`'s `directory`, `instance_type` and
+  `map_type`, creatures' `classification` and displays' `size_class`. The
+  schema lint rejects keys named after DB2 tables or columns and keys
+  described "as stored" outside `source`/`unresolved`; the item keys
+  `texture_type` and `component_section` are exempt until
+  `REFACTOR/GARMENTS.md` replaces them.
 
 ## Embed or reference — one rule
 
@@ -1179,8 +1191,9 @@ Every liquid names a `LiquidType`, and a terrain liquid also its
 With the liquid DB2s, `resources.liquid_types` (terrain and WMO documents
 alike) lists each named type once: its name, material and texture slots,
 each slot's frames in animation order as ordinary texture entries. A
-terrain's `resources.terrain.liquid_objects` gives each object's flow and
-flags. Without the DB2s both tables hold identities only. A liquid's own
+terrain's `resources.terrain.liquid_objects` gives each object's flow direction,
+and under `source` its raw flow speed (unit unverified), fishable and
+reflection values. Without the DB2s both tables hold identities only. A liquid's own
 arrays (`depth`, `uv`) say what it stores: Ocean's material claims height
 and depth, but its liquids store depth only. Per chunk,
 `liquid_fishable_rows`/`liquid_deep_rows` (same shape as `hole_rows`) mark
@@ -1308,10 +1321,10 @@ its `MAID` (the listfile only without one).
   `Map` row, found by `Map.Directory` matching the WDT's directory (case
   ignored), because the WDT's file stem names a folder, not the place.
   `ref` is the row named from `MapName_lang` (azeroth: Map 0, "Eastern
-  Kingdoms"); `directory`, `instance_type`, `map_type`, `expansion`
-  (ExpansionID), `max_players` as stored; `instance_type_name` only for
-  the five values WoWDBDefs' Map.dbd comment names (none, party, raid,
-  pvp, arena); `parent` (ParentMapID) and `cosmetic_parent`
+  Kingdoms"); `expansion` (ExpansionID) and `max_players`;
+  `instance_type_name` only for the five values WoWDBDefs' Map.dbd
+  comment names (none, party, raid, pvp, arena); under `source`, the
+  raw `directory`, `instance_type` and `map_type`; `parent` (ParentMapID) and `cosmetic_parent`
   (CosmeticParentMapID) as named Map refs, absent when stored as -1;
   `area` (AreaTableID) as an AreaTable ref named from AreaName_lang.
   Nothing from UiMap: the map's UI region tree is not exported yet.
@@ -1335,9 +1348,8 @@ and is not per zone.
     { "id": "54d39895…", "name": "Kor'kron Battlewolf", "name_source": "db2",
       "type":   { "id": { "kind": "db2_row", "table": "CreatureType",   "row": 1 }, "name": "Beast", "name_source": "db2" },
       "family": { "id": { "kind": "db2_row", "table": "CreatureFamily", "row": 1 }, "name": "Wolf",  "name_source": "db2" },
-      "classification": 0,
       "displays": [ { "display": "d0fd2799…", "weight": 1 }, { "display": "691ce215…", "weight": 1 } ],
-      "source": { "id": { "kind": "db2_row", "table": "Creature", "row": 71116 } } } ],
+      "source": { "id": { "kind": "db2_row", "table": "Creature", "row": 71116 }, "classification": 0 } } ],
   "displays": [
     { "id": "d0fd2799…", "model": "93ed63c9…", "preset": "5be1c0de…", "scale": 1.2, "base_scale": 1,
       "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 17408 } } },
@@ -1355,7 +1367,7 @@ and is not per zone.
   `family` are the `CreatureType`/`CreatureFamily` row refs with their
   names, so a consumer maps them onto its own archetypes without DB2;
   absent when the row is 0. `title` is the line under the name.
-  `classification` is `Creature.Classification` as stored, a plain
+  `source.classification` is `Creature.Classification` as stored, a plain
   integer: it is a client enum with no table to name it (community
   documentation reads 0 normal, 1 elite, 2 rare elite, 3 boss, 4 rare,
   5 trivial, 6 minus; not checked here).
@@ -1373,7 +1385,7 @@ and is not per zone.
   preset source's values (`CreatureDisplayInfo.CreatureModelScale`,
   `CreatureModelData.ModelScale`) so the catalog alone can size a
   creature. A display the client's table lacks (an encrypted section)
-  keeps only its id and source. `size_class` is
+  keeps only its id and source. `source.size_class` is
   `CreatureDisplayInfo.SizeClass` as stored (no table names it); the
   rows the display layers on its model are unnamed refs, absent at 0:
   `object_effect_package` (ObjectEffectPackageID),

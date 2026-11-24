@@ -58,7 +58,6 @@ std::string creatureCatalogDocument(const canon::CreatureCatalog& catalog, const
             w.key("family");
             writeRef(w, *creature.family);
         }
-        writeIntField(w, "classification", creature.classification);
         w.key("displays");
         w.beginArray();
         for (const canon::CreatureDisplayUse& use : creature.displays) {
@@ -73,6 +72,7 @@ std::string creatureCatalogDocument(const canon::CreatureCatalog& catalog, const
         w.beginObject();
         w.key("id");
         writeIdentity(w, creature.ref.id);
+        writeIntField(w, "classification", creature.classification);
         w.endObject();
         w.endObject();
     }
@@ -94,7 +94,6 @@ std::string creatureCatalogDocument(const canon::CreatureCatalog& catalog, const
         }
         if (display.scale) writeFloatField(w, "scale", *display.scale);
         if (display.baseScale) writeFloatField(w, "base_scale", *display.baseScale);
-        if (display.sizeClass) writeIntField(w, "size_class", *display.sizeClass);
         for (auto [key, ref] : {std::pair{"object_effect_package", &display.objectEffectPackage},
                                 std::pair{"state_spell_visual_kit", &display.stateSpellVisualKit},
                                 std::pair{"anim_replacement_set", &display.animReplacementSet},
@@ -108,6 +107,7 @@ std::string creatureCatalogDocument(const canon::CreatureCatalog& catalog, const
         w.beginObject();
         w.key("id");
         writeIdentity(w, display.ref.id);
+        if (display.sizeClass) writeIntField(w, "size_class", *display.sizeClass);
         w.endObject();
         w.endObject();
     }

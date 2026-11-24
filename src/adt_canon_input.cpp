@@ -223,6 +223,7 @@ canon::PlacedInstance placeMapObject(const adt::MapObjectPlacement& m, canon::Re
     std::vector<canon::Ref> sets;
     for (uint16_t set : activeSets) sets.push_back(canon::Ref{canon::RecordIndex{set}, "", canon::NameSource::None});
     out.activeSets = std::move(sets);
+    out.nameSet = m.nameSet;
     return out;
 }
 

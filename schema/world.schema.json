@@ -295,21 +295,11 @@
     },
     "map": {
       "type": "object",
-      "description": "The client's record of this map, its Map row matched by Map.Directory to the WDT's directory (case ignored), values as stored; absent when no map table was given or no row matches. The WDT's file stem names a folder, not the place: the row says what the place is called and what kind it is.",
+      "description": "The client's record of this map, its Map row matched by Map.Directory to the WDT's directory (case ignored); absent when no map table was given or no row matches. The WDT's file stem names a folder, not the place: the row says what the place is called and what kind it is.",
       "properties": {
         "ref": {
           "$ref": "common.schema.json#/definitions/ref",
           "description": "The Map row, named from Map.MapName_lang."
-        },
-        "directory": {
-          "type": "string",
-          "description": "Map.Directory as stored: the map's folder under World\\Maps\\.",
-          "x-source": [{"table": "Map", "column": "Directory"}]
-        },
-        "instance_type": {
-          "type": "integer",
-          "description": "Map.InstanceType as stored: whether the map is an open world or an instance, and which kind.",
-          "x-source": [{"table": "Map", "column": "InstanceType"}]
         },
         "instance_type_name": {
           "enum": [
@@ -319,24 +309,19 @@
             "pvp",
             "arena"
           ],
-          "description": "instance_type's name from the WoWDBDefs Map.dbd column comment (0 none, 1 party, 2 raid, 3 pvp, 4 arena), transcribed by husk; absent for a value that comment doesn't name.",
+          "description": "Whether the map is an open world or an instance, and which kind: source.instance_type's name from the WoWDBDefs Map.dbd column comment (0 none, 1 party, 2 raid, 3 pvp, 4 arena), transcribed by husk; absent for a value that comment doesn't name.",
           "x-source": [{"table": "Map", "column": "InstanceType"}, {"authored": "src/map_db2.cpp"}]
-        },
-        "map_type": {
-          "type": "integer",
-          "description": "Map.MapType as stored; no reliable source names its values.",
-          "x-source": [{"table": "Map", "column": "MapType"}]
         },
         "expansion": {
           "type": "integer",
           "minimum": 0,
-          "description": "Map.ExpansionID as stored: the expansion the map belongs to (0 the original game, 1 the first expansion, ...).",
+          "description": "The expansion the map belongs to: 0 the original game, 1 the first expansion, ...",
           "x-source": [{"table": "Map", "column": "ExpansionID"}]
         },
         "max_players": {
           "type": "integer",
           "minimum": 0,
-          "description": "Map.MaxPlayers as stored: the instance's player cap; 0 on open-world maps.",
+          "description": "The instance's player cap; 0 on open-world maps.",
           "x-source": [{"table": "Map", "column": "MaxPlayers"}]
         },
         "parent": {
@@ -350,16 +335,41 @@
         "area": {
           "$ref": "common.schema.json#/definitions/ref",
           "description": "The map's own area (Map.AreaTableID), an AreaTable row named from AreaTable.AreaName_lang: what the client names the map's ground outside any zone. Absent when stored as 0."
+        },
+        "source": {
+          "type": "object",
+          "description": "Source-specific raw values.",
+          "properties": {
+            "directory": {
+              "type": "string",
+              "description": "Map.Directory as stored: the map's folder under World\\Maps\\.",
+              "x-source": [{"table": "Map", "column": "Directory"}]
+            },
+            "instance_type": {
+              "type": "integer",
+              "description": "Map.InstanceType as stored; instance_type_name names it.",
+              "x-source": [{"table": "Map", "column": "InstanceType"}]
+            },
+            "map_type": {
+              "type": "integer",
+              "description": "Map.MapType as stored; no reliable source names its values.",
+              "x-source": [{"table": "Map", "column": "MapType"}]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "directory",
+            "instance_type",
+            "map_type"
+          ]
         }
       },
       "additionalProperties": false,
       "required": [
         "ref",
-        "directory",
-        "instance_type",
-        "map_type",
         "expansion",
-        "max_players"
+        "max_players",
+        "source"
       ],
       "x-layer": "resource"
     }

@@ -104,6 +104,79 @@ std::vector<std::string> tokens(const std::string& s) {
     return out;
 }
 
+// "ItemDisplayInfo" -> {item, display, info}; "ModelResourcesID" -> {model, resources, id}.
+std::vector<std::string> camelTokens(const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (size_t i = 0; i < s.size(); ++i) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (!std::isalnum(c)) {
+            if (!cur.empty()) out.push_back(cur);
+            cur.clear();
+            continue;
+        }
+        bool upper = std::isupper(c);
+        bool afterLower = i > 0 && (std::islower(static_cast<unsigned char>(s[i - 1])) || std::isdigit(static_cast<unsigned char>(s[i - 1])));
+        bool acronymEnd = i > 0 && std::isupper(static_cast<unsigned char>(s[i - 1])) && i + 1 < s.size() && std::islower(static_cast<unsigned char>(s[i + 1]));
+        if (upper && (afterLower || acronymEnd) && !cur.empty()) {
+            out.push_back(cur);
+            cur.clear();
+        }
+        cur += static_cast<char>(std::tolower(c));
+    }
+    if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+
+bool containsRun(const std::vector<std::string>& haystack, const std::vector<std::string>& run) {
+    return std::search(haystack.begin(), haystack.end(), run.begin(), run.end()) != haystack.end();
+}
+
+// DB2 table names the schemas cite in x-source, as snake tokens. Only
+// names of three or more words: shorter ones are often plain English a
+// canonical key may use for its meaning (liquid type, light params).
+struct SourceNames {
+    std::set<std::vector<std::string>> tables;
+
+    void collect(const json& node) {
+        if (node.is_array()) {
+            for (const json& v : node) collect(v);
+            return;
+        }
+        if (!node.is_object()) return;
+        if (node.contains("x-source") && node["x-source"].is_array()) {
+            for (const json& origin : node["x-source"]) {
+                if (!origin.is_object()) continue;
+                std::vector<std::string> t = camelTokens(origin.value("table", ""));
+                if (t.size() >= 3) tables.insert(t);
+            }
+        }
+        for (const auto& [key, sub] : node.items()) collect(sub);
+    }
+};
+
+// Keys shaped like DB2 columns: a value only DB2 can resolve. Columns in
+// general are not listed, since many name their meaning plainly
+// (SunColor, MaxPlayers) and the canonical key may share the name.
+const std::vector<std::vector<std::string>> kColumnRuns = {
+    {"resources", "id"}, {"file", "data", "id"}, {"display", "info", "id"},
+};
+const std::set<std::string> kColumnKeys = {
+    "component_section", "texture_type", "section_type",
+};
+
+// Common definitions that are themselves raw values (an `unresolved`
+// object's entries), walked as if beneath one.
+const std::set<std::string> kRawDefinitions = {"unresolved", "unresolved_field"};
+
+// Item keys named after ItemDisplayInfo columns. REFACTOR/GARMENTS.md
+// redesigns items as garments and removes them; until then they are the
+// only canonical keys allowed to carry a DB2 column's name.
+const std::set<std::string> kColumnNamedItemKeys = {
+    "model.schema.json#/properties/definition/properties/items/items/properties/textures/items/properties/texture_type",
+    "model.schema.json#/properties/definition/properties/items/items/properties/overlays/items/properties/component_section",
+};
+
 std::string refTarget(const json& node) {
     if (!node.is_object() || !node.contains("$ref")) return {};
     std::string ref = node["$ref"];
@@ -158,6 +231,7 @@ struct Linter {
     std::string stem;
     const json& root;
     std::vector<Problem>& problems;
+    const SourceNames& names;
 
     void fail(const std::string& pointer, const std::string& message) {
         problems.push_back({stem + kSchemaSuffix + "#" + pointer, message});
@@ -202,6 +276,33 @@ struct Linter {
 
     // Set while walking the direct properties of a `source`/`unresolved` object.
     bool rawParent = false;
+    // Set anywhere beneath a `source`/`unresolved` object: raw values may
+    // keep the source's names and be described as stored.
+    bool underRaw = false;
+
+    // Keys a consumer of another source could not read unchanged
+    // (CANONICAL_FORMAT.md §2): DB2 table and column names, and values
+    // described as kept "as stored".
+    void checkSourceTerms(const std::string& pointer, const std::string& key, const json& sub) {
+        if (underRaw || key == "source" || key == "unresolved") return;
+        if (kColumnNamedItemKeys.count(stem + kSchemaSuffix + "#" + pointer)) return;
+        std::vector<std::string> keyTokens = tokens(key);
+        for (const auto& table : names.tables) {
+            if (!containsRun(keyTokens, table)) continue;
+            std::string name;
+            for (const std::string& t : table) name += (name.empty() ? "" : "_") + t;
+            fail(pointer, "key '" + key + "' contains the DB2 table name '" + name + "'; describe the meaning, and put raw values under 'source'");
+        }
+        bool columnNamed = kColumnKeys.count(key) > 0 ||
+                           std::any_of(kColumnRuns.begin(), kColumnRuns.end(), [&](const auto& run) { return containsRun(keyTokens, run); });
+        if (columnNamed) fail(pointer, "key '" + key + "' is a DB2 column name; describe the meaning, and put raw values under 'source'");
+        std::string description = sub.is_object() ? sub.value("description", "") : "";
+        std::string lower;
+        for (char c : description) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower.find("as stored") != std::string::npos) {
+            fail(pointer, "key '" + key + "' is described as kept as stored; a raw value goes under a 'source' or 'unresolved' object");
+        }
+    }
 
     void checkProperty(const std::string& pointer, const std::string& key, const json& sub, std::vector<const json*>& objects, const std::string& definition) {
         static const std::regex snake("^[a-z][a-z0-9_]*$");
@@ -222,10 +323,14 @@ struct Linter {
         }
         if (!sub.is_object() || !sub.contains("description")) fail(pointer, "property '" + key + "' has no description");
         if (isRealValued(sub) && !sub.contains("x-unit")) fail(pointer, "real-valued property '" + key + "' has no x-unit");
+        checkSourceTerms(pointer, key, sub);
         bool savedRaw = rawParent;
+        bool savedUnderRaw = underRaw;
         rawParent = key == "source" || key == "unresolved";
+        underRaw = underRaw || rawParent;
         walk(sub, pointer, objects, definition);
         rawParent = savedRaw;
+        underRaw = savedUnderRaw;
     }
 
     // The origin forms BUNDLE_FORMAT.md "Where values come from: x-source"
@@ -1068,14 +1173,19 @@ std::vector<std::string> kinds() {
 }
 
 void lintOne(const std::string& stem, const json& schema, std::vector<Problem>& problems) {
-    Linter linter{stem, schema, problems};
+    SourceNames names;
+    for (const auto& [_, embedded] : schemas()) names.collect(embedded);
+    names.collect(schema);
+    Linter linter{stem, schema, problems, names};
     std::vector<const json*> objects;
     if (stem == "common") {
         for (const auto& [name, def] : schema["definitions"].items()) {
             std::string pointer = "/definitions/" + name;
             if (!def.contains("description")) problems.push_back({stem + kSchemaSuffix + "#" + pointer, "definition '" + name + "' has no description"});
+            linter.underRaw = kRawDefinitions.count(name) > 0;
             linter.walk(def, pointer, objects, name);
         }
+        linter.underRaw = false;
         return;
     }
     lintKindHeader(stem, schema, problems);

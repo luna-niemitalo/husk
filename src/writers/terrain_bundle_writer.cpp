@@ -188,12 +188,15 @@ void writeLiquidObjects(json::Writer& w, const std::vector<canon::LiquidObject>&
         if (o.row) {
             w.key("flow_direction");
             w.value(static_cast<double>(o.row->flowDirection));
+            w.key("source");
+            w.beginObject();
             w.key("flow_speed");
             w.value(static_cast<double>(o.row->flowSpeed));
             w.key("fishable");
             w.value(static_cast<int64_t>(o.row->fishable));
             w.key("reflection");
             w.value(static_cast<int64_t>(o.row->reflection));
+            w.endObject();
         }
         w.endObject();
     }

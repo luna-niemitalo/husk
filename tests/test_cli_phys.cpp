@@ -208,7 +208,7 @@ TEST_CASE("husk export: real catmount.m2 gets its PFDC physics on kinematic join
     CHECK((*physSource(m))["detail"] == "PFDC chunk");
     const nlohmann::json& joints = m["resources"]["rig"]["skeleton"]["joints"];
     for (const nlohmann::json& body : bodies) {
-        if (body["type"] == 0) continue;  // type 0 bodies follow their bone; only dynamic ones need physics to drive it
+        if (body["source"]["type"] == 0) continue;  // type 0 bodies follow their bone; only dynamic ones need physics to drive it
         const nlohmann::json& joint = joints[body["joint"].get<size_t>()];
         INFO(joint.dump());
         REQUIRE(joint.contains("flags"));

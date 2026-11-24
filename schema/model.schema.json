@@ -151,7 +151,7 @@
               },
               "ramps": {
                 "type": "array",
-                "description": "Ramp i recolours emitters whose particle_color_index is 11 + i: the row's Start[i], MID[i] and End[i], ARGB as stored.",
+                "description": "Ramp i recolours emitters whose particle_color_index is 11 + i: the row's Start[i], MID[i] and End[i].",
                 "x-source": [{"table": "ParticleColor", "column": "Start"}, {"table": "ParticleColor", "column": "MID"}, {"table": "ParticleColor", "column": "End"}],
                 "items": {
                   "type": "object",
@@ -809,7 +809,7 @@
                 },
                 "colors": {
                   "type": "array",
-                  "description": "Vertex colour sets, u8x4 RGBA 0..255 as stored (WMO MOCV, BGRA on disk), a set a group lacks zero-filled.",
+                  "description": "Vertex colour sets, u8x4 RGBA 0..255 (WMO MOCV, BGRA on disk), a set a group lacks zero-filled.",
                   "x-source": [{"file": "wmo_group", "field": "MOCV"}],
                   "items": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
@@ -924,7 +924,7 @@
                       },
                       "areas": {
                         "type": "array",
-                        "description": "What the client names a player's location inside this part, one entry per name set, ascending, from the WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the name set (NameSetID) and the group's MOGP uniqueID (WMOGroupID); absent without a WMO area table, or when the WMO has no rows. A WMO placement's name set (MODF nameSet) picks the entry, since one building placed in two towns carries two names.",
+                        "description": "What the client names a player's location inside this part, one entry per name set, ascending, from the WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the name set (NameSetID) and the group's MOGP uniqueID (WMOGroupID); absent without a WMO area table, or when the WMO has no rows. A placement's selection.name_set (placement_set schema) picks the entry, since one building placed in two towns carries two names.",
                         "x-source": [{"table": "WMOAreaTable"}, {"file": "wmo", "field": "MOHD.wmoID"}, {"file": "wmo_group", "field": "MOGP.uniqueID"}],
                         "items": {
                           "type": "object",
@@ -933,7 +933,7 @@
                             "name_set": {
                               "type": "integer",
                               "minimum": 0,
-                              "description": "WMOAreaTable.NameSetID: the MODF nameSet of placements this entry applies to.",
+                              "description": "The name set this entry belongs to: placements whose selection.name_set equals it show it (WMOAreaTable.NameSetID).",
                               "x-source": [{"table": "WMOAreaTable", "column": "NameSetID"}]
                             },
                             "ref": {
@@ -1631,7 +1631,7 @@
                         },
                         "matrix": {
                           "type": "array",
-                          "description": "4x4 matrix, row-major as stored; its space is not known.",
+                          "description": "4x4 matrix, row-major; its space is not known.",
                           "x-source": [{"file": "bone", "field": "BOMT"}],
                           "items": {
                             "type": "number",
@@ -1666,7 +1666,7 @@
         },
         "physics": {
           "type": "object",
-          "description": "Rigid bodies on joints, their collision shapes and the joints between them, from the model's .phys data (its PFDC chunk, its PFID file, or a .phys beside it); values whose layout or unit is not established stay under source as stored. Data only.",
+          "description": "Rigid bodies on joints, their collision shapes and the joints between them, from the model's .phys data (its PFDC chunk, its PFID file, or a .phys beside it); values whose layout or unit is not established stay raw under source. Data only.",
           "x-source": [{"file": "phys"}, {"file": "m2", "field": "PFDC"}, {"file": "m2", "field": "PFID"}],
           "properties": {
             "bodies": {
@@ -1682,11 +1682,6 @@
                     "minimum": 0,
                     "description": "The skeleton joint the body follows.",
                     "x-source": [{"file": "phys", "field": "BODY.modelBoneIndex"}, {"file": "phys", "field": "BDY4.boneIndex"}]
-                  },
-                  "type": {
-                    "type": "integer",
-                    "description": "Body type as stored.",
-                    "x-source": [{"file": "phys", "field": "BODY.type"}]
                   },
                   "position": {
                     "$ref": "common.schema.json#/definitions/vec3",
@@ -1707,8 +1702,8 @@
                   },
                   "source": {
                     "type": "object",
-                    "description": "Raw body values with no established meaning (BDY3/BDY4's unk0, _x1c, drag, unk1, _x28; the wiki's defaults for older chunks).",
-                    "x-source": [{"file": "phys", "field": "BDY4"}],
+                    "description": "Raw body values with no established meaning: type (BODY.type), and BDY3/BDY4's unk0, _x1c, drag, unk1, _x28 (the wiki's defaults for older chunks).",
+                    "x-source": [{"file": "phys", "field": "BODY.type"}, {"file": "phys", "field": "BDY4"}],
                     "additionalProperties": {
                       "type": "number",
                       "description": "One raw value."
@@ -1718,7 +1713,6 @@
                 "additionalProperties": false,
                 "required": [
                   "joint",
-                  "type",
                   "position",
                   "shapes",
                   "source"
@@ -1758,7 +1752,7 @@
                   },
                   "density": {
                     "type": "number",
-                    "description": "Density as stored.",
+                    "description": "Density; unit not established.",
                     "x-unit": "1",
                     "x-source": [{"file": "phys", "field": "SHAP.density"}]
                   },
@@ -2719,7 +2713,7 @@
                   },
                   "density": {
                     "type": "integer",
-                    "description": "Doodads per chunk, as stored; absolute scale unverified.",
+                    "description": "Doodads per chunk; absolute scale unverified.",
                     "minimum": 0,
                     "x-source": [{"table": "GroundEffectTexture", "column": "Density"}]
                   },
@@ -2952,21 +2946,33 @@
                     "description": "Flow direction, stored as degrees.",
                     "x-source": [{"table": "LiquidObject", "column": "FlowDirection"}]
                   },
-                  "flow_speed": {
-                    "type": "number",
-                    "x-unit": "1",
-                    "description": "Flow speed as stored; unit unverified.",
-                    "x-source": [{"table": "LiquidObject", "column": "FlowSpeed"}]
-                  },
-                  "fishable": {
-                    "type": "integer",
-                    "description": "LiquidObject.Fishable as stored.",
-                    "x-source": [{"table": "LiquidObject", "column": "Fishable"}]
-                  },
-                  "reflection": {
-                    "type": "integer",
-                    "description": "LiquidObject.Reflection as stored.",
-                    "x-source": [{"table": "LiquidObject", "column": "Reflection"}]
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values; present exactly when flow_direction is.",
+                    "properties": {
+                      "flow_speed": {
+                        "type": "number",
+                        "x-unit": "1",
+                        "description": "Flow speed as stored; unit unverified.",
+                        "x-source": [{"table": "LiquidObject", "column": "FlowSpeed"}]
+                      },
+                      "fishable": {
+                        "type": "integer",
+                        "description": "LiquidObject.Fishable as stored.",
+                        "x-source": [{"table": "LiquidObject", "column": "Fishable"}]
+                      },
+                      "reflection": {
+                        "type": "integer",
+                        "description": "LiquidObject.Reflection as stored.",
+                        "x-source": [{"table": "LiquidObject", "column": "Reflection"}]
+                      }
+                    },
+                    "required": [
+                      "flow_speed",
+                      "fishable",
+                      "reflection"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -3270,7 +3276,7 @@
         },
         "colors": {
           "type": "array",
-          "description": "Vertex colour sets, u8x4 RGBA 0..255 as stored.",
+          "description": "Vertex colour sets, u8x4 RGBA 0..255.",
           "items": {
             "$ref": "common.schema.json#/definitions/buffer_slice",
             "description": "One colour set."
