@@ -393,3 +393,44 @@ TEST_CASE("bundle_schema: the lint rejects each known antipattern in a kind sche
     CHECK(mentions(problems, "'CamelKey' is not lowercase snake_case"));
     CHECK(mentions(problems, "'unlayered' has no x-layer"));
 }
+
+TEST_CASE("bundle_schema: the lint walks kind-local definitions and map values, and checks x-source's forms") {
+    constexpr const char* kBad = R"({
+      "$schema": "http://json-schema.org/draft-07/schema#", "x-status": "implemented",
+      "type": "object", "description": "A bad kind.",
+      "properties": {
+        "names": {"type": "object", "description": "d", "x-layer": "resource",
+                  "additionalProperties": {"type": "object", "properties": {"Bad": {"type": "string", "description": "d"}},
+                                           "additionalProperties": false}},
+        "a": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"table": "AreaTable", "column": "Flags[0]"}, {"listfile": true}]},
+        "b": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"file": "mdx", "field": "x"}]},
+        "c": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"derived": "Not Snake"}]},
+        "d": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"format": true, "note": "x"}]},
+        "e": {"type": "string", "description": "d", "x-layer": "resource", "x-source": {"format": true}},
+        "f": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"guess": true}]}
+      },
+      "definitions": {"local": {"type": "object", "properties": {"undocumented": {"type": "string"}}, "additionalProperties": false}},
+      "additionalProperties": false
+    })";
+    std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemaText("bad", kBad);
+    INFO(describe(problems));
+    CHECK(mentions(problems, "'Bad' is not lowercase snake_case"));
+    CHECK(mentions(problems, "definition 'local' has no description"));
+    CHECK(mentions(problems, "property 'undocumented' has no description"));
+    CHECK_FALSE(mentions(problems, "/properties/a/x-source"));
+    CHECK(mentions(problems, R"(expected 'file' to be a source file kind, got "mdx")"));
+    CHECK(mentions(problems, R"(expected 'derived' to be a snake_case rule name, got "Not Snake")"));
+    CHECK(mentions(problems, "expected only 'format' in this origin, got 'note'"));
+    CHECK(mentions(problems, "expected a non-empty array of origins"));
+    CHECK(mentions(problems, R"(expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got {"guess":true})"));
+}
+
+TEST_CASE("bundle_schema: source gaps name a schema location and a document path, once each") {
+    std::vector<bundle_schema::Problem> gaps = bundle_schema::sourceGaps();
+    REQUIRE_FALSE(gaps.empty());
+    std::vector<std::string> where;
+    for (const bundle_schema::Problem& g : gaps) where.push_back(g.where);
+    CHECK(std::is_sorted(where.begin(), where.end()));
+    CHECK(std::adjacent_find(where.begin(), where.end()) == where.end());
+    CHECK(gaps.front().message.find("document path ") != std::string::npos);
+}

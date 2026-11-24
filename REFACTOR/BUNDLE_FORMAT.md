@@ -266,6 +266,42 @@ source of truth; prose like this file explains it but does not define it.
     written by a writer fails validation.
   - `uri` appears only in the shared `Payload` and asset-reference
     definitions.
+  - kind-local `definitions` and object-valued `additionalProperties`
+    (maps) are held to the same rules as properties.
+
+### Where values come from: `x-source`
+
+`x-source` says where a value's data is found: an array of one or more
+origins, each an object of exactly one form.
+
+| Origin | Meaning |
+|---|---|
+| `{"table": "AreaTable", "column": "Flags[0]"}` | a DB2 table's column (`column` optional when the whole row is meant, e.g. its id) |
+| `{"file": "m2", "field": "M2Particle.gravity"}` | a field of a source file; `file` is one of `m2`, `skin`, `skel`, `bone`, `anim`, `phys`, `wmo`, `wmo_group`, `adt`, `adt_obj0`, `adt_obj1`, `adt_tex0`, `adt_lod`, `wdt`, `wdt_fogs`, `wdt_mpv`, `wdt_lgt`, `wdt_occ`, `blp`; `field` optional |
+| `{"derived": "<rule>"}` | computed by husk by a named rule: the same snake_case vocabulary as `provenance_fields` (rules in `EFFECTS.md`, or named in the property's description) |
+| `{"listfile": true}` | the community file list (names, path lookups) |
+| `{"authored": "effects/<name>.json"}` | husk's own authored data, a path in its repository (effect and technique definitions) |
+| `{"stated_by": "name_source"}` | the origin differs per value, and the named sibling property states it |
+| `{"format": true}` | pure structure: header, ids, indices, counts the format itself defines |
+
+Several origins mean the value combines them, or comes from whichever one
+the source has. The lint rejects any other form, an unknown file kind or a
+rule that isn't snake_case.
+
+**Inheritance.** A property without its own `x-source` takes its `$ref`
+target's (the use site's wins when both have one), else the nearest
+annotated ancestor's along the document path, across `$ref`s, array
+entries, map values and `oneOf` branches. One annotation on an object
+therefore covers everything inside it that doesn't say otherwise. A
+constant needs none: its origin is the format.
+
+**Coverage.** Every leaf property (one with nothing below it) of every
+kind must resolve an `x-source`. `bundle_schema::sourceGaps()` lists the
+leaves that don't, once per schema location, with a document path that
+reaches each. Until the annotation pass is done the check is a warning:
+`husk validate-bundle --lint-schema` prints each gap and a count per schema
+file. `bundle_schema::kSourceRequired` (`bundle_schema.hpp`) turns it into
+a lint error once the count is zero.
 
 ## Attribute channels — per-element data without a dedicated key
 

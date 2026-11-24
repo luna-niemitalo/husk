@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
@@ -341,6 +342,16 @@ int validateBundle(int argc, char** args) {
     }
     for (const bundle_schema::Problem& p : problems) std::cout << p.where << ": " << p.message << "\n";
     for (const bundle_schema::Problem& p : warnings) std::cout << p.where << ": warning: " << p.message << "\n";
+    // Without kSourceRequired the gaps are the annotation pass's worklist,
+    // apart from the warnings --release fails on.
+    if (opts.lintSchema && !bundle_schema::kSourceRequired) {
+        std::map<std::string, size_t> perFile;
+        for (const bundle_schema::Problem& p : bundle_schema::sourceGaps()) {
+            std::cout << p.where << ": warning: " << p.message << "\n";
+            ++perFile[p.where.substr(0, p.where.find('#'))];
+        }
+        for (const auto& [file, count] : perFile) std::cout << file << ": " << count << " leaf properties without x-source\n";
+    }
     std::cout << documents << " documents checked, " << problems.size() << " problems, " << warnings.size()
               << " warnings" << (opts.release && !warnings.empty() ? " (--release: warnings fail)" : "") << "\n";
     return problems.empty() && (!opts.release || warnings.empty()) ? 0 : 1;

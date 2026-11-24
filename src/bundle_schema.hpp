@@ -37,6 +37,17 @@ std::string schemaId(const std::string& kind);
 
 std::vector<Problem> lintSchemas();
 
+// Leaf properties of any kind's documents with no x-source, own or
+// inherited (REFACTOR/BUNDLE_FORMAT.md "Where values come from: x-source"):
+// one per schema location, sorted by it, each naming a document path that
+// reaches it. The annotation pass's worklist.
+std::vector<Problem> sourceGaps();
+
+// Whether a source gap fails the lint. False while the annotation pass is
+// under way: until then validate-bundle --lint-schema lists the gaps as
+// warnings and counts them per schema file.
+inline constexpr bool kSourceRequired = false;
+
 // Lints one kind schema given as text, against the embedded common
 // definitions; how the lint rules themselves are tested.
 std::vector<Problem> lintSchemaText(const std::string& stem, const std::string& text);

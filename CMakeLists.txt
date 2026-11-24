@@ -172,6 +172,7 @@ add_library(husk-lib STATIC
   src/wdt_volumes.cpp
   src/map_scene_input.cpp
   src/bundle_schema.cpp
+  src/schema_paths.cpp
   src/version.cpp
   ${HUSK_EMBEDDED_SCHEMAS}
   src/adt_canon_input.cpp

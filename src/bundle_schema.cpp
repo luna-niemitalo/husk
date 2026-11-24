@@ -17,15 +17,11 @@
 #include <nlohmann/json.hpp>
 
 #include "bundle_schema_embedded.hpp"
+#include "bundle_schema_internal.hpp"
 
 namespace husk::bundle_schema {
 
-namespace {
-
-using json = nlohmann::json;
-namespace fs = std::filesystem;
-
-constexpr const char* kSchemaSuffix = ".schema.json";
+namespace internal {
 
 const std::map<std::string, json>& schemas() {
     static const std::map<std::string, json> parsed = [] {
@@ -36,7 +32,6 @@ const std::map<std::string, json>& schemas() {
     return parsed;
 }
 
-// "common.schema.json" or a full https://husk.invalid/schema/... uri -> "common".
 std::string schemaStem(const std::string& location) {
     std::string file = location.substr(location.find_last_of('/') + 1);
     if (file.size() > std::string(kSchemaSuffix).size() && file.ends_with(kSchemaSuffix)) {
@@ -50,6 +45,13 @@ const json& schemaFor(const std::string& stem) {
     if (it == schemas().end()) throw std::runtime_error("no embedded schema '" + stem + "'");
     return it->second;
 }
+
+}  // namespace internal
+
+namespace {
+
+using namespace internal;
+namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------- lint
 
@@ -171,6 +173,7 @@ struct Linter {
         if (node.contains("const") && node["const"].is_string()) checkWords(pointer + "/const", node["const"], "constant");
         if (node.contains("x-index-into")) checkIndex(pointer, node["x-index-into"], objects);
         if (node.contains("x-id-in")) checkIdTarget(pointer, node["x-id-in"]);
+        if (node.contains("x-source")) checkSource(pointer + "/x-source", node["x-source"]);
         if (node.contains("properties")) {
             if (node.value("additionalProperties", true) != false) {
                 fail(pointer, "object is open: set additionalProperties to false so an undocumented key fails validation");
@@ -180,6 +183,9 @@ struct Linter {
             objects.pop_back();
         }
         if (node.contains("items")) walk(node["items"], pointer + "/items", objects, definition);
+        if (node.contains("additionalProperties") && node["additionalProperties"].is_object()) {
+            walk(node["additionalProperties"], pointer + "/additionalProperties", objects, definition);
+        }
         for (const char* combinator : {"oneOf", "anyOf", "allOf"}) {
             if (!node.contains(combinator)) continue;
             for (size_t i = 0; i < node[combinator].size(); ++i) {
@@ -200,7 +206,9 @@ struct Linter {
             if (kSourceJargon.count(t)) fail(pointer, "key '" + key + "' contains source-format name '" + t + "'; describe the meaning, and put raw values under 'source'");
         }
         checkWords(pointer, key, "key");
-        if (kPathKeys.count(key) && !kPathDefinitions.count(definition)) {
+        // A `file` that is a Ref names a file by identity, not by path.
+        bool isRef = refTarget(sub) == "ref";
+        if (kPathKeys.count(key) && !kPathDefinitions.count(definition) && !isRef) {
             fail(pointer, "key '" + key + "' holds a path outside the shared link definitions (asset_ref, payload, buffer_slice)");
         }
         if (!rawParent && (key.starts_with("source_") || key.starts_with("unknown") || key.starts_with("raw"))) {
@@ -212,6 +220,52 @@ struct Linter {
         rawParent = key == "source" || key == "unresolved";
         walk(sub, pointer, objects, definition);
         rawParent = savedRaw;
+    }
+
+    // The origin forms BUNDLE_FORMAT.md "Where values come from: x-source"
+    // defines; anything else is a typo the coverage count would hide.
+    void checkSource(const std::string& pointer, const json& source) {
+        if (!source.is_array() || source.empty()) {
+            fail(pointer, "expected a non-empty array of origins, got " + source.dump());
+            return;
+        }
+        static const std::regex snake("^[a-z][a-z0-9_]*$");
+        static const std::set<std::string> files = {"m2", "skin", "skel", "bone", "anim", "phys", "wmo", "wmo_group",
+                                                    "adt", "adt_obj0", "adt_obj1", "adt_tex0", "adt_lod", "wdt",
+                                                    "wdt_fogs", "wdt_mpv", "wdt_lgt", "wdt_occ", "blp"};
+        // Each form: its key, what the key's value must be, and the optional key beside it.
+        auto isString = [](const json& v) { return v.is_string() && !v.get<std::string>().empty(); };
+        auto isTrue = [](const json& v) { return v == true; };
+        struct Form {
+            const char* key;
+            std::function<bool(const json&)> valid;
+            const char* expected;
+            const char* optional;
+        };
+        static const std::vector<Form> forms = {
+            {"table", isString, "a DB2 table name", "column"},
+            {"file", [](const json& v) { return v.is_string() && files.count(v.get<std::string>()) > 0; }, "a source file kind", "field"},
+            {"derived", [](const json& v) { return v.is_string() && std::regex_match(v.get<std::string>(), snake); }, "a snake_case rule name", nullptr},
+            {"authored", isString, "a path in the husk repository", nullptr},
+            {"stated_by", isString, "the sibling property that states each value's origin", nullptr},
+            {"listfile", isTrue, "true", nullptr},
+            {"format", isTrue, "true", nullptr},
+        };
+        for (size_t i = 0; i < source.size(); ++i) {
+            const json& o = source[i];
+            std::string at = pointer + "/" + std::to_string(i);
+            auto form = std::find_if(forms.begin(), forms.end(), [&](const Form& f) { return o.is_object() && o.contains(f.key); });
+            if (form == forms.end()) {
+                fail(at, "expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got " + o.dump());
+                continue;
+            }
+            if (!form->valid(o[form->key])) fail(at, std::string("expected '") + form->key + "' to be " + form->expected + ", got " + o[form->key].dump());
+            for (const auto& [key, value] : o.items()) {
+                bool optional = form->optional && key == form->optional;
+                if (key != form->key && !optional) fail(at, std::string("expected only '") + form->key + "'" + (form->optional ? std::string(" and '") + form->optional + "'" : "") + " in this origin, got '" + key + "'");
+                if (optional && !isString(value)) fail(at, "expected '" + key + "' to be a name, got " + value.dump());
+            }
+        }
     }
 
     // x-id-in names an array of objects that each carry an `id`, so it is
@@ -948,6 +1002,12 @@ void lintOne(const std::string& stem, const json& schema, std::vector<Problem>& 
     }
     lintKindHeader(stem, schema, problems);
     linter.walk(schema, "", objects, "");
+    for (const auto& [name, def] : schema.value("definitions", json::object()).items()) {
+        std::string pointer = "/definitions/" + name;
+        if (!def.contains("description")) problems.push_back({stem + kSchemaSuffix + "#" + pointer, "definition '" + name + "' has no description"});
+        // Empty: the shared link definitions that may hold paths live in common only.
+        linter.walk(def, pointer, objects, "");
+    }
 }
 
 std::string schemaId(const std::string& kind) {
@@ -957,6 +1017,9 @@ std::string schemaId(const std::string& kind) {
 std::vector<Problem> lintSchemas() {
     std::vector<Problem> problems;
     for (const auto& [stem, schema] : schemas()) lintOne(stem, schema, problems);
+    if (kSourceRequired) {
+        for (Problem& gap : sourceGaps()) problems.push_back(std::move(gap));
+    }
     return problems;
 }
 
