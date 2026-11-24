@@ -765,6 +765,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         if (!db2Dir.empty() && !dbdDirForChr.empty()) {
             if (auto animData = animationdata::load(db2Dir, dbdDirForChr, std::cerr)) {
                 sidecars.animationNames = animationdata::toNameMap(*animData);
+                sidecars.animationFallbacks = animationdata::nonzeroFallbacks(*animData);
             }
         }
         sidecars.listfile = &listfile;

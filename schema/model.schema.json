@@ -1408,6 +1408,21 @@
                 ]
               }
             },
+            "animation_fallbacks": {
+              "type": "array",
+              "description": "AnimationData.Fallback, the client's table of what a model without an animation plays instead: [animation, fallback] AnimationData IDs, ascending, for every row whose fallback isn't 0 (Stand); an ID not listed falls back to 0. Follow it until the model has a clip of the animation reached; what the client does on a chain that comes back to where it started is not known. Absent when the AnimationData table wasn't read or the model has no clips.",
+              "items": {
+                "type": "array",
+                "description": "One row: the animation, then its fallback.",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "An AnimationData ID."
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
             "correction_sets": {
               "type": "array",
               "description": "Per-joint correction matrices, one set per correction file; customization choices name the set they select. Data only: how the client applies a correction is not known.",

@@ -18,6 +18,7 @@
 // transforms and blend modes. Shared byte-builder helpers live in
 // tests/test_cli_fixtures.hpp, included by all test_cli*.cpp files.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
@@ -30,6 +31,7 @@
 #include "test_bundle_fixtures.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
+#include "test_data_paths.hpp"
 
 using husk::test::runHusk;
 namespace fs = std::filesystem;
@@ -443,6 +445,25 @@ TEST_CASE("husk export: a joint carries its raw bone flags and the named bits, k
 
     fs::remove_all(dir);
 }
+
+// Real-data-gated: 12.x AnimationData has no Name column (layout BBF66A3C),
+// which isn't worth a warning, and its Fallback column is the table a
+// consumer walks for an animation the model lacks (row 6, Dead -> 1, Death).
+TEST_CASE("husk export: real AnimationData gives clip fallbacks and no Name warning" *
+          doctest::skip(husk::test::testDbdDir().empty() ||
+                         !fs::exists("/media/luna/wow_export/live/creature/rabbit/rabbit.m2"))) {
+    auto dir = defaultsDir("animfallback");
+    auto bundle = dir / "rabbit.bundle";
+    auto result = runHusk("export /media/luna/wow_export/live/creature/rabbit/rabbit.m2 -o " + bundle.string() +
+                          " --db2-dir /media/luna/wow_export/live/dbfilesclient --dbd-dir " +
+                          husk::test::testDbdDir() + " --listfile-root /media/luna/wow_export/live");
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    CHECK(result.output.find("string column 'Name'") == std::string::npos);
+    nlohmann::json m = parseManifest(bundle);
+    const nlohmann::json& fallbacks = m["resources"]["rig"]["animation_fallbacks"];
+    REQUIRE(fallbacks.is_array());
+    CHECK(std::find(fallbacks.begin(), fallbacks.end(), nlohmann::json::array({6, 1})) != fallbacks.end());
 
     fs::remove_all(dir);
 }

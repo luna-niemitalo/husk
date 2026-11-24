@@ -101,6 +101,9 @@ struct Model {
     // The model file's own global loops (M2Loop), seconds: what a material
     // or scene curve's GlobalSequence index names.
     std::vector<float> globalSequenceDurations;
+    // AnimationData (id, Fallback) for every row whose Fallback isn't 0
+    // (Stand), ascending; empty when the table wasn't read.
+    std::vector<std::pair<uint32_t, uint32_t>> animationFallbacks;
     Scene scene;  // attachments, events, lights, emitters
 
     // Placement sets this model owns (a WMO's doodad sets). An always-on set

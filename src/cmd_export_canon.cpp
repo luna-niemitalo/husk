@@ -524,6 +524,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
         clip.info->animation.name = name->second;
         clip.info->animation.source = canon::NameSource::Db2;
     }
+    if (!build.model.animations.empty()) build.model.animationFallbacks = sidecars.animationFallbacks;
     size_t jointCount = build.model.skeleton.joints.size();
     if (!sidecars.physics.bytes.empty()) {
         build.model.physics = m2input::loadPhysics(sidecars.physics.bytes, sidecars.physics.detail, jointCount);

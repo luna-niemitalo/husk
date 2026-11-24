@@ -789,6 +789,17 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         }
         w.endArray();
     }
+    if (!model.animationFallbacks.empty()) {
+        w.key("animation_fallbacks");
+        w.beginArray();
+        for (const auto& [animation, fallback] : model.animationFallbacks) {
+            w.beginArray();
+            w.value(static_cast<int64_t>(animation));
+            w.value(static_cast<int64_t>(fallback));
+            w.endArray();
+        }
+        w.endArray();
+    }
     if (!model.correctionSets.empty()) {
         w.key("correction_sets");
         writeCorrectionSets(w, model.correctionSets);

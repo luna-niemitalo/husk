@@ -524,6 +524,12 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   curves with `sequence_kind: global_sequence` index. A `.skel` model's
   joint clips index the `.skel`'s table, so the clip's own `duration` is
   the one to use for them.
+- **Animation fallbacks (0.4.0).** `resources.rig.animation_fallbacks`:
+  AnimationData's `Fallback` column as `[animation, fallback]` pairs, for
+  every row whose fallback isn't 0 (an unlisted id falls back to 0,
+  Stand). A model without a clip for an animation plays its fallback,
+  followed until a clip exists. Written when `--db2-dir`/`--dbd-dir` read
+  the table (not by `export-world`'s model pass).
 - **Joint flags (0.4.0).** `skeleton.joints[].source.flags` is
   `M2CompBone.flags` as stored; `flags` names the bits wowdev.wiki names
   (`ignore_parent_translate`/`_scale`/`_rotation`, `transformed`,

@@ -48,6 +48,7 @@ struct BundleSidecars {
     bool noAnimation = false;  // --anim none: drop every clip
     // AnimationData id -> Name, for naming sequence clips; empty = none known.
     std::unordered_map<uint32_t, std::string> animationNames;
+    std::vector<std::pair<uint32_t, uint32_t>> animationFallbacks;  // animationdata::nonzeroFallbacks
 };
 
 // One model bundle at `bundleDir`: the M2 assembled with the first skin
