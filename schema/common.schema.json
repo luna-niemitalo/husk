@@ -7,7 +7,7 @@
     "uuid": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-      "description": "A stable id: a lowercase canonical UUID, the same across re-exports and edits. Objects in arrays that can grow large carry one and are referenced by it, never by array position."
+      "description": "A stable id: a lowercase canonical UUID, the same across re-exports and edits. Objects in arrays that can grow large carry one and are referenced by it, never by array position, since positions renumber when an array is filtered, merged or re-sorted."
     },
     "identity": {
       "description": "What the thing structurally is. The kind says which identity space the value belongs to; values from different kinds never compare equal.",
@@ -119,7 +119,7 @@
             "synthesized",
             "none"
           ],
-          "description": "Where the name came from: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter. Present exactly when name is."
+          "description": "Where the name came from, present exactly when name is: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter."
         }
       },
       "required": [
@@ -137,7 +137,7 @@
     },
     "asset_ref": {
       "type": "object",
-      "description": "A reference to another document, with a uri when that document was exported alongside. Without a uri the reference is known but unresolved.",
+      "description": "A reference to another document, with a uri when that document was exported alongside; without one the reference is known but unresolved.",
       "properties": {
         "id": {
           "$ref": "#/definitions/identity",
@@ -151,7 +151,7 @@
         },
         "name_source": {
           "$ref": "#/definitions/ref/properties/name_source",
-          "description": "Where the name came from: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter. Present exactly when name is."
+          "description": "Where the name came from, present exactly when name is: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter."
         },
         "uri": {
           "type": "string",
@@ -174,7 +174,8 @@
     },
     "payload": {
       "type": "object",
-      "description": "Data stored in its own file. The media type tells a consumer how to read it; the format does not restrict which types are allowed.",
+      "description": "Data stored in its own file, with the media type a consumer reads it by. The format does not restrict which types are allowed: it says a face has a texture, not how the texture is stored.",
+      "x-source": [{"format": true}],
       "properties": {
         "uri": {
           "type": "string",
@@ -193,7 +194,8 @@
     },
     "buffer_slice": {
       "type": "object",
-      "description": "A typed array stored as raw little-endian bytes in a binary file next to the document. byte_length is always count * component_count * the component's size.",
+      "description": "A typed array stored as raw little-endian bytes in a binary file next to the document, byte_length always count * component_count * the component's size.",
+      "x-source": [{"format": true}],
       "properties": {
         "file": {
           "type": "string",
@@ -393,7 +395,7 @@
     },
     "reference": {
       "type": "object",
-      "description": "Another document this one depends on. Everything that points at it uses its id.",
+      "description": "Another document this one depends on, which everything that points at it names by its id.",
       "properties": {
         "id": {
           "$ref": "#/definitions/uuid",
@@ -414,7 +416,8 @@
         },
         "asset": {
           "$ref": "#/definitions/asset_ref",
-          "description": "Identity, and uri when exported alongside."
+          "description": "The referenced document's identity (its subject's), and uri when exported alongside.",
+          "x-source": [{"format": true}]
         },
         "document": {
           "type": "object",
@@ -431,7 +434,8 @@
     },
     "source_record": {
       "type": "object",
-      "description": "Which source record an entry was decoded from.",
+      "description": "Which source record an entry was decoded from: the source chunk or table's name and the record's position in it.",
+      "x-source": [{"format": true}],
       "properties": {
         "table": {
           "type": "string",
@@ -465,7 +469,8 @@
     },
     "inline_curve": {
       "type": "object",
-      "description": "Keyframes for one sequence or global sequence.",
+      "description": "Keyframes for one sequence or global sequence: one M2Track's keys for that sequence, from the model file or the sequence's .anim sidecar.",
+      "x-source": [{"file": "m2", "field": "M2Track"}, {"file": "anim"}],
       "properties": {
         "sequence_index": {
           "type": "integer",
@@ -572,12 +577,13 @@
     },
     "texture_entry": {
       "type": "object",
-      "description": "A texture reference and whether it could be resolved.",
+      "description": "A texture reference and whether texture_resolution could resolve it: the file the source names (by FileDataID or path), looked up through the literal, listfile and fuzzy same-basename tiers (src/sources/texture_resolution.cpp).",
+      "x-source": [{"derived": "texture_resolution"}],
       "properties": {
         "id": {
           "$ref": "#/definitions/uuid",
           "x-source": [{"format": true}],
-          "description": "This entry's stable id, unique in the document's texture table: derived from the texture's identity and what else tells two entries of one file apart (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"). In a material document's own table, absent: its layers point by index."
+          "description": "This entry's stable id, unique in the document's texture table, derived from the texture's identity and what else tells two entries of one file apart (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); absent in a material document's own table, whose layers point by index."
         },
         "state": {
           "enum": [
@@ -616,11 +622,13 @@
               },
               "width": {
                 "type": "integer",
-                "description": "Pixel width."
+                "description": "Pixel width.",
+                "x-source": [{"file": "blp"}]
               },
               "height": {
                 "type": "integer",
-                "description": "Pixel height."
+                "description": "Pixel height.",
+                "x-source": [{"file": "blp"}]
               }
             },
             "required": [
@@ -643,25 +651,30 @@
     },
     "liquid_type": {
       "type": "object",
-      "description": "A liquid type a document's liquids name. Without the liquid DB2s only its identity is known.",
+      "description": "A liquid type a document's liquids name; without the liquid DB2s only its identity is known.",
+      "x-source": [{"table": "LiquidType"}],
       "properties": {
         "identity": {
           "$ref": "#/definitions/ref",
-          "description": "The LiquidType row, named from its Name; each liquid's liquid_type equals one entry's identity."
+          "description": "The LiquidType row, named from its Name; each liquid's liquid_type equals one entry's identity.",
+          "x-source": [{"table": "LiquidType", "column": "ID"}]
         },
         "material": {
           "type": "object",
           "description": "The type's LiquidMaterial.",
+          "x-source": [{"table": "LiquidMaterial"}],
           "properties": {
             "identity": {
               "$ref": "#/definitions/ref",
-              "description": "The LiquidMaterial row."
+              "description": "The LiquidMaterial row.",
+              "x-source": [{"table": "LiquidType", "column": "MaterialID"}]
             },
             "vertex_format": {
               "type": "integer",
               "minimum": 0,
               "maximum": 3,
-              "description": "The vertex layout the material states (0 height+depth, 1 height+uv, 2 depth, 3 height+uv+depth). Ocean (LiquidType 2) instances store depth only whatever this says; a liquid's own arrays are what it holds."
+              "description": "The vertex layout the material states (0 height+depth, 1 height+uv, 2 depth, 3 height+uv+depth). Ocean (LiquidType 2) instances store depth only whatever this says, so a liquid's own arrays are what it holds.",
+              "x-source": [{"table": "LiquidMaterial", "column": "LVF"}]
             },
             "source": {
               "type": "object",
@@ -669,7 +682,8 @@
               "properties": {
                 "flags": {
                   "$ref": "#/definitions/flags",
-                  "description": "LiquidMaterial.Flags as stored."
+                  "description": "LiquidMaterial.Flags as stored.",
+                  "x-source": [{"table": "LiquidMaterial", "column": "Flags"}]
                 }
               },
               "required": [
@@ -685,7 +699,8 @@
         },
         "textures": {
           "type": "array",
-          "description": "The type's texture slots, in LiquidType order. Which slot a shader samples for what depends on the material and is not resolved.",
+          "description": "The type's texture slots (LiquidTypeXTexture rows, by OrderIndex), each sized by LiquidType FrameCountTexture. Which slot a shader samples for what depends on the material and is not resolved.",
+          "x-source": [{"table": "LiquidTypeXTexture"}, {"table": "LiquidType", "column": "FrameCountTexture"}],
           "items": {
             "type": "object",
             "description": "One slot.",
@@ -693,6 +708,7 @@
               "frames": {
                 "type": "array",
                 "description": "The slot's frames in animation order; one frame for a still texture.",
+                "x-source": [{"table": "LiquidTypeXTexture", "column": "FileDataID"}],
                 "items": {
                   "$ref": "#/definitions/texture_id",
                   "description": "One frame."
@@ -704,7 +720,8 @@
                 "properties": {
                   "kind": {
                     "type": "integer",
-                    "description": "LiquidTypeXTexture.Type as stored: -1 a file, 0 to 2 a texture the client generates (no file)."
+                    "description": "LiquidTypeXTexture.Type as stored: -1 a file, 0 to 2 a texture the client generates (no file).",
+                    "x-source": [{"table": "LiquidTypeXTexture", "column": "Type"}]
                   }
                 },
                 "required": [
@@ -722,14 +739,16 @@
         },
         "waves": {
           "type": "array",
-          "description": "Optional. The FFT ocean-wave spectra the type animates its surface with, in source order. Absent when the source has none (every source before WoW Forever 1.60.1 / 12.1.7).",
+          "description": "The FFT ocean-wave spectra the type animates its surface with (the FFTTile rows LiquidTypeXFFTTile links to it, in link ID order); optional, absent when the source has none (every source before WoW Forever 1.60.1 / 12.1.7).",
+          "x-source": [{"table": "FFTTile"}],
           "items": {
             "type": "object",
             "description": "One spectrum. Its fields are not named by any public definition yet, so they are carried raw.",
             "properties": {
               "identity": {
                 "$ref": "#/definitions/ref",
-                "description": "The FFTTile row."
+                "description": "The FFTTile row.",
+                "x-source": [{"table": "LiquidTypeXFFTTile", "column": "FFTTileID"}]
               },
               "source": {
                 "type": "object",
@@ -738,13 +757,14 @@
                   "field_0": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "FFTTile field 0 as stored (16 to 512 seen; likely the FFT grid size)."
+                    "description": "FFTTile field 0 as stored (16 to 512 seen; likely the FFT grid size).",
+                    "x-source": [{"table": "FFTTile", "column": "Field_1_60_1_69876_000"}]
                   },
                   "values": {
                     "type": "array",
                     "minItems": 9,
                     "maxItems": 9,
-                    "description": "FFTTile fields 1 to 9 as stored, f32; units unverified.",
+                    "description": "FFTTile fields 1 to 9 as stored, f32 (Field_1_60_1_69876_001 to _009); units unverified.",
                     "x-unit": "1",
                     "items": {
                       "type": "number",
@@ -772,7 +792,8 @@
           "properties": {
             "flags": {
               "$ref": "#/definitions/flags",
-              "description": "LiquidType.Flags as stored."
+              "description": "LiquidType.Flags as stored.",
+              "x-source": [{"table": "LiquidType", "column": "Flags"}]
             }
           },
           "required": [
@@ -789,6 +810,7 @@
     "instance_ref": {
       "type": "object",
       "description": "One instance of an owned placement set, by its stable id rather than its position.",
+      "x-source": [{"format": true}],
       "properties": {
         "set": {
           "type": "integer",
@@ -831,7 +853,8 @@
     },
     "input_spec": {
       "type": "object",
-      "description": "One input an effect declares: its kind, and what an instance must supply for it.",
+      "description": "One input an effect or material declares: its kind, and what an instance must supply for it.",
+      "x-source": [{"authored": "effects/<name>.json"}, {"format": true}],
       "properties": {
         "kind": {
           "$ref": "#/definitions/input_kind",
@@ -892,6 +915,7 @@
     },
     "binding": {
       "description": "A field whose value comes from the instance: an input by name, or a field of the element a for_each source repeats over.",
+      "x-source": [{"authored": "effects/<name>.json"}, {"format": true}],
       "oneOf": [
         {
           "type": "object",
@@ -1025,7 +1049,7 @@
       ]
     },
     "region": {
-      "description": "Where an effect source applies, relative to its instance. Every region may fade over a soft edge.",
+      "description": "Where an effect source applies, relative to its instance; every region may fade over a soft edge.",
       "oneOf": [
         {
           "type": "object",
@@ -1491,22 +1515,26 @@
     },
     "linear_fog": {
       "type": "object",
-      "description": "Fog that thickens linearly with distance from the viewer.",
+      "description": "Fog that thickens linearly with distance from the viewer: one layer (fog or underwater) of a WMO MFOG record.",
+      "x-source": [{"file": "wmo", "field": "MFOG"}],
       "properties": {
         "start": {
           "type": "number",
-          "description": "Distance where fog begins.",
-          "x-unit": "yard"
+          "description": "Distance where fog begins: the layer's end times its start scalar (mfog_start_scalar_to_start). The source stores the start only as that fraction of the end (wowdev.wiki's MoP fog).",
+          "x-unit": "yard",
+          "x-source": [{"file": "wmo", "field": "MFOG.end"}, {"file": "wmo", "field": "MFOG.start_scalar"}, {"derived": "mfog_start_scalar_to_start"}]
         },
         "end": {
           "type": "number",
           "description": "Distance where fog is full.",
-          "x-unit": "yard"
+          "x-unit": "yard",
+          "x-source": [{"file": "wmo", "field": "MFOG.end"}]
         },
         "color": {
           "$ref": "#/definitions/rgb",
-          "description": "Fog colour.",
-          "x-unit": "1"
+          "description": "Fog colour, alpha dropped (0xFF in every sampled record; any other value goes to unresolved).",
+          "x-unit": "1",
+          "x-source": [{"file": "wmo", "field": "MFOG.color"}]
         }
       },
       "required": [
@@ -1537,7 +1565,8 @@
         },
         "exit_blend": {
           "type": "boolean",
-          "description": "Draws nothing; scales the enclosing fog down near the model's exits."
+          "description": "The source draws nothing but scales the enclosing fog down near the model's exits (MFOG flag 0x1, wowdev.wiki's F_IEBLEND).",
+          "x-source": [{"file": "wmo", "field": "MFOG.flags"}]
         },
         "looks": {
           "type": "object",
@@ -1556,7 +1585,8 @@
           "properties": {
             "colors": {
               "type": "array",
-              "description": "The source's three colours in order; which one the client uses is unverified.",
+              "description": "The source's three colours in order (a WMO MAVG, MAVD or MBVD record's); which one the client uses is unverified.",
+              "x-source": [{"file": "wmo", "field": "MAVG.colors"}, {"file": "wmo", "field": "MAVD.colors"}, {"file": "wmo", "field": "MBVD.colors"}],
               "minItems": 3,
               "maxItems": 3,
               "items": {
@@ -1573,17 +1603,20 @@
         },
         "volumetric_fog": {
           "type": "object",
-          "description": "The classic client's volumetric fog pass inside the source's region.",
+          "description": "The classic client's volumetric fog pass inside the source's region (one VFOG record of the map's _fogs.wdt).",
+          "x-source": [{"file": "wdt_fogs", "field": "VFOG"}],
           "properties": {
             "color": {
               "$ref": "#/definitions/rgb",
               "description": "Fog colour, as stored.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"file": "wdt_fogs", "field": "VFOG.color"}]
             },
             "min_quality": {
               "type": "integer",
               "minimum": 0,
-              "description": "Drawn when the viewer's fog quality setting is at least this, 0..2."
+              "description": "Drawn when the viewer's fog quality setting is at least this, 0..2.",
+              "x-source": [{"file": "wdt_fogs", "field": "VFOG.fogLevel"}]
             }
           },
           "required": [
@@ -1594,12 +1627,13 @@
         },
         "particulate": {
           "type": "object",
-          "description": "The classic ambient particle system's own settings.",
+          "description": "The classic ambient particle system's own settings: a particulate volume record (WMO MPVD, or the map's _mpv.wdt PVMI).",
+          "x-source": [{"file": "wmo", "field": "MPVD"}, {"file": "wdt_mpv", "field": "PVMI"}],
           "properties": {
             "max_particles": {
               "type": "integer",
               "minimum": 0,
-              "description": "Most particles the client simulates at once."
+              "description": "Most particles the client simulates at once. The shader bounds its simulation threads by it."
             }
           },
           "required": [
@@ -1609,7 +1643,8 @@
         },
         "draw": {
           "type": "object",
-          "description": "How the classic client drew the source's particles.",
+          "description": "How the classic client drew the source's particles: one emitter of a particulate volume record (WMO MPVD, or the map's _mpv.wdt PVMI).",
+          "x-source": [{"file": "wmo", "field": "MPVD"}, {"file": "wdt_mpv", "field": "PVMI"}],
           "properties": {
             "blend": {
               "$ref": "#/definitions/framebuffer_blend",
@@ -1636,7 +1671,8 @@
         },
         "zone_light": {
           "type": "object",
-          "description": "The classic zone light: the light parameter set the client uses under each condition (wowdev.wiki DB/Light). A condition the zone doesn't state is absent.",
+          "description": "The classic zone light: the light parameter set the client uses under each condition the zone states (wowdev.wiki DB/Light), from Light LightParamsID.",
+          "x-source": [{"table": "Light", "column": "LightParamsID"}],
           "properties": {
             "clear": {
               "$ref": "#/definitions/light_params_id",
@@ -1684,6 +1720,7 @@
     "unresolved_field": {
       "type": "object",
       "description": "A source value carried before its meaning is known.",
+      "x-source": [{"format": true}],
       "properties": {
         "field": {
           "type": "string",
@@ -1704,11 +1741,12 @@
           "description": "What class of value it is, as far as the data shows; words are a byte range's raw dwords."
         },
         "value": {
-          "description": "The value as stored: a number, an array of numbers, a hex string for bits, or an array of hex strings for words."
+          "description": "The value as stored: a number, an array of numbers, a hex string for bits, or an array of hex strings for words.",
+          "x-source": [{"stated_by": "field"}]
         },
         "candidate_role": {
           "type": "string",
-          "description": "A proposed typed field for the value, not yet confirmed."
+          "description": "A typed field husk proposes for the value, not yet confirmed. A candidate that corpus evidence or the client shaders confirm is promoted to its typed key (REFACTOR/EFFECTS.md \"Unknown data: the evidence ladder\")."
         }
       },
       "required": [
@@ -1738,11 +1776,13 @@
     },
     "ribbon_system": {
       "type": "object",
-      "description": "The classic ribbon simulation's settings and curves.",
+      "description": "The classic ribbon simulation's settings and curves: one M2Ribbon record.",
+      "x-source": [{"file": "m2", "field": "M2Ribbon"}],
       "properties": {
         "materials": {
           "type": "array",
-          "description": "Render settings per texture.",
+          "description": "Render settings per texture: the M2Material records the ribbon's material indices name.",
+          "x-source": [{"file": "m2", "field": "M2Material"}],
           "items": {
             "type": "object",
             "description": "One render setting.",
@@ -1849,7 +1889,8 @@
     },
     "particle_system": {
       "type": "object",
-      "description": "The classic particle simulation's settings and curves.",
+      "description": "The classic particle simulation's settings and curves: one M2Particle record, its tracks keyed in the model file or the sequence's .anim sidecar.",
+      "x-source": [{"file": "m2", "field": "M2Particle"}],
       "properties": {
         "child_emitters_model": {
           "$ref": "#/definitions/ref",
@@ -1969,8 +2010,9 @@
         },
         "gravity": {
           "$ref": "#/definitions/animated_vec3",
-          "description": "Gravity: the acceleration vector applied to each particle, in the emitter's frame (the model's axes, z up): it rotates with the emitter (its bone and the model's placement), not fixed to world down (game knowledge, not measured from client code). A source with one scalar g writes [0, 0, -g]; a source key with no direction (M2 packed x^2 + y^2 > 128^2) is dropped with a warning, the curve interpolating across it.",
-          "x-unit": "yard/second^2"
+          "description": "Gravity: the acceleration vector applied to each particle, in the emitter's frame (the model's axes, z up), rotating with the emitter (its bone and the model's placement), not fixed to world down; decoded from the M2 track's keys by m2_gravity_to_vector (a scalar g becomes [0, 0, -g]; a key with no direction, packed x^2 + y^2 > 128^2, is dropped with a warning and the curve interpolates across it). The emitter frame is game knowledge, not measured from client code; a bad key is dropped rather than failing the export so one emitter can't cost the whole model.",
+          "x-unit": "yard/second^2",
+          "x-source": [{"file": "m2", "field": "M2Particle.gravity"}, {"file": "anim"}, {"derived": "m2_gravity_to_vector"}]
         },
         "lifespan": {
           "$ref": "#/definitions/animated",
@@ -2157,7 +2199,8 @@
     },
     "provenance_fields": {
       "type": "object",
-      "description": "How an instance's values were obtained, by path within the instance (\"inputs.extinction\", \"priority\"). A path not listed was read from the source.",
+      "description": "How an instance's values were obtained, by path within the instance (\"inputs.extinction\", \"priority\"); a path not listed was read from the source. A consumer switches a rule off by ignoring the fields it produced (REFACTOR/EFFECTS.md \"Provenance\").",
+      "x-source": [{"format": true}],
       "additionalProperties": {
         "type": "object",
         "properties": {
@@ -2181,112 +2224,134 @@
     },
     "zone_fog_values": {
       "type": "object",
-      "description": "A light parameter set's fog at one time of day. Names follow the source table (LightData); their roles in the fog record are candidates (REFACTOR/EFFECTS.md).",
+      "description": "A light parameter set's fog at one time of day, named after the source table's (LightData) columns. Their roles in the fog record are candidates (REFACTOR/EFFECTS.md), so the names stay close to the source's.",
+      "x-source": [{"table": "LightData"}],
       "properties": {
         "end": {
           "type": "number",
-          "description": "Fog end (LightData FogEnd).",
-          "x-unit": "yard"
+          "description": "Fog end.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightData", "column": "FogEnd"}]
         },
         "scaler": {
           "type": "number",
-          "description": "FogScaler.",
-          "x-unit": "1"
+          "description": "Fog scaler.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "FogScaler"}]
         },
         "density": {
           "type": "number",
-          "description": "FogDensity: the client's exponential-fog parameter, not an extinction. The shader fogs by exp(-e * k), e the yards past the fog start; how the client turns this value into k is not known (REFACTOR/EFFECTS.md, fog_density_to_extinction).",
-          "x-unit": "1"
+          "description": "The client's exponential-fog parameter, not an extinction. The shader fogs by exp(-e * k), e the yards past the fog start; how the client turns this value into k is not known (REFACTOR/EFFECTS.md, fog_density_to_extinction).",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "FogDensity"}]
         },
         "start_offset": {
           "type": "number",
-          "description": "FogStartOffset.",
-          "x-unit": "yard"
+          "description": "Fog start offset.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightData", "column": "FogStartOffset"}]
         },
         "height": {
           "type": "number",
-          "description": "Height-fog plane (FogHeight).",
-          "x-unit": "yard"
+          "description": "Height-fog plane.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightData", "column": "FogHeight"}]
         },
         "height_scaler": {
           "type": "number",
-          "description": "FogHeightScaler.",
-          "x-unit": "1"
+          "description": "Height-fog scaler.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "FogHeightScaler"}]
         },
         "height_density": {
           "type": "number",
-          "description": "FogHeightDensity: the client's exponential-fog parameter inside the height fog, not an extinction; its transform is unknown, as for density.",
-          "x-unit": "1"
+          "description": "The client's exponential-fog parameter inside the height fog, not an extinction. Its transform is unknown, as for density.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "FogHeightDensity"}]
         },
         "z_scalar": {
           "type": "number",
-          "description": "Vertical band (FogZScalar).",
-          "x-unit": "yard"
+          "description": "Vertical band.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightData", "column": "FogZScalar"}]
         },
         "curve_start": {
           "type": "number",
-          "description": "Distance-curve near distance (MainFogStartDist).",
-          "x-unit": "yard"
+          "description": "Distance-curve near distance.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightData", "column": "MainFogStartDist"}]
         },
         "curve_end": {
           "type": "number",
-          "description": "Distance-curve far distance (MainFogEndDist).",
-          "x-unit": "yard"
+          "description": "Distance-curve far distance.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightData", "column": "MainFogEndDist"}]
         },
         "sun_angle": {
           "type": "number",
-          "description": "Cosine past which sun fog starts (SunFogAngle).",
-          "x-unit": "1"
+          "description": "Cosine past which sun fog starts.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "SunFogAngle"}]
         },
         "sun_strength": {
           "type": "number",
-          "description": "Sun fog strength (SunFogStrength).",
-          "x-unit": "1"
+          "description": "Sun fog strength.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "SunFogStrength"}]
         },
         "end_color_distance": {
           "type": "number",
-          "description": "EndFogColorDistance.",
-          "x-unit": "yard"
+          "description": "Distance of the end fog colour.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightData", "column": "EndFogColorDistance"}]
         },
         "sky_color": {
           "$ref": "#/definitions/rgb",
-          "description": "SkyFogColor.",
-          "x-unit": "1"
+          "description": "Sky fog colour.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "SkyFogColor"}]
         },
         "end_color": {
           "$ref": "#/definitions/rgb",
-          "description": "EndFogColor.",
-          "x-unit": "1"
+          "description": "End fog colour.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "EndFogColor"}]
         },
         "sun_color": {
           "$ref": "#/definitions/rgb",
-          "description": "SunFogColor.",
-          "x-unit": "1"
+          "description": "Sun fog colour.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "SunFogColor"}]
         },
         "height_color": {
           "$ref": "#/definitions/rgb",
-          "description": "FogHeightColor.",
-          "x-unit": "1"
+          "description": "Height-fog colour.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "FogHeightColor"}]
         },
         "end_height_color": {
           "$ref": "#/definitions/rgb",
-          "description": "EndFogHeightColor.",
-          "x-unit": "1"
+          "description": "Height-fog end colour.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "EndFogHeightColor"}]
         },
         "height_coefficients": {
           "$ref": "#/definitions/vec4",
-          "description": "FogHeightCoefficients. Cubic coefficients x^3, x^2, x, 1.",
-          "x-unit": "1"
+          "description": "Height-fog cubic coefficients x^3, x^2, x, 1.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "FogHeightCoefficients"}]
         },
         "main_coefficients": {
           "$ref": "#/definitions/vec4",
-          "description": "MainFogCoefficients. Cubic coefficients x^3, x^2, x, 1.",
-          "x-unit": "1"
+          "description": "Main-fog cubic coefficients x^3, x^2, x, 1.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "MainFogCoefficients"}]
         },
         "height_density_coefficients": {
           "$ref": "#/definitions/vec4",
-          "description": "HeightDensityFogCoeff. Cubic coefficients x^3, x^2, x, 1.",
-          "x-unit": "1"
+          "description": "Height-density cubic coefficients x^3, x^2, x, 1.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "HeightDensityFogCoeff"}]
         }
       },
       "required": [
@@ -2322,42 +2387,50 @@
     },
     "light_key": {
       "type": "object",
-      "description": "A light parameter set's values at one time of day (one LightData row). Colours are as stored; a colour's nonzero high byte (alpha or flags, unverified) is under unresolved.",
+      "description": "A light parameter set's values at one time of day (one LightData row), each colour unpacked from the stored 0x00RRGGBB to 0..1 with no gamma conversion. A colour's nonzero high byte (alpha or flags, unverified) is under unresolved, since its meaning is not known.",
+      "x-source": [{"table": "LightData"}],
       "properties": {
         "time": {
           "type": "number",
-          "description": "Time of day the values hold at; between two keys the client interpolates.",
-          "x-unit": "second"
+          "description": "Time of day the values hold at, converted from the stored half-minutes; between two keys the client interpolates.",
+          "x-unit": "second",
+          "x-source": [{"table": "LightData", "column": "Time"}]
         },
         "direct_color": {
           "$ref": "#/definitions/rgb",
           "description": "Directional (sun or moon) light colour.",
-          "x-unit": "1"
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "DirectColor"}]
         },
         "ambient_color": {
           "$ref": "#/definitions/rgb",
           "description": "Ambient light colour.",
-          "x-unit": "1"
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "AmbientColor"}]
         },
         "horizon_ambient_color": {
           "$ref": "#/definitions/rgb",
           "description": "Ambient colour from the horizon.",
-          "x-unit": "1"
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "HorizonAmbientColor"}]
         },
         "ground_ambient_color": {
           "$ref": "#/definitions/rgb",
           "description": "Ambient colour from the ground.",
-          "x-unit": "1"
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "GroundAmbientColor"}]
         },
         "sun_color": {
           "$ref": "#/definitions/rgb",
           "description": "Colour of the sun disc.",
-          "x-unit": "1"
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "SunColor"}]
         },
         "shadow_opacity": {
           "$ref": "#/definitions/rgb",
-          "description": "Shadow opacity, stored as a colour: grey on 19,526 of 12.1.0's 19,866 rows.",
-          "x-unit": "1"
+          "description": "Shadow opacity, stored as a colour (grey on 19,526 of 12.1.0's 19,866 rows).",
+          "x-unit": "1",
+          "x-source": [{"table": "LightData", "column": "ShadowOpacity"}]
         },
         "sky": {
           "type": "object",
@@ -2366,27 +2439,32 @@
             "top_color": {
               "$ref": "#/definitions/rgb",
               "description": "Sky top.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "SkyTopColor"}]
             },
             "middle_color": {
               "$ref": "#/definitions/rgb",
               "description": "Sky middle.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "SkyMiddleColor"}]
             },
             "band1_color": {
               "$ref": "#/definitions/rgb",
               "description": "First band above the horizon.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "SkyBand1Color"}]
             },
             "band2_color": {
               "$ref": "#/definitions/rgb",
               "description": "Second band above the horizon.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "SkyBand2Color"}]
             },
             "smog_color": {
               "$ref": "#/definitions/rgb",
               "description": "Haze at the horizon.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "SkySmogColor"}]
             }
           },
           "required": [
@@ -2405,27 +2483,32 @@
             "sun_color": {
               "$ref": "#/definitions/rgb",
               "description": "Sunlit side of the clouds.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "CloudSunColor"}]
             },
             "emissive_color": {
               "$ref": "#/definitions/rgb",
               "description": "Cloud emission.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "CloudEmissiveColor"}]
             },
             "layer1_ambient_color": {
               "$ref": "#/definitions/rgb",
               "description": "Ambient colour of the first layer.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "CloudLayer1AmbientColor"}]
             },
             "layer2_ambient_color": {
               "$ref": "#/definitions/rgb",
               "description": "Ambient colour of the second layer.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "CloudLayer2AmbientColor"}]
             },
             "density": {
               "type": "number",
               "description": "Cloud cover.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "CloudDensity"}]
             }
           },
           "required": [
@@ -2444,22 +2527,26 @@
             "ocean_close_color": {
               "$ref": "#/definitions/rgb",
               "description": "Ocean, near.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "OceanCloseColor"}]
             },
             "ocean_far_color": {
               "$ref": "#/definitions/rgb",
               "description": "Ocean, far.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "OceanFarColor"}]
             },
             "river_close_color": {
               "$ref": "#/definitions/rgb",
               "description": "Rivers and lakes, near.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "RiverCloseColor"}]
             },
             "river_far_color": {
               "$ref": "#/definitions/rgb",
               "description": "Rivers and lakes, far.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightData", "column": "RiverFarColor"}]
             }
           },
           "required": [
@@ -2472,11 +2559,11 @@
         },
         "color_grading": {
           "$ref": "#/definitions/texture_id",
-          "description": "A 1024x32 lookup texture remapping the frame's colours (wowdev.wiki DB/LightData). Absent: none."
+          "description": "A 1024x32 lookup texture remapping the frame's colours (wowdev.wiki DB/LightData), the texture of LightData ColorGradingFileDataID; absent: none."
         },
         "darker_color_grading": {
           "$ref": "#/definitions/texture_id",
-          "description": "The darker variant of color_grading. Absent: none."
+          "description": "The darker variant of color_grading, the texture of LightData DarkerColorGradingFileDataID; absent: none."
         },
         "fog": {
           "$ref": "#/definitions/zone_fog_values",
@@ -2505,26 +2592,32 @@
     "light_settings": {
       "type": "object",
       "description": "A light parameter set's settings that don't change with time (one LightParams row).",
+      "x-source": [{"table": "LightParams"}],
       "properties": {
         "highlight_sky": {
           "type": "boolean",
-          "description": "LightParams HighlightSky."
+          "description": "Whether the sky is highlighted.",
+          "x-source": [{"table": "LightParams", "column": "HighlightSky"}]
         },
         "skybox": {
           "type": "object",
-          "description": "The sky model drawn (LightSkybox).",
+          "description": "The sky model drawn (the LightSkybox row LightParams LightSkyboxID names).",
+          "x-source": [{"table": "LightSkybox"}],
           "properties": {
             "ref": {
               "$ref": "#/definitions/ref",
-              "description": "The LightSkybox row, named from LightSkybox.Name: the sky model's pre-FileDataID path (e.g. \"ENVIRONMENTS\\Stars\\DeathSkybox.mdx\"), the only name the client gives a sky."
+              "description": "The LightSkybox row, named from LightSkybox.Name: the sky model's pre-FileDataID path (e.g. \"ENVIRONMENTS\\Stars\\DeathSkybox.mdx\"), the only name the client gives a sky.",
+              "x-source": [{"table": "LightParams", "column": "LightSkyboxID"}]
             },
             "model": {
               "$ref": "#/definitions/asset_ref",
-              "description": "The sky model."
+              "description": "The sky model.",
+              "x-source": [{"table": "LightSkybox", "column": "SkyboxFileDataID"}]
             },
             "celestial_model": {
               "$ref": "#/definitions/asset_ref",
-              "description": "A second sky model, for celestial bodies."
+              "description": "A second sky model, for celestial bodies.",
+              "x-source": [{"table": "LightSkybox", "column": "CelestialSkyboxFileDataID"}]
             },
             "source": {
               "type": "object",
@@ -2532,7 +2625,8 @@
               "properties": {
                 "flags": {
                   "$ref": "#/definitions/flags",
-                  "description": "LightSkybox Flags (names in wowdev.wiki DB/LightSkybox)."
+                  "description": "LightSkybox Flags as stored (names in wowdev.wiki DB/LightSkybox).",
+                  "x-source": [{"table": "LightSkybox", "column": "Flags"}]
                 }
               },
               "required": [
@@ -2551,7 +2645,8 @@
         "glow": {
           "type": "number",
           "description": "How much fog is added to everything (wowdev.wiki DB/LightParams).",
-          "x-unit": "1"
+          "x-unit": "1",
+          "x-source": [{"table": "LightParams", "column": "Glow"}]
         },
         "water_alpha": {
           "type": "object",
@@ -2560,22 +2655,26 @@
             "river_shallow": {
               "type": "number",
               "description": "Rivers and lakes, shallow.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightParams", "column": "WaterShallowAlpha"}]
             },
             "river_deep": {
               "type": "number",
               "description": "Rivers and lakes, deep.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightParams", "column": "WaterDeepAlpha"}]
             },
             "ocean_shallow": {
               "type": "number",
               "description": "Ocean, shallow.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightParams", "column": "OceanShallowAlpha"}]
             },
             "ocean_deep": {
               "type": "number",
               "description": "Ocean, deep.",
-              "x-unit": "1"
+              "x-unit": "1",
+              "x-source": [{"table": "LightParams", "column": "OceanDeepAlpha"}]
             }
           },
           "required": [
@@ -2592,23 +2691,27 @@
           "properties": {
             "polar": {
               "type": "number",
-              "description": "SunPolar, converted as if stored in degrees (an inference from the values; unconfirmed).",
-              "x-unit": "radian"
+              "description": "The sun's polar angle, converted as if stored in degrees (an inference from the values; unconfirmed).",
+              "x-unit": "radian",
+              "x-source": [{"table": "LightParams", "column": "SunPolar"}]
             },
             "azimuth": {
               "type": "number",
-              "description": "SunAzimuth, converted as if stored in degrees (an inference from the values; unconfirmed).",
-              "x-unit": "radian"
+              "description": "The sun's azimuth, converted as if stored in degrees (an inference from the values; unconfirmed).",
+              "x-unit": "radian",
+              "x-source": [{"table": "LightParams", "column": "SunAzimuth"}]
             },
             "attenuation_start": {
               "type": "number",
-              "description": "SunAttenuationStart.",
-              "x-unit": "yard"
+              "description": "Sun attenuation start.",
+              "x-unit": "yard",
+              "x-source": [{"table": "LightParams", "column": "SunAttenuationStart"}]
             },
             "attenuation_end": {
               "type": "number",
-              "description": "SunAttenuationEnd.",
-              "x-unit": "yard"
+              "description": "Sun attenuation end.",
+              "x-unit": "yard",
+              "x-source": [{"table": "LightParams", "column": "SunAttenuationEnd"}]
             }
           },
           "required": [
@@ -2621,35 +2724,42 @@
         },
         "hide_sun": {
           "type": "boolean",
-          "description": "The sun is not drawn (flag 0x4)."
+          "description": "The sun is not drawn (flag 0x4). Of wowdev.wiki's two name lists for these flags, only bits 0x4, 0x8 and 0x10 agree, so only they are named.",
+          "x-source": [{"table": "LightParams", "column": "Flags"}]
         },
         "hide_moon": {
           "type": "boolean",
-          "description": "The moon is not drawn (flag 0x8)."
+          "description": "The moon is not drawn (flag 0x8).",
+          "x-source": [{"table": "LightParams", "column": "Flags"}]
         },
         "hide_stars": {
           "type": "boolean",
-          "description": "The stars are not drawn (flag 0x10)."
+          "description": "The stars are not drawn (flag 0x10).",
+          "x-source": [{"table": "LightParams", "column": "Flags"}]
         },
         "celestial_sphere_override": {
           "$ref": "#/definitions/vec3",
-          "description": "OverrideCelestialSphere, as stored. Absent when stored zero.",
-          "x-unit": "1"
+          "description": "The celestial sphere override as stored; absent when stored zero.",
+          "x-unit": "1",
+          "x-source": [{"table": "LightParams", "column": "OverrideCelestialSphere"}]
         },
         "sun_position_override": {
           "$ref": "#/definitions/vec3",
-          "description": "OverrideSunPosition, as stored. Absent when stored zero.",
-          "x-unit": "yard"
+          "description": "The sun position override as stored; absent when stored zero.",
+          "x-unit": "yard",
+          "x-source": [{"table": "LightParams", "column": "OverrideSunPosition"}]
         },
         "cloud_kind": {
           "type": "integer",
           "minimum": 0,
-          "description": "CloudType row; 0 = none."
+          "description": "CloudType row; 0 = none.",
+          "x-source": [{"table": "LightParams", "column": "CloudTypeID"}]
         },
         "ssao_settings": {
           "type": "integer",
           "minimum": 0,
-          "description": "SSAOSettings row; 0 = none."
+          "description": "SSAOSettings row; 0 = none.",
+          "x-source": [{"table": "LightParams", "column": "SsaoSettingsID"}]
         },
         "source": {
           "type": "object",
@@ -2657,7 +2767,8 @@
           "properties": {
             "flags": {
               "$ref": "#/definitions/flags",
-              "description": "LightParams Flags (names in wowdev.wiki DB/LightParams)."
+              "description": "LightParams Flags as stored (names in wowdev.wiki DB/LightParams).",
+              "x-source": [{"table": "LightParams", "column": "Flags"}]
             }
           },
           "required": [
@@ -2695,7 +2806,8 @@
         },
         "ref": {
           "$ref": "#/definitions/ref",
-          "description": "The LightParams row."
+          "description": "The LightParams row.",
+          "x-source": [{"table": "LightParams", "column": "ID"}]
         },
         "settings": {
           "$ref": "#/definitions/light_settings",
@@ -2729,27 +2841,32 @@
         "mod_add",
         "blend_add"
       ],
-      "description": "How the drawn colour combines with the framebuffer, per the client's EGxBlend states. Each value's formula is the technique document framebuffer_blend/<value> the material references."
+      "description": "How the drawn colour combines with the framebuffer, per the client's EGxBlend states; each value's formula is the technique document framebuffer_blend/<value> the material references."
     },
     "surface_type": {
       "type": "object",
       "description": "What a surface is made of (a TerrainType row: Dirt, Grass, Stone, Snow...). The client picks footstep sounds and sprays by it; a renderer or weather system can ask the same question.",
+      "x-source": [{"table": "TerrainType"}],
       "properties": {
         "ref": {
           "$ref": "#/definitions/ref",
-          "description": "The TerrainType row; its name is the row's TerrainDesc."
+          "description": "The TerrainType row; its name is the row's TerrainDesc.",
+          "x-source": [{"table": "TerrainType", "column": "ID"}]
         },
         "sound_class": {
           "$ref": "#/definitions/ref",
-          "description": "The TerrainTypeSounds row footsteps play. Absent when the build has no TerrainType row for ref."
+          "description": "The TerrainTypeSounds row footsteps play, named from its Name; absent when the build has no TerrainType row for ref.",
+          "x-source": [{"table": "TerrainType", "column": "SoundID"}]
         },
         "footstep_spray_run": {
           "$ref": "#/definitions/ref",
-          "description": "SpellVisualEffectName row shown when running."
+          "description": "SpellVisualEffectName row shown when running.",
+          "x-source": [{"table": "TerrainType", "column": "FootstepSprayRun"}]
         },
         "footstep_spray_walk": {
           "$ref": "#/definitions/ref",
-          "description": "SpellVisualEffectName row shown when walking."
+          "description": "SpellVisualEffectName row shown when walking.",
+          "x-source": [{"table": "TerrainType", "column": "FootstepSprayWalk"}]
         },
         "source": {
           "type": "object",
@@ -2757,7 +2874,8 @@
           "properties": {
             "flags": {
               "$ref": "#/definitions/flags",
-              "description": "TerrainType Flags (wowdev.wiki DB/TerrainType: 0x1 footprints)."
+              "description": "TerrainType Flags as stored (wowdev.wiki DB/TerrainType: 0x1 footprints).",
+              "x-source": [{"table": "TerrainType", "column": "Flags"}]
             }
           },
           "required": [
