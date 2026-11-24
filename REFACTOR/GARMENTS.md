@@ -247,15 +247,26 @@ means compositing from the pieces instead.
 
 ## Evidence still needed before it ships
 
-- The slot → geoset-group table, on 2+ races (**ref** today).
-- Region rectangles per texture layout, from `CharComponentTextureSections`
-  (**data**, not yet read).
-- The hem geoset's UV footprint per body model:
-  - Is it inside `LegUpper`/`LegLower`, and disjoint from the thigh mesh's
-    footprint (decision 4 depends on that)?
-  - Is it the same across hem variants?
-- Corpus counts:
-  - chest items with `LegUpper`/`LegLower` overlays;
-  - legs items with a skirt geoset;
-  - legs textures with non-empty pixels inside the hem footprint (the
-    hem-in-trousers cases).
+Findings: `WIKI_FINDINGS/GARMENTS.md` (12.1.5). Footprint code:
+`src/garment_footprint.hpp`, debug command `husk uv-footprint`.
+
+- **Settled**: the slot → geoset-group table, verified structurally on
+  humanmale_hd, earthen and dracthyr bodies for shirt, chest/robe, waist,
+  legs, feet, hands, back and tabard; head, shoulder and the -1 values are
+  unverifiable on the body ("Slot → GeosetGroup table").
+- **Settled**: region rectangles; all playable layouts share SectionType
+  0-7 ("Region rectangles").
+- **Settled, contradicts stage 2**: no playable body has a hem mesh of its
+  own. Group 13 is 1301 (a thigh variant) and the full-length skirts 1302 /
+  1303, which sample all of `LegUpper` below the belt rows plus `LegLower`,
+  a superset of the thigh footprint, not disjoint from it. Variants are
+  nested, not identical. Legacy bodies lack 1303 as some HD bodies do; the
+  group-13 set does not change at Dragonflight ("Leg-region footprints").
+- **Settled**: corpus counts by expansion: chest leg overlays are robes
+  (1,490 of 1,520 skirted; 30 tunics), 246 legs displays with a skirt,
+  200 of 200 sampled legs textures non-empty inside the footprint, so the
+  footprint test selects every one ("Corpus counts").
+- **Open**: what a modern tunic's hem is, if not a body mesh. Candidate:
+  the chest item's own model (1,096 chest displays with a model and no
+  skirt or leg overlay, from Legion on). Stage 2 needs a new mechanism
+  before it ships.

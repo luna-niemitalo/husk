@@ -63,6 +63,7 @@ are the same text.
 | `db2-build ... -o <out.sqlite>` | knowledge-base database (disabled subsystem, see `STYLE_CLEANUP.md` item 2) |
 | `appearance-string --validate <string>` | validate a `husk-appearance/1` string; resolves `gear` with `--db2-dir`/`--dbd-dir` |
 | `blp-export <file.blp> <out.png>` / `--dir <in> <out>` | BLP2 → PNG, mip 0 |
+| `uv-footprint <body.m2> --layout-id N [--group G]...` | each geoset's UV footprint on the composite skin texture: bounds, sections, overlaps, PNG masks with `--png-dir`, a section texture's coverage with `--texture` (`WIKI_FINDINGS/GARMENTS.md`) |
 | `--version`, `-V` | build version |
 
 ### Inputs
