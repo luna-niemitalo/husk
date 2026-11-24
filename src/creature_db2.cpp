@@ -57,7 +57,11 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     auto types = loadNames(tablePath(db2Dir, "creaturetype.db2"), "CreatureType", dbdDir, err);
     auto families = loadNames(tablePath(db2Dir, "creaturefamily.db2"), "CreatureFamily", dbdDir, err);
     auto displays = db2table::readNamedArrayColumns(tablePath(db2Dir, "creaturedisplayinfo.db2"), dbdDir,
-                                                    {"ID", "ModelID", "CreatureModelScale"}, err);
+                                                    {"ID", "ModelID", "CreatureModelScale", "SizeClass",
+                                                     "ObjectEffectPackageID", "StateSpellVisualKitID",
+                                                     "AnimReplacementSetID", "DissolveEffectID",
+                                                     "MountPoofSpellVisualKitID"},
+                                                    err);
     auto models = db2table::readNamedArrayColumns(tablePath(db2Dir, "creaturemodeldata.db2"), dbdDir,
                                                   {"ID", "FileDataID", "ModelScale"}, err);
     if (!creatures || !creatureNames || !types || !families || !displays || !models) return std::nullopt;
@@ -89,7 +93,17 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     for (size_t r = 0; r < displays->size(); ++r) {
         const auto& row = (*displays)[r];
         uint32_t id = requiredId(row[0], "CreatureDisplayInfo", r);
-        out.displays[id] = {first(row[1]), finite(first(row[2]), "CreatureDisplayInfo.CreatureModelScale", id)};
+        Display display;
+        display.modelData = first(row[1]);
+        display.scale = finite(first(row[2]), "CreatureDisplayInfo.CreatureModelScale", id);
+        // CreatureDisplayInfo.dbd: SizeClass<8>, signed.
+        display.sizeClass = static_cast<int8_t>(first(row[3]));
+        display.objectEffectPackage = first(row[4]);
+        display.stateSpellVisualKit = first(row[5]);
+        display.animReplacementSet = first(row[6]);
+        display.dissolveEffect = first(row[7]);
+        display.mountPoofSpellVisualKit = first(row[8]);
+        out.displays[id] = display;
     }
     for (size_t r = 0; r < models->size(); ++r) {
         const auto& row = (*models)[r];

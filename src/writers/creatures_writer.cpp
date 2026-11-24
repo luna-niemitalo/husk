@@ -91,6 +91,16 @@ std::string creatureCatalogDocument(const canon::CreatureCatalog& catalog, const
         if (display.preset) writeIntField(w, "preset", *display.preset);
         if (display.scale) writeFloatField(w, "scale", *display.scale);
         if (display.baseScale) writeFloatField(w, "base_scale", *display.baseScale);
+        if (display.sizeClass) writeIntField(w, "size_class", *display.sizeClass);
+        for (auto [key, ref] : {std::pair{"object_effect_package", &display.objectEffectPackage},
+                                std::pair{"state_spell_visual_kit", &display.stateSpellVisualKit},
+                                std::pair{"anim_replacement_set", &display.animReplacementSet},
+                                std::pair{"dissolve_effect", &display.dissolveEffect},
+                                std::pair{"mount_poof_spell_visual_kit", &display.mountPoofSpellVisualKit}}) {
+            if (!*ref) continue;
+            w.key(key);
+            writeRef(w, **ref);
+        }
         w.key("source");
         w.beginObject();
         w.key("id");

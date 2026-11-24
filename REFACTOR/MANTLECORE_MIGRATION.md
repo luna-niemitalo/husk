@@ -177,6 +177,28 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Global-sequence lengths.** A `global_sequence` clip has `duration`
   (its loop); `resources.rig.global_sequences[i].duration` is the loop
   table other curves index. Use these as the period, not the last key.
+- **Map identity.** With `--db2-dir`, a world document has a `map` block
+  from its `Map` row: `ref` (row + `MapName_lang`), `directory`,
+  `instance_type` (+ `instance_type_name` for 0-4), `map_type`,
+  `expansion`, `max_players`, and `parent`, `cosmetic_parent` (Map refs)
+  and `area` (AreaTable ref), each named. A tile carries the same map ref
+  as `definition.terrain.map`. Use these for the place's name, not the
+  WDT file stem.
+- **WMO interior names.** With `--db2-dir`, a WMO mesh part has `areas`:
+  per name set, `{name_set, ref, area, whole_model}` (WMOAreaTable row
+  with `AreaName_lang`, its AreaTable row named). Pick the entry whose
+  `name_set` is the placement's MODF name set (`BUNDLE_FORMAT.md` "Schema
+  0.4.0").
+- **More named refs.** With `--db2-dir`, a tile's
+  `resources.terrain.chunks.areas[]` carry AreaTable names and a zone
+  light's `skybox.ref` its LightSkybox name; identities unchanged.
+- **Creature display fields.** A catalog display gains `size_class` (raw)
+  and unnamed row refs `object_effect_package`, `state_spell_visual_kit`,
+  `anim_replacement_set`, `dissolve_effect`, `mount_poof_spell_visual_kit`
+  (CreatureDisplayInfo columns of the same names), each absent at 0.
+- **Character model names.** A customization option's `chr_model` ref
+  is named "<race> <sex>" from ChrRaces and ChrRaceXChrModel ("Human
+  male"); match on the ChrModel row, show the name.
 - **Animation fallbacks.** `resources.rig.animation_fallbacks`:
   `[animation, fallback]` pairs from AnimationData, written with
   `--db2-dir`; follow them when a model has no clip for an animation.

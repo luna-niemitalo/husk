@@ -589,6 +589,29 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
 - WMO mesh parts: `portals[].side` (+1/-1, the part's half-space of the
   portal plane) is a resolved field; `interior_fogs` (was `fog_volumes`)
   lists the fogs a viewer inside the part sees.
+- WMO mesh parts: `areas` (optional, additive; with `--db2-dir`) names
+  where a player inside the part is: one entry per WMOAreaTable name set,
+  because a placement's MODF `nameSet` picks among them (one building,
+  two towns). Rows are keyed by the root's MOHD wmoID, the name set and
+  the group's MOGP groupID; a part without a row of its own under a name
+  set gets the model-wide row (WMOGroupID -1), marked `whole_model`.
+  `ref` is the WMOAreaTable row named from `AreaName_lang`, `area` the
+  AreaTable row it counts as, named. `nsabbey.wmo` (WMOID 59): part 0,
+  "Main Hall", has rows under name sets 0-3, counting as Northshire Abbey
+  under set 1 and Tyr's Hand under sets 2 and 3. The client's
+  own lookup order for a missing part row is not checked; the
+  `whole_model` flag lets a consumer choose.
+- Names on refs that were written as identities only (additive, with
+  `--db2-dir`): a tile's chunk `areas` (AreaTable `AreaName_lang`) and a
+  zone light's `skybox.ref` (`LightSkybox.Name`, the sky model's old
+  path). A tile liquid's `liquid_type` was already named; a
+  `liquid_object` stays unnamed, as LiquidObject has no name column.
+- A customization option's `chr_model` ref is named `"<race> <sex>"`
+  (additive): the ChrRaces `Name_lang` of the lowest-row race using the
+  model (ChrModel 1 is also used by "TBD NPC Race 1" and "2"), then the
+  ChrRaceXChrModel `Sex` (0 male, 1 female) when the rows agree on it.
+  ChrModel 1 is "Human male". Without the race tables the ref stays
+  unnamed.
 
 ## Embed or reference — one rule
 
@@ -797,7 +820,11 @@ export-world` (every tile of a map or world). A tile is a `model` document
 whose content is `resources.terrain`, a heightfield; it has no mesh, rig
 or scene. `schema/model.schema.json` defines it key by key; this section is
 what a consumer needs on top of it. The subject is the root ADT (its
-FileDataID when the listfile knows it, named `<map>_<x>_<y>`).
+FileDataID when the listfile knows it, named `<map>_<x>_<y>`). With
+`--db2-dir`, `definition.terrain.map` (optional, since 0.4.0) is the
+tile's map as a `Map` row ref named from `MapName_lang`, the same row the
+world document's `map` block describes, so a tile read alone knows its
+place.
 
 ### Layout
 
@@ -999,6 +1026,17 @@ its `MAID` (the listfile only without one).
   `export-map --tiles-from <tree>/maps/<map>` rewrites a map's world
   document linked to an existing export's tiles (seconds, not a
   re-export).
+- `map` (optional, since 0.4.0; written with `--db2-dir`): the map's
+  `Map` row, found by `Map.Directory` matching the WDT's directory (case
+  ignored), because the WDT's file stem names a folder, not the place.
+  `ref` is the row named from `MapName_lang` (azeroth: Map 0, "Eastern
+  Kingdoms"); `directory`, `instance_type`, `map_type`, `expansion`
+  (ExpansionID), `max_players` as stored; `instance_type_name` only for
+  the five values WoWDBDefs' Map.dbd comment names (none, party, raid,
+  pvp, arena); `parent` (ParentMapID) and `cosmetic_parent`
+  (CosmeticParentMapID) as named Map refs, absent when stored as -1;
+  `area` (AreaTableID) as an AreaTable ref named from AreaName_lang.
+  Nothing from UiMap: the map's UI region tree is not exported yet.
 
 ## Creature catalogs
 
@@ -1057,7 +1095,15 @@ and is not per zone.
   preset source's values (`CreatureDisplayInfo.CreatureModelScale`,
   `CreatureModelData.ModelScale`) so the catalog alone can size a
   creature. A display the client's table lacks (an encrypted section)
-  keeps only its id and source.
+  keeps only its id and source. `size_class` is
+  `CreatureDisplayInfo.SizeClass` as stored (no table names it); the
+  rows the display layers on its model are unnamed refs, absent at 0:
+  `object_effect_package` (ObjectEffectPackageID),
+  `state_spell_visual_kit` (StateSpellVisualKitID, a standing visual),
+  `anim_replacement_set` (AnimReplacementSetID), `dissolve_effect`
+  (DissolveEffectID) and `mount_poof_spell_visual_kit`
+  (MountPoofSpellVisualKitID). husk reads none of those tables yet, so a
+  consumer resolves them or ignores them.
 - **Stable ids.** Creatures, displays and model references carry
   `nameUuid` ids (`creature/Creature/<row>`,
   `creature_display/CreatureDisplayInfo/<row>`,

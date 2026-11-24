@@ -269,6 +269,70 @@
         }
       },
       "x-layer": "resource"
+    },
+    "map": {
+      "type": "object",
+      "description": "The client's record of this map (its Map row, matched by Map.Directory to the WDT's directory): its name and what kind of place it is, which the WDT file name alone doesn't say. Values as stored. Absent when no map table was given or no row matches.",
+      "properties": {
+        "ref": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The Map row, named from Map.MapName_lang."
+        },
+        "directory": {
+          "type": "string",
+          "description": "Map.Directory as stored: the map's folder under World\\Maps\\."
+        },
+        "instance_type": {
+          "type": "integer",
+          "description": "Map.InstanceType as stored: whether the map is an open world or an instance, and which kind."
+        },
+        "instance_type_name": {
+          "enum": [
+            "none",
+            "party",
+            "raid",
+            "pvp",
+            "arena"
+          ],
+          "description": "instance_type's name from the WoWDBDefs Map.dbd column comment (0 none, 1 party, 2 raid, 3 pvp, 4 arena). Absent for a value that comment doesn't name."
+        },
+        "map_type": {
+          "type": "integer",
+          "description": "Map.MapType as stored; no reliable source names its values."
+        },
+        "expansion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Map.ExpansionID as stored: the expansion the map belongs to (0 the original game, 1 the first expansion, ...)."
+        },
+        "max_players": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Map.MaxPlayers as stored: the instance's player cap; 0 on open-world maps."
+        },
+        "parent": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The map this one belongs to (Map.ParentMapID), a Map row named from its MapName_lang: e.g. a phased copy's original. Absent when stored as -1."
+        },
+        "cosmetic_parent": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The map this one looks like (Map.CosmeticParentMapID), a Map row named from its MapName_lang. Absent when stored as -1."
+        },
+        "area": {
+          "$ref": "common.schema.json#/definitions/ref",
+          "description": "The map's own area (Map.AreaTableID), an AreaTable row named from AreaTable.AreaName_lang: what the client names the map's ground outside any zone. Absent when stored as 0."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "directory",
+        "instance_type",
+        "map_type",
+        "expansion",
+        "max_players"
+      ],
+      "x-layer": "resource"
     }
   },
   "required": [

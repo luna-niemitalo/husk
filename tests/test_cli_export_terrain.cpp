@@ -601,3 +601,82 @@ TEST_CASE("husk export-world: a source tree that is gone stops the run instead o
     CHECK(r.output.find("expected the source tree") != std::string::npos);
     CHECK(r.output.find("got none (unmounted?)") != std::string::npos);
 }
+
+namespace {
+
+constexpr const char* kLiveMaps = "/media/luna/wow_export/live/world/maps";
+constexpr const char* kLiveDb2Dir = "/media/luna/wow_export/live/dbfilesclient";
+
+bool haveLiveMap(const char* map) {
+    return fs::exists(fs::path(kLiveMaps) / map / (std::string(map) + ".wdt")) &&
+           fs::exists(fs::path(kLiveDb2Dir) / "map.db2") && !husk::test::testDbdDir().empty();
+}
+
+std::string liveDb2Args() { return " --db2-dir " + q(kLiveDb2Dir) + " --dbd-dir " + q(husk::test::testDbdDir()); }
+
+}  // namespace
+
+TEST_CASE("husk export-map: live moltencore names its Map row, kind and area" * doctest::skip(!haveLiveMap("moltencore"))) {
+    fs::path out = fs::temp_directory_path() / "husk-test-live-moltencore.world.bundle";
+    fs::remove_all(out);
+    auto r = runHusk("export-map " + q(fs::path(kLiveMaps) / "moltencore") + " " + q(out) + " --listfile none" +
+                     liveDb2Args());
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    nlohmann::json map = readTile(out / "manifest.json")["map"];
+    CHECK(map["ref"]["id"]["row"] == 409);
+    CHECK(map["ref"]["name"] == "Molten Core");
+    CHECK(map["directory"] == "MoltenCore");
+    CHECK(map["instance_type_name"] == "raid");
+    CHECK(map["max_players"] == 40);
+    CHECK(map["area"]["id"]["row"] == 2717);
+    CHECK(map["area"]["name"] == "Molten Core");
+    CHECK_FALSE(map.contains("parent"));
+}
+
+TEST_CASE("husk export-wmo: live Northshire Abbey's parts name the abbey under both its name sets" *
+          doctest::skip(!haveLiveMap("deadminesinstance") ||
+                        !fs::exists("/media/luna/wow_export/live/world/wmo/azeroth/buildings/nsabbey/nsabbey.wmo"))) {
+    fs::path out = fs::temp_directory_path() / "husk-test-live-nsabbey.bundle";
+    fs::remove_all(out);
+    auto r = runHusk("export-wmo /media/luna/wow_export/live/world/wmo/azeroth/buildings/nsabbey/nsabbey.wmo " + q(out) +
+                     " --listfile none" + liveDb2Args());
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    nlohmann::json parts = readTile(out / "manifest.json")["resources"]["geometry"]["mesh"]["parts"];
+    REQUIRE_FALSE(parts.empty());
+    // Part 0 has its own row under four name sets: the same building is
+    // Northshire Abbey in Elwynn and Tyr's Hand elsewhere.
+    const nlohmann::json& areas = parts[0]["areas"];
+    INFO(areas.dump());
+    REQUIRE(areas.size() == 4);
+    CHECK(areas[0]["name_set"] == 0);
+    CHECK(areas[0]["ref"]["id"]["row"] == 13748);
+    CHECK(areas[0]["ref"]["name"] == "Main Hall");
+    CHECK(areas[0]["whole_model"] == false);
+    CHECK_FALSE(areas[0].contains("area"));
+    CHECK(areas[1]["name_set"] == 1);
+    CHECK(areas[1]["area"]["id"]["row"] == 24);
+    CHECK(areas[1]["area"]["name"] == "Northshire Abbey");
+    CHECK(areas[2]["name_set"] == 2);
+    CHECK(areas[2]["area"]["name"] == "Tyr's Hand");
+}
+
+TEST_CASE("husk export-terrain: a live tile names its map"* doctest::skip(!haveLiveMap("deadminesinstance"))) {
+    fs::path out = fs::temp_directory_path() / "husk-test-live-deadmines_32_32.bundle";
+    fs::remove_all(out);
+    auto r = runHusk("export-terrain " + q(fs::path(kLiveMaps) / "deadminesinstance" / "deadminesinstance_32_32.adt") +
+                     " " + q(out) + " --listfile none" + liveDb2Args());
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    nlohmann::json m = readTile(out / "manifest.json");
+    nlohmann::json map = m["definition"]["terrain"]["map"];
+    CHECK(map["id"]["row"] == 36);
+    CHECK(map["name"] == "Deadmines");
+    const nlohmann::json& areas = m["resources"]["terrain"]["chunks"]["areas"];
+    REQUIRE_FALSE(areas.empty());
+    for (const nlohmann::json& area : areas) {
+        if (area["id"]["row"] == 0) continue;
+        CHECK(area["name_source"] == "db2");
+    }
+}

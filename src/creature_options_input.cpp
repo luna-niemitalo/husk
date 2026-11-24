@@ -240,6 +240,9 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
             std::ostringstream err;
             canon::Definition definition = canon::assembleDefinition(data.customization, chrModel, err);
             report.notes += err.str();
+            if (auto name = data.chrModelNames.find(chrModel); name != data.chrModelNames.end()) {
+                definition.chrModelName = name->second;
+            }
             for (size_t o = 0; o < definition.options.size(); ++o) {
                 const std::vector<canon::Choice>& choices = definition.options[o].choices;
                 for (size_t c = 0; c < choices.size(); ++c) {

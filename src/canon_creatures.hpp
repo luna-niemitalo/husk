@@ -40,6 +40,14 @@ struct CreatureDisplay {
     std::optional<uint32_t> preset;  // index into that model document's selection.presets
     std::optional<float> scale;      // the display's own scale
     std::optional<float> baseScale;  // the model data row's scale
+    std::optional<int32_t> sizeClass;  // the source's size class as stored; no table names it
+    // What the display layers on its model, as source rows (none named:
+    // husk reads none of those tables); absent when stored as 0.
+    std::optional<Ref> objectEffectPackage;
+    std::optional<Ref> stateSpellVisualKit;
+    std::optional<Ref> animReplacementSet;
+    std::optional<Ref> dissolveEffect;
+    std::optional<Ref> mountPoofSpellVisualKit;
 };
 
 struct CreatureCatalog {

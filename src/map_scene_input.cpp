@@ -269,6 +269,10 @@ canon::LightSettings lightSettings(const MapSceneInputs& in, const lightdb::Para
         skybox.ref = canon::Ref{canon::Db2Row{"LightSkybox", p.lightSkyboxId}, "", canon::NameSource::None};
         auto row = in.lights->skyboxes.find(p.lightSkyboxId);
         if (row != in.lights->skyboxes.end()) {
+            if (!row->second.name.empty()) {
+                skybox.ref.name = row->second.name;
+                skybox.ref.source = canon::NameSource::Db2;
+            }
             skybox.model = modelRef(in, row->second.skyboxFileDataId);
             if (row->second.celestialSkyboxFileDataId != 0) skybox.celestialModel = modelRef(in, row->second.celestialSkyboxFileDataId);
             skybox.flags = row->second.flags;

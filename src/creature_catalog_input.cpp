@@ -13,8 +13,8 @@ canon::Ref db2Ref(const char* table, uint32_t row, const std::string& name) {
     return {canon::Db2Row{table, row}, name, name.empty() ? canon::NameSource::None : canon::NameSource::Db2};
 }
 
-// Row 0 is "none" in both tables; a row the table lacks keeps its identity
-// without a name.
+// Row 0 is "none" in every table this names rows of; a row the table lacks
+// keeps its identity without a name.
 std::optional<canon::Ref> namedRow(const char* table, uint32_t row, const std::unordered_map<uint32_t, std::string>& names) {
     if (row == 0) return std::nullopt;
     auto it = names.find(row);
@@ -41,8 +41,16 @@ canon::CreatureCatalog assemble(const creaturedb::Data& data) {
         // A display the client's table lacks (an encrypted section) keeps
         // only its identity.
         if (auto info = data.displays.find(row); info != data.displays.end()) {
-            display.scale = info->second.scale;
-            if (auto model = data.models.find(info->second.modelData); model != data.models.end()) {
+            const creaturedb::Display& row = info->second;
+            display.scale = row.scale;
+            display.sizeClass = row.sizeClass;
+            static const std::unordered_map<uint32_t, std::string> kUnnamed;
+            display.objectEffectPackage = namedRow("ObjectEffectPackage", row.objectEffectPackage, kUnnamed);
+            display.stateSpellVisualKit = namedRow("SpellVisualKit", row.stateSpellVisualKit, kUnnamed);
+            display.animReplacementSet = namedRow("AnimReplacementSet", row.animReplacementSet, kUnnamed);
+            display.dissolveEffect = namedRow("DissolveEffect", row.dissolveEffect, kUnnamed);
+            display.mountPoofSpellVisualKit = namedRow("SpellVisualKit", row.mountPoofSpellVisualKit, kUnnamed);
+            if (auto model = data.models.find(row.modelData); model != data.models.end()) {
                 if (model->second.fileDataId != 0) display.model = model->second.fileDataId;
                 display.baseScale = model->second.scale;
             }

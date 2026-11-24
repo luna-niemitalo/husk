@@ -311,6 +311,10 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.beginObject();
     w.key("edge_vertices");
     w.value("duplicated");
+    if (std::holds_alternative<canon::Db2Row>(terrain.map.id)) {
+        w.key("map");
+        writeRef(w, terrain.map);
+    }
     w.endObject();
     w.endObject();
     writeOwnedSetSelectionAndReferences(w, sets);

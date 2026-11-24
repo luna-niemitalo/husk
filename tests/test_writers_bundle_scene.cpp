@@ -404,6 +404,46 @@ TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id"
     CHECK(problems[0].where.find("/zones/1/parent") != std::string::npos);
 }
 
+TEST_CASE("writeWorldBundle: the map block names the Map row, its parents and area; absent without one") {
+    canon::World world;
+    world.subject = canon::Ref{canon::FileDataId{775971}, "gilneasphase1", canon::NameSource::Listfile};
+    world.cells.push_back({32, 49, canon::Ref{canon::None{}, "gilneasphase1_32_49", canon::NameSource::Listfile}, {}, {}});
+    fs::path root = fs::temp_directory_path() / "husk-test-world-map";
+    fs::remove_all(root);
+    writers::writeWorldBundle(world, root / "none.bundle", testProvenance(), {""});
+    CHECK_FALSE(parseManifest(root / "none.bundle").contains("map"));
+
+    canon::MapInfo map;
+    map.ref = canon::Ref{canon::Db2Row{"Map", 655}, "GilneasPhase1", canon::NameSource::Db2};
+    map.directory = "GilneasPhase1";
+    map.instanceType = 0;
+    map.instanceTypeName = "none";
+    map.mapType = 1;
+    map.expansion = 3;
+    map.parent = canon::Ref{canon::Db2Row{"Map", 654}, "Gilneas", canon::NameSource::Db2};
+    map.area = canon::Ref{canon::Db2Row{"AreaTable", 4714}, "Gilneas", canon::NameSource::Db2};
+    world.map = map;
+    fs::path dir = root / "gilneasphase1.world.bundle";
+    writers::writeWorldBundle(world, dir, testProvenance(), {""});
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& out = manifest["map"];
+    CHECK(out["ref"]["id"]["table"] == "Map");
+    CHECK(out["ref"]["id"]["row"] == 655);
+    CHECK(out["ref"]["name"] == "GilneasPhase1");
+    CHECK(out["directory"] == "GilneasPhase1");
+    CHECK(out["instance_type_name"] == "none");
+    CHECK(out["expansion"] == 3);
+    CHECK(out["max_players"] == 0);
+    CHECK(out["parent"]["name"] == "Gilneas");
+    CHECK_FALSE(out.contains("cosmetic_parent"));
+    CHECK(out["area"]["id"]["table"] == "AreaTable");
+    CHECK(bundle_schema::validateDocument(dir).empty());
+
+    manifest["map"]["instance_type_name"] = "scenario";
+    std::ofstream(dir / "manifest.json") << manifest.dump();
+    CHECK_FALSE(bundle_schema::validateDocument(dir).empty());
+}
+
 TEST_CASE("nameUuid: deterministic version-3 UUID text") {
     std::string a = nameUuid("zone/azeroth/AreaTable/12");
     CHECK(a == nameUuid("zone/azeroth/AreaTable/12"));
@@ -470,6 +510,8 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     CHECK(settings["hide_sun"] == true);
     CHECK(settings["skybox"]["model"]["uri"] == "../../deathskybox.bundle/manifest.json");
     CHECK(settings["skybox"]["source"]["flags"] == "0x2");
+    CHECK(settings["skybox"]["ref"]["name"] == "ENVIRONMENTS\\Stars\\DeathSkybox.mdx");
+    CHECK(settings["skybox"]["ref"]["name_source"] == "db2");
     CHECK_FALSE(settings.contains("unresolved"));
     const auto& key = table[0]["keys"][0];
     CHECK(key["time"] == 43200.0);

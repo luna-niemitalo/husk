@@ -62,6 +62,7 @@ struct Option {
 // has to travel with it, not just with each Option inside it.
 struct Definition {
     uint32_t chrModelId = 0;
+    std::string chrModelName;  // the races and sex that draw it; empty: unnamed
     std::vector<Option> options;
 };
 

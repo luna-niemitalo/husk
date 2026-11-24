@@ -287,6 +287,13 @@ int exportWorld(int argc, char** args) {
         std::string areaNote;
         const std::optional<areadb::Data> areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), areaNote);
         std::cout << areaNote << std::endl;
+        std::string mapNote;
+        const std::optional<mapdb::Data> mapRows = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), mapNote);
+        std::cout << mapNote << std::endl;
+        std::string wmoAreaNote;
+        const std::optional<wmoareadb::Data> wmoAreas =
+            loadWmoAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), wmoAreaNote);
+        std::cout << wmoAreaNote << std::endl;
         std::string creatureNote;
         const std::optional<creaturedisplay::Data> creatures =
             loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
@@ -478,7 +485,8 @@ int exportWorld(int argc, char** args) {
                         auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
                         canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot,
                                                           liquids ? &*liquids : nullptr,
-                                                          surfaces ? &*surfaces : nullptr, warn);
+                                                          surfaces ? &*surfaces : nullptr,
+                                                          wmoAreas ? &*wmoAreas : nullptr, areas ? &*areas : nullptr, warn);
                         writers::AssetUris doodadUris;
                         for (uint32_t doodad : placedAssets(model)) {
                             if (exportedModels.count(doodad)) {
@@ -487,7 +495,8 @@ int exportWorld(int argc, char** args) {
                         }
                         writers::AssetUris textureUris;
                         writers::externalizeTextures(model, textureStore, modelTextures.uriToStore, textureUris);
-                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value(), surfaces.has_value()),
+                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile, liquids.has_value(), surfaces.has_value(),
+                                                                                   wmoAreas.has_value()),
                                              doodadUris, textureUris);
                     }
                 } catch (...) {
@@ -564,7 +573,8 @@ int exportWorld(int argc, char** args) {
                                                   tileTextures.mapTexture, tileTextures.mapNormalTexture,
                                                   tileTextures.liquidFlow};
                     canon::Terrain terrain = adtinput::buildCanonTerrain(
-                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
+                        sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr,
+                                  areas ? &*areas : nullptr});
                     nameModelRefs(terrain, *listfile);
                     dropMissingDoodadSets(terrain.mapObjects, wmoSetCounts,
                                           [&](const std::string& w) { errors.add("placement", t.root.string(), w); });
@@ -576,12 +586,14 @@ int exportWorld(int argc, char** args) {
                         }
                     }
                     terrain.subject = writers::subjectRef(t.root, tileFileDataId(rootIds, opts.listfileRoot, t.root));
+                    if (auto ref = mapRef(t.map, mapRows ? &*mapRows : nullptr)) terrain.map = *ref;
                     writers::writeTerrainBundle(terrain, bundle,
                                                 terrainProvenance(obj.has_value(), tex.has_value(),
                                                                   lodSidecar.value.has_value(),
                                                                   obj1Sidecar.value.has_value(), flags.has_value(),
                                                                   listfile.get(), opts.listfile, !groundEffects.empty(),
-                                                                  liquids.has_value(), surfaces.has_value()),
+                                                                  liquids.has_value(), surfaces.has_value(),
+                                                                  mapRows.has_value(), areas.has_value()),
                                                 modelUris, textureUris);
                 }
             } catch (...) {
@@ -628,6 +640,7 @@ int exportWorld(int argc, char** args) {
                             loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot,
                                       lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
                                       areas ? &*areas : nullptr, jobs);
+                        world.map = mapInfo(maps[i], mapRows ? &*mapRows : nullptr, areas ? &*areas : nullptr);
                         for (canon::PlacementSet& set : world.placements) {
                             dropMissingDoodadSets(set, wmoSetCounts,
                                                   [&](const std::string& w) { errors.add("placement", mapDir.string(), w); });
@@ -651,7 +664,8 @@ int exportWorld(int argc, char** args) {
                         }
                         writers::writeWorldBundle(world, bundle,
                                                   worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value(),
-                                                                  conditions.has_value(), areas.has_value()),
+                                                                  conditions.has_value(), areas.has_value(),
+                                                                  mapRows.has_value()),
                                                   tileUris, assetUris);
                     }
                     ++worlds;

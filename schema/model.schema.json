@@ -303,7 +303,7 @@
                   },
                   "chr_model": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The character model the option belongs to."
+                    "description": "The character model the option belongs to: a ChrModel row, named \"<race> <sex>\" (e.g. \"Human male\") from the ChrRaceXChrModel rows that use it: the ChrRaces.Name_lang of the lowest race row with a name (NPC placeholder races share the playable races' models), then ChrRaceXChrModel.Sex (0 male, 1 female; left off when the races disagree or the value is neither). Unnamed when no race uses the model. Lets a reader tell which body a customization catalog is for without the race tables."
                   },
                   "order": {
                     "type": "integer",
@@ -438,6 +438,10 @@
                 "duplicated"
               ],
               "description": "duplicated: a border vertex is stored by every tile it borders, at the same position in the world frame; heights agree to float precision unless the source tiles differ."
+            },
+            "map": {
+              "$ref": "common.schema.json#/definitions/ref",
+              "description": "The map this tile belongs to, so a tile read alone still knows its place: the Map row whose Directory is the tile's map directory, named from Map.MapName_lang. The world document's map block carries the rest of the row. Absent when no map table was given or no row matches."
             }
           },
           "additionalProperties": false,
@@ -866,6 +870,39 @@
                             "description": "A static light.",
                             "x-index-into": "/resources/scene/static_lights"
                           }
+                        }
+                      },
+                      "areas": {
+                        "type": "array",
+                        "description": "What the client names a player's location inside this part, one entry per name set, ascending: a WMO placement's name set (MODF nameSet) picks the entry, since one building placed in two towns carries two names. From WMOAreaTable rows keyed by the root's MOHD wmoID (WMOAreaTable.WMOID), the placement's name set (NameSetID) and the group's MOGP groupID (WMOGroupID). Absent without a WMO area table, or when the WMO has no rows.",
+                        "items": {
+                          "type": "object",
+                          "description": "The part's area under one name set.",
+                          "properties": {
+                            "name_set": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "WMOAreaTable.NameSetID: the MODF nameSet of placements this entry applies to."
+                            },
+                            "ref": {
+                              "$ref": "common.schema.json#/definitions/ref",
+                              "description": "The WMOAreaTable row, named from WMOAreaTable.AreaName_lang (unnamed when the row stores none; then the area's name is the one shown)."
+                            },
+                            "area": {
+                              "$ref": "common.schema.json#/definitions/ref",
+                              "description": "The AreaTable row the part counts as (WMOAreaTable.AreaTableID), named from AreaTable.AreaName_lang. Absent when stored as 0."
+                            },
+                            "whole_model": {
+                              "type": "boolean",
+                              "description": "true: the part has no row of its own under this name set, and ref is the model-wide row (WMOGroupID -1)."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "name_set",
+                            "ref",
+                            "whole_model"
+                          ]
                         }
                       },
                       "portals": {
@@ -2551,7 +2588,7 @@
                   "description": "Areas the chunks belong to.",
                   "items": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "One area."
+                    "description": "One area: the AreaTable row an MCNK's areaId names, named from AreaTable.AreaName_lang with --db2-dir so a tile read alone can label its ground (unnamed without, or when the table lacks the row)."
                   }
                 },
                 "layers": {

@@ -201,6 +201,7 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     preset.opacity = 0.5f;
     canon::Definition customization;
     customization.chrModelId = 45;
+    customization.chrModelName = "Human male";
     canon::Option hair;
     hair.ref = canon::Ref{canon::Db2Row{"ChrCustomizationOption", 3}, "Hair Style", canon::NameSource::Db2};
     hair.category = canon::Category{canon::Ref{canon::Db2Row{"ChrCustomizationCategory", 1}, "", canon::NameSource::None}, 0};
@@ -244,6 +245,8 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     const auto& option = definition["customization"]["options"][0];
     CHECK(option["ref"]["name"] == "Hair Style");
     CHECK(option["chr_model"]["id"]["row"] == 45);
+    CHECK(option["chr_model"]["name"] == "Human male");
+    CHECK(option["chr_model"]["name_source"] == "db2");
     CHECK(option["choices"][0]["ref"]["id"]["row"] == 30);
     CHECK(option["choices"][0]["geoset_id"] == 203);
     CHECK(p["items"][0]["slot"] == "head");

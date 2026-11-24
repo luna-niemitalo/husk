@@ -65,14 +65,16 @@ using ChoiceTextures = std::map<std::pair<uint32_t, uint32_t>, std::vector<const
 using ChoiceCorrectionSets = std::map<std::pair<uint32_t, uint32_t>, uint32_t>;
 
 // `materialBase`: the reference index of material document 0.
-void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon::Option& option, uint32_t optionIndex,
+void writeCustomizationOption(json::Writer& w, const canon::Definition& definition, const canon::Option& option,
+                              uint32_t optionIndex,
                               const ChoiceTextures& choiceTextures, const ChoiceCorrectionSets& correctionSets,
                               uint32_t materialBase, TextureTable& textures) {
     w.beginObject();
     w.key("ref");
     writeRef(w, option.ref);
     w.key("chr_model");
-    writeRef(w, canon::Ref{canon::Db2Row{"ChrModel", chrModelId}, "", canon::NameSource::None});
+    writeRef(w, canon::Ref{canon::Db2Row{"ChrModel", definition.chrModelId}, definition.chrModelName,
+                           definition.chrModelName.empty() ? canon::NameSource::None : canon::NameSource::Db2});
     w.key("order");
     w.value(static_cast<int64_t>(option.orderIndex));
     if (option.category) {
@@ -231,7 +233,7 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
         uint32_t optionIndex = 0;
         for (const canon::Definition& definition : model.customization) {
             for (const canon::Option& option : definition.options) {
-                writeCustomizationOption(w, definition.chrModelId, option, optionIndex++, choiceTextures, correctionSets,
+                writeCustomizationOption(w, definition, option, optionIndex++, choiceTextures, correctionSets,
                                          materialBase, textures);
             }
         }
@@ -990,6 +992,31 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
         w.endObject();
     }
     w.endArray();
+
+    if (world.map) {
+        const canon::MapInfo& map = *world.map;
+        w.key("map");
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, map.ref);
+        w.key("directory");
+        w.value(map.directory);
+        writeIntField(w, "instance_type", map.instanceType);
+        if (map.instanceTypeName) {
+            w.key("instance_type_name");
+            w.value(*map.instanceTypeName);
+        }
+        writeIntField(w, "map_type", map.mapType);
+        writeIntField(w, "expansion", map.expansion);
+        writeIntField(w, "max_players", map.maxPlayers);
+        for (auto [key, ref] : {std::pair{"parent", &map.parent}, std::pair{"cosmetic_parent", &map.cosmeticParent},
+                                std::pair{"area", &map.area}}) {
+            if (!*ref) continue;
+            w.key(key);
+            writeRef(w, **ref);
+        }
+        w.endObject();
+    }
 
     w.endObject();
 

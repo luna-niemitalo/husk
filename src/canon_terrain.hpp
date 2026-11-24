@@ -166,7 +166,9 @@ struct TerrainLod {
 
 struct Terrain {
     Ref subject;  // the tile itself: its root ADT; set by the caller, like Model::subject
-    Ref map;  // the map's directory name; no Map.db2 row is resolved
+    // The map: its directory name (no identity) until the caller resolves
+    // its Map row (commands::world::mapRef); written only once resolved.
+    Ref map;
     uint32_t tileX = 0;
     uint32_t tileY = 0;
     std::vector<TerrainTexture> textures;

@@ -113,6 +113,47 @@ TEST_CASE("buildCanonWmo: groups become parts sharing one vertex buffer, batches
     CHECK(canon::resolveMaterialIndex(model, 0) == 1u);
 }
 
+TEST_CASE("buildCanonWmo: part areas per name set, the part's own row before the model-wide one") {
+    wmo::RootFile root = syntheticRoot();
+    root.header.wmoAreaTableId = 53;  // MOHD wmoID
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {group(4, 2, 1, 2), group(3, 1, 0, 1)};
+    in.groups[0]->wmoAreaTableId = 700;  // MOGP groupID
+    in.groups[1]->wmoAreaTableId = 701;
+    wmoareadb::Data wmoAreas;
+    wmoAreas[{53, 0, -1}] = {1, "Inn", 12};
+    wmoAreas[{53, 0, 700}] = {2, "Common Room", 12};
+    wmoAreas[{53, 2, -1}] = {3, "Lion's Pride Inn", 0};
+    wmoAreas[{54, 0, 701}] = {4, "Another WMO", 40};
+    areadb::Data areas;
+    areas[12].name = "Elwynn Forest";
+    in.wmoAreas = &wmoAreas;
+    in.areas = &areas;
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+    const std::vector<canon::PartArea>& hall = model.mesh.parts[0].areas;
+    REQUIRE(hall.size() == 2);
+    CHECK(hall[0].nameSet == 0);
+    CHECK(std::get<canon::Db2Row>(hall[0].ref.id).row == 2);
+    CHECK(hall[0].ref.name == "Common Room");
+    CHECK_FALSE(hall[0].wholeModel);
+    REQUIRE(hall[0].area.has_value());
+    CHECK(hall[0].area->name == "Elwynn Forest");
+    CHECK(hall[1].nameSet == 2);
+    CHECK(hall[1].ref.name == "Lion's Pride Inn");
+    CHECK(hall[1].wholeModel);
+    CHECK_FALSE(hall[1].area.has_value());
+    // Group 701 has a row only in another WMO: the model-wide rows apply.
+    const std::vector<canon::PartArea>& other = model.mesh.parts[1].areas;
+    REQUIRE(other.size() == 2);
+    CHECK(other[0].ref.name == "Inn");
+    CHECK(other[0].wholeModel);
+
+    in.wmoAreas = nullptr;
+    CHECK(wmoinput::buildCanonWmo(in).mesh.parts[0].areas.empty());
+}
+
 TEST_CASE("buildCanonWmo: materials name their surface; MOQG overrides it per face") {
     wmo::RootFile root = syntheticRoot();
     root.materials[0].groundType = 2;  // Stone

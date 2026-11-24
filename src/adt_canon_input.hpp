@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "adt.hpp"
+#include "area_db2.hpp"
 #include "canon_terrain.hpp"
 #include "groundeffect_db2.hpp"
 #include "liquid_db2.hpp"
@@ -54,6 +55,7 @@ struct Resolutions {
     const GamePathResolutions& gamePaths;
     const liquiddb::Data* liquids = nullptr;  // nullptr: liquid types and objects are identities only
     const surfacedb::Data* surfaces = nullptr;  // nullptr: surface types are TerrainType ids only
+    const areadb::Data* areas = nullptr;  // nullptr: chunk areas are AreaTable ids only
 };
 
 canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& resolutions);

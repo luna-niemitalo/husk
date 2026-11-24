@@ -232,6 +232,24 @@ MeshSlices writeMeshSection(json::Writer& w, const canon::Model& model, std::vec
             }
             w.endArray();
         }
+        if (!part.areas.empty()) {
+            w.key("areas");
+            w.beginArray();
+            for (const canon::PartArea& area : part.areas) {
+                w.beginObject();
+                writeIntField(w, "name_set", area.nameSet);
+                w.key("ref");
+                writeRef(w, area.ref);
+                if (area.area) {
+                    w.key("area");
+                    writeRef(w, *area.area);
+                }
+                w.key("whole_model");
+                w.value(area.wholeModel);
+                w.endObject();
+            }
+            w.endArray();
+        }
         w.key("source");
         w.beginObject();
         w.key("flags");

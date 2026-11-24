@@ -31,6 +31,13 @@ struct Creature {
 struct Display {
     uint32_t modelData = 0;  // CreatureModelData row (ModelID)
     float scale = 1;         // CreatureModelScale
+    int32_t sizeClass = 0;   // SizeClass, a client enum with no table
+    // Rows of tables husk doesn't read, as stored; 0 = none.
+    uint32_t objectEffectPackage = 0;      // ObjectEffectPackageID
+    uint32_t stateSpellVisualKit = 0;      // StateSpellVisualKitID
+    uint32_t animReplacementSet = 0;       // AnimReplacementSetID
+    uint32_t dissolveEffect = 0;           // DissolveEffectID
+    uint32_t mountPoofSpellVisualKit = 0;  // MountPoofSpellVisualKitID
 };
 
 struct ModelData {

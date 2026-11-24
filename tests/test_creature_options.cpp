@@ -238,6 +238,22 @@ TEST_CASE("creaturedisplay::load: real 12.1.0 tables -- the mana wyrm mount's di
     CHECK(white->textures[3] == 7266830);
     CHECK(data->geosetsByDisplay.at(137144) == std::vector<uint32_t>{102, 201});
     CHECK(data->particleColors.count(2426) == 1);
+    // ChrModel 1 is humanmale_hd; Dracthyr's visage form is shared by two races of one name.
+    CHECK(data->chrModelNames.at(1) == "Human male");
+    CHECK(data->chrModelNames.at(2) == "Human female");
+}
+
+TEST_CASE("creaturedisplay::chrModelName: the lowest named race row, then the shared sex") {
+    using creaturedisplay::RaceUse;
+    CHECK(creaturedisplay::chrModelName({}) == "");
+    CHECK(creaturedisplay::chrModelName({{1, "Human", 0}}) == "Human male");
+    CHECK(creaturedisplay::chrModelName({{70, "Dracthyr", 1}, {52, "Dracthyr", 1}}) == "Dracthyr female");
+    CHECK(creaturedisplay::chrModelName({{30, "Lightforged Draenei", 0}, {11, "Draenei", 0}}) == "Draenei male");
+    CHECK(creaturedisplay::chrModelName({{5, "", 0}, {9, "Orc", 0}}) == "Orc male");
+    // Races disagreeing on sex, or a sex value past female, name no sex.
+    CHECK(creaturedisplay::chrModelName({{52, "Dracthyr", 0}, {70, "Dracthyr", 1}}) == "Dracthyr");
+    CHECK(creaturedisplay::chrModelName({{52, "Dracthyr", 3}}) == "Dracthyr");
+    CHECK(creaturedisplay::chrModelName({{52, "", 0}}) == "");
 }
 
 TEST_CASE("addCreatureOptions: a texture layout's canvases become composite materials; choices bind their textures") {
