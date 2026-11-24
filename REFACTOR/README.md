@@ -13,7 +13,7 @@ glTF is `export --glb`, a lean projection of the bundle.
 |---|---|---|
 | 1–2. parsing, resolution | Built: `m2::Model`, `sources::Catalog` (texture and skin resolution under `src/sources/`), `husk resolve` | The attributed before/after diff on the four fixtures is not recorded |
 | 3. `canon::` | Built and format-free in its assembly (`m2input::`, `m2_*_input.*` hold the M2 side) | `canon_policy.*` still sits in `husk::canon` taking `m2::` types. The whole-corpus structural gate against the legacy pipeline never ran, and can't now: that pipeline is deleted |
-| 4. writers | The bundle writer is the output of `export`, `export-terrain`, `export-wmo`, `export-map`, `export-world` and `export-corpus`; six document kinds defined by `schema/` and checked by `validate-bundle`; textures DDS in a shared store. `--glb` writes the lean projection. Retiring the glTF pipeline: done (bdec5ce..1e4b766) | — |
+| 4. writers | The bundle writer is the output of `export`, `export-terrain`, `export-wmo`, `export-map`, `export-world`, `export-corpus` and `export-creatures`; seven document kinds defined by `schema/` and checked by `validate-bundle`; textures DDS in a shared store. `--glb` writes the lean projection. Retiring the glTF pipeline: done (bdec5ce..1e4b766) | — |
 | 5. Blender addon | `tests/bundle_import_check.py` reads mesh, skeleton and base-colour materials | The packaged addon; options, presets, material documents, animation, geosets |
 | 6. CLI, structured output, corpus tasks | Grouped options and generated completions/flag tables for the newer commands; one argument parser and one `--config` for all | Most `tools/corpus_scan_tasks/` still parse text; the input/output module registry stays deferred until a second format exists |
 

@@ -340,8 +340,9 @@ struct DocumentChecker {
         }
     }
 
-    // Ids already checked unique, by target: each array is scanned once.
-    std::set<std::string> uniqueChecked;
+    // Each target array's ids, gathered (and checked unique) on its first
+    // lookup: a creature catalog makes ~30k lookups into arrays of ~17k.
+    std::map<std::string, std::set<std::string>> idsOf;
 
     void checkId(const json& value, const std::string& target, const std::string& pointer) {
         if (!value.is_string()) return;
@@ -350,18 +351,17 @@ struct DocumentChecker {
             fail(pointer, "expected an id of an entry of '" + target + "', which the document doesn't hold");
             return;
         }
-        const json& array = document.at(p);
-        if (uniqueChecked.insert(target).second) {
-            std::set<std::string> seen;
+        auto [ids, first] = idsOf.try_emplace(target);
+        if (first) {
+            const json& array = document.at(p);
             for (size_t i = 0; i < array.size(); ++i) {
                 if (!array[i].contains("id")) continue;
                 std::string id = array[i]["id"];
-                if (!seen.insert(id).second) fail(target + "/" + std::to_string(i) + "/id", "expected a unique id, '" + id + "' repeats");
+                if (!ids->second.insert(id).second) fail(target + "/" + std::to_string(i) + "/id", "expected a unique id, '" + id + "' repeats");
             }
         }
         std::string wanted = value;
-        bool found = std::any_of(array.begin(), array.end(), [&](const json& e) { return e.contains("id") && e["id"] == wanted; });
-        if (!found) fail(pointer, "expected the id of an entry of '" + target + "', got '" + wanted + "'");
+        if (!ids->second.contains(wanted)) fail(pointer, "expected the id of an entry of '" + target + "', got '" + wanted + "'");
     }
 
     void checkIndex(const json& value, const std::string& target, const std::string& pointer, const std::vector<const json*>& objects) {

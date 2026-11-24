@@ -108,6 +108,9 @@ std::optional<surfacedb::Data> loadSurfaces(const std::string& db2Dir, const std
 
 std::set<uint32_t> referencedModels(const canon::Terrain& terrain);
 std::set<uint32_t> referencedAssets(const canon::Terrain& terrain);
+// A FileDataID ref named from the listfile path's stem; any other ref, or
+// an unlisted file, is left as it is.
+void nameFromListfile(canon::Ref& ref, const ListfileIndex& listfile);
 void nameModelRefs(canon::Terrain& terrain, const ListfileIndex& listfile);
 std::string modelBundleName(uint32_t fdid);
 

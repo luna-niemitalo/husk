@@ -613,6 +613,15 @@ int exportCorpus(int argc, char** args) {
         }
         if (code != 0) return code;
         printIndex(corpus::buildIndex(opts.output), opts.output);
+        if (opts.db2Dir.empty() || opts.db2Dir == "none" || opts.dbdDir.empty() || opts.dbdDir == "none") {
+            std::cout << "creatures.json: not written, it needs --db2-dir and --dbd-dir" << std::endl;
+        } else {
+            std::vector<std::string> creatureArgs = {opts.output, "--db2-dir", opts.db2Dir, "--dbd-dir", opts.dbdDir,
+                                                     "--listfile", opts.listfile, "--config", "/dev/null"};
+            std::vector<char*> creatureArgv;
+            for (std::string& a : creatureArgs) creatureArgv.push_back(a.data());
+            if (int creatures = exportCreatures(static_cast<int>(creatureArgv.size()), creatureArgv.data())) return creatures;
+        }
         if (!storing) return 0;
         storeTree(opts.store, opts.output, run.game, opts.tags, true);
         corpus::Store(fs::absolute(opts.store)).endRun(run);

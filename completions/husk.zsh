@@ -29,6 +29,7 @@ _husk() {
         'export-corpus:every map and every M2/WMO of a game build, optionally into the store'
         'snapshot:record the source mount's current game build in the canonical store'
         'index-tree:(re)build an export tree's index/ lookup tables'
+        'export-creatures:write an export tree's creature catalog (creatures.json)'
         'mount:browse the canonical store as a read-only filesystem'
     )
 
@@ -249,6 +250,15 @@ _husk() {
         index-tree)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
+                '1:model:_files'
+            ;;
+        export-creatures)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
                 '1:model:_files'
             ;;
         mount)

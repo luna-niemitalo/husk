@@ -4,7 +4,7 @@ _husk_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle export-world store-add store-prune export-corpus snapshot index-tree mount"
+    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle export-world store-add store-prune export-corpus snapshot index-tree export-creatures mount"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcommands" -- "$cur"))
@@ -603,6 +603,31 @@ _husk_completions() {
         index-tree)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--help -h" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
+        export-creatures)
+            case "$prev" in
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --db2-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --listfile)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --config --db2-dir --dbd-dir --listfile" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

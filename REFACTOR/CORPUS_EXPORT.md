@@ -39,6 +39,7 @@ wmos/<fdid>.canon.bundle/           every root WMO
 maps/<map>/<map>.world.bundle       + tiles
 effects/<id>.json                   shared effect bodies
 materials/<source>_<id>.json        shared material documents (e.g. layout_103_skin)
+creatures.json                      the creature catalog (BUNDLE_FORMAT.md "Creature catalogs")
 index/                              derived lookup tables, rebuildable from the tree (TSV):
   creature_displays.tsv             CreatureDisplayInfo row -> model manifest, preset
   chr_models.tsv                    ChrModel row -> model manifest
@@ -48,8 +49,8 @@ store-journal.tsv                   store-add's record of what it stored, so a r
                                     after a crash resumes (path, size, mtime, md5)
 ```
 
-There is no separate `corpus.json`: it would be neither one of the five
-document kinds nor needed, since the stored build's `meta.json` and
+There is no separate `corpus.json`: it would be neither a document kind
+nor needed, since the stored build's `meta.json` and
 `missing.tsv` hold the counts and failures.
 
 - A file's bundle is named by its FileDataID. Creature options, NPC presets
@@ -201,7 +202,9 @@ built; block cloning is active on `tank/data`).
   `export-world` over `<listfile-root>/world/maps` with `--all-assets`
   (every listfile `.m2` and root `.wmo`, placed or not: 135,129 and
   14,140 in the 2026-10-08 listfile), then `index-tree`, then, unless
-  `--store none`, a `store-add --link`. While storing, export-world links
+  `--store none`, a `store-add --link`. Between `index-tree` and the
+  store, `export-creatures` writes `creatures.json` when `--db2-dir` and
+  `--dbd-dir` are given. While storing, export-world links
   each finished bundle into the store as it is written (`--link-store`;
   only a bundle whose manifest exists, so a half-written one stays plain
   files for the resumed run), so a rebuild takes space only for files
