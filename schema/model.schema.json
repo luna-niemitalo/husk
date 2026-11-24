@@ -6,6 +6,11 @@
   "x-status": "implemented",
   "type": "object",
   "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/model.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
     "format": {
       "const": "husk-bundle",
       "description": "Identifies a husk document.",
@@ -50,7 +55,8 @@
               "reference": {
                 "$ref": "common.schema.json#/definitions/uuid",
                 "description": "The id of the placement_set document's reference.",
-                "x-id-in": "/references"
+                "x-id-in": "/references",
+                "x-source": [{"format": true}]
               },
               "always_on": {
                 "type": "boolean",
@@ -111,7 +117,8 @@
               "composite": {
                 "$ref": "common.schema.json#/definitions/uuid",
                 "description": "The id of the reference to the material document whose composite builds the slot's texture from customization choices (REFACTOR/MATERIALS.md).",
-                "x-id-in": "/references"
+                "x-id-in": "/references",
+                "x-source": [{"format": true}]
               }
             },
             "additionalProperties": false,
@@ -361,7 +368,8 @@
                               "material": {
                                 "$ref": "common.schema.json#/definitions/uuid",
                                 "description": "The id of the material document's reference.",
-                                "x-id-in": "/references"
+                                "x-id-in": "/references",
+                                "x-source": [{"format": true}]
                               },
                               "input": {
                                 "type": "string",
@@ -503,7 +511,8 @@
               "reference": {
                 "$ref": "common.schema.json#/definitions/uuid",
                 "description": "The id of the item model's reference.",
-                "x-id-in": "/references"
+                "x-id-in": "/references",
+                "x-source": [{"format": true}]
               },
               "slots": {
                 "type": "array",
@@ -808,6 +817,7 @@
                     "properties": {
                       "id": {
                         "$ref": "common.schema.json#/definitions/uuid",
+                        "x-source": [{"format": true}],
                         "description": "This part's stable id, derived from the model's identity and the part's source index (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); everything that names a part uses it."
                       },
                       "ref": {
@@ -854,7 +864,8 @@
                         "items": {
                           "$ref": "common.schema.json#/definitions/uuid",
                           "description": "The id of a static light.",
-                          "x-id-in": "/resources/scene/static_lights"
+                          "x-id-in": "/resources/scene/static_lights",
+                          "x-source": [{"format": true}]
                         }
                       },
                       "light_sets": {
@@ -866,7 +877,8 @@
                           "items": {
                             "$ref": "common.schema.json#/definitions/uuid",
                             "description": "The id of a static light.",
-                            "x-id-in": "/resources/scene/static_lights"
+                            "x-id-in": "/resources/scene/static_lights",
+                            "x-source": [{"format": true}]
                           }
                         }
                       },
@@ -919,7 +931,8 @@
                             "to_part": {
                               "$ref": "common.schema.json#/definitions/uuid",
                               "description": "The id of the part on the other side.",
-                              "x-id-in": "/resources/geometry/mesh/parts"
+                              "x-id-in": "/resources/geometry/mesh/parts",
+                              "x-source": [{"format": true}]
                             },
                             "side": {
                               "type": "integer",
@@ -1073,12 +1086,14 @@
                   "part": {
                     "$ref": "common.schema.json#/definitions/uuid",
                     "description": "The id of the part the liquid belongs to.",
-                    "x-id-in": "/resources/geometry/mesh/parts"
+                    "x-id-in": "/resources/geometry/mesh/parts",
+                    "x-source": [{"format": true}]
                   },
                   "material": {
                     "$ref": "common.schema.json#/definitions/uuid",
                     "description": "The id of the surface's material.",
-                    "x-id-in": "/resources/materials"
+                    "x-id-in": "/resources/materials",
+                    "x-source": [{"format": true}]
                   },
                   "liquid_type": {
                     "$ref": "common.schema.json#/definitions/ref",
@@ -1746,6 +1761,7 @@
             "properties": {
               "id": {
                 "$ref": "common.schema.json#/definitions/uuid",
+                "x-source": [{"format": true}],
                 "description": "This material's stable id, derived from the model's identity and the material's source record (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\")."
               },
               "layers": {
@@ -1877,7 +1893,8 @@
                 "items": {
                   "$ref": "common.schema.json#/definitions/uuid",
                   "description": "The id of one technique's reference.",
-                  "x-id-in": "/references"
+                  "x-id-in": "/references",
+                  "x-source": [{"format": true}]
                 }
               }
             },
@@ -2123,6 +2140,7 @@
                 "properties": {
                   "id": {
                     "$ref": "common.schema.json#/definitions/uuid",
+                    "x-source": [{"format": true}],
                     "description": "This light's stable id, derived from the model's identity and the light's source record (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"); parts name their lights by it."
                   },
                   "ref": {
@@ -2287,7 +2305,8 @@
                   "part": {
                     "$ref": "common.schema.json#/definitions/uuid",
                     "description": "The id of the mesh part whose own light this is (a WMO group's light-set light); absent for a model-wide light.",
-                    "x-id-in": "/resources/geometry/mesh/parts"
+                    "x-id-in": "/resources/geometry/mesh/parts",
+                    "x-source": [{"format": true}]
                   },
                   "unresolved": {
                     "$ref": "common.schema.json#/definitions/unresolved",
@@ -2864,6 +2883,7 @@
     }
   },
   "required": [
+    "$schema",
     "format",
     "kind",
     "schema_version",
@@ -2906,12 +2926,14 @@
         "material": {
           "$ref": "common.schema.json#/definitions/uuid",
           "description": "The id of the material that draws it.",
-          "x-id-in": "/resources/materials"
+          "x-id-in": "/resources/materials",
+          "x-source": [{"format": true}]
         },
         "part": {
           "$ref": "common.schema.json#/definitions/uuid",
           "description": "The id of the part it belongs to.",
-          "x-id-in": "/resources/geometry/mesh/parts"
+          "x-id-in": "/resources/geometry/mesh/parts",
+          "x-source": [{"format": true}]
         }
       },
       "additionalProperties": false,
@@ -3028,7 +3050,8 @@
                   "part": {
                     "$ref": "common.schema.json#/definitions/uuid",
                     "description": "The id of the part.",
-                    "x-id-in": "/resources/geometry/mesh/parts"
+                    "x-id-in": "/resources/geometry/mesh/parts",
+                    "x-source": [{"format": true}]
                   },
                   "level": {
                     "type": "integer",

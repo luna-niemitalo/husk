@@ -97,6 +97,12 @@ v0.4.0 (`schema_version` "0.4.0", 2026-11-24). Every document carries
 "0.4.0"; a 0.3.0 reader rejects it by the `schema_version` const, so
 re-export rather than mix. Breaking changes, each with what a reader
 changes:
+- **Every document names its schema.** A required top-level `$schema`
+  holds the `$id` of the kind's schema,
+  `https://husk.invalid/schema/<kind>.schema.json`; `validate-bundle`
+  rejects one that doesn't match `kind`. A reader that checks for an
+  unknown top-level key accepts `$schema`; one that dispatches on `kind`
+  can keep doing so (`BUNDLE_FORMAT.md` "The contract header").
 - **Particle gravity is a vector track.** `particle_system.gravity` was
   an `animated_float` (and `null` or a meaningless float for the 80% of
   emitters whose keys are packed vectors, M2Particle flag `0x800000`); it

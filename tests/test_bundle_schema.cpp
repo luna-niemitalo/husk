@@ -24,6 +24,10 @@ constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0
   "provenance": {"producer": "husk test", "input_format": "test",
                  "sources": [{"name": "listfile", "role": "names", "available": true}]},)";
 
+std::string header(const std::string& kind) {
+    return std::string(kHeader) + "\n  \"kind\": \"" + kind + "\", \"$schema\": \"https://husk.invalid/schema/" + kind + ".schema.json\",";
+}
+
 std::string slice(size_t offset, size_t length, const char* type, int components, size_t count) {
     return R"({"file": "mesh.bin", "byte_offset": )" + std::to_string(offset) + R"(, "byte_length": )" +
            std::to_string(length) + R"(, "component_type": ")" + type + R"(", "component_count": )" +
@@ -36,8 +40,7 @@ std::string modelDocument() {
                          R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) +
                          R"(, "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material": "00000000-0000-3000-8000-00000000000c"}],
                "attributes": []})";
-    return std::string("{") + kHeader + R"(
-  "kind": "model",
+    return std::string("{") + header("model") + R"(
   "subject": {"id": {"kind": "file_data_id", "value": 1}, "name": "crate", "name_source": "listfile"},
   "definition": {"placement_sets": [{"reference": "00000000-0000-3000-8000-00000000000a", "always_on": true, "instance_count": 1}]},
   "selection": {"placement_sets": []},
@@ -59,8 +62,7 @@ std::string modelDocument() {
 }
 
 std::string setDocument() {
-    return std::string("{") + kHeader + R"(
-  "kind": "placement_set",
+    return std::string("{") + header("placement_set") + R"(
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
   "references": [{"id": "00000000-0000-3000-8000-00000000000b", "kind": "model", "asset": {"id": {"kind": "file_data_id", "value": 2}, "name": "chair", "name_source": "listfile"}}],
@@ -115,8 +117,7 @@ namespace {
 
 // A placement set placing one instance of `effect`, written inline.
 std::string effectSetDocument(const std::string& effect, const std::string& instance) {
-    return std::string("{") + kHeader + R"(
-  "kind": "placement_set",
+    return std::string("{") + header("placement_set") + R"(
   "subject": {"id": {"kind": "record_index", "value": 0}, "name": "Set_A", "name_source": "synthesized"},
   "definition": {}, "selection": {},
   "references": [{"id": "00000000-0000-3000-8000-00000000000c", "kind": "effect", "asset": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
@@ -126,8 +127,7 @@ std::string effectSetDocument(const std::string& effect, const std::string& inst
 }
 
 std::string glowEffect(const std::string& status = R"("status": "placeholder",)") {
-    return std::string("{") + kHeader + R"(
-  "kind": "effect",
+    return std::string("{") + header("effect") + R"(
   "subject": {"id": {"kind": "none"}, "name": "glow", "name_source": "synthesized"},
   "definition": {)" + status + R"( "inputs": {
     "center": {"kind": "position", "description": "Centre."},
@@ -186,7 +186,7 @@ TEST_CASE("bundle_schema: every technique husk carries validates, with its refer
 TEST_CASE("bundle_schema: a technique's expressions are one node kind each and name declared inputs") {
     fs::path file = fs::temp_directory_path() / "husk-schema-technique-bad" / "t.json";
     fs::remove_all(file.parent_path());
-    writeText(file, std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+    writeText(file, std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "m2_pixel_shader", "status": "verified", "evidence": "test",
                        "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x"}},
                        "outputs": {"diffuse": {"op": "lerp", "args": [{"input": "t0"}, {"input": "t9"}]},
@@ -201,7 +201,7 @@ TEST_CASE("bundle_schema: a technique's expressions are one node kind each and n
 TEST_CASE("bundle_schema: a technique's input coordinates are checked, and a cycle through one fails") {
     fs::path file = fs::temp_directory_path() / "husk-schema-technique-cycle" / "t.json";
     fs::remove_all(file.parent_path());
-    writeText(file, std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+    writeText(file, std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "wmo_shader", "status": "verified", "evidence": "test",
                        "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x",
                                          "coordinate": {"op": "div", "args": [{"term": "offset"}, {"input": "uv9"}]}},
@@ -217,7 +217,7 @@ TEST_CASE("bundle_schema: a technique's input coordinates are checked, and a cyc
 
 TEST_CASE("bundle_schema: min, dot and tangent_frame are ops with their operand counts") {
     auto technique = [](const char* outputs) {
-        return std::string("{") + kHeader + R"("kind": "technique", "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
+        return std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "wmo_shader", "status": "verified", "evidence": "test",
                        "inputs": {"t0": {"kind": "texture_unit", "unit": 0, "description": "x"},
                                   "p": {"kind": "renderer_value", "description": "x"},
@@ -312,6 +312,13 @@ TEST_CASE("bundle_schema: schema violations -- an unknown key, a missing kind, a
     dir = writeBundle("husk-schema-kind", replaced(model, R"("kind": "model",)", ""), setDocument());
     CHECK(mentions(bundle_schema::validateDocument(dir), "expected one of the document kinds"));
 
+    dir = writeBundle("husk-schema-pointer", replaced(model, "schema/model.schema.json", "schema/world.schema.json"), setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir),
+                   R"(expected "https://husk.invalid/schema/model.schema.json" for kind 'model', got "https://husk.invalid/schema/world.schema.json")"));
+    dir = writeBundle("husk-schema-no-pointer",
+                      replaced(model, R"("$schema": "https://husk.invalid/schema/model.schema.json",)", ""), setDocument());
+    CHECK(mentions(bundle_schema::validateDocument(dir), "for kind 'model', got none"));
+
     dir = writeBundle("husk-schema-units", replaced(model, R"("length_unit": "yard")", R"("length_unit": "metre")"), setDocument());
     CHECK_FALSE(bundle_schema::validateDocument(dir).empty());
 }
@@ -393,4 +400,79 @@ TEST_CASE("bundle_schema: the lint rejects each known antipattern in a kind sche
     CHECK(mentions(problems, "key 'uri' holds a path"));
     CHECK(mentions(problems, "'CamelKey' is not lowercase snake_case"));
     CHECK(mentions(problems, "'unlayered' has no x-layer"));
+}
+
+TEST_CASE("bundle_schema: the lint walks kind-local definitions and map values, and checks x-source's forms") {
+    constexpr const char* kBad = R"({
+      "$schema": "http://json-schema.org/draft-07/schema#", "x-status": "implemented",
+      "type": "object", "description": "A bad kind.",
+      "properties": {
+        "names": {"type": "object", "description": "d", "x-layer": "resource",
+                  "additionalProperties": {"type": "object", "properties": {"Bad": {"type": "string", "description": "d"}},
+                                           "additionalProperties": false}},
+        "a": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"table": "AreaTable", "column": "Flags[0]"}, {"listfile": true}]},
+        "b": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"file": "mdx", "field": "x"}]},
+        "c": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"derived": "Not Snake"}]},
+        "d": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"format": true, "note": "x"}]},
+        "e": {"type": "string", "description": "d", "x-layer": "resource", "x-source": {"format": true}},
+        "f": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"guess": true}]}
+      },
+      "definitions": {"local": {"type": "object", "properties": {"undocumented": {"type": "string"}}, "additionalProperties": false}},
+      "additionalProperties": false
+    })";
+    std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemaText("bad", kBad);
+    INFO(describe(problems));
+    CHECK(mentions(problems, "'Bad' is not lowercase snake_case"));
+    CHECK(mentions(problems, "definition 'local' has no description"));
+    CHECK(mentions(problems, "property 'undocumented' has no description"));
+    CHECK_FALSE(mentions(problems, "/properties/a/x-source"));
+    CHECK(mentions(problems, R"(expected 'file' to be a source file kind, got "mdx")"));
+    CHECK(mentions(problems, R"(expected 'derived' to be a snake_case rule name, got "Not Snake")"));
+    CHECK(mentions(problems, "expected only 'format' in this origin, got 'note'"));
+    CHECK(mentions(problems, "expected a non-empty array of origins"));
+    CHECK(mentions(problems, R"(expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got {"guess":true})"));
+}
+
+TEST_CASE("bundle_schema: schema-doc lists every kind's document paths with type, allowed values, unit, links and required") {
+    std::string doc = bundle_schema::schemaDoc();
+    CHECK(doc == bundle_schema::schemaDoc());
+    for (const std::string& kind : bundle_schema::kinds()) {
+        CAPTURE(kind);
+        CHECK(doc.find("## " + kind + "\n\n`$schema`: `https://husk.invalid/schema/" + kind + ".schema.json`") != std::string::npos);
+    }
+    auto row = [&](const std::string& path) {
+        size_t at = doc.find("| `" + path + "` |");
+        REQUIRE(at != std::string::npos);
+        return doc.substr(at, doc.find('\n', at) - at);
+    };
+    CHECK(row("$schema").find("| yes | constant | = `https://husk.invalid/schema/creatures.schema.json` |") != std::string::npos);
+    CHECK(row("sources[].region{kind=sphere}.inner_radius").find("| yes | `bound_number` (one of 2) |  | yard |") != std::string::npos);
+    CHECK(row("displays[].model").find("| id in `/references` |") != std::string::npos);
+    CHECK(row("definition.inputs.<name>.clock").find("one of `seconds`, `age`, `day_time`") != std::string::npos);
+    CHECK(row("definition.inputs.<name>.item").find("recursive") != std::string::npos);
+    CHECK(row("provenance.sources").find("and whether it could.<br>*Why:* An absent value") != std::string::npos);
+    CHECK(row("provenance.sources[].name").find("e.g. a table name") != std::string::npos);
+    CHECK(row("provenance.sources[].name").find("Why:") == std::string::npos);
+}
+
+TEST_CASE("bundle_schema: source gaps name a schema location and a document path, once each") {
+    std::vector<bundle_schema::Problem> gaps = bundle_schema::sourceGaps();
+    REQUIRE_FALSE(gaps.empty());
+    std::vector<std::string> where;
+    for (const bundle_schema::Problem& g : gaps) where.push_back(g.where);
+    CHECK(std::is_sorted(where.begin(), where.end()));
+    CHECK(std::adjacent_find(where.begin(), where.end()) == where.end());
+    CHECK(gaps.front().message.find("document path ") != std::string::npos);
+
+    // The pilot annotation: the effect schema and the contract header's
+    // shared definitions resolve everywhere.
+    for (const char* annotated : {"effect.schema.json#", "common.schema.json#/definitions/space/",
+                                  "common.schema.json#/definitions/provenance/", "common.schema.json#/definitions/ref/",
+                                  "common.schema.json#/definitions/asset_ref/", "common.schema.json#/definitions/reference/"}) {
+        CAPTURE(annotated);
+        CHECK_FALSE(mentions(gaps, annotated));
+    }
+    std::string doc = bundle_schema::schemaDoc();
+    CHECK(doc.find("| `sources[].id` | yes | string |  |  |  | authored in `effects/<name>.json` (from `sources`) |") != std::string::npos);
+    CHECK(doc.find("| `subject.name` |  | string | length ≥ 1 |  |  | stated per value by `name_source` |") != std::string::npos);
 }

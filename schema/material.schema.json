@@ -6,6 +6,11 @@
   "x-status": "implemented",
   "type": "object",
   "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/material.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
     "format": {
       "const": "husk-bundle",
       "description": "Identifies a husk document.",
@@ -59,7 +64,8 @@
       "description": "A material selects nothing; its users bind its inputs.",
       "properties": {},
       "additionalProperties": false,
-      "x-layer": "selection"
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
     },
     "references": {
       "type": "array",
@@ -73,6 +79,7 @@
     "layers": {
       "type": "array",
       "description": "Surface layers, bottom first, each combined into the result so far.",
+      "x-source": [{"derived": "skin_canvas_material"}],
       "items": {
         "type": "object",
         "description": "One layer.",
@@ -131,6 +138,7 @@
     "output": {
       "type": "object",
       "description": "How the result meets the framebuffer.",
+      "x-source": [{"derived": "skin_canvas_material"}],
       "properties": {
         "framebuffer_blend": {
           "$ref": "common.schema.json#/definitions/framebuffer_blend",
@@ -172,20 +180,23 @@
                         "type": "integer",
                         "minimum": 1,
                         "description": "Canvas width.",
-                        "x-unit": "pixel"
+                        "x-unit": "pixel",
+                        "x-source": [{"table": "ChrModelMaterial", "column": "Width"}]
                       },
                       "height": {
                         "type": "integer",
                         "minimum": 1,
                         "description": "Canvas height.",
-                        "x-unit": "pixel"
+                        "x-unit": "pixel",
+                        "x-source": [{"table": "ChrModelMaterial", "column": "Height"}]
                       },
                       "blend_mapping": {
                         "enum": [
                           "verified",
                           "unverified"
                         ],
-                        "description": "Whether each layer's blend is known to be the operation its source mode selects. unverified: taken as the compositor case of the same number, which the client is not shown to use."
+                        "description": "Whether each layer's blend is known to be the operation its source mode selects; unverified: taken as the compositor case of the same number, which the client is not shown to use.",
+                        "x-source": [{"derived": "compositor_case_by_number"}]
                       },
                       "layers": {
                         "type": "array",
@@ -217,8 +228,9 @@
                               },
                               "minItems": 4,
                               "maxItems": 4,
-                              "description": "Where it is drawn: x, y, width, height, from the canvas's top left.",
-                              "x-unit": "pixel"
+                              "description": "Where it is drawn: x, y, width, height, from the canvas's top left; the first texture section (by section type) the layer's section mask names, or the whole canvas for a mask of all bits.",
+                              "x-unit": "pixel",
+                              "x-source": [{"table": "CharComponentTextureSections", "column": "X"}, {"table": "CharComponentTextureSections", "column": "Y"}, {"table": "CharComponentTextureSections", "column": "Width"}, {"table": "CharComponentTextureSections", "column": "Height"}, {"table": "ChrModelTextureLayer", "column": "TextureSectionTypeBitMask"}, {"table": "ChrModelMaterial", "column": "Width"}, {"table": "ChrModelMaterial", "column": "Height"}]
                             },
                             "blend": {
                               "enum": [
@@ -237,7 +249,8 @@
                                 "greyscale",
                                 "gradient_map"
                               ],
-                              "description": "How the layer L meets the canvas so far P, as the client's compositor computes it (shaders/compute texturecompositing.bls; WIKI_FINDINGS/M2/rendering.md). sat clamps to 0..1. none: nothing drawn. copy: L, alpha included. copy_alpha_tested: L where L.a >= 0.5, else P. add, multiply, multiply_2x, screen, overlay, hard_light, alpha_blend: rgb = mix(P, f, L.a), alpha 1, with f = sat(P + L), sat(P L), sat(2 P L), sat(1 - (1 - P)(1 - L)), per channel P < 0.5 ? sat(2 P L) : sat(1 - 2(1 - P)(1 - L)), per channel L <= 0.5 ? sat(2 P L) : sat(1 - 2(1 - P)(1 - L)), and L. multiply_opaque: rgb sat(P L), alpha L.a. multiply_red_alpha: rgb sat(P L), alpha L.r. greyscale: rgb sat(0.21 L.r + 0.72 L.g + 0.07 L.b), alpha L.a. gradient_map: rgb = L sampled at column P.r x 255 of its first row, alpha P.a. L is read texel for texel, unscaled. Absent: no known operation for the source's mode."
+                              "description": "How the layer L meets the canvas so far P, as the client's compositor computes it (shaders/compute texturecompositing.bls; WIKI_FINDINGS/M2/rendering.md). sat clamps to 0..1. none: nothing drawn. copy: L, alpha included. copy_alpha_tested: L where L.a >= 0.5, else P. add, multiply, multiply_2x, screen, overlay, hard_light, alpha_blend: rgb = mix(P, f, L.a), alpha 1, with f = sat(P + L), sat(P L), sat(2 P L), sat(1 - (1 - P)(1 - L)), per channel P < 0.5 ? sat(2 P L) : sat(1 - 2(1 - P)(1 - L)), per channel L <= 0.5 ? sat(2 P L) : sat(1 - 2(1 - P)(1 - L)), and L. multiply_opaque: rgb sat(P L), alpha L.a. multiply_red_alpha: rgb sat(P L), alpha L.r. greyscale: rgb sat(0.21 L.r + 0.72 L.g + 0.07 L.b), alpha L.a. gradient_map: rgb = L sampled at column P.r x 255 of its first row, alpha P.a; L is read texel for texel, unscaled, and absent means no known operation for the source's mode.",
+                              "x-source": [{"table": "ChrModelTextureLayer", "column": "BlendMode"}, {"derived": "compositor_case_by_number"}]
                             },
                             "source": {
                               "type": "object",
@@ -246,12 +259,14 @@
                                 "blend_mode": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "description": "The source's blend mode number."
+                                  "description": "The source's blend mode number.",
+                                  "x-source": [{"table": "ChrModelTextureLayer", "column": "BlendMode"}]
                                 },
                                 "layer": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "description": "The source's layer order."
+                                  "description": "The source's layer order.",
+                                  "x-source": [{"table": "ChrModelTextureLayer", "column": "Layer"}]
                                 }
                               },
                               "additionalProperties": false,
@@ -297,6 +312,7 @@
   },
   "additionalProperties": false,
   "required": [
+    "$schema",
     "format",
     "kind",
     "schema_version",

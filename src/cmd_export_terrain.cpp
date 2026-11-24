@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
@@ -368,9 +370,42 @@ int validateBundle(int argc, char** args) {
     }
     for (const bundle_schema::Problem& p : problems) std::cout << p.where << ": " << p.message << "\n";
     for (const bundle_schema::Problem& p : warnings) std::cout << p.where << ": warning: " << p.message << "\n";
+    // Without kSourceRequired the gaps are the annotation pass's worklist,
+    // apart from the warnings --release fails on.
+    if (opts.lintSchema && !bundle_schema::kSourceRequired) {
+        std::map<std::string, size_t> perFile;
+        for (const bundle_schema::Problem& p : bundle_schema::sourceGaps()) {
+            std::cout << p.where << ": warning: " << p.message << "\n";
+            ++perFile[p.where.substr(0, p.where.find('#'))];
+        }
+        for (const auto& [file, count] : perFile) std::cout << file << ": " << count << " leaf properties without x-source\n";
+    }
     std::cout << documents << " documents checked, " << problems.size() << " problems, " << warnings.size()
               << " warnings" << (opts.release && !warnings.empty() ? " (--release: warnings fail)" : "") << "\n";
     return problems.empty() && (!opts.release || warnings.empty()) ? 0 : 1;
+}
+
+void addSchemaDocOptions(CLI::App& app, SchemaDocOptions& opts) {
+    app.add_option("-o,--output", opts.output, "write the Markdown to this file instead of stdout");
+}
+
+int schemaDoc(int argc, char** args) {
+    CLI::App app{"husk schema-doc -- every document value the bundle format defines, as one Markdown file", "husk schema-doc"};
+    SchemaDocOptions opts;
+    addSchemaDocOptions(app, opts);
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
+    std::string markdown = bundle_schema::schemaDoc();
+    if (opts.output.empty()) {
+        std::cout << markdown;
+        return 0;
+    }
+    std::ofstream out(opts.output, std::ios::binary);
+    out << markdown;
+    if (!out) {
+        std::cerr << "husk: schema-doc: cannot write " << opts.output << "\n";
+        return 1;
+    }
+    return 0;
 }
 
 int exportMap(int argc, char** args) {

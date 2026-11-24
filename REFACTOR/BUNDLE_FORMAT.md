@@ -192,6 +192,7 @@ belong to the world, since a volume can span many tiles.
 Every document opens with the same header, then its data:
 
 ```
+$schema         the kind's schema `$id`: "https://husk.invalid/schema/<kind>.schema.json"
 format          "husk-bundle", constant
 kind            "model" | "placement_set" | "world" | "effect" | "material" | "technique" | "creatures" | "appearances"
 schema_version  version of the schema/ definitions the document conforms to
@@ -209,6 +210,25 @@ effect: sources
 creatures: creatures, displays
 appearances: appearances
 ```
+
+`$schema` (schema 0.4.0) names the schema a document follows, so a
+consumer holding only the document knows which definition to open. It
+is the schema's `$id`, not a path, because:
+- a document's place in a tree varies (bundle manifests, `sets/`,
+  `effects/`, `techniques/`, store objects deduplicated across trees), so
+  a relative path to a shipped `schema/` copy would differ per document
+  and break whenever a document is moved or mounted elsewhere;
+- exports don't ship the schemas: they are embedded in the husk binary,
+  and the pair (`$schema`, `schema_version`) names one file at one version
+  of husk's `schema/` exactly, and `husk schema-doc` renders that set as
+  one Markdown reference (below, "One reference file: `husk schema-doc`");
+- `$schema` is the key editors and JSON Schema tools already read: mapping
+  `https://husk.invalid/schema/*` to a checkout's `schema/` gives
+  completion and validation in an editor. The `.invalid` host never
+  resolves, so the id can't be mistaken for a download location.
+
+`validate-bundle` requires `$schema` to equal the `$id` of the schema its
+`kind` selects, and reports the expected and actual id when it doesn't.
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
 "Settled"): per table, because the real failure is one empty table among
@@ -245,6 +265,85 @@ source of truth; prose like this file explains it but does not define it.
     written by a writer fails validation.
   - `uri` appears only in the shared `Payload` and asset-reference
     definitions.
+  - kind-local `definitions` and object-valued `additionalProperties`
+    (maps) are held to the same rules as properties.
+
+### Where values come from: `x-source`
+
+`x-source` says where a value's data is found: an array of one or more
+origins, each an object of exactly one form.
+
+| Origin | Meaning |
+|---|---|
+| `{"table": "AreaTable", "column": "Flags[0]"}` | a DB2 table's column (`column` optional when the whole row is meant, e.g. its id) |
+| `{"file": "m2", "field": "M2Particle.gravity"}` | a field of a source file; `file` is one of `m2`, `skin`, `skel`, `bone`, `anim`, `phys`, `wmo`, `wmo_group`, `adt`, `adt_obj0`, `adt_obj1`, `adt_tex0`, `adt_lod`, `wdt`, `wdt_fogs`, `wdt_mpv`, `wdt_lgt`, `wdt_occ`, `blp`; `field` optional |
+| `{"derived": "<rule>"}` | computed by husk by a named rule: the same snake_case vocabulary as `provenance_fields` (rules in `EFFECTS.md`, or named in the property's description) |
+| `{"listfile": true}` | the community file list (names, path lookups) |
+| `{"authored": "effects/<name>.json"}` | husk's own authored data, a path in its repository (effect and technique definitions) |
+| `{"stated_by": "name_source"}` | the origin differs per value, and the named sibling property states it |
+| `{"format": true}` | pure structure: header, ids, indices, counts the format itself defines |
+
+`derived` rules that are not effect rules (`EFFECTS.md` "Derivation
+rules") are named here:
+
+| Rule | Computes | From |
+|---|---|---|
+| `texture_resolution` | a texture entry's state, identity, unresolved reason and candidates: the literal FileDataID, then the `--listfile` path, then same-basename candidates (`src/sources/texture_resolution.cpp`) | whatever names the texture (M2, WMO, ADT, DB2 column) |
+| `m2_gravity_to_vector` | particle `gravity` as a vector: a scalar `g` becomes `[0, 0, -g]`, a packed direction key is unpacked (`m2::decodeParticleGravity`) | `M2Particle.gravity` track |
+| `mfog_start_scalar_to_start` | linear fog `start` = `end` × start scalar | WMO `MFOG` layer |
+
+Several origins mean the value combines them, or comes from whichever one
+the source has. The lint rejects any other form, an unknown file kind or a
+rule that isn't snake_case.
+
+Rules `x-source` names outside `EFFECTS.md`:
+
+| Rule | Computes | From |
+|---|---|---|
+| `map_tile_grid` | world `grid` `origin`, `cell_size`, `axis_i`, `axis_j`: the client's 64 x 64 tile map, tiles 533.33 yd, centred on the world origin, tile x stepping -Y and y stepping -X (`canon_terrain.hpp` `terrainTileCorner`) | the map layout every ADT assumes; no file stores it |
+| `tile_terrain_bounds` | a world cell's `bounds_min`/`bounds_max`: chunk footprints from their origins, heights from the vertices and liquids | the tile's `MCNK` positions and heights, its liquid heights |
+| `chunk_area_coverage` | a zone cell's `coverage`: chunks naming the area / 256 | `MCNK.areaid` |
+| `skin_canvas_material` | a texture-layout canvas's material: one `base` layer, texture 0 (the composite), `uv_set_0`, `replace`; lit, opaque | none: the canvas is drawn flat, as is |
+| `compositor_case_by_number` | a composite layer's `blend`: the compositor case whose number is the layer's `BlendMode`, and `blend_mapping: unverified` while the client is not shown to select cases that way | `ChrModelTextureLayer.BlendMode` |
+
+**Inheritance.** A property without its own `x-source` takes its `$ref`
+target's (the use site's wins when both have one), else the nearest
+annotated ancestor's along the document path, across `$ref`s, array
+entries, map values and `oneOf` branches. One annotation on an object
+therefore covers everything inside it that doesn't say otherwise. A
+constant needs none: its origin is the format.
+
+**Coverage.** Every leaf property (one with nothing below it) of every
+kind must resolve an `x-source`. `bundle_schema::sourceGaps()` lists the
+leaves that don't, once per schema location, with a document path that
+reaches each. Until the annotation pass is done the check is a warning:
+`husk validate-bundle --lint-schema` prints each gap and a count per schema
+file. `bundle_schema::kSourceRequired` (`bundle_schema.hpp`) turns it into
+a lint error once the count is zero.
+
+### Descriptions: what, then why
+
+A `description`'s first sentence says what the value is; the sentences
+after it say why it is so (the decision, the source behaviour it follows,
+what a consumer must not assume). There is no separate `x-why` keyword:
+one text keeps the what and the why together where a schema editor
+writes them, and the 883 existing descriptions already mostly read that
+way. A sentence ends at ". " followed by a capital letter or a backtick.
+`husk schema-doc` shows the split: the first sentence, then "*Why:*" and
+the rest. A description whose later sentences are more "what" rather than
+"why" is rewritten into one sentence when the annotation pass touches it.
+
+### One reference file: `husk schema-doc`
+
+`husk schema-doc [-o FILE]` renders the embedded schemas as one Markdown
+file: per kind, every document path (`$ref`s, array entries `[]`, map
+values `.<name>` and `oneOf` variants `{kind=x}` expanded; a recursive
+definition is listed once and marked) with its description, type, allowed
+values (const, enum, bounds, pattern), unit, `x-index-into`/`x-id-in`
+target, resolved `x-source` (and the path it is inherited from), and
+whether it is required. Output is deterministic (keys in sorted order), so
+it can be diffed between versions. It is generated, not checked in: the
+schemas are the source.
 
 ## Stable ids
 

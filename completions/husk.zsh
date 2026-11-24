@@ -23,6 +23,7 @@ _husk() {
         'export-wmo:export one WMO building to a canonical object bundle'
         'export-map:export one map's world document: tile grid and map-wide volumes'
         'validate-bundle:check bundle documents against the format's schema'
+        'schema-doc:print every document value the format defines as one Markdown file'
         'export-world:export every ADT tile of every map to a canonical scene'
         'store-add:record an export tree as a build in the canonical store'
         'store-prune:drop builds from the canonical store and the objects only they listed'
@@ -181,6 +182,12 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--lint-schema[--lint-schema]' \
                 '--release[--release]' \
+                '1:model:_files'
+            ;;
+        schema-doc)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '(-o --output)'{-o,--output}'[output path]:value:_files' \
                 '1:model:_files'
             ;;
         export-world)
