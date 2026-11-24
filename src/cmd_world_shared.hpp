@@ -17,6 +17,7 @@
 #include "creature_display_db2.hpp"
 #include "light_db2.hpp"
 #include "liquid_db2.hpp"
+#include "map_db2.hpp"
 #include "surface_db2.hpp"
 #include "volume_condition_db2.hpp"
 #include "listfile_index.hpp"
@@ -100,6 +101,13 @@ adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, c
                                                     std::string& note);
 std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
 std::optional<areadb::Data> loadAreas(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
+std::optional<mapdb::Data> loadMaps(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
+// The Map row whose Directory is `mapDirectory` as a world's map block,
+// parents and area named from `maps` and `areas`; nullopt without `maps` or
+// without such a row.
+std::optional<canon::MapInfo> mapInfo(const std::string& mapDirectory, const mapdb::Data* maps, const areadb::Data* areas);
+// That row as a ref (Map row + MapName_lang); nullopt as for mapInfo.
+std::optional<canon::Ref> mapRef(const std::string& mapDirectory, const mapdb::Data* maps);
 std::optional<volumecond::Data> loadVolumeConditions(const std::string& db2Dir, const std::string& dbdDir, std::string& note);
 std::optional<creaturedisplay::Data> loadCreatures(const std::string& db2Dir, const std::string& dbdDir,
                                                    std::string& note);
@@ -130,10 +138,11 @@ void dropMissingDoodadSets(canon::PlacementSet& set, const std::unordered_map<ui
 writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids, bool haveSurfaces);
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveLod, bool haveObj1, bool haveWdt,
                                       const ListfileIndex* listfile, const std::string& listfilePath,
-                                      bool haveGroundEffects, bool haveLiquids, bool haveSurfaces);
+                                      bool haveGroundEffects, bool haveLiquids, bool haveSurfaces, bool haveMaps,
+                                      bool haveAreas);
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
                                     const std::string& listfilePath, bool haveLights, bool haveConditions,
-                                    bool haveAreas);
+                                    bool haveAreas, bool haveMaps);
 
 std::unordered_map<std::string, uint32_t> tileFileDataIds(const ListfileIndex& listfile, const std::string& listfileRoot,
                                                           const std::vector<std::filesystem::path>& roots);

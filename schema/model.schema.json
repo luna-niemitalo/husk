@@ -438,6 +438,10 @@
                 "duplicated"
               ],
               "description": "duplicated: a border vertex is stored by every tile it borders, at the same position in the world frame; heights agree to float precision unless the source tiles differ."
+            },
+            "map": {
+              "$ref": "common.schema.json#/definitions/ref",
+              "description": "The map this tile belongs to, so a tile read alone still knows its place: the Map row whose Directory is the tile's map directory, named from Map.MapName_lang. The world document's map block carries the rest of the row. Absent when no map table was given or no row matches."
             }
           },
           "additionalProperties": false,

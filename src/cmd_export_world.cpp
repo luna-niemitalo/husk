@@ -284,6 +284,9 @@ int exportWorld(int argc, char** args) {
         std::string areaNote;
         const std::optional<areadb::Data> areas = loadAreas(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), areaNote);
         std::cout << areaNote << std::endl;
+        std::string mapNote;
+        const std::optional<mapdb::Data> mapRows = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), mapNote);
+        std::cout << mapNote << std::endl;
         std::string creatureNote;
         const std::optional<creaturedisplay::Data> creatures =
             loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
@@ -572,12 +575,14 @@ int exportWorld(int argc, char** args) {
                         }
                     }
                     terrain.subject = writers::subjectRef(t.root, tileFileDataId(rootIds, opts.listfileRoot, t.root));
+                    if (auto ref = mapRef(t.map, mapRows ? &*mapRows : nullptr)) terrain.map = *ref;
                     writers::writeTerrainBundle(terrain, bundle,
                                                 terrainProvenance(obj.has_value(), tex.has_value(),
                                                                   lodSidecar.value.has_value(),
                                                                   obj1Sidecar.value.has_value(), flags.has_value(),
                                                                   listfile.get(), opts.listfile, !groundEffects.empty(),
-                                                                  liquids.has_value(), surfaces.has_value()),
+                                                                  liquids.has_value(), surfaces.has_value(),
+                                                                  mapRows.has_value(), false),
                                                 modelUris, textureUris);
                 }
             } catch (...) {
@@ -624,6 +629,7 @@ int exportWorld(int argc, char** args) {
                             loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot,
                                       lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
                                       areas ? &*areas : nullptr, jobs);
+                        world.map = mapInfo(maps[i], mapRows ? &*mapRows : nullptr, areas ? &*areas : nullptr);
                         for (canon::PlacementSet& set : world.placements) {
                             dropMissingDoodadSets(set, wmoSetCounts,
                                                   [&](const std::string& w) { errors.add("placement", mapDir.string(), w); });
@@ -647,7 +653,8 @@ int exportWorld(int argc, char** args) {
                         }
                         writers::writeWorldBundle(world, bundle,
                                                   worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value(),
-                                                                  conditions.has_value(), areas.has_value()),
+                                                                  conditions.has_value(), areas.has_value(),
+                                                                  mapRows.has_value()),
                                                   tileUris, assetUris);
                     }
                     ++worlds;

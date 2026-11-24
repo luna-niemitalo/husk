@@ -121,6 +121,66 @@ std::optional<areadb::Data> loadAreas(const std::string& db2Dir, const std::stri
     return data;
 }
 
+std::optional<mapdb::Data> loadMaps(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "map identity: none (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<mapdb::Data> data = mapdb::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "map identity: none (map.db2 unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "map identity: " + std::to_string(data->rows.size()) + " maps from " + db2Dir;
+    return data;
+}
+
+namespace {
+
+canon::Ref db2Ref(const char* table, uint32_t row, const std::string& name) {
+    return canon::Ref{canon::Db2Row{table, row}, name, name.empty() ? canon::NameSource::None : canon::NameSource::Db2};
+}
+
+std::optional<canon::Ref> mapRowRef(std::optional<uint32_t> id, const mapdb::Data& maps) {
+    if (!id) return std::nullopt;
+    auto row = maps.rows.find(*id);
+    return db2Ref("Map", *id, row != maps.rows.end() ? row->second.name : "");
+}
+
+}  // namespace
+
+std::optional<canon::MapInfo> mapInfo(const std::string& mapDirectory, const mapdb::Data* maps, const areadb::Data* areas) {
+    if (!maps) return std::nullopt;
+    const mapdb::Row* row = mapdb::findByDirectory(*maps, mapDirectory);
+    if (!row) return std::nullopt;
+    canon::MapInfo out;
+    out.ref = db2Ref("Map", row->id, row->name);
+    out.directory = row->directory;
+    out.instanceType = row->instanceType;
+    out.instanceTypeName = mapdb::instanceTypeName(row->instanceType);
+    out.mapType = row->mapType;
+    out.expansion = row->expansion;
+    out.maxPlayers = row->maxPlayers;
+    out.parent = mapRowRef(row->parent, *maps);
+    out.cosmeticParent = mapRowRef(row->cosmeticParent, *maps);
+    if (row->areaTableId != 0) {
+        const areadb::Row* area = nullptr;
+        if (areas) {
+            if (auto it = areas->find(row->areaTableId); it != areas->end()) area = &it->second;
+        }
+        out.area = db2Ref("AreaTable", row->areaTableId, area ? area->name : "");
+    }
+    return out;
+}
+
+std::optional<canon::Ref> mapRef(const std::string& mapDirectory, const mapdb::Data* maps) {
+    if (!maps) return std::nullopt;
+    const mapdb::Row* row = mapdb::findByDirectory(*maps, mapDirectory);
+    if (!row) return std::nullopt;
+    return db2Ref("Map", row->id, row->name);
+}
+
 std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
     if (db2Dir.empty() || dbdDir.empty()) {
         note = "zone lights: none (needs --db2-dir and --dbd-dir)";
@@ -392,7 +452,8 @@ writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::stri
 // (tex0 without a readable WDT) unusable.
 writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveLod, bool haveObj1, bool haveWdt,
                                       const ListfileIndex* listfile, const std::string& listfilePath,
-                                      bool haveGroundEffects, bool haveLiquids, bool haveSurfaces) {
+                                      bool haveGroundEffects, bool haveLiquids, bool haveSurfaces, bool haveMaps,
+                                      bool haveAreas) {
     writers::Provenance out{std::string("husk ") + husk::version(), "adt", {}};
     out.sources.push_back({"obj0", "doodad and map-object placements", haveObj, ""});
     out.sources.push_back({"tex0", "texture layers and alpha maps", haveTex, ""});
@@ -404,6 +465,8 @@ writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveLod, 
     out.sources.push_back({"groundeffect db2", "ground-cover rules", haveGroundEffects, ""});
     out.sources.push_back({"liquid db2", "liquid type names, materials, textures and objects", haveLiquids, ""});
     out.sources.push_back({"surface db2", "surface type names, footstep sounds and sprays", haveSurfaces, ""});
+    out.sources.push_back({"map db2", "the tile's map row and name (Map)", haveMaps, ""});
+    out.sources.push_back({"area db2", "chunk area names (AreaTable)", haveAreas, ""});
     return out;
 }
 
@@ -692,7 +755,7 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& 
 
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
                                     const std::string& listfilePath, bool haveLights, bool haveConditions,
-                                    bool haveAreas) {
+                                    bool haveAreas, bool haveMaps) {
     std::string map = mapDir.filename().string();
     writers::Provenance out{std::string("husk ") + husk::version(), "wdt", {}};
     out.sources.push_back({"root adt", "the tile grid and each tile's bounds", true, ""});
@@ -704,7 +767,9 @@ writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const L
     out.sources.push_back({"light db2", "the map's zone lights and their fog by time of day", haveLights, ""});
     out.sources.push_back({"volume condition db2", "the map volumes' PlayerConditions (Particulate, VolumeFogCondition)",
                            haveConditions, ""});
-    out.sources.push_back({"area db2", "zone names, which zone each lies in, and their flags (AreaTable)", haveAreas, ""});    return out;
+    out.sources.push_back({"area db2", "zone names, which zone each lies in, and their flags (AreaTable)", haveAreas, ""});
+    out.sources.push_back({"map db2", "the map's row, name, kind and parent maps (Map)", haveMaps, ""});
+    return out;
 }
 
 }  // namespace husk::commands::world

@@ -218,6 +218,13 @@ int exportTerrain(int argc, char** args) {
         canon::Terrain terrain = adtinput::buildCanonTerrain(
             sources, {textures, groundEffects, gamePaths, liquids ? &*liquids : nullptr, surfaces ? &*surfaces : nullptr});
         if (listfile) nameModelRefs(terrain, *listfile);
+        std::optional<mapdb::Data> maps;
+        {
+            std::string note;
+            maps = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
+            announce(note);
+        }
+        if (auto ref = mapRef(tile.map, maps ? &*maps : nullptr)) terrain.map = *ref;
 
         if (opts.listModels) {
             for (uint32_t fdid : referencedModels(terrain)) {
@@ -243,7 +250,8 @@ int exportTerrain(int argc, char** args) {
         writers::writeTerrainBundle(terrain, opts.output,
                                     terrainProvenance(obj.has_value(), tex.has_value(), lodSidecar.value.has_value(),
                                                       obj1Sidecar.value.has_value(), wdtFlags.has_value(), listfile.get(), listfilePath,
-                                                      !groundEffects.empty(), liquids.has_value(), surfaces.has_value()),
+                                                      !groundEffects.empty(), liquids.has_value(), surfaces.has_value(),
+                                                      maps.has_value(), false),
                                     modelUris);
         std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, "
                   << terrain.lod.levels.size() << " coarser levels, " << terrain.textures.size()
@@ -384,6 +392,10 @@ int exportMap(int argc, char** args) {
         canon::World world = loadWorld(mapDir, wdt, tiles, listfile.get(), unlessNone(opts.listfileRoot),
                                        lights ? &*lights : nullptr, conditions ? &*conditions : nullptr,
                                        areas ? &*areas : nullptr, std::max(1u, std::thread::hardware_concurrency()));
+        std::string mapNote;
+        std::optional<mapdb::Data> maps = loadMaps(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), mapNote);
+        std::cerr << "husk: note: " << mapNote << "\n";
+        world.map = mapInfo(map, maps ? &*maps : nullptr, areas ? &*areas : nullptr);
         if (world.cells.empty() && !placesModels(world.placements)) {
             throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() +
                                      " or a map-wide WMO in " + map + ".wdt, found neither");
@@ -403,7 +415,7 @@ int exportMap(int argc, char** args) {
         }
         writers::writeWorldBundle(world, opts.output,
                                   worldProvenance(mapDir, listfile.get(), listfilePath, lights.has_value(),
-                                                  conditions.has_value(), areas.has_value()),
+                                                  conditions.has_value(), areas.has_value(), maps.has_value()),
                                   tileUris);
         std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles (" << linked << " linked), "
                   << world.zones.size() << " zones, " << world.placements.size() << " off-grid placement sets\n";

@@ -188,6 +188,20 @@ TEST_CASE("writeTerrainBundle: a model document with the tile's subject, edge st
     CHECK(t["column_axis"] == nlohmann::json::array({0.0, -1.0, 0.0}));
     CHECK(t["chunk_vertex_layout"] == "interleaved_9x9_corners_8x8_centres");
     CHECK(t["chunk_topology"] == "quad_centre_fan");
+    // A map known only by its directory name has no row to write.
+    CHECK_FALSE(m["definition"]["terrain"].contains("map"));
+}
+
+TEST_CASE("writeTerrainBundle: a resolved map is written as definition.terrain.map") {
+    canon::Terrain terrain = sampleTerrain();
+    terrain.map = canon::Ref{canon::Db2Row{"Map", 0}, "Eastern Kingdoms", canon::NameSource::Db2};
+    fs::path dir = freshDir("husk-test-terrain-bundle-map");
+    writeTile(terrain, dir);
+    nlohmann::json map = readManifest(dir)["definition"]["terrain"]["map"];
+    CHECK(map["id"]["table"] == "Map");
+    CHECK(map["id"]["row"] == 0);
+    CHECK(map["name"] == "Eastern Kingdoms");
+    CHECK(map["name_source"] == "db2");
 }
 
 TEST_CASE("writeTerrainBundle: chunk slices hold exactly the canon chunk data") {

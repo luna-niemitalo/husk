@@ -173,6 +173,13 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Global-sequence lengths.** A `global_sequence` clip has `duration`
   (its loop); `resources.rig.global_sequences[i].duration` is the loop
   table other curves index. Use these as the period, not the last key.
+- **Map identity.** With `--db2-dir`, a world document has a `map` block
+  from its `Map` row: `ref` (row + `MapName_lang`), `directory`,
+  `instance_type` (+ `instance_type_name` for 0-4), `map_type`,
+  `expansion`, `max_players`, and `parent`, `cosmetic_parent` (Map refs)
+  and `area` (AreaTable ref), each named. A tile carries the same map ref
+  as `definition.terrain.map`. Use these for the place's name, not the
+  WDT file stem.
 - **Animation fallbacks.** `resources.rig.animation_fallbacks`:
   `[animation, fallback]` pairs from AnimationData, written with
   `--db2-dir`; follow them when a model has no clip for an animation.

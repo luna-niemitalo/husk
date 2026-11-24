@@ -207,6 +207,7 @@ add_library(husk-lib STATIC
   src/groundeffect_db2.cpp
   src/liquid_db2.cpp
   src/area_db2.cpp
+  src/map_db2.cpp
   src/light_db2.cpp
   src/liquid_canon_input.cpp
   src/surface_db2.cpp
@@ -329,6 +330,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_db2table.cpp
     tests/test_liquid_db2.cpp
     tests/test_light_db2.cpp
+    tests/test_place_db2.cpp
     tests/test_creature_options.cpp
     tests/test_sources_catalog.cpp
     tests/test_sources_resolved.cpp

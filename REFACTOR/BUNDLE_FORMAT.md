@@ -789,7 +789,11 @@ export-world` (every tile of a map or world). A tile is a `model` document
 whose content is `resources.terrain`, a heightfield; it has no mesh, rig
 or scene. `schema/model.schema.json` defines it key by key; this section is
 what a consumer needs on top of it. The subject is the root ADT (its
-FileDataID when the listfile knows it, named `<map>_<x>_<y>`).
+FileDataID when the listfile knows it, named `<map>_<x>_<y>`). With
+`--db2-dir`, `definition.terrain.map` (optional, since 0.4.0) is the
+tile's map as a `Map` row ref named from `MapName_lang`, the same row the
+world document's `map` block describes, so a tile read alone knows its
+place.
 
 ### Layout
 
@@ -991,6 +995,17 @@ its `MAID` (the listfile only without one).
   `export-map --tiles-from <tree>/maps/<map>` rewrites a map's world
   document linked to an existing export's tiles (seconds, not a
   re-export).
+- `map` (optional, since 0.4.0; written with `--db2-dir`): the map's
+  `Map` row, found by `Map.Directory` matching the WDT's directory (case
+  ignored), because the WDT's file stem names a folder, not the place.
+  `ref` is the row named from `MapName_lang` (azeroth: Map 0, "Eastern
+  Kingdoms"); `directory`, `instance_type`, `map_type`, `expansion`
+  (ExpansionID), `max_players` as stored; `instance_type_name` only for
+  the five values WoWDBDefs' Map.dbd comment names (none, party, raid,
+  pvp, arena); `parent` (ParentMapID) and `cosmetic_parent`
+  (CosmeticParentMapID) as named Map refs, absent when stored as -1;
+  `area` (AreaTableID) as an AreaTable ref named from AreaName_lang.
+  Nothing from UiMap: the map's UI region tree is not exported yet.
 
 ## Creature catalogs
 

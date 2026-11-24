@@ -991,6 +991,31 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     }
     w.endArray();
 
+    if (world.map) {
+        const canon::MapInfo& map = *world.map;
+        w.key("map");
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, map.ref);
+        w.key("directory");
+        w.value(map.directory);
+        writeIntField(w, "instance_type", map.instanceType);
+        if (map.instanceTypeName) {
+            w.key("instance_type_name");
+            w.value(*map.instanceTypeName);
+        }
+        writeIntField(w, "map_type", map.mapType);
+        writeIntField(w, "expansion", map.expansion);
+        writeIntField(w, "max_players", map.maxPlayers);
+        for (auto [key, ref] : {std::pair{"parent", &map.parent}, std::pair{"cosmetic_parent", &map.cosmeticParent},
+                                std::pair{"area", &map.area}}) {
+            if (!*ref) continue;
+            w.key(key);
+            writeRef(w, **ref);
+        }
+        w.endObject();
+    }
+
     w.endObject();
 
     std::string bytes = text.str();
