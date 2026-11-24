@@ -14,8 +14,8 @@ canonical bundle (`CANONICAL_FORMAT.md`) for MantleCore.
   of truth; not restated here). In short:
   - Canonical bundle export: M2 models (`export`), WMOs
     (`export-wmo`), ADT tiles and whole maps (`export-terrain`,
-    `export-map`, `export-world`). Six document kinds, defined and
-    validated by `schema/` (`validate-bundle`), schema 0.3.0.
+    `export-map`, `export-world`). Ten document kinds, defined and
+    validated by `schema/` (`validate-bundle`), schema 0.4.0.
   - Corpus store: `store-add`, `mount`, `export-corpus`, `snapshot`.
   - DB2 tools: `db2-info`, `db2-export`, `db2-build`; `info`,
     `dump-chunks`, `resolve` for inspection.
@@ -109,8 +109,32 @@ verbatim).
       0.4.0: branch `format04-items` (08dbcd0), merged into `format-0.4`,
       worktree removed.
   - 2026-11-24: playwright removed from the flake; `casc-tool` input
-    commented out of the dev shell (Luna, b13f953). No worktrees open.
+    commented out of the dev shell (Luna, b13f953).
+  - 2026-11-25: **schema 0.4.0 is on master** (Luna's merge 5540b08 of
+    `format-0.4`): 1187/1187 with real data, lint 0 problems, x-source
+    required (`bundle_schema::kSourceRequired`). Release notes:
+    `REFACTOR/MANTLECORE_MIGRATION.md` v0.4.0; mantlecore got the
+    combined reply (their `feedback/2026-11-24-235309-from-husk-…`).
+    All `format04-*`/`mantlecore-*` worktrees removed, branches kept; no
+    husk worktrees open.
+    - Garments (`REFACTOR/GARMENTS.md`, evidence
+      `WIKI_FINDINGS/GARMENTS.md`): body hem 1102 and item-model hem
+      submeshes move to the tunic, leggings keep their whole texture
+      (Luna); layer/order from WoW's slot draw priority (rule
+      `source_slot_priority`, grade ref wow.export, client unverified);
+      NPC item slot 11 draws nothing → no garment. Not built: dress vs
+      robe, `hides` pieces (HelmetGeosetData), the shared external
+      garments list.
+    - Zone fog `extinction` is grade ref (WebWowViewerCpp's 0.0005);
+      verifying it needs a disassembler or a screenshot check.
+    - Scratch: `/media/luna/work/cache/husk_garments/` (db.sqlite ~1 GB;
+      delete when garments work pauses; `peddler/` = Luna's set-3540
+      test export).
+    - Known bug: the lean glb's skin attributes repeat joint indices per
+      vertex (~3M gltf_validator errors, ACCESSOR_JOINTS_INDEX_DUPLICATE).
 - **Next step** (pick one; each names where its detail lives):
+  - mantlecore's open asks (2026-11-24 inbox, ingested):
+    `TODO/MANTLECORE_ASKS_TODO.md`.
   - MantleCore migration to the current format:
     `REFACTOR/MANTLECORE_MIGRATION.md` (placement sets, tile-local frames,
     world documents, textures by index).
@@ -142,6 +166,12 @@ verbatim).
     --render`, `tools/render_lean_glb.py`) are GPU runs and follow
     `~/.claude/rules/gpu-lock.md`; the test suite's Blender step only
     imports (`--background`, no render) and needs no lock.
+  - **A worktree without `test_data` silently skips ~90 real-data
+    tests**: `test_data/` is gitignored and lives only in the main
+    checkout, so a fresh worktree reports green with those tests
+    skipped. Link it first (`ln -s /home/luna/dev/husk/test_data
+    <worktree>/test_data`, gitignored since d0b05b1) and
+    compare the case count to the main tree's before trusting a pass.
   - **A stored build needs a clean producer**: a `-dirty` husk version
     (uncommitted changes) makes `store-add` refuse it.
   - Effect documents are written per bundle (`<bundle>/effects/`), not
