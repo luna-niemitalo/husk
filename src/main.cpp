@@ -357,6 +357,7 @@ struct AllSubcommandOpts {
     husk::commands::MountOptions mountOpts;
     husk::commands::ExportCorpusOptions exportCorpusOpts;
     husk::commands::IndexTreeOptions indexTreeOpts;
+    husk::commands::ExportCreaturesOptions exportCreaturesOpts;
     husk::commands::SnapshotOptions snapshotOpts;
 };
 
@@ -434,6 +435,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
 
     CLI::App* indexTreeSub = root.add_subcommand("index-tree", "(re)build an export tree's index/ lookup tables");
     husk::commands::addIndexTreeOptions(*indexTreeSub, opts.indexTreeOpts);
+
+    CLI::App* exportCreaturesSub =
+        root.add_subcommand("export-creatures", "write an export tree's creature catalog (creatures.json)");
+    husk::commands::addExportCreaturesOptions(*exportCreaturesSub, opts.exportCreaturesOpts);
 
     CLI::App* mountSub = root.add_subcommand("mount", "browse the canonical store as a read-only filesystem");
     husk::commands::addMountOptions(*mountSub, opts.mountOpts);
@@ -625,6 +630,7 @@ int main(int argc, char** argv) {
         "  snapshot [--listfile-root D/live] [--store DIR]\n"
         "                               record the source mount's current game build in the store\n"
         "  index-tree <tree>            (re)build an export tree's index/ lookup tables\n"
+        "  export-creatures <tree>      write an export tree's creature catalog (creatures.json)\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -688,6 +694,9 @@ int main(int argc, char** argv) {
     }
     if (command == "index-tree") {
         return husk::commands::indexTree(restArgc, rest);
+    }
+    if (command == "export-creatures") {
+        return husk::commands::exportCreatures(restArgc, rest);
     }
     if (command == "export-corpus") {
         return husk::commands::exportCorpus(restArgc, rest);

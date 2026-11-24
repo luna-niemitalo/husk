@@ -162,7 +162,7 @@ alongside for exactly that reason.
 
 ## Document kinds and the contract header — agreed 2026-10-10
 
-Every husk document is one of six **kinds**, decided by what the document
+Every husk document is one of seven **kinds**, decided by what the document
 has to do, not by which WoW file it came from:
 
 | Kind | What it is | Examples |
@@ -173,6 +173,7 @@ has to do, not by which WoW file it came from:
 | `effect` | A behaviour with declared inputs, placed by placement-set instances that supply them (`EFFECTS.md`). | a WMO's fog spheres (`classic_local_fog`) |
 | `material` | How a surface looks: image inputs, layers combined by named functions, and textures that may be composites (`MATERIALS.md`). | a character's skin atlas canvas |
 | `technique` | How the source game computes one drawing step, as data (below, "Techniques"). | `m2_pixel_shader/Combiners_Mod_Add`, `framebuffer_blend/alpha` |
+| `creatures` | A corpus's catalog of creatures: what kind each is and which model and preset draws each of its looks (below, "Creature catalogs"). | `creatures.json` of an export tree |
 
 A character, an item, a WMO and a doodad are all models; they differ in
 content, not kind. A WMO's doodad sets are its definition (what furniture
@@ -189,7 +190,7 @@ Every document opens with the same header, then its data:
 
 ```
 format          "husk-bundle", constant
-kind            "model" | "placement_set" | "world" | "effect"
+kind            "model" | "placement_set" | "world" | "effect" | "material" | "technique" | "creatures"
 schema_version  version of the schema/ definitions the document conforms to
 subject         Ref: what this document describes
 space           length/angle units, up axis, handedness of every position in it
@@ -202,6 +203,7 @@ model: resources {geometry, rig, materials, scene}
 placement_set: instances
 world: grid, placements, scene
 effect: sources
+creatures: creatures, displays
 ```
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
@@ -224,8 +226,9 @@ source of truth; prose like this file explains it but does not define it.
   validated recursively.
 - **Stable ids** (Luna, 2026-10-28): an array that can hold more than about
   50-100 entries gets an `id` per entry (a `uuid`, `common.schema.json`),
-  and references use `x-id-in`, not `x-index-into`. Only `zones` has been
-  converted; the other large arrays (`references`, mesh `parts`,
+  and references use `x-id-in`, not `x-index-into`. `zones` and the
+  creature catalog's `creatures`, `displays` and `references` have them; the other large arrays (other
+  documents' `references`, mesh `parts`,
   `light_params`, `surface_types`, `textures`) still use indices until
   each is audited.
 - **Schema lint** (a test over `schema/` itself) rejects known antipatterns:
@@ -435,7 +438,8 @@ that doesn't draw the file is the preset's `unresolved`. Its equipment
 indexes `definition.items` (`ItemDisplayInfo` refs, each once) as `{slot,
 item, source: {item_slot}}`, standing in until item documents exist. Options never swap the
 model: a creature that alternates between models is a level above the
-model document and isn't represented yet. Options that are only valid
+model document, in the creature catalog, whose displays name different
+models ("Creature catalogs"). Options that are only valid
 together ("this texture only with these geosets") would need a
 constraint form; none is known for creatures. For characters the plan
 is to make such pieces separate options instead (a tunic's skirt as its
@@ -914,4 +918,78 @@ its `MAID` (the listfile only without one).
   `export-map --tiles-from <tree>/maps/<map>` rewrites a map's world
   document linked to an existing export's tiles (seconds, not a
   re-export).
+
+## Creature catalogs
+
+**Current** (Luna 2026-11-24, for schema 0.4.0): one `creatures` document
+per export tree, `<tree>/creatures.json`, `schema/creatures.schema.json`.
+It answers "what creatures exist, what kind is each, and what does each
+look like" without opening a model or reading DB2. Which creatures live
+where is server data, not in the client, so the catalog places nothing
+and is not per zone.
+
+```json
+{ "kind": "creatures", "references": [
+    { "kind": "model", "asset": { "id": { "kind": "file_data_id", "value": 126080 },
+                                  "uri": "models/126080.canon.bundle/manifest.json" } } ],
+  "creatures": [
+    { "id": "6f1c…", "name": "Kor'kron Battlewolf", "name_source": "db2",
+      "type":   { "id": { "kind": "db2_row", "table": "CreatureType",   "row": 1 }, "name": "Beast", "name_source": "db2" },
+      "family": { "id": { "kind": "db2_row", "table": "CreatureFamily", "row": 1 }, "name": "Wolf",  "name_source": "db2" },
+      "displays": [ { "display": "0b9e…", "weight": 1 } ],
+      "source": { "id": { "kind": "db2_row", "table": "Creature", "row": 71116 } } } ],
+  "displays": [
+    { "id": "0b9e…", "model": 0, "preset": 4, "scale": 1, "base_scale": 1,
+      "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 17408 } } } ] }
+```
+
+- **One document, not one per creature.** The client's `Creature` table
+  holds ~20k of the game's creatures (23,167 rows in 12.1.5); one file
+  of entries is what a consumer loads to pick from, and per-creature
+  files would only be loaded together.
+- **`creatures`**: every `Creature` row, ascending by row. `type` and
+  `family` are the `CreatureType`/`CreatureFamily` row refs with their
+  names, so a consumer maps them onto its own archetypes without DB2;
+  absent when the row is 0. `title` is the line under the name.
+  `classification` is `Creature.Classification` as stored, a plain
+  integer: it is a client enum with no table to name it (community
+  documentation reads 0 normal, 1 elite, 2 rare elite, 3 boss, 4 rare,
+  5 trivial, 6 minus; not checked here).
+  `displays` are the row's nonzero `DisplayID` slots in slot order, each
+  with its `DisplayProbability` as `weight`, raw: a creature's only look
+  can carry 0, and how the client picks among weights is not
+  established.
+- **`displays`**: every display a creature names, once, ascending by
+  row; creatures share them. `model` is the `id` of a `references`
+  entry: one `model` reference per distinct FileDataID, ascending, named
+  from `--listfile` when given (`name_source: listfile`), `uri` when the
+  tree holds that model's bundle, identity only otherwise. `preset` indexes that
+  model document's `selection.presets`: the preset whose `sources` list
+  this display ("Options and presets"). `scale`/`base_scale` repeat that
+  preset source's values (`CreatureDisplayInfo.CreatureModelScale`,
+  `CreatureModelData.ModelScale`) so the catalog alone can size a
+  creature. A display the client's table lacks (an encrypted section)
+  keeps only its id and source.
+- **Stable ids.** Creatures, displays and model references carry
+  `nameUuid` ids (`creature/Creature/<row>`,
+  `creature_display/CreatureDisplayInfo/<row>`,
+  `model/file_data_id/<fdid>`); a creature names its displays and a
+  display its model by id (`x-id-in`), so filtering or reordering any of
+  the three arrays never breaks a reference and a re-export keeps them.
+  The catalog's references run to thousands, so its reference items are
+  its own (common `reference` plus `id`, `kind` fixed to `model`); other
+  documents' `references` are still indexed by position ("Stable ids"
+  above).
+- **Written by `husk export-creatures <tree>`**, which `export-corpus`
+  runs after `index-tree` whenever it has `--db2-dir` and `--dbd-dir`.
+  Not part of `index-tree`: `index/` is derived from the tree alone, and
+  the catalog needs the creature tables. Not part of `export-world`: the
+  presets are what the model documents chose, so the catalog is written
+  from the finished tree's `index/creature_displays.tsv`, and a row there
+  whose model isn't the one the DB2 chain names fails the run (the tree
+  was exported from other tables).
+- **Validation**: the schema (every reference is a `model` one) and
+  `x-id-in` for display and model ids. Whether `preset` is in
+  range of the model's presets is not checked (the validator doesn't open
+  model references).
 

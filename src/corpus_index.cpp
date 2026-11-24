@@ -25,6 +25,8 @@ namespace husk::corpus {
 
 namespace {
 
+const std::string kCreatureDisplaysHeader = "display\tmodel\tpreset";
+
 // Only selection and definition: a model's resources (a character's rig
 // is ~100 MB of JSON) would cost memory on every worker for nothing.
 json readIndexedParts(const fs::path& manifest) {
@@ -106,7 +108,7 @@ IndexResult buildIndex(const fs::path& tree) {
     });
 
     std::ostringstream displays;
-    displays << "display\tmodel\tpreset\n";
+    displays << kCreatureDisplaysHeader << '\n';
     for (const auto& [display, model, preset] : rows.displays) displays << display << '\t' << model << '\t' << preset << '\n';
     std::ostringstream chrModels;
     chrModels << "chr_model\tmodel\n";
@@ -116,6 +118,32 @@ IndexResult buildIndex(const fs::path& tree) {
     writeTextAtomic(tree / "index" / "creature_displays.tsv", displays.str());
     writeTextAtomic(tree / "index" / "chr_models.tsv", chrModels.str());
     return {manifests.size(), rows.displays.size(), rows.chrModels.size()};
+}
+
+std::vector<CreatureDisplayRow> readCreatureDisplays(const fs::path& tree) {
+    fs::path path = tree / "index" / "creature_displays.tsv";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("expected " + path.string() + " (run husk index-tree first), got none");
+    auto fail = [&](size_t line, const std::string& expected, const std::string& actual) {
+        throw std::runtime_error(path.string() + ":" + std::to_string(line) + ": expected " + expected + ", got '" + actual + "'");
+    };
+    auto number = [&](size_t line, const std::string& field) -> uint32_t {
+        bool digits = !field.empty() && field.size() <= 10 && std::all_of(field.begin(), field.end(), ::isdigit);
+        if (!digits || std::stoull(field) > UINT32_MAX) fail(line, "an unsigned 32-bit number", field);
+        return static_cast<uint32_t>(std::stoull(field));
+    };
+    std::string text;
+    std::getline(in, text);
+    if (text != kCreatureDisplaysHeader) fail(1, "the header '" + kCreatureDisplaysHeader + "'", text);
+    std::vector<CreatureDisplayRow> out;
+    for (size_t line = 2; std::getline(in, text); ++line) {
+        std::vector<std::string> fields;
+        std::stringstream split(text);
+        for (std::string field; std::getline(split, field, '\t');) fields.push_back(field);
+        if (fields.size() != 3) fail(line, "3 tab-separated fields", text);
+        out.push_back({number(line, fields[0]), fields[1], number(line, fields[2])});
+    }
+    return out;
 }
 
 }  // namespace husk::corpus

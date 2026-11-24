@@ -1,0 +1,252 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/creatures.schema.json",
+  "title": "creatures",
+  "description": "A corpus's creature catalog: every creature the client knows, what kind it is, and which model and preset draws each of its looks. Where a creature lives is server data, so the catalog places nothing.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "creatures",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.3.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The catalog; it has no identity of its own.",
+      "x-layer": "contract"
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "A catalog defines nothing beyond its entries.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "definition"
+    },
+    "selection": {
+      "type": "object",
+      "description": "A catalog selects nothing.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection"
+    },
+    "references": {
+      "type": "array",
+      "description": "The model documents the displays draw, each once, ascending by file id. Displays name them by id: the list runs to thousands, so a position would shift with every re-export.",
+      "items": {
+        "type": "object",
+        "description": "One model.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "This reference's stable id, derived from the model's file id."
+          },
+          "kind": {
+            "const": "model",
+            "description": "Kind of the referenced document."
+          },
+          "asset": {
+            "$ref": "common.schema.json#/definitions/asset_ref",
+            "description": "The model file, named from the listfile when the exporter had one; uri when its document is in the tree."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "asset"
+        ],
+        "additionalProperties": false
+      },
+      "x-layer": "contract"
+    },
+    "creatures": {
+      "type": "array",
+      "description": "Every creature the client's table lists. The client ships only part of the game's creatures.",
+      "items": {
+        "type": "object",
+        "description": "One creature.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "This creature's stable id, unique among the catalog's creatures."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Display name; absent when the source names none."
+          },
+          "name_source": {
+            "$ref": "common.schema.json#/definitions/ref/properties/name_source",
+            "description": "Where the name came from. Present exactly when name is."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The line shown under the name, e.g. a profession; absent when there is none."
+          },
+          "type": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "What kind of being it is (Beast, Dragonkin, Humanoid, ...): the source's type row, with its name. Absent when the source gives none."
+          },
+          "family": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "Its family within the type (Wolf, Boar, Carrion Bird, ...): the source's family row, with its name. Absent when the source gives none."
+          },
+          "classification": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The source's rank of the creature, as stored. No client table names the values; community documentation reads 0 normal, 1 elite, 2 rare elite, 3 boss, 4 rare, 5 trivial, 6 minus, not checked here."
+          },
+          "displays": {
+            "type": "array",
+            "description": "The looks the creature is drawn with, one per source display slot in slot order; a look may repeat.",
+            "items": {
+              "type": "object",
+              "description": "One look.",
+              "properties": {
+                "display": {
+                  "$ref": "common.schema.json#/definitions/uuid",
+                  "description": "The id of the display.",
+                  "x-id-in": "/displays"
+                },
+                "weight": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "The source's weight for this look among the creature's looks, as stored. Unused slots and a creature's only look can carry any value, 0 included; how the client picks a look from the weights is not established.",
+                  "x-unit": "1"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "display",
+                "weight"
+              ]
+            }
+          },
+          "source": {
+            "type": "object",
+            "description": "Source-specific raw values.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/identity",
+                "description": "The source's own record of the creature."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "displays",
+          "source"
+        ],
+        "dependencies": {
+          "name": [
+            "name_source"
+          ],
+          "name_source": [
+            "name"
+          ]
+        }
+      },
+      "x-layer": "resource"
+    },
+    "displays": {
+      "type": "array",
+      "description": "Every look a creature names: the model that draws it and the preset of that model it is.",
+      "items": {
+        "type": "object",
+        "description": "One look.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "This display's stable id, unique among the catalog's displays."
+          },
+          "model": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "The id of the model reference that draws it. Absent when the source names no model for it.",
+            "x-id-in": "/references"
+          },
+          "preset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Index into the model document's selection.presets: the preset listing this display among its sources. Absent when the model document is not exported or lists no such preset."
+          },
+          "scale": {
+            "type": "number",
+            "description": "The display's own scale; the same value as the preset source's scale in the model document.",
+            "x-unit": "1"
+          },
+          "base_scale": {
+            "type": "number",
+            "description": "The model data row's scale; the same value as the preset source's base_scale in the model document.",
+            "x-unit": "1"
+          },
+          "source": {
+            "type": "object",
+            "description": "Source-specific raw values.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/identity",
+                "description": "The source's own record of the display."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source"
+        ],
+        "dependencies": {
+          "preset": [
+            "model"
+          ]
+        }
+      },
+      "x-layer": "resource"
+    }
+  },
+  "required": [
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "creatures",
+    "displays"
+  ],
+  "additionalProperties": false
+}
