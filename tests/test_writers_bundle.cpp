@@ -427,6 +427,9 @@ TEST_CASE(
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
 
     canon::Model model = m2input::buildCanonModel(m2model, batches, submeshes, triangleIndices);
+    // Part and material stable ids derive from the subject; the export
+    // command sets it, so this test does too.
+    model.subject = writers::subjectRef(test::testM2(), std::nullopt);
     REQUIRE(!model.mesh.primitives.empty());
     REQUIRE(model.primitiveMaterials.size() == model.mesh.primitives.size());
     // Real, expected dedup on this real fixture: strictly fewer materials
