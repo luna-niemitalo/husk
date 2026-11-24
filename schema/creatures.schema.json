@@ -125,12 +125,6 @@
             "description": "Its family within the type (Wolf, Boar, Carrion Bird, ...): the source's family row with its name, absent when the source gives none. A consumer maps it onto its own archetypes without reading DB2.",
             "x-source": [{"table": "Creature", "column": "CreatureFamily"}, {"table": "CreatureFamily", "column": "Name_lang"}]
           },
-          "classification": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The source's rank of the creature, as stored. No client table names the values; community documentation reads 0 normal, 1 elite, 2 rare elite, 3 boss, 4 rare, 5 trivial, 6 minus, not checked here.",
-            "x-source": [{"table": "Creature", "column": "Classification"}]
-          },
           "displays": {
             "type": "array",
             "description": "The looks the creature is drawn with, one per nonzero source display slot in slot order; a look may repeat.",
@@ -148,7 +142,7 @@
                 "weight": {
                   "type": "number",
                   "minimum": 0,
-                  "description": "The source's weight for this look among the creature's looks, as stored. Unused slots and a creature's only look can carry any value, 0 included; how the client picks a look from the weights is not established.",
+                  "description": "The look's relative weight among the creature's looks, not normalized. Unused slots and a creature's only look can carry any value, 0 included; how the client picks a look from the weights is not established.",
                   "x-unit": "1",
                   "x-source": [{"table": "Creature", "column": "DisplayProbability"}]
                 }
@@ -167,6 +161,12 @@
               "id": {
                 "$ref": "common.schema.json#/definitions/identity",
                 "description": "The source's own record of the creature."
+              },
+              "classification": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The source's rank of the creature, as stored. No client table names the values; community documentation reads 0 normal, 1 elite, 2 rare elite, 3 boss, 4 rare, 5 trivial, 6 minus, not checked here.",
+                "x-source": [{"table": "Creature", "column": "Classification"}]
               }
             },
             "additionalProperties": false,
@@ -227,11 +227,6 @@
             "x-unit": "1",
             "x-source": [{"table": "CreatureModelData", "column": "ModelScale"}]
           },
-          "size_class": {
-            "type": "integer",
-            "description": "CreatureDisplayInfo.SizeClass as stored: the client's size category for the display (no client table names its values), absent when the display's row is not in the client's table.",
-            "x-source": [{"table": "CreatureDisplayInfo", "column": "SizeClass"}]
-          },
           "object_effect_package": {
             "$ref": "common.schema.json#/definitions/ref",
             "description": "CreatureDisplayInfo.ObjectEffectPackageID: the ObjectEffectPackage row of effects the display carries, unnamed (husk doesn't read that table), absent when stored as 0.",
@@ -264,6 +259,11 @@
               "id": {
                 "$ref": "common.schema.json#/definitions/identity",
                 "description": "The source's own record of the display."
+              },
+              "size_class": {
+                "type": "integer",
+                "description": "CreatureDisplayInfo.SizeClass as stored: the client's size category for the display (no client table names its values), absent when the display's row is not in the client's table.",
+                "x-source": [{"table": "CreatureDisplayInfo", "column": "SizeClass"}]
               }
             },
             "additionalProperties": false,

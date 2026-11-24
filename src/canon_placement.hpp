@@ -54,6 +54,10 @@ struct PlacedInstance {
     // For an asset that owns placement sets: which of them this instance
     // turns on, by set ref. nullopt = the asset's defaults (its always-on sets).
     std::optional<std::vector<Ref>> activeSets;
+    // For an asset whose parts are named per name set (canon::PartArea):
+    // which name set this instance shows, since one building placed in two
+    // towns carries two names.
+    std::optional<uint32_t> nameSet;
     // Set: the asset is an effect document (REFACTOR/EFFECTS.md), named by
     // `asset`; nullopt: a model.
     std::optional<EffectPlacement> effect;

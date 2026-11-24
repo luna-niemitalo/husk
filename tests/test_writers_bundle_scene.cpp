@@ -435,7 +435,7 @@ TEST_CASE("writeWorldBundle: the map block names the Map row, its parents and ar
     CHECK(out["ref"]["id"]["table"] == "Map");
     CHECK(out["ref"]["id"]["row"] == 655);
     CHECK(out["ref"]["name"] == "GilneasPhase1");
-    CHECK(out["directory"] == "GilneasPhase1");
+    CHECK(out["source"]["directory"] == "GilneasPhase1");
     CHECK(out["instance_type_name"] == "none");
     CHECK(out["expansion"] == 3);
     CHECK(out["max_players"] == 0);

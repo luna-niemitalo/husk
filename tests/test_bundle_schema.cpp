@@ -433,6 +433,36 @@ TEST_CASE("bundle_schema: the lint walks kind-local definitions and map values, 
     CHECK(mentions(problems, R"(expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got {"guess":true})"));
 }
 
+TEST_CASE("bundle_schema: the lint rejects DB2 table and column names and as-stored values outside source") {
+    constexpr const char* kBad = R"({
+      "$schema": "http://json-schema.org/draft-07/schema#", "x-status": "implemented",
+      "type": "object", "description": "A bad kind.",
+      "properties": {
+        "item_display_info": {"type": "integer", "description": "d", "x-layer": "resource", "x-source": [{"table": "ItemDisplayInfo"}]},
+        "texture_type": {"type": "integer", "description": "d", "x-layer": "resource"},
+        "liquid_type": {"type": "integer", "description": "d", "x-layer": "resource", "x-source": [{"table": "LiquidType"}]},
+        "model_resources_id": {"type": "integer", "description": "d", "x-layer": "resource"},
+        "rank": {"type": "integer", "description": "The rank as stored.", "x-layer": "resource"},
+        "map": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"table": "Map", "column": "Directory"}]},
+        "source": {"type": "object", "description": "d", "x-layer": "resource", "additionalProperties": false, "properties": {
+          "raw": {"type": "object", "description": "d", "additionalProperties": false, "properties": {
+            "item_display_info": {"type": "integer", "description": "As stored."},
+            "texture_type": {"type": "integer", "description": "As stored."}}}}}
+      },
+      "additionalProperties": false
+    })";
+    std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemaText("bad", kBad);
+    INFO(describe(problems));
+    CHECK(mentions(problems, "key 'item_display_info' contains the DB2 table name 'item_display_info'"));
+    CHECK(mentions(problems, "key 'texture_type' is a DB2 column name"));
+    CHECK(mentions(problems, "key 'model_resources_id' is a DB2 column name"));
+    CHECK(mentions(problems, "key 'rank' is described as kept as stored"));
+    // Two-word table names are often the plain meaning.
+    CHECK_FALSE(mentions(problems, "key 'liquid_type'"));
+    CHECK_FALSE(mentions(problems, "key 'map'"));
+    CHECK_FALSE(mentions(problems, "/properties/source/"));
+}
+
 TEST_CASE("bundle_schema: schema-doc lists every kind's document paths with type, allowed values, unit, links and required") {
     std::string doc = bundle_schema::schemaDoc();
     CHECK(doc == bundle_schema::schemaDoc());

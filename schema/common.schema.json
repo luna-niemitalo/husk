@@ -1592,7 +1592,7 @@
               "maxItems": 3,
               "items": {
                 "$ref": "#/definitions/rgba",
-                "description": "One colour, as stored."
+                "description": "One colour."
               },
               "x-unit": "1"
             }
@@ -1609,7 +1609,7 @@
           "properties": {
             "color": {
               "$ref": "#/definitions/rgb",
-              "description": "Fog colour, as stored.",
+              "description": "Fog colour.",
               "x-unit": "1",
               "x-source": [{"file": "wdt_fogs", "field": "VFOG.color"}]
             },
@@ -1653,7 +1653,7 @@
             },
             "color": {
               "$ref": "#/definitions/rgba",
-              "description": "Colour multiplier, as stored.",
+              "description": "Colour multiplier.",
               "x-unit": "1"
             }
           },
@@ -1917,7 +1917,7 @@
         },
         "color": {
           "$ref": "#/definitions/lifetime_curve",
-          "description": "Colour over the particle's life, [r, g, b] as stored (0..255 observed).",
+          "description": "Colour over the particle's life, [r, g, b], 0..255 observed (not scaled to 0..1).",
           "x-unit": "1"
         },
         "alpha": {
@@ -2738,18 +2738,6 @@
           "description": "The stars are not drawn (flag 0x10).",
           "x-source": [{"table": "LightParams", "column": "Flags"}]
         },
-        "celestial_sphere_override": {
-          "$ref": "#/definitions/vec3",
-          "description": "The celestial sphere override as stored; absent when stored zero.",
-          "x-unit": "1",
-          "x-source": [{"table": "LightParams", "column": "OverrideCelestialSphere"}]
-        },
-        "sun_position_override": {
-          "$ref": "#/definitions/vec3",
-          "description": "The sun position override as stored; absent when stored zero.",
-          "x-unit": "yard",
-          "x-source": [{"table": "LightParams", "column": "OverrideSunPosition"}]
-        },
         "cloud_kind": {
           "type": "integer",
           "minimum": 0,
@@ -2770,6 +2758,18 @@
               "$ref": "#/definitions/flags",
               "description": "LightParams Flags as stored (names in wowdev.wiki DB/LightParams).",
               "x-source": [{"table": "LightParams", "column": "Flags"}]
+            },
+            "celestial_sphere_override": {
+              "$ref": "#/definitions/vec3",
+              "description": "The celestial sphere override as stored; absent when stored zero.",
+              "x-unit": "1",
+              "x-source": [{"table": "LightParams", "column": "OverrideCelestialSphere"}]
+            },
+            "sun_position_override": {
+              "$ref": "#/definitions/vec3",
+              "description": "The sun position override as stored; absent when stored zero.",
+              "x-unit": "yard",
+              "x-source": [{"table": "LightParams", "column": "OverrideSunPosition"}]
             }
           },
           "required": [

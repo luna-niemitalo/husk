@@ -200,12 +200,24 @@ changes:
   (`BUNDLE_FORMAT.md` "Appearances").
 - **Creature display `preset` is an id.** `creatures.json` displays hold
   the preset's `id` string instead of its index into `selection.presets`.
+- **Raw source values moved under `source`.** Values kept as the source
+  stores them, with no meaning a consumer of another source could use,
+  left the canonical keys:
+  - terrain `resources.terrain.liquid_objects[]`: `flow_speed`,
+    `fishable`, `reflection` → `liquid_objects[].source.{flow_speed,
+    fishable, reflection}` (`flow_direction` stays);
+  - model `resources.physics.bodies[].type` →
+    `bodies[].source.type`;
+  - placement set `resources.light_params[]`: `celestial_sphere_override`,
+    `sun_position_override` → `light_params[].source.{...}`.
+  Descriptions of colours and densities no longer say "as stored"; their
+  values are unchanged.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Creature catalog, a new document kind.** `husk export-creatures`
   (also run by `export-corpus`) writes `<tree>/creatures.json`: every
   client `Creature` row with name, title, type and family (refs with
-  names), raw `classification`, and its display slots with weights; each
+  names), raw `source.classification`, and its display slots with weights; each
   display names its model by stable id, with the id of its preset in that
   model's `selection.presets` and its scale. Where creatures live is
   server data, so the catalog has no locations (`BUNDLE_FORMAT.md`
@@ -236,22 +248,23 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
   (its loop); `resources.rig.global_sequences[i].duration` is the loop
   table other curves index. Use these as the period, not the last key.
 - **Map identity.** With `--db2-dir`, a world document has a `map` block
-  from its `Map` row: `ref` (row + `MapName_lang`), `directory`,
-  `instance_type` (+ `instance_type_name` for 0-4), `map_type`,
-  `expansion`, `max_players`, and `parent`, `cosmetic_parent` (Map refs)
-  and `area` (AreaTable ref), each named. A tile carries the same map ref
+  from its `Map` row: `ref` (row + `MapName_lang`), `instance_type_name`
+  (for 0-4), `expansion`, `max_players`, `parent`, `cosmetic_parent` (Map
+  refs) and `area` (AreaTable ref), each named, and the raw
+  `source.directory`, `source.instance_type` and `source.map_type`. A tile carries the same map ref
   as `definition.terrain.map`. Use these for the place's name, not the
   WDT file stem.
 - **WMO interior names.** With `--db2-dir`, a WMO mesh part has `areas`:
   per name set, `{name_set, ref, area, whole_model}` (WMOAreaTable row
-  with `AreaName_lang`, its AreaTable row named). Pick the entry whose
-  `name_set` is the placement's MODF name set (`BUNDLE_FORMAT.md` "Schema
-  0.4.0").
+  with `AreaName_lang`, its AreaTable row named). Every map-object
+  placement carries `selection.name_set`; pick the entry whose `name_set`
+  equals it, the way `selection.placement_sets` picks doodad sets
+  (`BUNDLE_FORMAT.md` "Schema 0.4.0").
 - **More named refs.** With `--db2-dir`, a tile's
   `resources.terrain.chunks.areas[]` carry AreaTable names and a zone
   light's `skybox.ref` its LightSkybox name; identities unchanged.
-- **Creature display fields.** A catalog display gains `size_class` (raw)
-  and unnamed row refs `object_effect_package`, `state_spell_visual_kit`,
+- **Creature display fields.** A catalog display gains `source.size_class`
+  (raw) and unnamed row refs `object_effect_package`, `state_spell_visual_kit`,
   `anim_replacement_set`, `dissolve_effect`, `mount_poof_spell_visual_kit`
   (CreatureDisplayInfo columns of the same names), each absent at 0.
 - **Character model names.** A customization option's `chr_model` ref

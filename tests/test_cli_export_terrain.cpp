@@ -157,6 +157,8 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
     REQUIRE(mapObjects.size() == 1);
     CHECK(mapObjects[0]["asset"]["name"] == "inn");
     CHECK(mapObjects[0]["selection"]["placement_sets"][0] == 0);
+    CHECK(mapObjects[0]["selection"]["name_set"] == 0);
+    CHECK_FALSE(doodads[0]["selection"].contains("name_set"));
 }
 
 TEST_CASE("husk export-terrain: a real tile's _lod.adt bands become terrain levels 1..4, finest first" *
@@ -511,7 +513,7 @@ TEST_CASE("husk export-map: a map without terrain places its WDT's one WMO off t
     WdtSpec spec;
     spec.flags = 0x1;
     spec.tiles = {};
-    spec.mapObject = MapObjectSpec{109782, 3, {kMapHalfExtent - 100.0f, 25.0f, kMapHalfExtent - 200.0f}, {}, 0x8, 1};
+    spec.mapObject = MapObjectSpec{109782, 3, {kMapHalfExtent - 100.0f, 25.0f, kMapHalfExtent - 200.0f}, {}, 0x8, 1, 2};
     fs::path mapDir = c.root / "world" / "maps" / "dungeon";
     writeBytes(mapDir / "dungeon.wdt", wdtFile(spec));
     fs::path out = c.root / "dungeon.world.bundle";
@@ -529,6 +531,7 @@ TEST_CASE("husk export-map: a map without terrain places its WDT's one WMO off t
     CHECK(instances[0]["asset"]["id"]["value"] == 109782);
     CHECK(instances[0]["translation"][0].get<double>() == doctest::Approx(200.0));
     CHECK(instances[0]["selection"]["placement_sets"] == nlohmann::json::array({1}));
+    CHECK(instances[0]["selection"]["name_set"] == 2);
 
     WdtSpec terrain;
     terrain.tiles = {};
@@ -627,7 +630,7 @@ TEST_CASE("husk export-map: live moltencore names its Map row, kind and area" * 
     nlohmann::json map = readTile(out / "manifest.json")["map"];
     CHECK(map["ref"]["id"]["row"] == 409);
     CHECK(map["ref"]["name"] == "Molten Core");
-    CHECK(map["directory"] == "MoltenCore");
+    CHECK(map["source"]["directory"] == "MoltenCore");
     CHECK(map["instance_type_name"] == "raid");
     CHECK(map["max_players"] == 40);
     CHECK(map["area"]["id"]["row"] == 2717);

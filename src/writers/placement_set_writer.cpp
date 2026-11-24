@@ -202,14 +202,14 @@ void writeLightSettings(json::Writer& w, const canon::LightSettings& s, const In
     writeBoolField(w, "hide_sun", s.flags & 0x4);
     writeBoolField(w, "hide_moon", s.flags & 0x8);
     writeBoolField(w, "hide_stars", s.flags & 0x10);
-    if (s.celestialSphereOverride) writeVec3Field(w, "celestial_sphere_override", *s.celestialSphereOverride);
-    if (s.sunPositionOverride) writeVec3Field(w, "sun_position_override", *s.sunPositionOverride);
     writeIntField(w, "cloud_kind", s.cloudType);
     writeIntField(w, "ssao_settings", s.ssaoSettings);
     w.key("source");
     w.beginObject();
     w.key("flags");
     w.value(hexFlags(s.flags));
+    if (s.celestialSphereOverride) writeVec3Field(w, "celestial_sphere_override", *s.celestialSphereOverride);
+    if (s.sunPositionOverride) writeVec3Field(w, "sun_position_override", *s.sunPositionOverride);
     w.endObject();
     if (!s.unresolved.empty()) {
         w.key("unresolved");
@@ -590,6 +590,10 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
             }
         }
         w.endArray();
+        if (instance.nameSet) {
+            w.key("name_set");
+            w.value(static_cast<int64_t>(*instance.nameSet));
+        }
         w.endObject();
         w.key("source");
         w.beginObject();

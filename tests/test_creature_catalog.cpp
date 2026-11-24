@@ -126,17 +126,17 @@ TEST_CASE("creature catalog: shared displays, stable ids, and rows the tables la
     CHECK(doc["references"][0]["asset"]["name"] == "wolf");
     CHECK(doc["references"][0]["asset"]["name_source"] == "listfile");
     CHECK(doc["displays"][0]["model"] == doc["references"][0]["id"]);
-    CHECK(doc["creatures"][0]["classification"] == 1);
+    CHECK(doc["creatures"][0]["source"]["classification"] == 1);
     CHECK(doc["displays"][0]["preset"] == nameUuid("preset/test"));
-    CHECK(doc["displays"][0]["size_class"] == 2);
+    CHECK(doc["displays"][0]["source"]["size_class"] == 2);
     CHECK(doc["displays"][0]["state_spell_visual_kit"]["id"]["table"] == "SpellVisualKit");
     CHECK(doc["displays"][0]["state_spell_visual_kit"]["id"]["row"] == 555);
     CHECK(doc["displays"][0]["dissolve_effect"]["id"]["table"] == "DissolveEffect");
     CHECK_FALSE(doc["displays"][0].contains("object_effect_package"));
-    CHECK(doc["displays"][1]["size_class"] == 0);
+    CHECK(doc["displays"][1]["source"]["size_class"] == 0);
     CHECK_FALSE(doc["displays"][1].contains("dissolve_effect"));
     // A display the client's table lacks has no row values at all.
-    CHECK_FALSE(doc["displays"][2].contains("size_class"));
+    CHECK_FALSE(doc["displays"][2]["source"].contains("size_class"));
     CHECK_FALSE(doc["displays"][1].contains("model"));
     CHECK(doc["creatures"][1]["displays"][0]["display"] == doc["displays"][0]["id"]);
     CHECK(doc["creatures"][1]["family"]["name"] == "Wolf");
