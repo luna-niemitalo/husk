@@ -17,6 +17,7 @@
 
 #include "canon_terrain.hpp"  // terrainTileCorner, the world grid
 #include "json_writer.hpp"
+#include "uuid.hpp"
 #include "writers/bundle_bin_sections.hpp"
 #include "writers/bundle_common.hpp"
 #include "writers/bundle_physics.hpp"
@@ -273,38 +274,74 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
     w.endArray();
 }
 
-void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
-    if (presets.empty()) return;
-    w.key("presets");
+// `bakeCovers`: set for a preset's outfit textures, whose every choice is a
+// bake and names the items it draws in.
+void writeSlotChoices(json::Writer& w, const std::vector<canon::SlotChoice>& choices,
+                      const std::vector<uint32_t>* bakeCovers = nullptr) {
+    w.key("textures");
     w.beginArray();
-    for (const canon::Preset& preset : presets) {
+    for (const canon::SlotChoice& choice : choices) {
         w.beginObject();
-        w.key("textures");
-        w.beginArray();
-        for (const canon::SlotChoice& choice : preset.textures) {
-            w.beginObject();
-            w.key("slot");
-            w.value(static_cast<int64_t>(choice.slot));
-            w.key("option");
-            w.value(static_cast<int64_t>(choice.option));
-            w.endObject();
-        }
-        w.endArray();
-        if (preset.shownGeosets) {
-            w.key("shown_geosets");
+        w.key("slot");
+        w.value(static_cast<int64_t>(choice.slot));
+        w.key("option");
+        w.value(static_cast<int64_t>(choice.option));
+        if (bakeCovers) {
+            w.key("covers_items");
             w.beginArray();
-            for (uint32_t id : *preset.shownGeosets) w.value(static_cast<int64_t>(id));
+            for (uint32_t item : *bakeCovers) w.value(static_cast<int64_t>(item));
             w.endArray();
         }
-        if (preset.particleColors) {
-            w.key("particle_colors");
-            w.value(static_cast<int64_t>(*preset.particleColors));
+        w.endObject();
+    }
+    w.endArray();
+}
+
+std::string appearanceId(const std::string& modelKey, const canon::Appearance& appearance) {
+    return nameUuid("appearance/" + modelKey + "/" + appearance.key);
+}
+
+// The model's appearances reference with its list inline (REFACTOR/
+// BUNDLE_FORMAT.md "Appearances"): `export-appearances` later swaps the
+// `document` for a uri into a tree's shared list, keeping the id.
+void writeInlineAppearances(json::Writer& w, const canon::Model& model, const std::string& modelKey,
+                            const Provenance& provenance) {
+    canon::Ref list{canon::None{}, "appearances", canon::NameSource::Synthesized};
+    beginAppearancesReference(w, "");
+    w.key("document");
+    w.beginObject();
+    writeContractHeader(w, "appearances", list, provenance);
+    w.key("definition");
+    w.beginObject();
+    w.endObject();
+    w.key("selection");
+    w.beginObject();
+    w.endObject();
+    w.key("references");
+    w.beginArray();
+    w.endArray();
+    w.key("appearances");
+    w.beginArray();
+    for (const canon::Appearance& appearance : model.appearances) {
+        w.beginObject();
+        w.key("id");
+        w.value(appearanceId(modelKey, appearance));
+        if (!appearance.textures.empty()) writeSlotChoices(w, appearance.textures);
+        if (appearance.shownGeosets) {
+            w.key("shown_geosets");
+            w.beginArray();
+            for (uint32_t id : *appearance.shownGeosets) w.value(static_cast<int64_t>(id));
+            w.endArray();
         }
-        if (preset.opacity) writeFloatField(w, "opacity", *preset.opacity);
-        if (!preset.customization.empty()) {
+        if (appearance.particleColors) {
+            w.key("particle_colors");
+            w.value(static_cast<int64_t>(*appearance.particleColors));
+        }
+        if (appearance.opacity) writeFloatField(w, "opacity", *appearance.opacity);
+        if (!appearance.customization.empty()) {
             w.key("customization");
             w.beginArray();
-            for (const canon::CustomizationPick& pick : preset.customization) {
+            for (const canon::CustomizationPick& pick : appearance.customization) {
                 w.beginObject();
                 w.key("option");
                 w.value(static_cast<int64_t>(pick.option));
@@ -314,6 +351,30 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
             }
             w.endArray();
         }
+        if (!appearance.unresolved.empty()) {
+            w.key("unresolved");
+            writeUnresolved(w, appearance.unresolved);
+        }
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+    w.endObject();
+}
+
+void writePresets(json::Writer& w, const canon::Model& model, const std::string& modelKey) {
+    if (model.presets.empty()) return;
+    w.key("presets");
+    w.beginArray();
+    for (const canon::Preset& preset : model.presets) {
+        w.beginObject();
+        w.key("id");
+        w.value(nameUuid("preset/" + modelKey + "/" + preset.key));
+        if (preset.appearance) {
+            w.key("appearance");
+            w.value(appearanceId(modelKey, model.appearances[*preset.appearance]));
+        }
+        if (!preset.textures.empty()) writeSlotChoices(w, preset.textures, &preset.bakeCovers);
         if (!preset.items.empty()) {
             w.key("items");
             w.beginArray();
@@ -751,9 +812,13 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         materialTechniqueRefs.push_back(std::move(refs));
     }
     writeTechniqueDocuments(techniqueNames, bundleDir, provenance);
+    // Only ids of presets and appearances use it; a subject with neither
+    // identity nor name has no key, and needs none without them.
+    std::string modelKey = model.presets.empty() && model.appearances.empty() ? "" : identityKey(model.subject);
     writeOwnedSetSelectionAndReferences(
-        w, sets, [&](json::Writer& sw) { writePresets(sw, model.presets); },
+        w, sets, [&](json::Writer& sw) { writePresets(sw, model, modelKey); },
         [&](json::Writer& rw) {
+            if (!model.appearances.empty()) writeInlineAppearances(rw, model, modelKey, provenance);
             for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
                 rw.beginObject();
                 rw.key("id");

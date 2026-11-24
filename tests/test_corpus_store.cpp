@@ -288,17 +288,18 @@ TEST_CASE("corpus index: displays find their model and preset, ChrModels their m
                  "definition": {"customization": {"options": [
                    {"chr_model": {"id": {"kind": "db2_row", "table": "ChrModel", "row": 45}}},
                    {"chr_model": {"id": {"kind": "db2_row", "table": "ChrModel", "row": 1}}}]}},
-                 "selection": {"presets": [{"sources": [)" + displayRef(20) + "," + displayRef(7) +
-                  R"(]}, {"sources": [)" + displayRef(9) + "]}]}}");
+                 "selection": {"presets": [{"id": "00000000-0000-0000-0000-00000000000a", "sources": [)" +
+                  displayRef(20) + "," + displayRef(7) +
+                  R"(]}, {"id": "00000000-0000-0000-0000-00000000000b", "sources": [)" + displayRef(9) + "]}]}}");
     writeText(tree / "models" / "6.canon.bundle" / "manifest.json", R"({"format": "husk-bundle", "selection": {}})");
 
     corpus::IndexResult r = corpus::buildIndex(tree);
     CHECK(r.manifests == 2);
     CHECK(readText(tree / "index" / "creature_displays.tsv") ==
-          "display\tmodel\tpreset\n"
-          "7\tmodels/5.canon.bundle/manifest.json\t0\n"
-          "9\tmodels/5.canon.bundle/manifest.json\t1\n"
-          "20\tmodels/5.canon.bundle/manifest.json\t0\n");
+          "display\tmodel\tpreset_id\n"
+          "7\tmodels/5.canon.bundle/manifest.json\t00000000-0000-0000-0000-00000000000a\n"
+          "9\tmodels/5.canon.bundle/manifest.json\t00000000-0000-0000-0000-00000000000b\n"
+          "20\tmodels/5.canon.bundle/manifest.json\t00000000-0000-0000-0000-00000000000a\n");
     CHECK(readText(tree / "index" / "chr_models.tsv") ==
           "chr_model\tmodel\n1\tmodels/5.canon.bundle/manifest.json\n45\tmodels/5.canon.bundle/manifest.json\n");
 }

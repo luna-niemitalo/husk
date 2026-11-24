@@ -131,7 +131,7 @@ struct Model {
     std::vector<TextureSlot> textureSlots;
     std::vector<ParticleColorOption> particleColorOptions;
     // A character model's customization: one catalog per ChrModel that
-    // draws the file, in ChrModelID order. Presets index their options as
+    // draws the file, in ChrModelID order. Appearances index their options as
     // one list, in that order.
     std::vector<Definition> customization;
     std::vector<ChoiceTexture> choiceTextures;
@@ -139,6 +139,7 @@ struct Model {
     // Materials described as documents of their own (REFACTOR/MATERIALS.md).
     std::vector<MaterialDocument> materialDocuments;
     std::vector<ItemEntry> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
+    std::vector<Appearance> appearances;  // the bodies presets point at, each once
     std::vector<Preset> presets;
 };
 

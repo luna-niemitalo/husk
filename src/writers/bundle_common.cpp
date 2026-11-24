@@ -206,6 +206,17 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     w.endObject();
 }
 
+void beginAppearancesReference(json::Writer& w, const std::string& uri) {
+    canon::Ref list{canon::None{}, "appearances", canon::NameSource::Synthesized};
+    w.beginObject();
+    w.key("id");
+    w.value(referenceId("appearances", list));
+    w.key("kind");
+    w.value("appearances");
+    w.key("asset");
+    writeRef(w, list, uri);
+}
+
 std::string hexFlags(uint32_t flags) {
     std::ostringstream out;
     out << "0x" << std::hex << flags;

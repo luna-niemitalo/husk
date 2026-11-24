@@ -131,17 +131,37 @@ struct PresetItem {
     std::string sourceToken;  // the source's own slot name (--appearance); empty when it numbers slots
 };
 
-struct Preset {
+// A body a preset points at (REFACTOR/BUNDLE_FORMAT.md "Appearances"):
+// the choices that make it, without what it wears. `key`: the source
+// values that make it, in source order; with the model's identity it is
+// the appearance's stable id, and equal keys are one appearance.
+struct Appearance {
+    std::string key;
     std::vector<SlotChoice> textures;
     // The mesh geoset ids shown; every other geoset is hidden. nullopt:
-    // the preset doesn't choose geosets.
+    // the body doesn't choose geosets.
     std::optional<std::vector<uint32_t>> shownGeosets;
     std::optional<uint32_t> particleColors;  // index into Model::particleColorOptions
     std::optional<float> opacity;            // 0..1; nullopt = opaque
     std::vector<CustomizationPick> customization;
+    // Body values the source names but husk can't place in an option.
+    std::vector<UnresolvedField> unresolved;
+};
+
+// A body plus what it wears, and the source rows that use the combination.
+// `key`: the body's key plus the outfit's source values; the preset's
+// stable id with the model's identity.
+struct Preset {
+    std::string key;
+    std::optional<uint32_t> appearance;  // index into Model::appearances; nullopt = the body chooses nothing
+    std::vector<SlotChoice> textures;    // the outfit's: a humanoid NPC's bake
+    // Model::items indices the bake in `textures` draws in, so a consumer
+    // that swaps a garment knows the bake no longer matches. Empty: a bake
+    // with no gear.
+    std::vector<uint32_t> bakeCovers;
     std::vector<PresetItem> items;
     std::vector<PresetSource> sources;
-    // Source values the preset names but husk can't place in an option.
+    // Outfit values the source names but husk can't place in an option.
     std::vector<UnresolvedField> unresolved;
 };
 

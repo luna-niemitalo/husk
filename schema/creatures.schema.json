@@ -211,9 +211,9 @@
             "x-source": [{"format": true}]
           },
           "preset": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Index into the model document's selection.presets: the preset listing this display among its sources. Absent when the model document is not exported or lists no such preset."
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "The id of the model document's selection.presets entry listing this display among its sources; an id because a character model lists thousands of presets. Absent when the model document is not exported or lists no such preset.",
+            "x-source": [{"format": true}]
           },
           "scale": {
             "type": "number",

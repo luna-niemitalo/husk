@@ -409,7 +409,8 @@
             "world",
             "effect",
             "material",
-            "technique"
+            "technique",
+            "appearances"
           ],
           "description": "Kind of the referenced document.",
           "x-source": [{"format": true}]

@@ -5,7 +5,11 @@
 
 #include <doctest/doctest.h>
 
+#include <fstream>
+
 #include "test_bundle_fixtures.hpp"
+#include "uuid.hpp"
+#include "writers/bundle_common.hpp"
 
 TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a real "
           "textures/<name>.<ext> file and records a real uri (AUDIT.md §7.4); a Resolved "
@@ -194,11 +198,18 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     model.particleColorOptions.push_back(
         {canon::Ref{canon::Db2Row{"ParticleColor", 5}, "", canon::NameSource::None},
          {{{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}}}});
+    canon::Appearance body;
+    body.key = "c30;";
+    body.textures.push_back({1, 0});
+    body.shownGeosets = std::vector<uint32_t>{0, 203};
+    body.particleColors = 0;
+    body.opacity = 0.5f;
+    body.unresolved.push_back({"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, 404.0, std::nullopt});
     canon::Preset preset;
+    preset.key = "c30;/xb123;";
+    preset.appearance = 0;
     preset.textures.push_back({0, 0});
-    preset.shownGeosets = std::vector<uint32_t>{0, 203};
-    preset.particleColors = 0;
-    preset.opacity = 0.5f;
+    preset.bakeCovers = {1};
     canon::Definition customization;
     customization.chrModelId = 45;
     customization.chrModelName = "Human male";
@@ -213,7 +224,8 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     model.customization = {customization};
     model.items = {{canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9000}, "", canon::NameSource::None}, {}, {}, {}},
                    {canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9011}, "", canon::NameSource::None}, {}, {}, {}}};
-    preset.customization.push_back({0, 0});
+    body.customization.push_back({0, 0});
+    model.appearances.push_back(body);
     preset.items.push_back({"head", 0, 0});
     preset.items.push_back({std::nullopt, 11, 1});
     preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1.5f, 2});
@@ -235,13 +247,33 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(definition["particle_colors"][0]["ramps"][0]["mid"] == nlohmann::json::array({0.0, 1.0, 0.0, 1.0}));
     CHECK(manifest["resources"]["materials"][0]["layers"][0]["slot"] == 0);
     const auto& p = manifest["selection"]["presets"][0];
+    CHECK(p["id"] == husk::nameUuid("preset/" + writers::identityKey(model.subject) + "/c30;/xb123;"));
     CHECK(p["textures"][0]["slot"] == 0);
     CHECK(p["textures"][0]["option"] == 0);
-    CHECK(p["shown_geosets"] == nlohmann::json::array({0, 203}));
-    CHECK(p["particle_colors"] == 0);
-    CHECK(p["opacity"] == 0.5);
-    CHECK(p["customization"][0]["option"] == 0);
-    CHECK(p["customization"][0]["choice"] == 0);
+    CHECK(p["textures"][0]["covers_items"] == std::vector<int>{1});
+    // The body is the inline appearances document's entry the preset names.
+    const nlohmann::json* reference = nullptr;
+    for (const auto& r : manifest["references"]) {
+        if (r["kind"] == "appearances") reference = &r;
+    }
+    REQUIRE(reference);
+    CHECK((*reference)["asset"]["name"] == "appearances");
+    CHECK_FALSE((*reference)["asset"].contains("uri"));
+    const auto& list = (*reference)["document"];
+    CHECK(list["kind"] == "appearances");
+    CHECK(list["references"].empty());
+    REQUIRE(list["appearances"].size() == 1);
+    const auto& a = list["appearances"][0];
+    CHECK(a["id"] == husk::nameUuid("appearance/" + writers::identityKey(model.subject) + "/c30;"));
+    CHECK(p["appearance"] == a["id"]);
+    CHECK_FALSE(a.contains("model"));
+    CHECK(a["textures"][0]["slot"] == 1);
+    CHECK(a["shown_geosets"] == nlohmann::json::array({0, 203}));
+    CHECK(a["particle_colors"] == 0);
+    CHECK(a["opacity"] == 0.5);
+    CHECK(a["customization"][0]["option"] == 0);
+    CHECK(a["customization"][0]["choice"] == 0);
+    CHECK(a["unresolved"]["fields"][0]["value"] == 404);
     const auto& option = definition["customization"]["options"][0];
     CHECK(option["ref"]["name"] == "Hair Style");
     CHECK(option["chr_model"]["id"]["row"] == 45);
@@ -472,6 +504,35 @@ TEST_CASE("validateDocument: a choice binding an input its material doesn't decl
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
     REQUIRE(problems.size() == 1);
     CHECK(problems[0].message.find("target_9") != std::string::npos);
+}
+
+TEST_CASE("validateDocument: a preset's appearance must be in the appearances list, and fit the model's options") {
+    canon::Model model = buildSyntheticModel();
+    canon::Appearance body;
+    body.key = "t0:1;";
+    body.textures.push_back({0, 0});  // the model has no texture slots
+    model.appearances.push_back(body);
+    canon::Preset preset;
+    preset.key = "t0:1;/";
+    preset.appearance = 0;
+    preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1, 1});
+    model.presets.push_back(preset);
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-appearance-range";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, testProvenance());
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].message.find("texture_slots") != std::string::npos);
+
+    std::ifstream in(dir / "manifest.json");
+    nlohmann::json manifest = nlohmann::json::parse(in);
+    in.close();
+    manifest["selection"]["presets"][0]["appearance"] = "00000000-0000-0000-0000-000000000000";
+    std::ofstream(dir / "manifest.json") << manifest.dump();
+    problems = bundle_schema::validateDocument(dir);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].message.find("appearances reference") != std::string::npos);
 }
 
 TEST_CASE("writeBundle: layers sampling alike share one uv map; others get their own") {

@@ -363,6 +363,7 @@ struct AllSubcommandOpts {
     husk::commands::ExportCorpusOptions exportCorpusOpts;
     husk::commands::IndexTreeOptions indexTreeOpts;
     husk::commands::ExportCreaturesOptions exportCreaturesOpts;
+    husk::commands::ExportAppearancesOptions exportAppearancesOpts;
     husk::commands::SnapshotOptions snapshotOpts;
 };
 
@@ -448,6 +449,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportCreaturesSub =
         root.add_subcommand("export-creatures", "write an export tree's creature catalog (creatures.json)");
     husk::commands::addExportCreaturesOptions(*exportCreaturesSub, opts.exportCreaturesOpts);
+
+    CLI::App* exportAppearancesSub =
+        root.add_subcommand("export-appearances", "move an export tree's appearance lists into one shared appearances.json");
+    husk::commands::addExportAppearancesOptions(*exportAppearancesSub, opts.exportAppearancesOpts);
 
     CLI::App* mountSub = root.add_subcommand("mount", "browse the canonical store as a read-only filesystem");
     husk::commands::addMountOptions(*mountSub, opts.mountOpts);
@@ -641,6 +646,7 @@ int main(int argc, char** argv) {
         "                               record the source mount's current game build in the store\n"
         "  index-tree <tree>            (re)build an export tree's index/ lookup tables\n"
         "  export-creatures <tree>      write an export tree's creature catalog (creatures.json)\n"
+        "  export-appearances <tree>    move a tree's appearance lists into one shared appearances.json\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -710,6 +716,9 @@ int main(int argc, char** argv) {
     }
     if (command == "export-creatures") {
         return husk::commands::exportCreatures(restArgc, rest);
+    }
+    if (command == "export-appearances") {
+        return husk::commands::exportAppearances(restArgc, rest);
     }
     if (command == "export-corpus") {
         return husk::commands::exportCorpus(restArgc, rest);

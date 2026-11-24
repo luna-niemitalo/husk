@@ -429,13 +429,24 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
         }
         optionBase += static_cast<uint32_t>(definition.options.size());
     }
+    // The body key is creature_options_input.cpp's, so an NPC with the same
+    // choices shares the appearance.
+    canon::Appearance body;
     for (uint32_t choiceId : sidecars.appearanceChoiceIds) {
+        body.key += "c" + std::to_string(choiceId) + ";";
         auto pick = pickByChoice.find(choiceId);
         if (pick == pickByChoice.end()) {
-            preset.unresolved.push_back({"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, double(choiceId), std::nullopt});
+            body.unresolved.push_back({"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, double(choiceId), std::nullopt});
             continue;
         }
-        preset.customization.push_back(pick->second);
+        body.customization.push_back(pick->second);
+    }
+    preset.key = "appearance-string/" + sidecars.appearance;
+    if (!body.key.empty()) {
+        auto same = std::find_if(model.appearances.begin(), model.appearances.end(),
+                                 [&](const canon::Appearance& a) { return a.key == body.key; });
+        preset.appearance = static_cast<uint32_t>(same - model.appearances.begin());
+        if (same == model.appearances.end()) model.appearances.push_back(std::move(body));
     }
 
     auto itemTexture = [&](uint32_t fdid, const std::string& unresolved) {

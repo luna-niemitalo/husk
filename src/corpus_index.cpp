@@ -25,7 +25,9 @@ namespace husk::corpus {
 
 namespace {
 
-const std::string kCreatureDisplaysHeader = "display\tmodel\tpreset";
+// The preset column held positions before 0.4.0; the new header name
+// makes an index built by an older husk fail at its first line.
+const std::string kCreatureDisplaysHeader = "display\tmodel\tpreset_id";
 
 // Only selection and definition: a model's resources (a character's rig
 // is ~100 MB of JSON) would cost memory on every worker for nothing.
@@ -47,17 +49,16 @@ std::optional<uint32_t> db2Row(const json& ref, const std::string& table) {
 }
 
 struct Rows {
-    std::set<std::tuple<uint32_t, std::string, uint32_t>> displays;  // display, model, preset
-    std::set<std::pair<uint32_t, std::string>> chrModels;             // chr_model, model
+    std::set<std::tuple<uint32_t, std::string, std::string>> displays;  // display, model, preset id
+    std::set<std::pair<uint32_t, std::string>> chrModels;                // chr_model, model
 };
 
 void indexManifest(const json& doc, const std::string& model, Rows& rows) {
     if (doc.contains("selection") && doc["selection"].contains("presets")) {
-        const json& presets = doc["selection"]["presets"];
-        for (uint32_t i = 0; i < presets.size(); i++) {
-            if (!presets[i].contains("sources")) continue;
-            for (const json& source : presets[i]["sources"]) {
-                if (auto display = db2Row(source["ref"], "CreatureDisplayInfo")) rows.displays.insert({*display, model, i});
+        for (const json& preset : doc["selection"]["presets"]) {
+            if (!preset.contains("sources")) continue;
+            for (const json& source : preset["sources"]) {
+                if (auto display = db2Row(source["ref"], "CreatureDisplayInfo")) rows.displays.insert({*display, model, preset["id"]});
             }
         }
     }
@@ -141,7 +142,11 @@ std::vector<CreatureDisplayRow> readCreatureDisplays(const fs::path& tree) {
         std::stringstream split(text);
         for (std::string field; std::getline(split, field, '\t');) fields.push_back(field);
         if (fields.size() != 3) fail(line, "3 tab-separated fields", text);
-        out.push_back({number(line, fields[0]), fields[1], number(line, fields[2])});
+        bool uuid = fields[2].size() == 36 && std::all_of(fields[2].begin(), fields[2].end(), [](char c) {
+            return c == '-' || std::isdigit(static_cast<unsigned char>(c)) || (c >= 'a' && c <= 'f');
+        });
+        if (!uuid) fail(line, "a preset id (lowercase uuid)", fields[2]);
+        out.push_back({number(line, fields[0]), fields[1], fields[2]});
     }
     return out;
 }

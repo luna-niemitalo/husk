@@ -43,6 +43,11 @@ creaturedisplay::Display display(uint32_t id, std::array<uint32_t, 4> textures) 
     return d;
 }
 
+const canon::Appearance& body(const canon::Model& model, const canon::Preset& preset) {
+    REQUIRE(preset.appearance.has_value());
+    return model.appearances.at(*preset.appearance);
+}
+
 }  // namespace
 
 TEST_CASE("addCreatureOptions: every display texture is a slot option; each distinct combination one preset") {
@@ -70,12 +75,17 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     REQUIRE(model.textureSlots[0].options.size() == 1);
     CHECK(asked == std::vector<uint32_t>{100, 200, 101, 400});
 
+    // A creature display's textures are its body: the preset is a pointer and its sources.
     REQUIRE(model.presets.size() == 2);
+    REQUIRE(model.appearances.size() == 2);
     const canon::Preset& first = model.presets[0];
-    REQUIRE(first.textures.size() == 2);
-    CHECK(first.textures[0].slot == 1);
-    CHECK(first.textures[0].option == 0);
-    CHECK(first.textures[1].slot == 0);
+    CHECK(first.textures.empty());
+    const canon::Appearance& firstBody = body(model, first);
+    REQUIRE(firstBody.textures.size() == 2);
+    CHECK(firstBody.textures[0].slot == 1);
+    CHECK(firstBody.textures[0].option == 0);
+    CHECK(firstBody.textures[1].slot == 0);
+    CHECK(firstBody.key == "t0:100;t1:200;");
     REQUIRE(first.sources.size() == 2);
     CHECK(first.sources[0].scale == 1.5f);
     CHECK(first.sources[0].baseScale == 2.0f);
@@ -87,10 +97,11 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     CHECK(first.sources[0].users[1].ref.source == canon::NameSource::None);
     CHECK(first.sources[0].users[1].title == "Innkeeper");
     CHECK(first.sources[1].users.empty());
-    CHECK_FALSE(first.shownGeosets.has_value());
+    CHECK_FALSE(firstBody.shownGeosets.has_value());
     const canon::Preset& second = model.presets[1];
-    CHECK(second.textures[0].option == 1);
-    CHECK(second.textures[1].option == 0);
+    const canon::Appearance& secondBody = body(model, second);
+    CHECK(secondBody.textures[0].option == 1);
+    CHECK(secondBody.textures[1].option == 0);
     CHECK(std::get<canon::Db2Row>(second.sources[0].ref.id).row == 12);
     // The fourth entry has no texture type: an inferred slot of its own.
     REQUIRE(model.textureSlots.size() == 3);
@@ -99,10 +110,10 @@ TEST_CASE("addCreatureOptions: every display texture is a slot option; each dist
     CHECK_FALSE(fourth.sourceType.has_value());
     REQUIRE(fourth.inferredFrom.has_value());
     REQUIRE(fourth.options.size() == 1);
-    REQUIRE(second.textures.size() == 3);
-    CHECK(second.textures[2].slot == 2);
-    CHECK(second.unresolved.empty());
-    CHECK(second.opacity == doctest::Approx(0.2f));
+    REQUIRE(secondBody.textures.size() == 3);
+    CHECK(secondBody.textures[2].slot == 2);
+    CHECK(secondBody.unresolved.empty());
+    CHECK(secondBody.opacity == doctest::Approx(0.2f));
 }
 
 TEST_CASE("addCreatureOptions: a texture for a type no layer reads gets that type's slot, not an inference") {
@@ -116,7 +127,7 @@ TEST_CASE("addCreatureOptions: a texture for a type no layer reads gets that typ
     CHECK(model.textureSlots[2].name == "monster_3");
     CHECK(model.textureSlots[2].sourceType == 13u);
     CHECK_FALSE(model.textureSlots[2].inferredFrom.has_value());
-    CHECK(model.presets[0].textures[0].slot == 2);
+    CHECK(body(model, model.presets[0]).textures[0].slot == 2);
 }
 
 TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot; choices and items ride along by id") {
@@ -160,11 +171,17 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     REQUIRE(model.customization.size() == 2);
     CHECK(model.customization[1].chrModelId == 6);
     // Option 1 of the flat list is ChrModel 6's first; choice 40 its second.
-    REQUIRE(p.customization.size() == 2);
-    CHECK(p.customization[0].option == 0);
-    CHECK(p.customization[0].choice == 0);
-    CHECK(p.customization[1].option == 1);
-    CHECK(p.customization[1].choice == 1);
+    // The choices are the body; the bake and items stay on the preset.
+    const canon::Appearance& face = body(model, p);
+    REQUIRE(face.customization.size() == 2);
+    CHECK(face.customization[0].option == 0);
+    CHECK(face.customization[0].choice == 0);
+    CHECK(face.customization[1].option == 1);
+    CHECK(face.customization[1].choice == 1);
+    CHECK(face.textures.empty());
+    // Display 12 has no choices: no body, so no appearance.
+    CHECK(model.appearances.size() == 1);
+    CHECK_FALSE(model.presets[1].appearance.has_value());
     // An empty item row is no item; slot 11 has no name.
     REQUIRE(p.items.size() == 2);
     CHECK(p.items[0].slot == std::optional<std::string>("head"));
@@ -172,6 +189,8 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     CHECK(std::get<canon::Db2Row>(model.items[p.items[0].item].ref.id).row == 9000);
     CHECK_FALSE(p.items[1].slot.has_value());
     CHECK(p.items[1].sourceSlot == 11);
+    // The bake was made for exactly the worn items.
+    CHECK(p.bakeCovers == std::vector<uint32_t>{p.items[0].item, p.items[1].item});
     REQUIRE(model.presets[1].unresolved.size() == 1);
     CHECK(model.presets[1].unresolved[0].field == "BakeMaterialResourcesID");
 }
@@ -185,8 +204,8 @@ TEST_CASE("addCreatureOptions: a model whose displays pick geosets shows 0, 900+
     creatureinput::OptionsReport report;
     creatureinput::addCreatureOptions(data, kModelFile, model, textureNamed, report);
     REQUIRE(model.presets.size() == 2);
-    CHECK(*model.presets[0].shownGeosets == std::vector<uint32_t>{0, 102, 201, 901});
-    CHECK(*model.presets[1].shownGeosets == std::vector<uint32_t>{0, 901});
+    CHECK(*body(model, model.presets[0]).shownGeosets == std::vector<uint32_t>{0, 102, 201, 901});
+    CHECK(*body(model, model.presets[1]).shownGeosets == std::vector<uint32_t>{0, 901});
 }
 
 TEST_CASE("addCreatureOptions: particle colour rows are options with ARGB unpacked to RGBA; an unknown id stays unresolved") {
@@ -212,11 +231,13 @@ TEST_CASE("addCreatureOptions: particle colour rows are options with ARGB unpack
     CHECK(ramps[0].mid[3] == doctest::Approx(128.0f / 255.0f));
     CHECK(ramps[0].end == std::array<float, 4>{0, 0, 1, 1});
     REQUIRE(model.presets.size() == 3);
-    CHECK(model.presets[0].particleColors == 0u);
-    CHECK(model.presets[1].particleColors == 0u);
-    CHECK_FALSE(model.presets[2].particleColors.has_value());
-    REQUIRE(model.presets[2].unresolved.size() == 1);
-    CHECK(model.presets[2].unresolved[0].field == "ParticleColorID");
+    CHECK(body(model, model.presets[0]).particleColors == 0u);
+    CHECK(body(model, model.presets[1]).particleColors == 0u);
+    const canon::Appearance& unknown = body(model, model.presets[2]);
+    CHECK_FALSE(unknown.particleColors.has_value());
+    REQUIRE(unknown.unresolved.size() == 1);
+    CHECK(unknown.unresolved[0].field == "ParticleColorID");
+    CHECK(model.presets[2].unresolved.empty());
 }
 
 TEST_CASE("creaturedisplay::load: real 12.1.0 tables -- the mana wyrm mount's displays" *

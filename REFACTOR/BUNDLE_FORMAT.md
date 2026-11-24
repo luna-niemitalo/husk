@@ -663,9 +663,22 @@ body's look itself: it points at an **appearance**, an entry of an
   `particle_colors` and `opacity`; values of those the source names but
   husk can't place (`ChrCustomizationChoiceID`, `ParticleColorID`) are the
   appearance's `unresolved`. These are what make two looks the same body.
+- **Invariant: an appearance holds only body-chosen state** (customization
+  picks, a creature display's variations). Nothing gear-derived goes into
+  an appearance: geosets an item shows or hides (a robe's skirt, trousers
+  hidden under it, gloves or boots hiding body parts; ItemDisplayInfo
+  `GeosetGroup`/`AttachmentGeosetGroup`, `HelmetGeosetVis`) belong to the
+  item's components, never to `shown_geosets`. Why: swapping one garment
+  must not change the body (REFACTOR/README.md I7), and a gear-derived
+  value in the body would split one body into one appearance per outfit,
+  undoing the dedup. `shown_geosets` today comes only from
+  `CreatureDisplayInfoGeosetData`, the display's own choice.
 - **The preset keeps the outfit and the users**: `id`, `appearance` (an
   appearance id), the humanoid NPC's baked skin (`textures`, the bake slot:
-  the bake draws the gear in), `items`, `sources` (rows, scales, `users`)
+  the bake draws the gear in, and each bake choice lists the items it was
+  made for, `covers_items`, so a consumer that swaps a garment knows the
+  bake no longer applies and composites instead), `items` (each entry one
+  item, by its own index into `definition.items`), `sources` (rows, scales, `users`)
   and the outfit's `unresolved` (`ExtendedDisplayInfoID`,
   `BakeMaterialResourcesID`). A wolf's preset is a pointer and its
   sources; a humanoid NPC's is a pointer plus bake and gear.
@@ -718,9 +731,13 @@ appearances are the first kind pointed into by entry id.
 `<tree>/appearances.json` (adding `model`), and rewrites the manifest's
 reference to the external form (`uri` `../../appearances.json`; the
 manifest is replaced, never written through, since `--link-store` trees
-hardlink into the store). A manifest already external keeps its entries
-from the existing list, so a rerun is idempotent. Entries are ordered by
-model reference, then id.
+hardlink into the store). The rewrite replaces only that reference's
+text, with the bytes the model writer writes for the external form
+(`writers::beginAppearancesReference`, shared by both forms): store
+objects are content-addressed, so the same inputs give the same bytes and
+nothing else in the manifest is re-encoded. A manifest already external
+keeps its entries from the existing list, so a rerun is idempotent.
+Entries are ordered by model reference, then id.
 
 **Validation.** `validate-bundle` validates the referenced appearances
 document like any referenced document (inline or by `uri`, each file

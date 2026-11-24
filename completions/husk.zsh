@@ -30,6 +30,7 @@ _husk() {
         'export-corpus:every map and every M2/WMO of a game build, optionally into the store'
         'snapshot:record the source mount's current game build in the canonical store'
         'index-tree:(re)build an export tree's index/ lookup tables'
+        'export-appearances:move an export tree's appearance lists into one shared appearances.json'
         'export-creatures:write an export tree's creature catalog (creatures.json)'
         'mount:browse the canonical store as a read-only filesystem'
     )
@@ -260,7 +261,7 @@ _husk() {
                 '--previous-tag[--previous-tag]:value:_files' \
                 '1:model:_files'
             ;;
-        index-tree)
+        index-tree|export-appearances)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '1:model:_files'

@@ -108,7 +108,7 @@ TEST_CASE("creature catalog: shared displays, stable ids, and rows the tables la
     CHECK(wolf.displays[1].display == 0);
     CHECK(wolf.displays[1].weight == 0.5f);
 
-    catalog.displays[0].preset = 2;
+    catalog.displays[0].preset = nameUuid("preset/test");
     catalog.models[0].ref.name = "wolf";
     catalog.models[0].ref.source = canon::NameSource::Listfile;
     fs::path file = freshDir("document") / "creatures.json";
@@ -127,7 +127,7 @@ TEST_CASE("creature catalog: shared displays, stable ids, and rows the tables la
     CHECK(doc["references"][0]["asset"]["name_source"] == "listfile");
     CHECK(doc["displays"][0]["model"] == doc["references"][0]["id"]);
     CHECK(doc["creatures"][0]["classification"] == 1);
-    CHECK(doc["displays"][0]["preset"] == 2);
+    CHECK(doc["displays"][0]["preset"] == nameUuid("preset/test"));
     CHECK(doc["displays"][0]["size_class"] == 2);
     CHECK(doc["displays"][0]["state_spell_visual_kit"]["id"]["table"] == "SpellVisualKit");
     CHECK(doc["displays"][0]["state_spell_visual_kit"]["id"]["row"] == 555);
@@ -167,17 +167,22 @@ TEST_CASE("creature catalog: validation rejects an unknown display id, an unknow
 TEST_CASE("readCreatureDisplays: index rows, and what isn't one, with the line") {
     fs::path tree = freshDir("index");
     CHECK_THROWS_WITH_AS(corpus::readCreatureDisplays(tree), doctest::Contains("run husk index-tree first"), std::runtime_error);
+    std::string preset = nameUuid("preset/test");
     writeText(tree / "index" / "creature_displays.tsv",
-              "display\tmodel\tpreset\n7\tmodels/5.canon.bundle/manifest.json\t1\n");
+              "display\tmodel\tpreset_id\n7\tmodels/5.canon.bundle/manifest.json\t" + preset + "\n");
     std::vector<corpus::CreatureDisplayRow> rows = corpus::readCreatureDisplays(tree);
     REQUIRE(rows.size() == 1);
     CHECK(rows[0].display == 7);
     CHECK(rows[0].model == "models/5.canon.bundle/manifest.json");
-    CHECK(rows[0].preset == 1);
-    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset\n7\tmodels/5.canon.bundle/manifest.json\tx\n");
+    CHECK(rows[0].preset == preset);
+    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset_id\nx\tmodels/5.canon.bundle/manifest.json\t" + preset + "\n");
     CHECK_THROWS_WITH_AS(corpus::readCreatureDisplays(tree),
                          doctest::Contains(":2: expected an unsigned 32-bit number, got 'x'"), std::runtime_error);
-    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\n");
+    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset_id\n7\tmodels/5.canon.bundle/manifest.json\t1\n");
+    CHECK_THROWS_WITH_AS(corpus::readCreatureDisplays(tree),
+                         doctest::Contains(":2: expected a preset id (lowercase uuid), got '1'"), std::runtime_error);
+    // An index from before preset ids: its old header.
+    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset\n");
     CHECK_THROWS_WITH_AS(corpus::readCreatureDisplays(tree), doctest::Contains(":1: expected the header"),
                          std::runtime_error);
 }
@@ -222,7 +227,8 @@ TEST_CASE("husk export-creatures: real 12.1.0 tables into a tree's creatures.jso
 
     fs::path tree = freshDir("cli");
     writeText(tree / manifest, "{}");
-    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset\n17408\t" + manifest + "\t3\n");
+    std::string preset = nameUuid("preset/test");
+    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset_id\n17408\t" + manifest + "\t" + preset + "\n");
     std::string flags = " --db2-dir " + std::string(kMountDb2Dir) + " --dbd-dir " + test::testDbdDir() + " --listfile none";
     test::RunResult run = test::runHusk("export-creatures " + tree.string() + flags);
     INFO(run.output);
@@ -245,7 +251,7 @@ TEST_CASE("husk export-creatures: real 12.1.0 tables into a tree's creatures.jso
         if (d["id"] == displayId) display = &d;
     }
     REQUIRE(display);
-    CHECK((*display)["preset"] == 3);
+    CHECK((*display)["preset"] == preset);
     const nlohmann::json* model = nullptr;
     for (const nlohmann::json& r : doc["references"]) {
         if (r["id"] == (*display)["model"]) model = &r;
@@ -254,7 +260,7 @@ TEST_CASE("husk export-creatures: real 12.1.0 tables into a tree's creatures.jso
     CHECK((*model)["asset"]["uri"] == manifest);
     CHECK_FALSE((*model)["asset"].contains("name"));
 
-    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset\n17408\tmodels/1.canon.bundle/manifest.json\t0\n");
+    writeText(tree / "index" / "creature_displays.tsv", "display\tmodel\tpreset_id\n17408\tmodels/1.canon.bundle/manifest.json\t" + preset + "\n");
     test::RunResult wrong = test::runHusk("export-creatures " + tree.string() + flags);
     CHECK(wrong.exitCode == 1);
     CHECK(wrong.output.find("display 17408: expected " + manifest + ", got models/1.canon.bundle/manifest.json") !=

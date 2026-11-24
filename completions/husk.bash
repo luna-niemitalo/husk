@@ -4,7 +4,7 @@ _husk_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle schema-doc export-world store-add store-prune export-corpus snapshot index-tree export-creatures mount"
+    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-wmo export-map validate-bundle schema-doc export-world store-add store-prune export-corpus snapshot index-tree export-appearances export-creatures mount"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcommands" -- "$cur"))
@@ -637,7 +637,7 @@ _husk_completions() {
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
             ;;
-        index-tree)
+        index-tree|export-appearances)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--help -h" -- "$cur"))
                 return
