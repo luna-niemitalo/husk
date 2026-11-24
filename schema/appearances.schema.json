@@ -158,8 +158,8 @@
           },
           "customization": {
             "type": "array",
-            "description": "Customization choices the body makes: a humanoid NPC's, or the choices an `--appearance` string names (rule appearance_string).",
-            "x-source": [{"table": "CreatureDisplayInfoOption", "column": "ChrCustomizationChoiceID"}, {"derived": "appearance_string"}],
+            "description": "Customization choices the body makes: a humanoid NPC's, or the choices an `--appearance` file names (rule appearance_file).",
+            "x-source": [{"table": "CreatureDisplayInfoOption", "column": "ChrCustomizationChoiceID"}, {"derived": "appearance_file"}],
             "items": {
               "type": "object",
               "description": "One choice.",
@@ -185,7 +185,7 @@
           "unresolved": {
             "$ref": "common.schema.json#/definitions/unresolved",
             "description": "Body values the source names but husk can't place in an option (a choice from another model's catalog, an unknown particle colour).",
-            "x-source": [{"table": "CreatureDisplayInfoOption", "column": "ChrCustomizationChoiceID"}, {"table": "CreatureDisplayInfo", "column": "ParticleColorID"}, {"derived": "appearance_string"}]
+            "x-source": [{"table": "CreatureDisplayInfoOption", "column": "ChrCustomizationChoiceID"}, {"table": "CreatureDisplayInfo", "column": "ParticleColorID"}, {"derived": "appearance_file"}]
           }
         },
         "additionalProperties": false,

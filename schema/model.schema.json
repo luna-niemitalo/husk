@@ -632,8 +632,8 @@
               },
               "items": {
                 "type": "array",
-                "description": "Items the combination wears, by identity: a humanoid NPC's equipment, or the gear an `--appearance` string names (rule appearance_string).",
-                "x-source": [{"table": "NpcModelItemSlotDisplayInfo"}, {"derived": "appearance_string"}],
+                "description": "Items the combination wears, by identity: a humanoid NPC's equipment, or the gear an `--appearance` file names (rule appearance_file).",
+                "x-source": [{"table": "NpcModelItemSlotDisplayInfo"}, {"derived": "appearance_file"}],
                 "items": {
                   "type": "object",
                   "description": "One item.",
