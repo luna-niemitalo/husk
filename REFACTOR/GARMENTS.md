@@ -266,7 +266,18 @@ Findings: `WIKI_FINDINGS/GARMENTS.md` (12.1.5). Footprint code:
   (1,490 of 1,520 skirted; 30 tunics), 246 legs displays with a skirt,
   200 of 200 sampled legs textures non-empty inside the footprint, so the
   footprint test selects every one ("Corpus counts").
-- **Open**: what a modern tunic's hem is, if not a body mesh. Candidate:
-  the chest item's own model (1,096 chest displays with a model and no
-  skirt or leg overlay, from Legion on). Stage 2 needs a new mechanism
-  before it ships.
+- **Settled (Luna confirms)**: body group-13 skirts are robe geometry; a
+  robe hides the thighs, so skirt and thigh are never visible together.
+- **Settled, contradicts stage 2's mechanism**: a modern hem is a group-13
+  (sometimes 11) submesh of the set's item model, on the item's own
+  texture; no item mesh samples the body composite (0 of 1,687 geosets).
+  94 chest displays show one without any body skirt, 291 legs displays
+  show one (289 the same mesh as a chest of the set). Stage 2 needs a new
+  mechanism; options in `WIKI_FINDINGS/GARMENTS.md` "What the evidence
+  supports for the hem split" ("Item models").
+- **Settled**: 1303 is selected by no DB2 row on a playable body; same
+  extent as 1302, more triangles ("Which bodies have which group-13
+  variants").
+- **Open**: the item-model slot rule (show `group × 100 + 1 +
+  AttachmentGeosetGroup[i]`) is wow.export's, unverified against the
+  client.

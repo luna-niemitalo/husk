@@ -63,6 +63,9 @@ orcmale_hd (105, 917168), dracthyrfemale (158). Pixel rows of the
   humanmale_hd (223,390 vs 248,907 px; 1303 adds 23,763 px of Foot);
   dracthyrfemale and humanfemale_hd the other way (1302 reaches 4,016 px into
   Foot, 1303 not); orcmale_hd identical (224,896 each).
+- **Luna confirms the reading (2026-11-24):** the long skirt geosets are
+  almost always robes, and a robe hides the thighs, so thigh and skirt are
+  never visible together. Group-13 body skirts are robe geometry, not hems.
 - Model-space bounds agree: 1104/1105/1301 span the thighs (z 0.59..1.15
   on humanmale_hd), 1302/1303 reach the floor (z -0.005), group 9 the
   knees (z 0.36..0.73), group 5 the calves (z 0.07..0.63).
@@ -87,9 +90,31 @@ orcmale_hd (105, 917168), dracthyrfemale (158). Pixel rows of the
   between the waist and the knee apart from the thigh variants. Groups
   present on dracthyr and earthen (DF and TWW bodies) are the same as on
   humanmale_hd (WoD-era remake), apart from one extra belt variant (1805).
-- 1303 is never selected by an item: no ItemDisplayInfo of any slot has a
-  GeosetGroup value that maps to 1303 (below); ChrCustomizationGeoset has 8
-  rows with GeosetType 13 (GeosetID 0-5). What shows 1303 is open.
+- 1303 is shown by nothing in the 12.1.5 DB2 on a playable body (`c8.sql`
+  to `c12.sql`):
+  - Items: one ItemDisplayInfo has `GeosetGroup[2]` = 2 (→ 1303), display
+    153974, reached by no ItemAppearance, Item or
+    NPCModelItemSlotDisplayInfo row.
+  - Customization: the 6 ChrCustomizationElement rows on GeosetType 13
+    belong to ChrModel 89 (dracthyr dragon form, layout 155, option
+    "Thighs": None/Chains/Ornate/Sheath/Scaleborn/Tassets); 2 more
+    ChrCustomizationGeoset rows (2103, 2105) are referenced by no element.
+  - ChrCustItemGeoModify 28 (GeosetType 13, 1 → 0) is referenced by no
+    element.
+  - CreatureDisplayInfoGeosetData index 12 (group 13) values 1-4 (458
+    rows) are all on creature models (gnoll2 and the like), none on a
+    character body.
+  So 1303 on the body files is unused data as far as the tables go
+  (**data**; a hardcoded client rule can't be excluded).
+- **1302 vs 1303, structure** (`husk uv-footprint --geoset 1302 --geoset
+  1303`): same model-space box on every body checked (humanmale_hd
+  z -0.005..1.145, x -0.421..0.210; humanfemale_hd z -0.004..1.153;
+  orcmale_hd z 0.033..1.327), so the same hem line and flare; 1303 has more
+  triangles (humanmale_hd 616 vs 440, humanfemale_hd 818 vs 756, orcmale_hd
+  774 vs 698). Footprints: 1302 ⊂ 1303 on humanmale_hd (1303 adds Foot
+  pixels), 1303 ⊂ 1302 on humanfemale_hd, identical on orcmale_hd. A
+  denser variant of the same robe, not a different length; what the extra
+  triangles shape (slits, folds) needs a look, not a box.
 
 ## Slot → GeosetGroup table — verified structurally, 3 races + legacy
 
@@ -206,7 +231,165 @@ results `sample_result.csv`).
   since a skirt covers the thighs, so no texture repeats on screen; but
   "nothing needs to be painted in under a removed hem" has no footing,
   because there is no separate hem area to remove.
-- The likeliest home of a modern tunic hem is the chest item's own model
-  (1,096 chest displays with a model and no skirt geoset or leg overlay,
-  growing from Legion on). Reading those models' geosets and UVs is the
-  next evidence step.
+- A modern hem lives on the item's own model, not the body: next section.
+
+## Item models (collection models) — data, slot rule ref
+
+Every chest and legs display with an own model (`ModelResourcesID[0]`):
+1,553 chest, 1,447 legs, through 388 distinct ModelResources. One file per
+ModelResources read (the human male file when there is one, else the lowest
+FileDataID; `c13.sql`, `models_all.nu`), each geoset's triangles, model-space
+z range and the texture its batches sample (`husk uv-footprint <item.m2>`
+without `--layout-id`, which now reports `tex=<M2Texture type>` per geoset).
+Tables `model_geosets`, `shown`, `disp_hem` in the scratch db (`c14.sql`,
+`c15.sql`). A seeded sample of 50 displays (30 chest without skirt or leg
+overlay, 20 legs; `c6.sql`, `items.nu`) with every geoset and its own
+texture: `item_sample.tsv`, `item_geosets.tsv`.
+
+**Which geosets a display shows** (**ref**, wow.export
+`tab_characters.js` `SLOT_TO_GEOSET_GROUPS` + `M2RendererGL.js`
+`setGeosetGroupDisplay`): hide every submesh, then per slot group show
+`group × 100 + 1 + AttachmentGeosetGroup[index]`. Chest: 8, 10, 13, 22, 28
+from indices 0-4; legs: 11, 9, 13 from 0-2. Not verified against the
+client; the facts below that depend on it say "shown".
+
+- **An item model is a whole outfit, one model per set, split by slot.**
+  Its geosets carry body group ids: 4 (285 models), 5 (234), 11 (241), 13
+  (83), 18 (102), 20 (172), 22 (242), 23 (161), 28 (41), a few 8/9/10/15/27.
+  The chest and legs (and gloves, belt, boots) displays of one set name the
+  same ModelResources and often the same texture: the Arathi set's chest
+  697583 "Arathi Cleric's Chainmail" and legs 697588 "Arathi Cleric's
+  Greaves" both use `mail_outdoorarathor_d_01_robe_hu_m.m2` (FDID 5645802)
+  with texture 6390585; the chest shows 2201, the legs show 1101.
+- **Item meshes never sample the body's composite skin.** Of 1,687 geosets
+  in the 388 models, none has a batch on M2Texture type 1. All sample type 2
+  (the display's own texture, ItemDisplayInfoModelMatRes TextureType 2),
+  3, 4 or 24 (further item texture slots), or 0 (a file the model names).
+  An item-model hem is its own geometry on its own texture sheet:
+  separable from the body by construction.
+- AttachmentGeosetGroup is 0 on 1,506 of 1,553 chest and 1,436 of 1,447
+  legs displays, so nearly every display shows the X01 variant of each of
+  its slot's groups.
+
+### Chest displays with an own model — by what they show of group 13
+
+Human-male scale: knee about z 0.5, hips about 1.0 (humanmale_hd's knee
+group 9 is z 0.36..0.73). "Short" = the shown group-13 mesh ends above
+z 0.5, "long" = below.
+
+| Body skirt (GeosetGroup[2]) | LegUpper overlay | Item-model group 13 shown | Displays |
+|---|---|---|---|
+| no | no | none | 1,002 |
+| no | no | short | 67 |
+| no | no | long | 27 |
+| no | yes | none | 6 |
+| yes | yes | none | 110 |
+| yes | yes | short | 289 |
+| yes | yes | long | 52 |
+
+By expansion, the 94 chest displays with an item-model group-13 mesh and
+neither a body skirt nor a leg overlay: Classic-WoD 1, Legion 2, BfA 11,
+SL 28, DF 13, TWW 12, Midnight 6, no regular expansion 21 (`-3` 18, blank
+3). All chest displays showing a group-13 item mesh: Legion 64 of 197, BfA
+46/109, SL 74/197, DF 58/278, TWW 66/309, Midnight 68/201.
+
+- **A modern tunic hem is a group-13 submesh of the item model, switched
+  by the chest slot's group-13 rule.** Examples (no body skirt, no leg
+  overlay, short):
+  - 187679 "High Torturer's Smock" (SL), `collections_cloth_revendrethraid_d_01_hu_m.m2`
+    FDID 3567196, 1301 z 0.527..1.112, texture 3582606;
+  - 180851 "Last Vestige of Neltharion" (BfA), FDID 2916655, 1301
+    z 0.718..1.253;
+  - 192700 "Anduin's Princely Vestments" (SL), FDID 3784453, 1301
+    z 0.690..1.661;
+  - 666106 "Heartfire Sentinel's Brigandine" (DF), FDID 4692044, 1301
+    z 0.659..1.174.
+  Long, same kind: 671167 "Cassock of Lunar Communion" (DF),
+  `robe_cloth_raidpriestemerald_d_01_hu_m.m2` FDID 4994836, 1301
+  z 0.382..1.241; 686911 "Void's Judgment Breastplate" (Midnight), FDID
+  6032552, 1301 z 0.159..1.225.
+- **But most chest models stop at the waist.** 1,002 chest displays with
+  an own model show no group-13 mesh and set no skirt or leg overlay: they
+  show 2201/2801/801 (torso, shoulder pieces, sleeves) only. Examples:
+  160009 "Gravewarden Chestplate" (Legion, FDID 1549574, shows 2201),
+  192847 "Cosmic Gladiator's Leather Vest" (SL, FDID 3864853), 697583
+  "Arathi Cleric's Chainmail" (TWW): its model's long 1101 skirt
+  (z 0.159..1.176) is hidden by the chest rule and shown by the legs
+  display of the same set.
+- **Robes add an item piece on top of the body skirt.** 341 chest
+  displays set the body skirt 1302 and a leg overlay and also show an
+  item-model group-13 mesh, mostly short (289): a tabard-like flap or
+  outer layer over the robe. Examples: 154642 "Robe of Everburning
+  Knowledge" (Legion, FDID 1356745, 1301 z 0.529..0.888), 699968 "Dying
+  Star's Cassock" (TWW, FDID 6121911, 1301 z 0.920..1.302).
+
+### Legs displays with an own model — the hem shipped with the trousers
+
+- **291 legs displays show an item-model group-13 mesh**, 289 of them the
+  same mesh of the same model as a chest display of the set: the client
+  rule shows 1301 for either slot, so the hem appears with the chest or
+  with the legs alone. By expansion: Classic-WoD 4, Legion 16, BfA 28, SL
+  52, DF 51, TWW 58, Midnight 48, no regular expansion 34. Short (human
+  male files) 219, long 72.
+  - 699934 "Dying Star's Leggings" (TWW), `cloth_raidpriestethereal_d_01_hu_m.m2`
+    FDID 6121911, 1301 z 0.920..1.302 (the same mesh as chest 699968);
+  - 671222 "Elder's Volcanic Wrap" (DF), FDID 4994836, 1301 z 0.382..1.241
+    (the same mesh as chest 671167);
+  - 192936 "Leggings of the Fixed Stars" (SL), FDID 4035557, 1301
+    z 0.476..2.013;
+  - 690242 "Breeches of Reclaiming Blight" (TWW), FDID 5652950, 1301
+    z 0.443..1.153;
+  - 178974 "Seawrath Legwraps" (BfA), FDID 2905330: 1101 and 1301 are the
+    same triangles (812, identical bounds), so the hem shows by either rule.
+- **Group 11 on item models is the legs item's lower garment**: 1,172
+  legs displays show an item 11xx mesh; 429 reach below the knee (z < 0.5,
+  human male files; Legion 20, BfA 17, SL 24, DF 58, TWW 148, Midnight 46,
+  Classic-WoD 22, no regular expansion 94). That covers long robe skirts
+  sold as trousers (697588 "Arathi Cleric's Greaves", 1101 z 0.159..1.176,
+  x -0.446..0.258) and greaves/shin plates alike; z alone does not tell
+  them apart.
+- **The legs texture still paints the body.** All 291 legs displays with
+  an item-model hem have a LegUpper overlay (35 also set the body skirt),
+  and 4,488 of 4,504 legs displays have one: the thighs under a hem carry
+  the legs item's composite paint, the hem mesh carries its own texture.
+
+PNGs (the shown hem mesh's footprint on its own item texture; outside the
+footprint washed magenta; masks white on black):
+`/media/luna/work/cache/husk_garments/png/chest_models/<case>_<display>/`,
+cases `a_chest_tunic_hem_short`, `b_chest_hem_long`,
+`c_chest_robe_plus_item_g13`, `d_legs_hem`, `f_legs_long_g11` (Arathi
+legs 1101); every geoset of the 50 sampled models on its texture in
+`png/chest_models/sample_all_geosets/`.
+
+## What the evidence supports for the hem split
+
+Facts it rests on: the body has no hem (group-13 body geosets are robe
+skirts, which hide the thighs; Luna confirms); a modern hem is a group-13
+(sometimes 11) submesh of a set's item model on its own texture; one item
+model serves the set's chest and legs, and the slot rule shows group 13 for
+either. Options for Luna:
+
+1. **Hem = item-model geometry, owned by whichever garment shows it.** A
+   garment carries its item-model submeshes as pieces (`hem` = its shown
+   group-13 piece, `skirt` = a long one), each with its own texture. No
+   composite cut, no footprint: the split is clean because the data is
+   already split. Conflict: chest and legs of one set both show the same
+   1301; the bundle needs one owner per piece (dedupe by model + geoset)
+   or a rule such as "the chest owns group 13 when worn".
+2. **As 1, plus a slot-level `hem_from` choice.** Since the same mesh is
+   reachable from both slots, let a selection say which garment provides
+   the hem (chest tunic hem over plain trousers, or trousers' hem under a
+   short top). The data supports both pairings: 94 chest displays show a
+   hem without any body skirt, 291 legs displays show one.
+3. **Legacy texture-painted hems stay painted.** Pre-Legion legs/chest
+   textures painted on LegUpper are not separable (footprint = thigh area,
+   200/200 sampled textures non-empty there); they stay part of the legs
+   or robe paint. Only item-model hems (Legion on, 385 displays: 94 chest +
+   291 legs) are split. Stage 2's composite-mask mechanism is dropped.
+4. **Body skirts (1302/1303) are robe geometry**, chosen by a robe's
+   `GeosetGroup[2]` (chest 1,490, legs 246), never a hem; a robe hides the
+   thighs, so no thigh/skirt conflict to resolve.
+
+Open before any of these ships: the slot rule above is wow.export's (**ref**),
+unverified against the client; what the 1,002 waist-length chest models pair
+with in practice (which legs model gives them a lower edge) is not counted.

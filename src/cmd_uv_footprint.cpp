@@ -57,6 +57,32 @@ std::string positionBounds(const std::vector<m2::Vertex>& vertices, const std::v
     return out.str();
 }
 
+// Which texture each of a geoset's batches samples, as "<M2Texture type>/uv<set>":
+// type 1 is the body's composite skin, 2 the item's own object texture
+// (ItemDisplayInfoModelMatRes), 0 a file named by the model itself. Decides
+// whether an item-model mesh paints from the composite or from its own sheet.
+std::string batchTextures(const m2::Model& model, const std::vector<skin::Submesh>& submeshes,
+                          const std::vector<skin::Batch>& batches, uint16_t geosetId) {
+    std::vector<std::string> seen;
+    for (const skin::Batch& b : batches) {
+        if (submeshes.at(b.skinSectionIndex).skinSectionId != geosetId) continue;
+        const m2::Texture& t = model.textures.at(model.textureCombos.at(b.textureComboIndex));
+        // m2::Model::textureCoordCombos came back empty on every model read here, body and item
+        // (humanmale_hd, FDID 4533888); whether the files or the loader is unchecked. Reported as
+        // "uv-" rather than thrown, so the debug view still prints the texture type.
+        std::string set = "-";
+        if (b.textureCoordComboIndex < model.textureCoordCombos.size()) {
+            const uint16_t s = model.textureCoordCombos[b.textureCoordComboIndex];
+            set = s == 0xFFFF ? "env" : std::to_string(s);
+        }
+        std::string entry = std::to_string(t.type) + "/uv" + set;
+        if (std::find(seen.begin(), seen.end(), entry) == seen.end()) seen.push_back(entry);
+    }
+    std::string out;
+    for (const std::string& s : seen) out += (out.empty() ? "" : ";") + s;
+    return out.empty() ? "none" : out;
+}
+
 void writeBytes(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) {
     std::ofstream out(path, std::ios::binary);
     if (!out) throw std::runtime_error("cannot write '" + path.string() + "'");
@@ -66,6 +92,7 @@ void writeBytes(const std::filesystem::path& path, const std::vector<uint8_t>& b
 void writeMaskPng(const std::filesystem::path& path, const garment::Mask& mask) {
     blp::Image img{mask.width, mask.height, std::vector<uint8_t>(mask.covered.size() * 4, 0)};
     for (size_t i = 0; i < mask.covered.size(); ++i) {
+        img.rgba[i * 4 + 3] = 255;
         if (!mask.covered[i]) continue;
         std::fill_n(img.rgba.begin() + std::ptrdiff_t(i * 4), 4, uint8_t{255});
     }
@@ -106,6 +133,23 @@ void writeOverviewPng(const std::filesystem::path& path, const std::vector<Footp
     writeBytes(path, blp::encodePng(img));
 }
 
+// The texture with everything outside the footprint dimmed and washed
+// magenta, so the part of the sheet a mesh shows reads at a glance even on
+// dark item textures.
+void writeTextureOverlayPng(const std::filesystem::path& path, const blp::Image& tex, const garment::Mask& mask) {
+    blp::Image img = tex;
+    constexpr uint8_t wash[3] = {150, 0, 150};
+    for (size_t i = 0; i < mask.covered.size(); ++i) {
+        img.rgba[i * 4 + 3] = 255;
+        if (mask.covered[i]) continue;
+        for (int c = 0; c < 3; ++c) {
+            uint8_t& v = img.rgba[i * 4 + size_t(c)];
+            v = uint8_t(v / 6 + wash[c] * 2 / 3);
+        }
+    }
+    writeBytes(path, blp::encodePng(img));
+}
+
 std::string rectText(const garment::PixelRect& r) {
     return std::to_string(r.x) + "," + std::to_string(r.y) + "," + std::to_string(r.width) + "," +
            std::to_string(r.height);
@@ -115,12 +159,13 @@ std::string rectText(const garment::PixelRect& r) {
 
 void addUvFootprintOptions(CLI::App& app, UvFootprintOptions& opts) {
     addConfigOption(app);
-    app.add_option("model", opts.model, "the body .m2 (its lod0 .skin is found as `export --skin auto` finds it)")
+    app.add_option("model", opts.model,
+                   "the body or item .m2 (its lod0 .skin is found as `export --skin auto` finds it)")
         ->required();
     app.add_option("--layout-id", opts.layoutId,
                    "CharComponentTextureLayouts.ID of the body's composite texture: its size is the pixel grid, "
-                   "its CharComponentTextureSections rows the regions reported")
-        ->required();
+                   "its CharComponentTextureSections rows the regions reported. Omitted: an item model on its "
+                   "own texture, the grid is --texture's size (512x512 without one) and no sections");
     app.add_option("--geoset", opts.geosets, "a geoset id (skinSectionId) to report; repeatable");
     app.add_option("--group", opts.groups, "every geoset of this group (id / 100) to report; repeatable");
     app.add_option("--db2-dir", opts.db2Dir, "local DB2 directory (CharComponentTextureLayouts/Sections)");
@@ -129,8 +174,9 @@ void addUvFootprintOptions(CLI::App& app, UvFootprintOptions& opts) {
     app.add_option("--png-dir", opts.pngDir,
                    "write <model>_<geoset>.png masks and <model>_overview.png (sections outlined) here");
     app.add_option("--texture", opts.texture,
-                   "a section texture (.blp), e.g. a legs item's LegUpper texture: counts its non-transparent "
-                   "pixels inside each reported geoset's footprint");
+                   "a section texture (.blp), e.g. a legs item's LegUpper texture, or without --layout-id the "
+                   "item model's own texture: counts its non-transparent pixels inside each reported geoset's "
+                   "footprint; without --layout-id, --png-dir also gets <model>_<geoset>_on_texture.png");
     app.add_option("--texture-section", opts.textureSection,
                    "the SectionType --texture is painted into (its rectangle maps the texture onto the composite)");
 }
@@ -144,18 +190,31 @@ int uvFootprint(int argc, char** args) {
     if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
 
     try {
-        std::optional<chrmodel::Data> db = chrmodel::load(opts.db2Dir, opts.dbdDir, std::cerr);
-        if (!db) throw std::runtime_error("no CharComponentTexture tables under --db2-dir '" + opts.db2Dir + "'");
-        auto layout = std::find_if(db->layouts.begin(), db->layouts.end(),
-                                   [&](const auto& l) { return l.id == opts.layoutId; });
-        if (layout == db->layouts.end()) {
-            throw std::runtime_error("CharComponentTextureLayouts has no ID " + std::to_string(opts.layoutId));
+        const bool itemMode = opts.layoutId == 0;
+        std::optional<blp::Image> texture;
+        if (!opts.texture.empty()) texture = blp::decode(readFileBytes(opts.texture));
+        uint32_t gridWidth = 512, gridHeight = 512;
+        if (itemMode && texture) {
+            gridWidth = texture->width;
+            gridHeight = texture->height;
         }
         std::vector<chrmodel::CharComponentTextureSection> sections;
-        for (const auto& s : db->sections) {
-            if (s.charComponentTextureLayoutId == opts.layoutId) sections.push_back(s);
+        if (!itemMode) {
+            std::optional<chrmodel::Data> db = chrmodel::load(opts.db2Dir, opts.dbdDir, std::cerr);
+            if (!db) throw std::runtime_error("no CharComponentTexture tables under --db2-dir '" + opts.db2Dir + "'");
+            auto layout = std::find_if(db->layouts.begin(), db->layouts.end(),
+                                       [&](const auto& l) { return l.id == opts.layoutId; });
+            if (layout == db->layouts.end()) {
+                throw std::runtime_error("CharComponentTextureLayouts has no ID " + std::to_string(opts.layoutId));
+            }
+            gridWidth = layout->width;
+            gridHeight = layout->height;
+            for (const auto& s : db->sections) {
+                if (s.charComponentTextureLayoutId == opts.layoutId) sections.push_back(s);
+            }
+            std::sort(sections.begin(), sections.end(),
+                      [](const auto& a, const auto& b) { return a.sectionType < b.sectionType; });
         }
-        std::sort(sections.begin(), sections.end(), [](const auto& a, const auto& b) { return a.sectionType < b.sectionType; });
 
         const m2::Model model = m2::loadModel(readFileBytes(opts.model));
         auto skins = resolveSkin(model.header, opts.model, "", opts.listfileRoot, false);
@@ -164,6 +223,7 @@ int uvFootprint(int argc, char** args) {
         const skin::Header skinHeader = skin::parseHeader(skinBytes);
         const std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
         const std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
+        const std::vector<skin::Batch> batches = skin::parseBatches(skinBytes, skinHeader.batches);
 
         std::vector<uint16_t> ids(opts.geosets.begin(), opts.geosets.end());
         for (const skin::Submesh& s : submeshes) {
@@ -177,7 +237,8 @@ int uvFootprint(int argc, char** args) {
         std::sort(ids.begin(), ids.end());
         ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
 
-        std::cout << "layout " << layout->id << " " << layout->width << "x" << layout->height << "\n";
+        std::cout << "layout " << (itemMode ? "none" : std::to_string(opts.layoutId)) << " " << gridWidth << "x"
+                  << gridHeight << "\n";
         std::cout << "skin " << skins.front().second << "\n";
         for (const auto& s : sections) {
             std::cout << "section " << s.sectionType << " " << s.x << "," << s.y << "," << s.width << ","
@@ -187,14 +248,14 @@ int uvFootprint(int argc, char** args) {
         std::vector<Footprint> footprints;
         for (uint16_t id : ids) {
             auto tris = garment::geosetTriangles(model.vertices, triangleIndices, submeshes, id);
-            footprints.push_back({id, tris.size(), garment::rasterize(tris, layout->width, layout->height)});
+            footprints.push_back({id, tris.size(), garment::rasterize(tris, gridWidth, gridHeight)});
         }
         for (const Footprint& f : footprints) {
             auto box = garment::bounds(f.mask);
             std::cout << "geoset " << f.geosetId << " triangles=" << f.triangles << " pixels=" << f.mask.count()
                       << " bbox=" << (box ? rectText(*box) : "none")
                       << " pos=" << positionBounds(model.vertices, triangleIndices, submeshes, f.geosetId)
-                      << " sections=";
+                      << " tex=" << batchTextures(model, submeshes, batches, f.geosetId) << " sections=";
             bool first = true;
             for (const auto& s : sections) {
                 size_t n = garment::countInside(f.mask, {s.x, s.y, s.width, s.height});
@@ -212,22 +273,26 @@ int uvFootprint(int argc, char** args) {
             }
         }
 
-        if (!opts.texture.empty()) {
-            auto section = std::find_if(sections.begin(), sections.end(),
-                                        [&](const auto& s) { return s.sectionType == opts.textureSection; });
-            if (section == sections.end()) {
-                throw std::runtime_error("layout " + std::to_string(opts.layoutId) + " has no SectionType " +
-                                         std::to_string(opts.textureSection));
+        if (texture) {
+            garment::PixelRect rect{0, 0, gridWidth, gridHeight};
+            if (!itemMode) {
+                auto section = std::find_if(sections.begin(), sections.end(),
+                                            [&](const auto& s) { return s.sectionType == opts.textureSection; });
+                if (section == sections.end()) {
+                    throw std::runtime_error("layout " + std::to_string(opts.layoutId) + " has no SectionType " +
+                                             std::to_string(opts.textureSection));
+                }
+                rect = {section->x, section->y, section->width, section->height};
             }
-            const blp::Image tex = blp::decode(readFileBytes(opts.texture));
+            const blp::Image& tex = *texture;
             for (const Footprint& f : footprints) {
                 size_t inside = 0, opaque = 0;
-                for (uint32_t y = section->y; y < section->y + section->height && y < f.mask.height; ++y) {
-                    for (uint32_t x = section->x; x < section->x + section->width && x < f.mask.width; ++x) {
+                for (uint32_t y = rect.y; y < rect.y + rect.height && y < f.mask.height; ++y) {
+                    for (uint32_t x = rect.x; x < rect.x + rect.width && x < f.mask.width; ++x) {
                         if (!f.mask.at(x, y)) continue;
                         ++inside;
-                        const uint32_t tx = (x - section->x) * tex.width / section->width;
-                        const uint32_t ty = (y - section->y) * tex.height / section->height;
+                        const uint32_t tx = (x - rect.x) * tex.width / rect.width;
+                        const uint32_t ty = (y - rect.y) * tex.height / rect.height;
                         opaque += tex.rgba[(size_t(ty) * tex.width + tx) * 4 + 3] > 0 ? 1 : 0;
                     }
                 }
@@ -242,8 +307,12 @@ int uvFootprint(int argc, char** args) {
             const std::string stem = std::filesystem::path(opts.model).stem().string();
             for (const Footprint& f : footprints) {
                 writeMaskPng(dir / (stem + "_" + std::to_string(f.geosetId) + ".png"), f.mask);
+                if (itemMode && texture) {
+                    writeTextureOverlayPng(dir / (stem + "_" + std::to_string(f.geosetId) + "_on_texture.png"),
+                                           *texture, f.mask);
+                }
             }
-            writeOverviewPng(dir / (stem + "_overview.png"), footprints, sections, layout->width, layout->height);
+            writeOverviewPng(dir / (stem + "_overview.png"), footprints, sections, gridWidth, gridHeight);
         }
         return 0;
     } catch (const std::exception& e) {
