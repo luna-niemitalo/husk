@@ -208,9 +208,15 @@ its hem into exactly that area. So:
 
 **What shows under a removed hem.** The hem is a separate mesh. Without it,
 the thigh mesh underneath shows whatever the character wears there
-(leggings, trousers, skin), so nothing needs to be painted in. This holds
-only if the hem's UV footprint and the thigh mesh's footprint don't
-overlap; see the evidence list below.
+(leggings, trousers, skin), so nothing needs to be painted in. That works
+because the hem's UV footprint and the thigh's are separate. If they
+weren't, players would see the same texture twice, and none has been seen
+(Luna).
+
+**Scope.** The hem mesh exists only on the modern HD body models, and only
+from Dragonflight on (Luna; the evidence pass confirms which body models
+and items). A body without a hem mesh gets no hem split: its legs items stay
+one garment, exactly as the source draws them.
 
 ## Bakes
 
@@ -251,9 +257,11 @@ means compositing from the pieces instead.
 - Region rectangles per texture layout, from `CharComponentTextureSections`
   (**data**, not yet read).
 - The hem geoset's UV footprint per body model:
-  - Is it inside `LegUpper`/`LegLower`, and disjoint from the thigh mesh's
-    footprint (decision 4 depends on that)?
+  - Is it inside `LegUpper`/`LegLower`? Disjoint from the thigh's is
+    expected (Luna), so that is a quick confirmation.
   - Is it the same across hem variants?
+  - Which body models have a hem mesh at all (HD vs legacy), and are the
+    items that use it Dragonflight onward?
 - Corpus counts:
   - chest items with `LegUpper`/`LegLower` overlays;
   - legs items with a skirt geoset;
