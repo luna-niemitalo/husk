@@ -242,10 +242,11 @@ export of transmog set 3540, Peculiar Peddler's Breeches, display 676797):
 - Its premise holds, with group 11 instead of 13: the hem is a body mesh
   (1102) whose UVs sample a fixed band of the composite, rows 448–508.
   That footprint cuts the hem out of a legs texture exactly.
-- Disjointness (decision 4) does not hold: the thigh mesh's top band reads
-  the same rows. With the hem removed, that band (at the waist, under the
-  belt) shows the hem's paint unless it is masked out; what the leggings
-  look like there was never drawn.
+- The footprints are not disjoint: the thigh mesh's top band reads the same
+  rows. In practice it doesn't matter (Luna, Blender, set 3540): with 1102
+  hidden the trousers still look right, and with the thighs textured
+  differently the tunic and hem still look right. So the leggings keep
+  their whole texture; nothing is masked out or painted in.
 - The group-13 meshes are robe skirts (1302, 1303) and a thigh variant
   (1301), never hems (Luna confirms robes hide the thighs).
 - Modern item-model hems (next section) are a second, separate case.

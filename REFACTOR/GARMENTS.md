@@ -182,41 +182,43 @@ Which geoset group each slot's `GeosetGroup[n]` drives is **ref** (WMV
 real models before the rules ship. Every stage-1 garment records its rule,
 as `x-source {derived: garment_split}`.
 
-### Stage 2: the hem in the legs texture, from the body model's geometry
+### Stage 2: hems, from the meshes that show them
 
-The DB2 tables can't say which pixels of a legs item's `LegUpper` texture
-are a tunic hem, but the body model can. The hem is its own mesh: the body
-model's skirt/hem geoset variants (group 13). That mesh's UVs sample a fixed
-area of the composite skin texture. Every tunic Luna has looked at paints
-its hem into exactly that area. So:
+A hem comes from one of two sources (`WIKI_FINDINGS/GARMENTS.md`):
 
-1. **The hem mask is the hem mesh's UV footprint.** Rasterize the hem
-   geoset's triangles in UV space, once per body model and hem variant, and
-   intersect the result with each region's rectangle. That gives the mask.
-   It is computed from model data, so it is exact and automatic, labelled
-   `{derived: hem_uv_footprint}`. A one-off look in Blender with a tunic
-   texture loaded confirms it per body model; it isn't a manual step per
-   item.
-2. **Splitting a legs item:** the `LegUpper`/`LegLower` pixels inside the
-   footprint form the hem piece, and the rest stay with the leggings. Both
-   pieces keep the legs item as their source, so the split loses nothing.
-3. The hem piece joins the tunic from the same set (`TransmogSet` /
+- **The body's hem mesh, geoset 1102** (group 11): a short flare under the
+  belt, switched on by a legs item (`GeosetGroup[0]` = 1, 89 legs
+  displays). Its paint is the band of the legs item's `LegUpper` texture
+  that the mesh's UVs sample (rows 448–508 of the 2048×1024 layout on
+  humanfemale_hd).
+- **A hem submesh of the item's own model** (group 13, sometimes 11), on the
+  item's own texture. A set's chest and legs often show the same mesh.
+
+Either way the hem is separate geometry, so:
+
+1. **The hem piece** is the hem mesh plus the pixels its UVs sample.
+   - Body hem: the mask is the footprint of 1102's triangles in UV space,
+     per body model, labelled `{derived: hem_uv_footprint}`. It cuts the
+     hem's paint out of the legs texture exactly.
+   - Item-model hem: the submesh and its own texture; no mask is needed.
+2. **The rest stays with the leggings**, whole: the legs texture is not
+   masked. The thigh mesh's waist band reads the same rows as the body hem,
+   and it looks right both with the hem hidden and under a differently
+   textured tunic (Luna, Blender, set 3540). So nothing is cut out of the
+   leggings and nothing is painted in.
+3. Both pieces keep the legs (or chest) item as their source, so the split
+   loses nothing.
+4. The hem piece joins the tunic from the same set (`TransmogSet` /
    `ItemSet`). If no tunic is identified, it becomes a `hem` garment of its
    own: still separable from the leggings, just not yet joined to a tunic.
-4. Masks authored in the Blender addon (`{authored: …}`) remain possible,
+   A mesh shown by both a set's chest and its legs is one hem piece,
+   deduplicated by model and geoset.
+5. Masks authored in the Blender addon (`{authored: …}`) remain possible,
    for a body model whose footprint turns out wrong.
 
-**What shows under a removed hem.** The hem is a separate mesh. Without it,
-the thigh mesh underneath shows whatever the character wears there
-(leggings, trousers, skin), so nothing needs to be painted in. That works
-because the hem's UV footprint and the thigh's are separate. If they
-weren't, players would see the same texture twice, and none has been seen
-(Luna).
-
-**Scope.** The hem mesh exists only on the modern HD body models, and only
-from Dragonflight on (Luna; the evidence pass confirms which body models
-and items). A body without a hem mesh gets no hem split: its legs items stay
-one garment, exactly as the source draws them.
+**Not hems:** the body's group-13 meshes 1302/1303 are robe skirts (a robe
+hides the thighs), and 1301 is a thigh variant. 1104/1105 (knee length) are
+not yet looked at.
 
 ## Bakes
 
