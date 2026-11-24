@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "canon_animation.hpp"  // BoneAnimationCurves
@@ -70,6 +71,22 @@ struct AnimationClip {
     std::optional<float> loopDuration;
 };
 
+// What plays when a requested animation has no clip: the source's one
+// table for all its models (WoW: AnimationData.Fallback, global to a client
+// build). Refs carry ClipInfo::animation's identity and naming.
+struct AnimationFallback {
+    Ref animation;
+    Ref fallback;
+};
+
+struct AnimationFallbacks {
+    Ref otherwise;  // what an animation without an entry falls back to
+    std::vector<AnimationFallback> entries;  // ordered by animation identity
+    // The tree's shared document, relative to the bundle; empty = written
+    // inline into the model's reference.
+    std::string uri;
+};
+
 // The whole model: one bind-pose skeleton, one flat mesh (positions +
 // skinning + per-geoset primitive slices), a DEDUPED set of Materials (no
 // longer required to be 1:1 with `mesh.primitives` -- see
@@ -97,9 +114,9 @@ struct Model {
     // The model file's own global loops (M2Loop), seconds: what a material
     // or scene curve's GlobalSequence index names.
     std::vector<float> globalSequenceDurations;
-    // AnimationData (id, Fallback) for every row whose Fallback isn't 0
-    // (Stand), ascending; empty when the table wasn't read.
-    std::vector<std::pair<uint32_t, uint32_t>> animationFallbacks;
+    // The source's one fallback table (REFACTOR/ANIMATION.md "Fallbacks");
+    // nullopt when it wasn't read or the model has no clips.
+    std::optional<AnimationFallbacks> animationFallbacks;
     Scene scene;  // attachments, events, lights, emitters
 
     // Placement sets this model owns (a WMO's doodad sets). An always-on set

@@ -307,7 +307,7 @@ std::string appearanceId(const std::string& modelKey, const canon::Appearance& a
 void writeInlineAppearances(json::Writer& w, const canon::Model& model, const std::string& modelKey,
                             const Provenance& provenance) {
     canon::Ref list{canon::None{}, "appearances", canon::NameSource::Synthesized};
-    beginAppearancesReference(w, "");
+    beginListReference(w, "appearances", "");
     w.key("document");
     w.beginObject();
     writeContractHeader(w, "appearances", list, provenance);
@@ -359,6 +359,19 @@ void writeInlineAppearances(json::Writer& w, const canon::Model& model, const st
     }
     w.endArray();
     w.endObject();
+    w.endObject();
+}
+
+// The model's animation_fallbacks reference: the table inline, or the
+// tree's shared file when the exporter wrote one (REFACTOR/ANIMATION.md
+// "Fallbacks").
+void writeAnimationFallbacksReference(json::Writer& w, const canon::AnimationFallbacks& fallbacks,
+                                      const Provenance& provenance) {
+    beginListReference(w, "animation_fallbacks", fallbacks.uri);
+    if (fallbacks.uri.empty()) {
+        w.key("document");
+        writeAnimationFallbacksDocument(w, fallbacks, provenance);
+    }
     w.endObject();
 }
 
@@ -819,6 +832,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         w, sets, [&](json::Writer& sw) { writePresets(sw, model, modelKey); },
         [&](json::Writer& rw) {
             if (!model.appearances.empty()) writeInlineAppearances(rw, model, modelKey, provenance);
+            if (model.animationFallbacks) writeAnimationFallbacksReference(rw, *model.animationFallbacks, provenance);
             for (size_t i = 0; i < model.materialDocuments.size(); ++i) {
                 rw.beginObject();
                 rw.key("id");
@@ -889,17 +903,6 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
             w.beginObject();
             writeFloatField(w, "duration", duration);
             w.endObject();
-        }
-        w.endArray();
-    }
-    if (!model.animationFallbacks.empty()) {
-        w.key("animation_fallbacks");
-        w.beginArray();
-        for (const auto& [animation, fallback] : model.animationFallbacks) {
-            w.beginArray();
-            w.value(static_cast<int64_t>(animation));
-            w.value(static_cast<int64_t>(fallback));
-            w.endArray();
         }
         w.endArray();
     }

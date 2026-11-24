@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/animation_fallbacks.schema.json",
+  "title": "animation_fallbacks",
+  "description": "Which animation plays when a model has no clip for the one requested: each entry names an animation and the animation it falls back to, followed until the model has a clip of the animation reached. The source defines one table for every model it draws (a WoW client: AnimationData, one per client build), so a tree holds one such document and every model references it; a single model's bundle embeds it inline. Animations are named by the same identity as a clip's `animation` (REFACTOR/ANIMATION.md \"Fallbacks\").",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/animation_fallbacks.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "animation_fallbacks",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.4.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The table; it has no identity of its own.",
+      "x-layer": "contract",
+      "x-source": [{"format": true}]
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "A table defines nothing beyond its entries.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "definition",
+      "x-source": [{"format": true}]
+    },
+    "selection": {
+      "type": "object",
+      "description": "A table selects nothing.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
+    },
+    "references": {
+      "type": "array",
+      "description": "Always empty: the table depends on no other document, and its users reference it, not the other way round.",
+      "maxItems": 0,
+      "x-source": [{"format": true}],
+      "x-layer": "contract"
+    },
+    "otherwise": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "What an animation without an entry falls back to (WoW: AnimationData row 0, Stand, the column's value for every row not listed). It can have an entry of its own (WoW's Stand does), which a walk follows like any other.",
+      "x-source": [{"table": "AnimationData", "column": "Fallback"}],
+      "x-layer": "resource"
+    },
+    "fallbacks": {
+      "type": "array",
+      "description": "One entry per animation whose fallback isn't `otherwise`, ordered by the animation's identity. A chain that comes back to where it started: what the source does is not known.",
+      "x-source": [{"table": "AnimationData", "column": "Fallback"}],
+      "items": {
+        "type": "object",
+        "description": "One animation and what it falls back to.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/uuid",
+            "description": "Stable id from the animation's identity (REFACTOR/BUNDLE_FORMAT.md \"Stable ids\"), the same in every tree exported from one table.",
+            "x-source": [{"format": true}]
+          },
+          "animation": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "The animation, by the identity and name a clip's `animation` carries: match a clip on the identity, never on the name.",
+            "x-source": [{"table": "AnimationData"}]
+          },
+          "fallback": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "The animation played instead when the model has no clip of `animation`; if it has none of this one either, look this one up in turn.",
+            "x-source": [{"table": "AnimationData", "column": "Fallback"}]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "animation",
+          "fallback"
+        ]
+      },
+      "x-layer": "resource"
+    }
+  },
+  "required": [
+    "$schema",
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "otherwise",
+    "fallbacks"
+  ],
+  "additionalProperties": false
+}

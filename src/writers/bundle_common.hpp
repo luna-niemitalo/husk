@@ -12,6 +12,7 @@
 
 #include "canon_liquid.hpp"
 #include "canon_material.hpp"
+#include "canon_model.hpp"  // AnimationFallbacks
 #include "canon_placement.hpp"
 #include "canon_scene.hpp"  // Animated, LifetimeCurve for the curve writers
 #include "canon_ref.hpp"
@@ -131,13 +132,19 @@ canon::Ref subjectRef(const std::filesystem::path& file, std::optional<uint32_t>
 
 void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& subject, const Provenance& provenance);
 
-// A model's one appearances reference (REFACTOR/BUNDLE_FORMAT.md
-// "Appearances"), opened and left open after its asset: the inline form
-// (empty `uri`) continues with `document`, the external form has its uri
-// in the asset and only closes. Both forms are written here so
-// export-appearances' rewrite is byte-for-byte what the model writer
-// would write.
-void beginAppearancesReference(json::Writer& w, const std::string& uri);
+// A model's one reference to a list document of `kind` (`appearances`,
+// `animation_fallbacks`; REFACTOR/BUNDLE_FORMAT.md "Appearances"), opened
+// and left open after its asset: the inline form (empty `uri`) continues
+// with `document`, the external form has its uri in the asset and only
+// closes. The asset is named by the kind, so the id is the same in both
+// forms. Both forms are written here so export-appearances' rewrite is
+// byte-for-byte what the model writer would write.
+void beginListReference(json::Writer& w, const char* kind, const std::string& uri);
+
+// A whole animation_fallbacks document (schema/animation_fallbacks.schema.json),
+// for a model's inline reference and a tree's shared file alike.
+void writeAnimationFallbacksDocument(json::Writer& w, const canon::AnimationFallbacks& fallbacks,
+                                     const Provenance& provenance);
 
 // A flag word as stored, lowercase hex ("0x1f").
 std::string hexFlags(uint32_t flags);

@@ -767,7 +767,7 @@
     },
     "references": {
       "type": "array",
-      "description": "Other documents this model depends on.",
+      "description": "Other documents this model depends on. At most one of kind `appearances` (what its presets point at) and one of kind `animation_fallbacks` (what plays when it lacks a requested clip), each inline (`document`) or external (`asset.uri`, a tree's shared file).",
       "items": {
         "$ref": "common.schema.json#/definitions/reference",
         "description": "One dependency."
@@ -1585,22 +1585,6 @@
                 "required": [
                   "duration"
                 ]
-              }
-            },
-            "animation_fallbacks": {
-              "type": "array",
-              "description": "AnimationData.Fallback, the client's table of what a model without an animation plays instead: [animation, fallback] AnimationData IDs, ascending, for every row whose fallback isn't 0 (Stand), an ID not listed falling back to 0; absent when the AnimationData table wasn't read or the model has no clips. Follow it until the model has a clip of the animation reached; what the client does on a chain that comes back to where it started is not known.",
-              "x-source": [{"table": "AnimationData", "column": "Fallback"}],
-              "items": {
-                "type": "array",
-                "description": "One row: the animation, then its fallback.",
-                "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "An AnimationData ID."
-                },
-                "minItems": 2,
-                "maxItems": 2
               }
             },
             "correction_sets": {

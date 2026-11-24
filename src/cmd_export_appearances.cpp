@@ -146,7 +146,7 @@ Json sharedEntry(const Json& entry, const std::string& modelId) {
 std::string externalManifest(const std::string& text, size_t index, const std::string& uri) {
     std::ostringstream rendered;
     json::Writer w(rendered);
-    writers::beginAppearancesReference(w, uri);
+    writers::beginListReference(w, "appearances", uri);
     w.endObject();
     std::string reference;
     for (char c : rendered.str()) {

@@ -596,7 +596,7 @@ std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& o
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
                     const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
                     std::optional<uint32_t> modelFileDataId, const creaturedisplay::Data* creatures,
-                    const writers::StoreLink* textureStore) {
+                    const writers::StoreLink* textureStore, const std::string& fallbacksUri) {
     std::string outputPath = outputPathIn;
     bool skinDirGiven = app.count("--skin-dir") > 0;
 
@@ -828,16 +828,18 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         BundleSidecars sidecars;
         sidecars.leanGlbPath = opts.glbArg;
         sidecars.noAnimation = animNone;
-        if (!db2Dir.empty() && !dbdDirForChr.empty()) {
-            if (auto animData = animationdata::load(db2Dir, dbdDirForChr, std::cerr)) {
-                sidecars.animationNames = animationdata::toNameMap(*animData);
-                sidecars.animationFallbacks = animationdata::nonzeroFallbacks(*animData);
-            }
-        }
         if (app.count("--anim-names") && opts.animNamesArg != "none") {
             animnames::Table animNames = animnames::load(opts.animNamesArg);
             sidecars.communityAnimationNames = std::move(animNames.names);
             sidecars.communityAnimationNamesDetail = std::move(animNames.detail);
+        }
+        if (!fallbacksUri.empty()) {
+            sidecars.animationFallbacks = canon::AnimationFallbacks{{}, {}, fallbacksUri};
+        } else if (!db2Dir.empty() && !dbdDirForChr.empty()) {
+            if (auto animData = animationdata::load(db2Dir, dbdDirForChr, std::cerr)) {
+                sidecars.animationNames = animationdata::toNameMap(*animData);
+                sidecars.animationFallbacks = animationFallbacks(*animData, sidecars.communityAnimationNames);
+            }
         }
         sidecars.listfile = &listfile;
         sidecars.bonesDir = bonesDir;
