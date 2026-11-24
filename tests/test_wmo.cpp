@@ -464,6 +464,7 @@ TEST_CASE("wmo::parseRoot: portal ranges and links past their tables throw with 
                          "MOPT[0]: expected vertices [0, 4) within 1 MOPV vertices", wmo::ParseError);
     std::vector<uint8_t> mopr(8, 0);
     put<uint16_t>(mopr, 0x02, 2);
+    put<int16_t>(mopr, 0x04, 1);
     CHECK_THROWS_WITH_AS(
         wmo::parseRoot(minimalRoot(2, {{"MOGI", std::vector<uint8_t>(64, 0)}, {"MOPT", std::vector<uint8_t>(20, 0)},
                                        {"MOPR", mopr}})),
