@@ -455,4 +455,16 @@ TEST_CASE("bundle_schema: source gaps name a schema location and a document path
     CHECK(std::is_sorted(where.begin(), where.end()));
     CHECK(std::adjacent_find(where.begin(), where.end()) == where.end());
     CHECK(gaps.front().message.find("document path ") != std::string::npos);
+
+    // The pilot annotation: the effect schema and the contract header's
+    // shared definitions resolve everywhere.
+    for (const char* annotated : {"effect.schema.json#", "common.schema.json#/definitions/space/",
+                                  "common.schema.json#/definitions/provenance/", "common.schema.json#/definitions/ref/",
+                                  "common.schema.json#/definitions/asset_ref/", "common.schema.json#/definitions/reference/"}) {
+        CAPTURE(annotated);
+        CHECK_FALSE(mentions(gaps, annotated));
+    }
+    std::string doc = bundle_schema::schemaDoc();
+    CHECK(doc.find("| `sources[].id` | yes | string |  |  |  | authored in `effects/<name>.json` (from `sources`) |") != std::string::npos);
+    CHECK(doc.find("| `subject.name` |  | string | length ≥ 1 |  |  | stated per value by `name_source` |") != std::string::npos);
 }

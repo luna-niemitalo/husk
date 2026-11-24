@@ -29,7 +29,8 @@
     "subject": {
       "$ref": "common.schema.json#/definitions/ref",
       "description": "The effect.",
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"authored": "effects/<name>.json"}]
     },
     "space": {
       "$ref": "common.schema.json#/definitions/space",
@@ -63,14 +64,16 @@
         "inputs"
       ],
       "additionalProperties": false,
-      "x-layer": "definition"
+      "x-layer": "definition",
+      "x-source": [{"authored": "effects/<name>.json"}]
     },
     "selection": {
       "type": "object",
       "description": "An effect selects nothing; its instances do.",
       "properties": {},
       "additionalProperties": false,
-      "x-layer": "selection"
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
     },
     "references": {
       "type": "array",
@@ -79,7 +82,8 @@
         "$ref": "common.schema.json#/definitions/reference",
         "description": "One dependency."
       },
-      "x-layer": "contract"
+      "x-layer": "contract",
+      "x-source": [{"authored": "effects/<name>.json"}]
     },
     "sources": {
       "type": "array",
@@ -88,7 +92,8 @@
         "$ref": "common.schema.json#/definitions/effect_source",
         "description": "One source."
       },
-      "x-layer": "resource"
+      "x-layer": "resource",
+      "x-source": [{"authored": "effects/<name>.json"}]
     }
   },
   "required": [
