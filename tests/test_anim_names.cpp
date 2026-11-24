@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "test_temp.hpp"
 #include "anim_names.hpp"
 
 namespace fs = std::filesystem;
@@ -77,7 +78,7 @@ TEST_CASE("parseAnimMapper: anything but one quoted name per line fails, naming 
 }
 
 TEST_CASE("checkoutCommit: HEAD's branch from a loose ref, else packed-refs; detached HEAD as is") {
-    fs::path dir = fs::temp_directory_path() / "husk_anim_names_git";
+    fs::path dir = husk::test::testRunDir() / "husk_anim_names_git";
     fs::remove_all(dir);
     const std::string a(40, 'a');
     const std::string b(40, 'b');
@@ -93,7 +94,7 @@ TEST_CASE("checkoutCommit: HEAD's branch from a loose ref, else packed-refs; det
 }
 
 TEST_CASE("load: a directory without AnimMapper.js fails with the path it expected") {
-    fs::path dir = fs::temp_directory_path() / "husk_anim_names_empty";
+    fs::path dir = husk::test::testRunDir() / "husk_anim_names_empty";
     fs::create_directories(dir);
     CHECK_THROWS_WITH_AS(load(dir), doctest::Contains("expected a wow.export checkout"), std::runtime_error);
     fs::remove_all(dir);

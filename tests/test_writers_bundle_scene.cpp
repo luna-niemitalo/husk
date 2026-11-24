@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 
+#include "test_temp.hpp"
 #include "area_db2.hpp"
 #include "test_bundle_fixtures.hpp"
 #include "uuid.hpp"
@@ -49,7 +50,7 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     effects.inlineDocument = true;
     model.placementSets = {effects};
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-scene";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-scene";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -115,7 +116,7 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     model.placementSets[0].set.ref = canon::Ref{canon::RecordIndex{0}, "Set_A", canon::NameSource::WmoEmbedded};
     model.placementSets[1].set.ref = canon::Ref{canon::RecordIndex{1}, "Set_B", canon::NameSource::WmoEmbedded};
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-local-lights";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-local-lights";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -174,7 +175,7 @@ TEST_CASE("writeBundle: a particulate instance writes its emitter images into th
     set.alwaysOn = true;
     set.set.instances = {instance};
     model.placementSets = {set};
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-particulate";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-particulate";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);  // validates the set against the effect too
@@ -217,7 +218,7 @@ TEST_CASE("writeBundle: an ambient box instance writes list and record inputs an
     set.alwaysOn = true;
     set.set.instances = {box};
     model.placementSets = {set};
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-ambient";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-ambient";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     parseManifest(dir);  // validates the set's inputs against the effect too
@@ -256,7 +257,7 @@ TEST_CASE("writeBundle: fog instances in an owned set, the effects they place, a
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0, {}, {},
                                 {canon::InstanceRef{0, 7}}});
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{1}, "", canon::NameSource::None}, 0, {}, {}, {}});
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-fogs";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-fogs";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -312,7 +313,7 @@ TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets wit
     in.assetNames.emplace(1728356, "fogvolume_sphere");
     world.placements = mapinput::buildMapEffects(in);
 
-    fs::path root = fs::temp_directory_path() / "husk-test-world";
+    fs::path root = husk::test::testRunDir() / "husk-test-world";
     fs::remove_all(root);
     fs::create_directories(root / "azeroth_32_49.bundle");
     std::ofstream(root / "azeroth_32_49.bundle" / "manifest.json") << "{}";
@@ -377,7 +378,7 @@ TEST_CASE("writeWorldBundle: zones carry stable ids and name their parent by id"
     northshire.sourceFlags = canon::ZoneFlags{{0x40000040, 0x80}, 0x1, areadb::flagNames({0x40000040, 0x80}, 0x1)};
     world.zones = {elwynn, northshire};
 
-    fs::path root = fs::temp_directory_path() / "husk-test-world-zones";
+    fs::path root = husk::test::testRunDir() / "husk-test-world-zones";
     fs::remove_all(root);
     fs::path dir = root / "azeroth.world.bundle";
     writers::writeWorldBundle(world, dir, testProvenance(), {""});
@@ -413,7 +414,7 @@ TEST_CASE("writeWorldBundle: the map block names the Map row, its parents and ar
     canon::World world;
     world.subject = canon::Ref{canon::FileDataId{775971}, "gilneasphase1", canon::NameSource::Listfile};
     world.cells.push_back({32, 49, canon::Ref{canon::None{}, "gilneasphase1_32_49", canon::NameSource::Listfile}, {}, {}});
-    fs::path root = fs::temp_directory_path() / "husk-test-world-map";
+    fs::path root = husk::test::testRunDir() / "husk-test-world-map";
     fs::remove_all(root);
     writers::writeWorldBundle(world, root / "none.bundle", testProvenance(), {""});
     CHECK_FALSE(parseManifest(root / "none.bundle").contains("map"));
@@ -496,7 +497,7 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_params, each set 
     in.textures.emplace(1140733, lut);
     world.placements = mapinput::buildMapEffects(in);
 
-    fs::path root = fs::temp_directory_path() / "husk-test-world-lights";
+    fs::path root = husk::test::testRunDir() / "husk-test-world-lights";
     fs::remove_all(root);
     fs::create_directories(root / "deathskybox.bundle");
     std::ofstream(root / "deathskybox.bundle" / "manifest.json") << "{}";

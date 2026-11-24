@@ -10,6 +10,7 @@
 #include <fstream>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 
 using husk::test::runHusk;
@@ -55,7 +56,7 @@ std::vector<uint8_t> tinyDxt1Blp() {
 }
 
 fs::path defaultsDir(const std::string& name) {
-    auto dir = fs::temp_directory_path() / ("husk-blp-export-test-" + name);
+    auto dir = husk::test::testRunDir() / ("husk-blp-export-test-" + name);
     fs::remove_all(dir);
     fs::create_directories(dir);
     return dir;

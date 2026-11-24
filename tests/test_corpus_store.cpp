@@ -8,6 +8,7 @@
 
 #include <thread>
 
+#include "test_temp.hpp"
 #include "corpus_index.hpp"
 #include "corpus_store.hpp"
 #include "input_log.hpp"
@@ -28,7 +29,7 @@ std::string readText(const fs::path& path) {
 }
 
 fs::path freshDir(const std::string& name) {
-    fs::path dir = fs::temp_directory_path() / ("husk-store-test-" + name);
+    fs::path dir = husk::test::testRunDir() / ("husk-store-test-" + name);
     fs::remove_all(dir);
     fs::create_directories(dir);
     return dir;

@@ -13,6 +13,7 @@
 #include <fstream>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_fixtures.hpp"
 #include "test_cli_fixtures.hpp"
@@ -122,7 +123,7 @@ TEST_CASE("husk export: 'auto' on a model with no SFID chunk fails cleanly, nami
 
     auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
                            tempPath("auto-no-sfid.bundle").string() + " --skin-dir " +
-                           fs::temp_directory_path().string());
+                           husk::test::testRunDir().string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("no SFID chunk") != std::string::npos);
 
@@ -146,7 +147,7 @@ TEST_CASE("husk export: --skin-dir given while --skin is an explicit path (not '
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("skindir-without-auto.bundle").string() + " --skin-dir " +
-                           fs::temp_directory_path().string());
+                           husk::test::testRunDir().string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("--skin-dir") != std::string::npos);
     CHECK(result.output.find("'auto'") != std::string::npos);
@@ -164,7 +165,7 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detai
     // resolution actually picked entry 0, not "some" entry.
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {fileDataId, 555112}));
 
-    auto skinDir = fs::temp_directory_path();
+    auto skinDir = husk::test::testRunDir();
     auto skinPath = skinDir / (std::to_string(fileDataId) + ".skin");
     writeFile(skinPath, tinyMatchingSkin());
 
@@ -187,7 +188,7 @@ TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing t
 
     auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
                            tempPath("auto-missing-file.bundle").string() + " --skin-dir " +
-                           fs::temp_directory_path().string());
+                           husk::test::testRunDir().string());
     CHECK(result.exitCode == 1);
     // resolveSkin falls back to the same-basename scan (which also finds
     // nothing here) before giving up -- its "not found" reason names the

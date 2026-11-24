@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "bundle_schema.hpp"
 #include "bundle_schema_embedded.hpp"
 #include "writers/bundle_common.hpp"
@@ -83,7 +84,7 @@ void writeText(const fs::path& path, const std::string& text) {
 }
 
 fs::path writeBundle(const std::string& name, const std::string& model, const std::string& set) {
-    fs::path dir = fs::temp_directory_path() / name;
+    fs::path dir = husk::test::testRunDir() / name;
     fs::remove_all(dir);
     writeText(dir / "manifest.json", model);
     writeText(dir / "sets" / "0.json", set);
@@ -144,7 +145,7 @@ constexpr const char* kGlowInstance = R"({"id": 1, "reference": "00000000-0000-3
   "source": {"flags": "0x0", "record": {"table": "test", "index": 0}}})";
 
 fs::path writeSet(const std::string& name, const std::string& set) {
-    fs::path file = fs::temp_directory_path() / name / "set.json";
+    fs::path file = husk::test::testRunDir() / name / "set.json";
     fs::remove_all(file.parent_path());
     writeText(file, set);
     return file;
@@ -159,7 +160,7 @@ TEST_CASE("bundle_schema: every effect husk writes validates") {
                              "classic_m2_model_particle_emitter", "classic_m2_ribbon", "classic_zone_light_global",
                              "classic_zone_light"}) {
         CAPTURE(name);
-        fs::path file = fs::temp_directory_path() / "husk-schema-effects" / (std::string(name) + ".json");
+        fs::path file = husk::test::testRunDir() / "husk-schema-effects" / (std::string(name) + ".json");
         fs::create_directories(file.parent_path());
         writers::writeEffectDocument(name, file, writers::Provenance{"husk test", "test", {}});
         std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(file);
@@ -169,7 +170,7 @@ TEST_CASE("bundle_schema: every effect husk writes validates") {
 }
 
 TEST_CASE("bundle_schema: every technique husk carries validates, with its references") {
-    fs::path dir = fs::temp_directory_path() / "husk-schema-techniques";
+    fs::path dir = husk::test::testRunDir() / "husk-schema-techniques";
     fs::remove_all(dir);
     std::vector<std::string> names;
     for (const auto& t : bundle_schema::embeddedTechniques()) names.emplace_back(t.name);
@@ -184,7 +185,7 @@ TEST_CASE("bundle_schema: every technique husk carries validates, with its refer
 }
 
 TEST_CASE("bundle_schema: a technique's expressions are one node kind each and name declared inputs") {
-    fs::path file = fs::temp_directory_path() / "husk-schema-technique-bad" / "t.json";
+    fs::path file = husk::test::testRunDir() / "husk-schema-technique-bad" / "t.json";
     fs::remove_all(file.parent_path());
     writeText(file, std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "m2_pixel_shader", "status": "verified", "evidence": "test",
@@ -199,7 +200,7 @@ TEST_CASE("bundle_schema: a technique's expressions are one node kind each and n
 }
 
 TEST_CASE("bundle_schema: a technique's input coordinates are checked, and a cycle through one fails") {
-    fs::path file = fs::temp_directory_path() / "husk-schema-technique-cycle" / "t.json";
+    fs::path file = husk::test::testRunDir() / "husk-schema-technique-cycle" / "t.json";
     fs::remove_all(file.parent_path());
     writeText(file, std::string("{") + header("technique") + R"( "subject": {"id": {"kind": "none"}, "name": "t", "name_source": "synthesized"},
         "definition": {"family": "wmo_shader", "status": "verified", "evidence": "test",
@@ -226,7 +227,7 @@ TEST_CASE("bundle_schema: min, dot and tangent_frame are ops with their operand 
                        "outputs": )" + outputs + R"(},
         "selection": {}, "references": []})";
     };
-    fs::path file = fs::temp_directory_path() / "husk-schema-technique-ops" / "t.json";
+    fs::path file = husk::test::testRunDir() / "husk-schema-technique-ops" / "t.json";
     fs::remove_all(file.parent_path());
 
     writeText(file, technique(R"({"diffuse": {"op": "min", "args": [{"input": "t0", "channels": "rgb"}, {"const": 0.5}, {"input": "n"}]},

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "test_temp.hpp"
 #include "../src/listfile_index.hpp"
 #include "../src/sources/listfile_catalog.hpp"
 
@@ -77,7 +78,7 @@ TEST_CASE("sources::pathForFileDataId does NOT require listfileRoot non-empty --
 }
 
 TEST_CASE("sources::storePathForFileDataId finds <root>/_by_fdid/<fdid> only when it is a file") {
-    auto root = std::filesystem::temp_directory_path() / "husk-store-path-test";
+    auto root = husk::test::testRunDir() / "husk-store-path-test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "_by_fdid" / "7");
     std::ofstream(root / "_by_fdid" / "42") << "x";
@@ -99,7 +100,7 @@ TEST_CASE("sources::fileDataIdForStorePath reads the id from _by_fdid/ and _unre
 }
 
 TEST_CASE("sources::localFileForFileDataId: the listfile path when it exists, else the store") {
-    auto root = std::filesystem::temp_directory_path() / "husk-local-file-test";
+    auto root = husk::test::testRunDir() / "husk-local-file-test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "_by_fdid");
     std::filesystem::create_directories(root / "item");

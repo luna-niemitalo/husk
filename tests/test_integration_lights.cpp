@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <string>
 
+#include "test_temp.hpp"
 #include "m2.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_fixtures.hpp"
@@ -31,7 +32,7 @@ using husk::test::testLightM2;
 TEST_CASE("husk export: a real glue model's animated lights get a plausible kind/type and curves, "
           "not garbage or NaN" *
           doctest::skip(testLightM2().empty())) {
-    fs::path dir = fs::temp_directory_path() / "husk-test-light-animation.bundle";
+    fs::path dir = husk::test::testRunDir() / "husk-test-light-animation.bundle";
     fs::remove_all(dir);
     auto result = runHusk("export \"" + testLightM2() + "\" -o \"" + dir.string() + "\"");
     INFO("output:\n", result.output);

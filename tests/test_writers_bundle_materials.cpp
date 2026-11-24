@@ -7,6 +7,7 @@
 
 #include <fstream>
 
+#include "test_temp.hpp"
 #include "test_bundle_fixtures.hpp"
 #include "uuid.hpp"
 #include "writers/bundle_common.hpp"
@@ -39,7 +40,7 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     model.primitiveMaterials.push_back(canon::Identity{canon::RecordIndex{1}});
     model.mesh.primitives.push_back(model.mesh.primitives[0]);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-payload";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-texture-payload";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
 
@@ -67,7 +68,7 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     CHECK(textureFileCount == 1);
 
     // Resolved but no payload -- no uri, no textures/ directory created at all.
-    fs::path dirNoPayload = fs::temp_directory_path() / "husk-test-bundle-texture-no-payload";
+    fs::path dirNoPayload = husk::test::testRunDir() / "husk-test-bundle-texture-no-payload";
     fs::remove_all(dirNoPayload);
     canon::Model modelNoPayload = buildSyntheticModel();
     canon::TextureRef resolvedNoPayload;
@@ -111,7 +112,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     bothPayloads.rawPayload = dds;
     model.materials[0].layers[0].texture = bothPayloads;
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-texture-rawpayload";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
 
@@ -130,7 +131,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     // payload-only (no rawPayload) -- falls back to writing the .png
     // variant (e.g. a source that was never a compressed BLP, or one where
     // DDS extraction declined).
-    fs::path dirPngOnly = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload-fallback";
+    fs::path dirPngOnly = husk::test::testRunDir() / "husk-test-bundle-texture-rawpayload-fallback";
     fs::remove_all(dirPngOnly);
     canon::Model modelPngOnly = buildSyntheticModel();
     canon::TextureRef pngOnly;
@@ -152,7 +153,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
 
     // Neither present -- no uri, no textures/ directory, same as the
     // existing no-payload case above.
-    fs::path dirNeither = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload-neither";
+    fs::path dirNeither = husk::test::testRunDir() / "husk-test-bundle-texture-rawpayload-neither";
     fs::remove_all(dirNeither);
     canon::Model modelNeither = buildSyntheticModel();
     canon::TextureRef neither;
@@ -175,7 +176,7 @@ TEST_CASE("writeBundle: a material's framebuffer blend is written by name, and o
     unknown.ref.id = canon::RecordIndex{1};
     unknown.framebufferBlend.reset();
     model.materials.push_back(unknown);
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-framebuffer-blend";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-framebuffer-blend";
     fs::remove_all(dir);
 
     writers::writeBundle(model, dir, testProvenance());
@@ -232,7 +233,7 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     preset.unresolved.push_back({"TextureVariationFileDataID[3]", canon::UnresolvedField::Kind::Id, 99.0, std::nullopt});
     model.presets.push_back(preset);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-options";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-options";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -339,7 +340,7 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
     preset.sources.push_back({canon::Ref{canon::None{}, "husk-appearance/1 gear=MAIN_HAND:15", canon::NameSource::Synthesized}, 1, 1});
     model.presets.push_back(preset);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-sidecars";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-sidecars";
     fs::remove_all(dir);
     writers::writeBundle(buildSyntheticModel(), dir / "items" / "148132.bundle", testProvenance());
     writers::writeBundle(model, dir, testProvenance());
@@ -377,7 +378,7 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
 
 TEST_CASE("writeBundle: a model without options writes no texture_slots, particle_colors or presets") {
     canon::Model model = buildSyntheticModel();
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-no-options";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-no-options";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -405,7 +406,7 @@ TEST_CASE("externalizeTextures: payloads go to the shared store once; the model 
     set.set.instances = {wmoinput::particulateInstance(v, {{101, skin}}, {"MPVD", 0})};
     model.placementSets = {set};
 
-    fs::path root = fs::temp_directory_path() / "husk-test-texture-store";
+    fs::path root = husk::test::testRunDir() / "husk-test-texture-store";
     fs::remove_all(root);
     fs::create_directories(root / "textures");
     writers::TextureStore store(root / "textures");
@@ -455,7 +456,7 @@ TEST_CASE("writeBundle: material documents beside the model; a slot's composite 
     faceTexture.resolved.id = canon::FileDataId{1700};
     model.choiceTextures.push_back({{0, 0}, 0, "target_4", faceTexture, canon::CustomizationPick{0, 0}});
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-materials";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-materials";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);  // follows the material reference too
@@ -498,7 +499,7 @@ TEST_CASE("validateDocument: a choice binding an input its material doesn't decl
     canon::TextureRef texture;
     model.choiceTextures.push_back({{0, 0}, 0, "target_9", texture, std::nullopt});
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-material-bad-input";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-material-bad-input";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
@@ -518,7 +519,7 @@ TEST_CASE("validateDocument: a preset's appearance must be in the appearances li
     preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1, 1});
     model.presets.push_back(preset);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-appearance-range";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-appearance-range";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
@@ -544,7 +545,7 @@ TEST_CASE("writeBundle: layers sampling alike share one uv map; others get their
     environment.uv = canon::EnvironmentMapped{};
     model.materials[0].layers = {same, same, scrolled, environment};
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-uv-maps";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-uv-maps";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);

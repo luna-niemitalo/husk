@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "test_temp.hpp"
 #include "../src/character_texture_context.hpp"
 #include "../src/sources/texture_resolution.hpp"
 #include "../src/listfile_index.hpp"
@@ -48,7 +49,7 @@ TextureModelContext ctxFor(const std::string& modelPath, uint16_t slot = 0) {
 }  // namespace
 
 TEST_CASE("Catalog::texture hits tier 1 (literal) when <texturesDir>/<fdid>.png exists") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-literal-hit";
+    auto dir = husk::test::testRunDir() / "husk-catalog-literal-hit";
     fs::create_directories(dir);
     writeFile(dir / "424242.png", kPng);
 
@@ -62,7 +63,7 @@ TEST_CASE("Catalog::texture hits tier 1 (literal) when <texturesDir>/<fdid>.png 
 }
 
 TEST_CASE("Catalog::texture hits tier 2 (listfile) when tier 1 misses but the listfile names a real file") {
-    auto root = fs::temp_directory_path() / "husk-catalog-listfile-hit";
+    auto root = husk::test::testRunDir() / "husk-catalog-listfile-hit";
     fs::create_directories(root / "world" / "goober");
     writeFile(root / "world" / "goober" / "bubble.png", kPng);
 
@@ -78,7 +79,7 @@ TEST_CASE("Catalog::texture hits tier 2 (listfile) when tier 1 misses but the li
 
 TEST_CASE("Catalog::texture reads <listfileRoot>/_by_fdid/<fdid> when the listfile can't name it, "
           "decoding the extensionless BLP by its magic") {
-    auto root = fs::temp_directory_path() / "husk-catalog-store-hit";
+    auto root = husk::test::testRunDir() / "husk-catalog-store-hit";
     fs::remove_all(root);
     writeFile(root / "_by_fdid" / "777", adtfx::oneBlockBlp());
 
@@ -94,7 +95,7 @@ TEST_CASE("Catalog::texture reads <listfileRoot>/_by_fdid/<fdid> when the listfi
 }
 
 TEST_CASE("Catalog::texture prefers the listfile path over the store: it carries the real name") {
-    auto root = fs::temp_directory_path() / "husk-catalog-store-vs-listfile";
+    auto root = husk::test::testRunDir() / "husk-catalog-store-vs-listfile";
     fs::remove_all(root);
     writeFile(root / "world" / "bubble.png", kPng);
     writeFile(root / "_by_fdid" / "555", kPng);
@@ -110,7 +111,7 @@ TEST_CASE("Catalog::texture prefers the listfile path over the store: it carries
 }
 
 TEST_CASE("Catalog::texture hits tier 3 (fuzzy pool) claiming the sole type-compatible candidate") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-fuzzy-hit";
+    auto dir = husk::test::testRunDir() / "husk-catalog-fuzzy-hit";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_9999.png", kPng);
 
@@ -131,7 +132,7 @@ TEST_CASE("Catalog::texture hits tier 3 (fuzzy pool) claiming the sole type-comp
 }
 
 TEST_CASE("Catalog::texture misses (with a reason) when no tier can answer at all") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-total-miss";
+    auto dir = husk::test::testRunDir() / "husk-catalog-total-miss";
     fs::create_directories(dir);
 
     Catalog cat(dir.string(), kNoListfile, "", "");
@@ -142,7 +143,7 @@ TEST_CASE("Catalog::texture misses (with a reason) when no tier can answer at al
 }
 
 TEST_CASE("Catalog::texture reports genuine ambiguity via Resolved<T>::alternates, not a variant") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-ambiguous";
+    auto dir = husk::test::testRunDir() / "husk-catalog-ambiguous";
     fs::create_directories(dir);
     // Two unrecognized-category candidates sharing the model's basename --
     // filterCandidatesForType has nothing to prefer between them. Real
@@ -171,7 +172,7 @@ TEST_CASE("Catalog::texture reports genuine ambiguity via Resolved<T>::alternate
 }
 
 TEST_CASE("Catalog::texture depletes the pool across slots -- a claimed candidate isn't offered twice") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-pool-depletion";
+    auto dir = husk::test::testRunDir() / "husk-catalog-pool-depletion";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_5555.png", kPng);  // the pool's only real candidate
 
@@ -193,7 +194,7 @@ TEST_CASE("Catalog::texture depletes the pool across slots -- a claimed candidat
 
 TEST_CASE("Catalog::texture memoizes per (model, textureSlotIndex) -- two batches sharing one M2 texture "
           "index agree on the identical answer instead of each depleting the pool") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-slot-memoization";
+    auto dir = husk::test::testRunDir() / "husk-catalog-slot-memoization";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_7777.png", kPng);  // sole candidate
 
@@ -215,7 +216,7 @@ TEST_CASE("Catalog::texture memoizes per (model, textureSlotIndex) -- two batche
 
 TEST_CASE("Catalog excludes a pool candidate whose own trailing FileDataID is already one of this M2's "
           "own texture-array entries") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-own-fdid-exclusion";
+    auto dir = husk::test::testRunDir() / "husk-catalog-own-fdid-exclusion";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_3333.png", kPng);  // this model's own particle-sprite texture, fdid 3333
 
@@ -228,7 +229,7 @@ TEST_CASE("Catalog excludes a pool candidate whose own trailing FileDataID is al
 
 TEST_CASE("Catalog::registerPathOverride lets tier 2 resolve a fdid with no real listfile row, "
           "without mutating any listfile map the caller owns") {
-    auto root = fs::temp_directory_path() / "husk-catalog-path-override";
+    auto root = husk::test::testRunDir() / "husk-catalog-path-override";
     fs::create_directories(root / "item" / "objectcomponents");
     writeFile(root / "item" / "objectcomponents" / "recolor.png", kPng);
 
@@ -248,7 +249,7 @@ TEST_CASE("Catalog::registerPathOverride lets tier 2 resolve a fdid with no real
 }
 
 TEST_CASE("Catalog::describe() names every resolved slot -- I4's ledger, a read operation") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-describe";
+    auto dir = husk::test::testRunDir() / "husk-catalog-describe";
     fs::create_directories(dir);
     writeFile(dir / "111.png", kPng);
 
@@ -314,7 +315,7 @@ TEST_CASE("Catalog::texture: a tag-carrying candidate with no name relation to t
           "at all is still admitted into the pool and resolves a taggable hardcoded slot -- the "
           "exact real gap this project's own tag-conjunction work closed (a real bloodelffemale_hd hairstyle "
           "file, \"scalpupperhair00_08_hd\", shares no basename with the model whatsoever)") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-tag-admits-non-basename";
+    auto dir = husk::test::testRunDir() / "husk-catalog-tag-admits-non-basename";
     fs::create_directories(dir);
     // No "elfmale" prefix anywhere in this filename -- the old
     // startswith(basename) gate could never have admitted this file.
@@ -333,7 +334,7 @@ TEST_CASE("Catalog::texture: a non-'_hd' model never draws '_hd' art, even when 
           "bloodelffemale.m2 bug (three distinct hardcoded slots all defaulting to the identical "
           "'_hd' file, since 'bloodelffemale' is a string-prefix of every real "
           "'bloodelffemale_hd_*' filename)") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-hd-partition-excludes-hd";
+    auto dir = husk::test::testRunDir() / "husk-catalog-hd-partition-excludes-hd";
     fs::create_directories(dir);
     writeFile(dir / "elfmale_skin_color_1000_hd.png", kPng);     // "_hd" art -- must not apply
     std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
@@ -351,7 +352,7 @@ TEST_CASE("Catalog::texture: a non-'_hd' model never draws '_hd' art, even when 
 
 TEST_CASE("Catalog::texture: an '_hd' model never draws non-'_hd' art either -- the "
           "hard partition cuts both directions, not just the poisoned-non-HD-pool direction") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-hd-partition-excludes-non-hd";
+    auto dir = husk::test::testRunDir() / "husk-catalog-hd-partition-excludes-non-hd";
     fs::create_directories(dir);
     writeFile(dir / "elfmale_hd_skin_color_1000.png", kPng);  // real "_hd" art (model's own basename)
     std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
@@ -373,7 +374,7 @@ TEST_CASE("Catalog::texture: an untagged texture type (no textureTypeTagClauses 
           "those types (real bloodelffemale_hd regression: object_skin/type 2 went from 3 candidates "
           "to 386 before this restriction existed, purely from inheriting a wider gate a different "
           "type's own clause earned)") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-untagged-type-narrow-gate";
+    auto dir = husk::test::testRunDir() / "husk-catalog-untagged-type-narrow-gate";
     fs::create_directories(dir);
     // Narrow-admissible: starts with the model's own basename.
     writeFile(dir / "mymodel_1000.png", kPng);
@@ -400,7 +401,7 @@ TEST_CASE("Catalog::texture: an untagged texture type (no textureTypeTagClauses 
 TEST_CASE("Catalog::texture: a *taggable* texture type still draws a tag-only-admitted candidate "
           "with no basename relation at all -- the narrow-gate restriction above is type-specific, "
           "not a blanket revert of the pool-scan widening; tagged types keep their real recall gain") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-tagged-type-keeps-wide-gate";
+    auto dir = husk::test::testRunDir() / "husk-catalog-tagged-type-keeps-wide-gate";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_1000.png", kPng);  // narrow-admissible, but no "skin"/"face"/etc. tag
     std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
@@ -428,7 +429,7 @@ TEST_CASE("Catalog::texture: a *taggable* texture type still draws a tag-only-ad
 TEST_CASE("Catalog::texture: setCharacterTextureContext never called is a clean no-op -- "
           "every model/invocation without --db2-dir/--dbd-dir behaves exactly as before this "
           "tier existed, falling straight through to the fuzzy pool") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-unset";
+    auto dir = husk::test::testRunDir() / "husk-catalog-db2-character-unset";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_9999.png", kPng);
 
@@ -441,7 +442,7 @@ TEST_CASE("Catalog::texture: setCharacterTextureContext never called is a clean 
 TEST_CASE("Catalog::texture: an explicitly-set but empty CharacterTextureContext is also a "
           "clean no-op -- absence of a matching entry, not the absence of the struct itself, "
           "is what makes this tier miss") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-empty";
+    auto dir = husk::test::testRunDir() / "husk-catalog-db2-character-empty";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_9999.png", kPng);
 
@@ -457,7 +458,7 @@ TEST_CASE("Catalog::texture: the DB2-character tier fires when all three conditi
           "pool even when the pool also has a type-compatible candidate -- reproduces the real "
           "bloodelffemale_hd jewelry-slot delta (fuzzy pool's arbitrary pick happened to be the "
           "same file, target 38 -> FileDataID 3613861)") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-fires";
+    auto dir = husk::test::testRunDir() / "husk-catalog-db2-character-fires";
     fs::create_directories(dir);
     writeFile(dir / "3613861.png", kPng);  // the DB2-derived fdid, resolved via tier 1 (literal)
     std::vector<uint8_t> poolPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
@@ -483,7 +484,7 @@ TEST_CASE("Catalog::texture: the DB2-character tier fires when all three conditi
 TEST_CASE("Catalog::texture: DB2-character tier misses (falls through to the fuzzy pool) when "
           "the texture type has no single-layer target at all -- the real multi-layer-type case "
           "(e.g. skin, or eyes on a layout with 2 live targets), never a hardcoded type list") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-miss-no-target";
+    auto dir = husk::test::testRunDir() / "husk-catalog-db2-character-miss-no-target";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_1111.png", kPng);
 
@@ -500,7 +501,7 @@ TEST_CASE("Catalog::texture: DB2-character tier misses (falls through to the fuz
 TEST_CASE("Catalog::texture: DB2-character tier misses when the single-layer target has no "
           "resolved customization choice feeding it -- e.g. Hair Color/Blindfold's real "
           "'materials: null' default-choice gap") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-miss-no-choice";
+    auto dir = husk::test::testRunDir() / "husk-catalog-db2-character-miss-no-choice";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_1111.png", kPng);
 
@@ -521,7 +522,7 @@ TEST_CASE("Catalog::texture: DB2-character tier misses when the single-layer tar
 TEST_CASE("Catalog::texture: DB2-character tier misses when the resolved material carries "
           "FileDataID 0 -- a real material element exists, but texturefiledata.db2 didn't "
           "resolve it, distinct from 'no material at all'") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-miss-fdid-zero";
+    auto dir = husk::test::testRunDir() / "husk-catalog-db2-character-miss-fdid-zero";
     fs::create_directories(dir);
     writeFile(dir / "mymodel_1111.png", kPng);
 
@@ -539,7 +540,7 @@ TEST_CASE("Catalog::texture: DB2-character tier misses when the resolved materia
 TEST_CASE("Catalog::texture: the DB2-character tier is never consulted when the slot's own M2 "
           "fdid already resolves via tier 1/2 -- it sits strictly between listfile and the fuzzy "
           "pool, not ahead of the deterministic tiers") {
-    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-tier1-wins";
+    auto dir = husk::test::testRunDir() / "husk-catalog-db2-character-tier1-wins";
     fs::create_directories(dir);
     writeFile(dir / "424242.png", kPng);  // the slot's own real fdid, resolves via tier 1
 
