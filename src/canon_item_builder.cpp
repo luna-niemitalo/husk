@@ -66,6 +66,10 @@ std::vector<Item> assembleEquippedItems(const itemappearance::Data& data, const 
         // entry sharing the same id must not re-resolve (and duplicate)
         // the same component data.
         if (!firstOccurrence) continue;
+        itemIt->itemDisplayInfoId = resolution.itemDisplayInfoId;
+        itemIt->geosetGroups = resolution.geosetGroups;
+        itemIt->attachmentGeosetGroups = resolution.attachmentGeosetGroups;
+        itemIt->transmogSets = resolution.transmogSets;
 
         if (!resolution.sectionMaterials.empty()) {
             SectionOverlayComponent overlay;

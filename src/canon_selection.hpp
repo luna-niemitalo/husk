@@ -4,7 +4,6 @@
 #include <variant>
 #include <vector>
 
-#include "canon_item.hpp"
 #include "canon_ref.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
@@ -15,10 +14,7 @@
 // AppearanceString is not migrated onto this either).
 namespace husk::canon {
 
-// A player-character instance's chosen customization + equipped gear.
-// Both real mechanisms coexist on one character -- appearance_string.hpp's
-// own grammar carries `cust` and `gear` on the same string -- so they
-// share one struct rather than living in separate variant alternatives.
+// A player-character instance's chosen customization.
 struct CharacterSelection {
     // Scopes this Selection to the Definition it was chosen against.
     // Definition::chrModelId already encodes race+sex (chrrace_db2.hpp's
@@ -35,21 +31,8 @@ struct CharacterSelection {
     // identities, not an int against a struct field it has to unwrap
     // first.
     std::vector<Ref> chosenChoices;
-
-    struct EquippedItem {
-        // Same ItemModifiedAppearanceID identity canon::Item::identity
-        // uses. Deliberately not a canon::Item itself: an EquippedItem
-        // doesn't carry the item's own resolved geometry/materials
-        // (that's Resources, not Selection) -- a consumer joins this
-        // identity against a real canon::Item to get that data.
-        Ref identity;
-        // A Selection can put an item in fewer/different slots than the
-        // item itself is capable of -- canon::Item::slots names every
-        // slot the *item* can occupy; this names which one *this
-        // instance* actually used it for.
-        std::vector<Slot> slots;
-    };
-    std::vector<EquippedItem> equippedItems;
+    // What the character wears is its preset's garments (canon_garment.hpp),
+    // not part of this selection.
 };
 
 // A creature/NPC instance's default geoset selection

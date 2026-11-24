@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -77,6 +78,12 @@ struct Item {
     Ref identity;
     std::vector<Slot> slots;
     std::vector<Component> components;
+    // What the display switches on (itemappearance::DisplayInfo), and the
+    // transmog sets listing the appearance: the garment split's inputs.
+    std::optional<uint32_t> itemDisplayInfoId;
+    std::array<int32_t, 6> geosetGroups{};
+    std::array<int32_t, 6> attachmentGeosetGroups{};
+    std::vector<uint32_t> transmogSets;
 };
 
 }  // namespace husk::canon

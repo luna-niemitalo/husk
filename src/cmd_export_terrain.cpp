@@ -385,6 +385,45 @@ int validateBundle(int argc, char** args) {
     return problems.empty() && (!opts.release || warnings.empty()) ? 0 : 1;
 }
 
+void addGarmentsCheckOptions(CLI::App& app, GarmentsCheckOptions& opts) {
+    app.add_option("bundle", opts.bundle, "a model bundle directory or its manifest")->required();
+    app.add_option("--preset", opts.preset, "only this preset's conflicts (its id)");
+}
+
+int garmentsCheck(int argc, char** args) {
+    CLI::App app{"husk garments-check -- conflicts among the garments a model's presets wear, and kind deviations",
+                 "husk garments-check"};
+    GarmentsCheckOptions opts;
+    addGarmentsCheckOptions(app, opts);
+    if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
+    std::vector<bundle_schema::GarmentFinding> findings;
+    try {
+        findings = bundle_schema::checkGarments(opts.bundle, opts.preset);
+    } catch (const std::exception& e) {
+        std::cerr << "husk: garments-check: " << e.what() << "\n";
+        return 2;
+    }
+    size_t conflicts = 0;
+    size_t known = 0;
+    size_t unexpected = 0;
+    for (const bundle_schema::GarmentFinding& f : findings) {
+        if (f.kind == bundle_schema::GarmentFinding::Kind::Conflict) {
+            ++conflicts;
+            std::cout << "conflict in preset " << f.preset << ": " << f.message << "\n";
+            for (const std::string& id : f.garments) std::cout << "  garment " << id << "\n";
+        } else if (f.kind == bundle_schema::GarmentFinding::Kind::KnownDeviation) {
+            ++known;
+            std::cout << "known deviation: " << f.message << "\n";
+        } else {
+            ++unexpected;
+            std::cout << "unexpected deviation: " << f.message << "\n";
+        }
+    }
+    std::cout << conflicts << " conflicts, " << known << " known deviations, " << unexpected
+              << " unexpected deviations\n";
+    return conflicts == 0 ? 0 : 1;
+}
+
 void addSchemaDocOptions(CLI::App& app, SchemaDocOptions& opts) {
     app.add_option("-o,--output", opts.output, "write the Markdown to this file instead of stdout");
 }

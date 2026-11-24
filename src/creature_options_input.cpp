@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "canon_definition_builder.hpp"
+#include "canon_garment_builder.hpp"
 #include "m2_header.hpp"  // m2::textureTypeName
 
 namespace husk::creatureinput {
@@ -365,17 +366,23 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
             for (const creaturedisplay::NpcItem& item : items->second) {
                 if (item.itemDisplayInfo == 0) continue;
                 const char* name = npcItemSlotName(item.slot);
-                auto [it, added] = index.item.emplace(item.itemDisplayInfo, static_cast<uint32_t>(model.items.size()));
-                if (added) model.items.push_back({db2Ref("ItemDisplayInfo", item.itemDisplayInfo), {}, {}, {}});
-                preset.items.push_back({name ? std::optional<std::string>(name) : std::nullopt, item.slot, it->second});
-                key += "i" + std::to_string(item.slot) + ":" + std::to_string(item.itemDisplayInfo) + ";";
+                auto known = index.item.find(item.itemDisplayInfo);
+                uint32_t garment = known != index.item.end()
+                                       ? known->second
+                                       : canon::garments::fromNpcItem(item.itemDisplayInfo, item.slot,
+                                                                      name ? std::optional<std::string>(name)
+                                                                           : std::nullopt,
+                                                                      model.garments);
+                index.item.emplace(item.itemDisplayInfo, garment);
+                if (std::find(preset.garments.begin(), preset.garments.end(), garment) == preset.garments.end()) {
+                    preset.garments.push_back(garment);
+                }
+                key +="i" + std::to_string(item.slot) + ":" + std::to_string(item.itemDisplayInfo) + ";";
             }
         }
         // The bake is made for the extra's whole equipment (gear overlays
         // drawn into the skin), so it matches only that item set.
-        if (!preset.textures.empty()) {
-            for (const canon::PresetItem& worn : preset.items) preset.bakeCovers.push_back(worn.item);
-        }
+        if (!preset.textures.empty()) preset.bakeCovers = preset.garments;
     };
 
     for (const creaturedisplay::ModelData& modelData : modelRows->second) {

@@ -814,9 +814,11 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // reads as "no animations" instead of an error.
         if (bonesAreInline) canon::enforcePartialFailurePolicy(model, "sequences", kExportPartialFailurePolicy);
 
+        std::optional<canon::BodyLayout> bodyLayout;
         if (!bones.empty()) {
             chartexture::Args charArgs{db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, customizationChoiceIdsArg};
             if (auto ctx = chartexture::build(charArgs, modelPath, listfile, listfileRoot, std::cerr)) {
+                bodyLayout = ctx->bodyLayout;
                 catalog.setCharacterTextureContext(std::move(*ctx));
             }
         }
@@ -828,6 +830,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         BundleSidecars sidecars;
         sidecars.leanGlbPath = opts.glbArg;
         sidecars.noAnimation = animNone;
+        sidecars.bodyLayout = bodyLayout;
         if (app.count("--anim-names") && opts.animNamesArg != "none") {
             animnames::Table animNames = animnames::load(opts.animNamesArg);
             sidecars.communityAnimationNames = std::move(animNames.names);

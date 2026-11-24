@@ -98,6 +98,10 @@ int exportMap(int argc, char** args);
 // (bundle_schema.hpp), and with --lint-schema the schema itself.
 int validateBundle(int argc, char** args);
 
+// `garments-check` -- a model bundle's garment conflicts and kind
+// deviations (bundle_schema::checkGarments, REFACTOR/GARMENTS.md).
+int garmentsCheck(int argc, char** args);
+
 // `schema-doc` -- the embedded schema/ as one Markdown reference
 // (bundle_schema::schemaDoc).
 int schemaDoc(int argc, char** args);
@@ -290,6 +294,12 @@ struct ValidateBundleOptions {
     bool release = false;  // warnings (placeholder effect instances) fail too
 };
 void addValidateBundleOptions(CLI::App& app, ValidateBundleOptions& opts);
+
+struct GarmentsCheckOptions {
+    std::string bundle;
+    std::string preset;  // empty = every preset
+};
+void addGarmentsCheckOptions(CLI::App& app, GarmentsCheckOptions& opts);
 
 struct SchemaDocOptions {
     std::string output;  // empty: stdout

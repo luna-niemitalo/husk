@@ -28,38 +28,6 @@ TEST_CASE("CharacterSelection: multiple chosen customization choices, scoped to 
     CHECK(std::get<Db2Row>(got.chosenChoices[1].id).row == 202);
 }
 
-TEST_CASE("CharacterSelection: an equipped item names its slot without duplicating canon::Item") {
-    CharacterSelection sel;
-    sel.chrModelId = 20;
-
-    CharacterSelection::EquippedItem sword;
-    sword.identity.id = Db2Row{"ItemModifiedAppearance", 15};
-    sword.identity.name = "Sword of Testing";
-    sword.slots = {"MAINHAND"};
-    sel.equippedItems.push_back(sword);
-
-    REQUIRE(sel.equippedItems.size() == 1);
-    CHECK(std::get<Db2Row>(sel.equippedItems[0].identity.id).row == 15);
-    REQUIRE(sel.equippedItems[0].slots.size() == 1);
-    CHECK(sel.equippedItems[0].slots[0] == "MAINHAND");
-}
-
-TEST_CASE("EquippedItem can place an item in a slot narrower than the item itself supports") {
-    // A cape capable of both BACK and TABARD_OVERLAY (per the item's own
-    // canon::Item::slots), but this particular instance only used it for
-    // one of them.
-    Item cape;
-    cape.identity.id = Db2Row{"ItemModifiedAppearance", 77};
-    cape.slots = {"BACK", "TABARD_OVERLAY"};
-
-    CharacterSelection::EquippedItem equipped;
-    equipped.identity = cape.identity;
-    equipped.slots = {"BACK"};
-
-    CHECK(cape.slots.size() == 2);
-    CHECK(equipped.slots.size() == 1);
-}
-
 TEST_CASE("CreatureSelection: a display ID resolves a set of enabled geoset ids, no per-choice input") {
     CreatureSelection sel;
     sel.creatureDisplayId = 137795;

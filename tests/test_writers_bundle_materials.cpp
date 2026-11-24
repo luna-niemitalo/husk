@@ -7,6 +7,7 @@
 
 #include <fstream>
 
+#include "canon_garment_builder.hpp"
 #include "test_temp.hpp"
 #include "test_bundle_fixtures.hpp"
 #include "uuid.hpp"
@@ -223,12 +224,10 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     hair.choices = {longHair};
     customization.options = {hair};
     model.customization = {customization};
-    model.items = {{canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9000}, "", canon::NameSource::None}, {}, {}, {}},
-                   {canon::Ref{canon::Db2Row{"ItemDisplayInfo", 9011}, "", canon::NameSource::None}, {}, {}, {}}};
+    preset.garments.push_back(canon::garments::fromNpcItem(9000, 0, std::string("head"), model.garments));
+    preset.garments.push_back(canon::garments::fromNpcItem(9011, 11, std::nullopt, model.garments));
     body.customization.push_back({0, 0});
     model.appearances.push_back(body);
-    preset.items.push_back({"head", 0, 0});
-    preset.items.push_back({std::nullopt, 11, 1});
     preset.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1.5f, 2});
     preset.unresolved.push_back({"TextureVariationFileDataID[3]", canon::UnresolvedField::Kind::Id, 99.0, std::nullopt});
     model.presets.push_back(preset);
@@ -251,7 +250,14 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(p["id"] == husk::nameUuid("preset/" + writers::identityKey(model.subject) + "/c30;/xb123;"));
     CHECK(p["textures"][0]["slot"] == 0);
     CHECK(p["textures"][0]["option"] == 0);
-    CHECK(p["textures"][0]["covers_items"] == std::vector<int>{1});
+    const nlohmann::json* garmentsRef = nullptr;
+    for (const auto& r : manifest["references"]) {
+        if (r["kind"] == "garments") garmentsRef = &r;
+    }
+    REQUIRE(garmentsRef);
+    const auto& garments = (*garmentsRef)["document"];
+    REQUIRE(garments["garments"].size() == 2);
+    CHECK(p["textures"][0]["covers_garments"] == nlohmann::json::array({garments["garments"][1]["id"]}));
     // The body is the inline appearances document's entry the preset names.
     const nlohmann::json* reference = nullptr;
     for (const auto& r : manifest["references"]) {
@@ -283,11 +289,15 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     CHECK(option["choices"][0]["ref"]["id"]["row"] == 30);
     CHECK(option["choices"][0]["geoset"] == nlohmann::json{{"group", 2}, {"variant", 3}});
     CHECK(option["choices"][0]["source"]["geoset"] == 203);
-    CHECK(p["items"][0]["slot"] == "head");
-    CHECK(p["items"][1]["item"] == 1);
-    CHECK(definition["items"][1]["ref"]["id"]["row"] == 9011);
-    CHECK_FALSE(p["items"][1].contains("slot"));
-    CHECK(p["items"][1]["source"]["item_slot"] == 11);
+    CHECK(p["garments"] == nlohmann::json::array({garments["garments"][0]["id"], garments["garments"][1]["id"]}));
+    CHECK(garments["garments"][0]["kind"] == "helm");
+    CHECK(garments["garments"][0]["layer"] == "over");
+    const auto& sources = garments["items"];
+    CHECK(sources[0]["source"]["slot"] == "head");
+    CHECK(sources[1]["ref"]["id"]["row"] == 9011);
+    CHECK_FALSE(sources[1]["source"].contains("slot"));
+    CHECK(sources[1]["source"]["item_slot"] == 11);
+    CHECK(sources[1]["garments"] == nlohmann::json::array({garments["garments"][1]["id"]}));
     CHECK(p["sources"][0]["ref"]["id"]["row"] == 7);
     CHECK(p["sources"][0]["scale"] == 1.5);
     CHECK(p["sources"][0]["base_scale"] == 2);
@@ -328,16 +338,22 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
     model.customization = {customization};
     model.choiceCorrectionSets = {{{0, 0}, 0}};
 
-    canon::ItemEntry item;
-    item.ref = canon::Ref{canon::Db2Row{"ItemModifiedAppearance", 15}, "", canon::NameSource::None};
-    item.models.push_back({0, canon::Ref{canon::FileDataId{148132}, "", canon::NameSource::None},
-                           "items/148132.bundle/manifest.json", ""});
-    item.models.push_back({1, std::nullopt, "", "files 1, 2 all fit race 0 gender 2"});
-    item.textures.push_back({2, 0, unresolvedTexture(700)});
-    item.overlays.push_back({3, unresolvedTexture(701)});
-    model.items = {item};
+    canon::Item item;
+    item.identity = canon::Ref{canon::Db2Row{"ItemModifiedAppearance", 15}, "", canon::NameSource::None};
+    item.slots = {"MAIN_HAND"};
+    canon::GeometryComponent geometry;
+    geometry.models.push_back({0, 148132, 148132u, ""});
+    geometry.models.push_back({1, 148133, std::nullopt, "files 1, 2 all fit race 0 gender 2"});
+    geometry.materials.push_back({2, 900, 700, 0, ""});
+    canon::SectionOverlayComponent overlay;
+    overlay.sections.push_back({3, 901, 701, ""});
+    item.components = {overlay, geometry};
+    canon::garments::Inputs inputs;
+    inputs.texture = [&](uint32_t fdid, const std::string&) { return unresolvedTexture(fdid); };
+    inputs.textureRole = [](uint32_t type) { return "type_" + std::to_string(type); };
+    inputs.modelUris = {{"items/148132.bundle/manifest.json", ""}};
     canon::Preset preset;
-    preset.items.push_back({"main_hand", std::nullopt, 0, "MAIN_HAND"});
+    preset.garments = canon::garments::fromGear({item}, inputs, model.garments);
     preset.sources.push_back({canon::Ref{canon::None{}, "husk-appearance/1 gear=MAIN_HAND:15", canon::NameSource::Synthesized}, 1, 1});
     model.presets.push_back(preset);
 
@@ -359,22 +375,31 @@ TEST_CASE("writeBundle: physics, correction sets a choice selects, and an item's
     CHECK(manifest["resources"]["rig"]["correction_sets"][0]["corrections"][0]["matrix"].size() == 16);
     CHECK(manifest["definition"]["customization"]["options"][0]["choices"][0]["correction_set"] == 0);
 
-    const auto& i = manifest["definition"]["items"][0];
-    CHECK(i["models"][0]["position"] == 0);
-    CHECK(i["models"][0]["model"]["uri"] == "items/148132.bundle/manifest.json");
-    CHECK(i["models"][1]["position"] == 1);
-    CHECK_FALSE(i["models"][1].contains("model"));
-    CHECK(i["models"][1]["unresolved_reason"] == "files 1, 2 all fit race 0 gender 2");
-    CHECK(i["textures"][0]["texture_type"] == 2);
-    CHECK(i["textures"][0]["model_position"] == 0);
-    CHECK(i["overlays"][0]["component_section"] == 3);
+    const nlohmann::json* garmentsRef = nullptr;
     bool referenced = false;
-    for (const auto& r : manifest["references"]) referenced |= r["asset"].value("uri", "") == "items/148132.bundle/manifest.json";
+    for (const auto& r : manifest["references"]) {
+        referenced |= r["asset"].value("uri", "") == "items/148132.bundle/manifest.json";
+        if (r["kind"] == "garments") garmentsRef = &r;
+    }
     CHECK(referenced);
-    const auto& pi = manifest["selection"]["presets"][0]["items"][0];
-    CHECK(pi["slot"] == "main_hand");
-    CHECK(pi["source"]["slot_token"] == "MAIN_HAND");
-    CHECK_FALSE(pi["source"].contains("item_slot"));
+    REQUIRE(garmentsRef);
+    const auto& doc = (*garmentsRef)["document"];
+    REQUIRE(doc["garments"].size() == 1);
+    const auto& weapon = doc["garments"][0];
+    CHECK(weapon["kind"] == "weapon");
+    const auto& pieces = weapon["pieces"];
+    REQUIRE(pieces.size() == 3);
+    CHECK(pieces[0]["overlay"]["region"] == "torso_upper");
+    CHECK(pieces[0]["source"]["section_type"] == 3);
+    CHECK(pieces[1]["attached"]["point"] == "hand_right");
+    CHECK(pieces[1]["attached"]["model"]["uri"] == "items/148132.bundle/manifest.json");
+    CHECK(pieces[1]["attached"]["textures"][0]["source"]["texture_type"] == 2);
+    CHECK(pieces[1]["source"]["model_position"] == 0);
+    CHECK(pieces[2]["attached"]["unresolved_reason"] == "files 1, 2 all fit race 0 gender 2");
+    CHECK(manifest["selection"]["presets"][0]["garments"] == nlohmann::json::array({weapon["id"]}));
+    CHECK(doc["items"][0]["source"]["slot"] == "main_hand");
+    CHECK(doc["items"][0]["source"]["slot_token"] == "MAIN_HAND");
+    CHECK_FALSE(doc["items"][0]["source"].contains("item_slot"));
 }
 
 TEST_CASE("writeBundle: a model without options writes no texture_slots, particle_colors or presets") {

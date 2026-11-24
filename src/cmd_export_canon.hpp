@@ -44,6 +44,9 @@ struct BundleSidecars {
     std::vector<uint32_t> appearanceChoiceIds;
     std::vector<canon::Item> gear;
     std::vector<std::vector<std::string>> gearModelUris;
+    // The body's composite layout (--chr-model-id or the model's own), for
+    // the body regions and the hem mask; nullopt = not known.
+    std::optional<canon::BodyLayout> bodyLayout;
     std::string leanGlbPath;  // --glb: also write the lean glTF projection here; empty = none
     bool noAnimation = false;  // --anim none: drop every clip
     // AnimationData id -> Name, for naming sequence clips; empty = none known.

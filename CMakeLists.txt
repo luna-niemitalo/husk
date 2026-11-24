@@ -94,7 +94,7 @@ target_compile_options(husk-md5 PRIVATE -w)
 # schema/ is the bundle format's definition and effects/ the effect
 # documents husk writes; both are embedded into the binary so `husk
 # validate-bundle`, the writers and the tests use the same files.
-set(HUSK_SCHEMAS common model placement_set world effect material technique creatures appearances animation_fallbacks)
+set(HUSK_SCHEMAS common model placement_set world effect material technique creatures appearances animation_fallbacks garments)
 set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend classic_ambient_global classic_ambient_point
                  classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume
                  classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon classic_zone_light_global
@@ -155,6 +155,7 @@ add_library(husk-lib STATIC
   src/canon_definition_builder.cpp
   src/canon_selection_builder.cpp
   src/canon_item_builder.cpp
+  src/canon_garment_builder.cpp
   src/writers/writer_common.cpp
   src/writers/gltf_lean.cpp
   src/writers/bundle_common.cpp
@@ -312,6 +313,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_selection.cpp
     tests/test_canon_selection_convergence.cpp
     tests/test_canon_item_convergence.cpp
+    tests/test_canon_garment.cpp
     tests/test_component_file.cpp
     tests/test_canon_material.cpp
     tests/test_writers_common.cpp

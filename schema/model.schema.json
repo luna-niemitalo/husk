@@ -192,128 +192,89 @@
             ]
           }
         },
-        "items": {
-          "type": "array",
-          "description": "Items the model can wear, by identity, and what each draws when resolved: NPC equipment (NPCModelItemSlotDisplayInfo) or --appearance gear (ItemModifiedAppearance, through ItemAppearance to ItemDisplayInfo).",
-          "x-source": [{"table": "NPCModelItemSlotDisplayInfo", "column": "ItemDisplayInfoID"}, {"table": "ItemModifiedAppearance"}, {"table": "ItemAppearance", "column": "ItemDisplayInfoID"}],
-          "items": {
-            "type": "object",
-            "description": "One item.",
-            "properties": {
-              "ref": {
-                "$ref": "common.schema.json#/definitions/ref",
-                "description": "The item: an ItemDisplayInfo row (NPC equipment) or an ItemModifiedAppearance row (--appearance gear).",
-                "x-source": [{"table": "ItemDisplayInfo"}, {"table": "ItemModifiedAppearance"}]
-              },
-              "models": {
-                "type": "array",
-                "description": "The item's own models, one per non-zero ItemDisplayInfo.ModelResourcesID, each the ModelFileData file the wearer's race and sex draw (rule component_file_pick).",
-                "x-source": [{"table": "ItemDisplayInfo", "column": "ModelResourcesID"}, {"table": "ModelFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}],
-                "items": {
-                  "type": "object",
-                  "description": "One model position.",
-                  "properties": {
-                    "position": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 1,
-                      "description": "ItemDisplayInfo.ModelResourcesID index; on shoulders 0 is the left model, 1 the right.",
-                      "x-source": [{"table": "ItemDisplayInfo", "column": "ModelResourcesID"}]
-                    },
-                    "model": {
-                      "$ref": "common.schema.json#/definitions/asset_ref",
-                      "description": "The picked model; uri, when set, is its bundle, also listed in /references."
-                    },
-                    "unresolved_reason": {
-                      "type": "string",
-                      "description": "Why no file was picked: the wearer is unknown, several files fit equally, or none fits.",
-                      "x-source": [{"derived": "component_file_pick"}]
-                    }
+        "body": {
+          "type": "object",
+          "description": "The body vocabulary the model's garments name (REFACTOR/GARMENTS.md \"Vocabulary\"): regions of its composited skin, its swappable parts and the attachment points garments hang models at. Canonical names; the source's numbers are under each entry's source.",
+          "properties": {
+            "composite_size": {
+              "type": "array",
+              "description": "Width and height of the composited skin texture the region rectangles are in, in pixels.",
+              "x-source": [{"table": "CharComponentTextureLayouts", "column": "Width"}, {"table": "CharComponentTextureLayouts", "column": "Height"}],
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {"type": "integer", "minimum": 1, "description": "A size."}
+            },
+            "regions": {
+              "type": "array",
+              "description": "Areas of the composited skin a garment overlay paints, each with its rectangle in the body's own layout. SectionType 0-7 are named (community names, agreeing with the body meshes' UV footprints, WIKI_FINDINGS/GARMENTS.md); others are section_<n>.",
+              "x-source": [{"table": "CharComponentTextureSections"}],
+              "items": {
+                "type": "object",
+                "description": "One region.",
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "description": "The region's name.", "x-source": [{"derived": "garment_vocabulary"}]},
+                  "rect": {
+                    "type": "array",
+                    "description": "x, y, width, height in composite pixels, origin top left.",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {"type": "integer", "minimum": 0, "description": "A coordinate or size."}
                   },
-                  "additionalProperties": false,
-                  "required": [
-                    "position"
-                  ],
-                  "oneOf": [
-                    {
-                      "required": [
-                        "model"
-                      ]
+                  "source": {
+                    "type": "object",
+                    "description": "The region in the source's terms.",
+                    "properties": {
+                      "section_type": {"type": "integer", "minimum": 0, "description": "The section, as stored."}
                     },
-                    {
-                      "required": [
-                        "unresolved_reason"
-                      ]
-                    }
-                  ]
-                }
-              },
-              "textures": {
-                "type": "array",
-                "description": "Textures the item's models take (ItemDisplayInfoModelMatRes), each the TextureFileData file of its MaterialResourcesID the wearer draws.",
-                "x-source": [{"table": "ItemDisplayInfoModelMatRes"}, {"table": "TextureFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}],
-                "items": {
-                  "type": "object",
-                  "description": "One texture.",
-                  "properties": {
-                    "texture_type": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "description": "The item model's M2 texture type it fills.",
-                      "x-source": [{"table": "ItemDisplayInfoModelMatRes", "column": "TextureType"}]
-                    },
-                    "model_position": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 1,
-                      "description": "The model position (models[].position) whose model it textures.",
-                      "x-source": [{"table": "ItemDisplayInfoModelMatRes", "column": "ModelIndex"}]
-                    },
-                    "texture": {
-                      "$ref": "common.schema.json#/definitions/texture_id",
-                      "description": "The texture."
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "texture_type",
-                    "model_position",
-                    "texture"
-                  ]
-                }
-              },
-              "overlays": {
-                "type": "array",
-                "description": "Textures the item draws onto the wearer's body sections (ItemDisplayInfoMaterialRes), each the TextureFileData file of its MaterialResourcesID the wearer draws.",
-                "x-source": [{"table": "ItemDisplayInfoMaterialRes"}, {"table": "TextureFileData", "column": "FileDataID"}, {"derived": "component_file_pick"}],
-                "items": {
-                  "type": "object",
-                  "description": "One overlay.",
-                  "properties": {
-                    "component_section": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "description": "The body section, CharComponentTextureSections.SectionType.",
-                      "x-source": [{"table": "ItemDisplayInfoMaterialRes", "column": "ComponentSection"}]
-                    },
-                    "texture": {
-                      "$ref": "common.schema.json#/definitions/texture_id",
-                      "description": "The texture."
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "component_section",
-                    "texture"
-                  ]
-                }
+                    "additionalProperties": false,
+                    "required": ["section_type"]
+                  }
+                },
+                "additionalProperties": false,
+                "required": ["name", "rect", "source"]
               }
             },
-            "additionalProperties": false,
-            "required": [
-              "ref"
-            ]
-          }
+            "parts": {
+              "type": "array",
+              "description": "Swappable pieces of the body mesh, one per geoset group the mesh has: named where a visual read established what the group is (WIKI_FINDINGS/M2.md \"Geoset groups\"), group_<n> where none has.",
+              "x-source": [{"file": "skin", "field": "M2SkinSection.skinSectionId"}, {"derived": "garment_vocabulary"}],
+              "items": {
+                "type": "object",
+                "description": "One part.",
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "description": "The part's name."},
+                  "group": {"type": "integer", "minimum": 0, "description": "The geoset group its variants are (common geoset `group`)."}
+                },
+                "additionalProperties": false,
+                "required": ["name", "group"]
+              }
+            },
+            "attachment_points": {
+              "type": "array",
+              "description": "Attachment points the model's garments hang models at, named after wowdev.wiki's M2 attachment table (ref).",
+              "x-source": [{"file": "m2", "field": "M2Attachment.id"}, {"derived": "garment_vocabulary"}],
+              "items": {
+                "type": "object",
+                "description": "One point.",
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "description": "The point's name."},
+                  "source": {
+                    "type": "object",
+                    "description": "The point in the source's terms.",
+                    "properties": {
+                      "attachment_id": {"type": "integer", "minimum": 0, "description": "The attachment id, as stored."}
+                    },
+                    "additionalProperties": false,
+                    "required": ["attachment_id"]
+                  }
+                },
+                "additionalProperties": false,
+                "required": ["name", "source"]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": ["parts", "attachment_points"]
         },
         "customization": {
           "type": "object",
@@ -560,36 +521,6 @@
             ]
           }
         },
-        "equipped": {
-          "type": "array",
-          "description": "Items the model wears.",
-          "items": {
-            "type": "object",
-            "description": "One worn item.",
-            "properties": {
-              "reference": {
-                "$ref": "common.schema.json#/definitions/uuid",
-                "description": "The id of the item model's reference.",
-                "x-id-in": "/references",
-                "x-source": [{"format": true}]
-              },
-              "slots": {
-                "type": "array",
-                "description": "Equipment slots it occupies: the --appearance gear entries' slot tokens naming this item (rule appearance_file).",
-                "x-source": [{"derived": "appearance_file"}],
-                "items": {
-                  "type": "string",
-                  "description": "A slot name."
-                }
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "reference",
-              "slots"
-            ]
-          }
-        },
         "presets": {
           "type": "array",
           "description": "Combinations of the definition's options a source is known to use, and where: a body (appearance) plus what it wears. A renderer may choose any other combination.",
@@ -626,15 +557,13 @@
                       "minimum": 0,
                       "description": "Index into the slot's options."
                     },
-                    "covers_items": {
+                    "covers_garments": {
                       "type": "array",
-                      "description": "The items the bake was made for: its skin has their overlays drawn in. A selection that wears any other item set must composite the skin itself instead of using the bake. Empty: a bake with no gear.",
+                      "description": "The garments the bake was made for: its skin has their overlays drawn in. A selection that wears any other garment set must composite the skin itself instead of using the bake. Empty: a bake with no gear.",
                       "x-source": [{"table": "NpcModelItemSlotDisplayInfo", "column": "ItemDisplayInfoID"}],
                       "items": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "description": "An item.",
-                        "x-index-into": "/definition/items"
+                        "$ref": "common.schema.json#/definitions/uuid",
+                        "description": "A garment id, an entry of the document the model's garments reference holds."
                       }
                     }
                   },
@@ -642,67 +571,18 @@
                   "required": [
                     "slot",
                     "option",
-                    "covers_items"
+                    "covers_garments"
                   ]
                 }
               },
-              "items": {
+              "garments": {
                 "type": "array",
-                "description": "Items the combination wears, by identity: a humanoid NPC's equipment, or the gear an `--appearance` file names (rule appearance_file).",
-                "x-source": [{"table": "NpcModelItemSlotDisplayInfo"}, {"derived": "appearance_file"}],
+                "description": "Garments the combination wears, each once, as ids of entries of the document the model's garments reference holds: a humanoid NPC's equipment, or the gear an `--appearance` file names, split into garments (REFACTOR/GARMENTS.md). There are no slots: what a garment occupies is its coverage and layer.",
+                "x-source": [{"table": "NpcModelItemSlotDisplayInfo"}, {"derived": "appearance_file"}, {"derived": "garment_split"}],
+                "uniqueItems": true,
                 "items": {
-                  "type": "object",
-                  "description": "One item.",
-                  "properties": {
-                    "slot": {
-                      "enum": [
-                        "head",
-                        "neck",
-                        "shoulder",
-                        "shirt",
-                        "chest",
-                        "waist",
-                        "legs",
-                        "feet",
-                        "wrist",
-                        "hands",
-                        "tabard",
-                        "back",
-                        "main_hand",
-                        "off_hand",
-                        "ranged"
-                      ],
-                      "description": "The equipment slot; absent when the source's slot has no known name."
-                    },
-                    "item": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "description": "The item.",
-                      "x-index-into": "/definition/items"
-                    },
-                    "source": {
-                      "type": "object",
-                      "description": "The slot in the source's terms: a number (NPC equipment) or a name (--appearance).",
-                      "properties": {
-                        "item_slot": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "description": "The source's slot number."
-                        },
-                        "slot_token": {
-                          "type": "string",
-                          "minLength": 1,
-                          "description": "The source's own slot name, as given."
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "item",
-                    "source"
-                  ]
+                  "$ref": "common.schema.json#/definitions/uuid",
+                  "description": "A garment id."
                 }
               },
               "sources": {

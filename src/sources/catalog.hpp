@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "texture_resolution.hpp"  // FuzzyTexturePool
+#include "../canon_garment.hpp"     // canon::BodyLayout
 #include "../listfile_index.hpp"
 #include "resolved.hpp"
 
@@ -119,6 +120,8 @@ struct CharacterTextureContext {
     // it) -- never silently dropped, but never treated as a fdid to try
     // either (fdid 0 has no literal/listfile answer by construction).
     std::unordered_map<uint32_t, uint32_t> fileDataIdByTarget;
+    // The layout's size and section rectangles, named as body regions.
+    std::optional<canon::BodyLayout> bodyLayout;
 };
 
 // Constructed once per export (or once per `--from-list` batch -- never per

@@ -11,8 +11,11 @@
 #include <string_view>
 
 #include "blp.hpp"              // blp::ParseError
+#include "canon_garment_builder.hpp"
 #include "canon_model.hpp"
-#include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
+#include "garment_footprint.hpp"
+#include "m2_header.hpp"       // m2::textureTypeName
+#include "chunk.hpp"          // readChunks, findChunk (AFSB/AFM2 peek)
 #include "creature_options_input.hpp"
 #include "read_file.hpp"
 #include "m2_animation.hpp"    // m2::extractAnimBlob
@@ -332,6 +335,7 @@ struct CanonBuild {
     std::vector<m2::Sequence> effectiveSequences;
     std::vector<skin::Batch> batches;
     std::vector<skin::Submesh> submeshes;
+    std::vector<uint32_t> triangleIndices;
 };
 
 writers::Provenance m2Provenance() { return writers::Provenance{std::string("husk ") + husk::version(), "m2", {}}; }
@@ -402,21 +406,49 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
                                                          externalAnimBlobs, textureResolutions, externalSkeleton, lodSkins);
     canonModel.subject = writers::subjectRef(modelPath, modelFileDataId);
-    return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
+    return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes),
+                      std::move(triangleIndices)};
 }
 
 
-// --appearance as one preset: its customization choices (as indices into
-// the model's catalogs) and its gear, each item appended to Model::items
-// with what it draws: the models and textures picked for the wearer
-// (canon_item_builder.hpp), or why none was. The schema's preset item slot names (model.schema.json); an --appearance
-// slot token names one only when it lowercases to it.
-constexpr std::array<std::string_view, 15> kPresetSlotNames = {
-    "head", "neck", "shoulder", "shirt", "chest", "waist", "legs", "feet",
-    "wrist", "hands", "tabard", "back", "main_hand", "off_hand", "ranged"};
+// The body hem geoset's UV footprint inside the LegUpper region, as a
+// white-on-black PNG mask the size of that region's rectangle (rule
+// hem_uv_footprint, REFACTOR/GARMENTS.md stage 2). nullopt when the layout
+// isn't known or the body has no hem geoset.
+std::optional<canon::TextureRef> bodyHemMask(const m2::Model& model, const std::vector<uint32_t>& triangleIndices,
+                                             const std::vector<skin::Submesh>& submeshes,
+                                             const std::optional<canon::BodyLayout>& layout) {
+    if (!layout) return std::nullopt;
+    auto legUpper = std::find_if(layout->regions.begin(), layout->regions.end(),
+                                 [](const canon::BodyRegion& r) { return r.sectionType == 5; });
+    if (legUpper == layout->regions.end()) return std::nullopt;
+    auto triangles = garment::geosetTriangles(model.vertices, triangleIndices, submeshes,
+                                              static_cast<uint16_t>(canon::garments::kBodyHemGeoset));
+    if (triangles.empty()) return std::nullopt;
+    garment::Mask footprint = garment::rasterize(triangles, layout->width, layout->height);
+    blp::Image img{legUpper->width, legUpper->height, std::vector<uint8_t>(size_t(legUpper->width) * legUpper->height * 4, 0)};
+    for (uint32_t y = 0; y < legUpper->height; ++y) {
+        for (uint32_t x = 0; x < legUpper->width; ++x) {
+            size_t p = (size_t(y) * legUpper->width + x) * 4;
+            img.rgba[p + 3] = 255;
+            if (legUpper->x + x >= footprint.width || legUpper->y + y >= footprint.height) continue;
+            if (!footprint.at(legUpper->x + x, legUpper->y + y)) continue;
+            std::fill_n(img.rgba.begin() + std::ptrdiff_t(p), 3, uint8_t{255});
+        }
+    }
+    canon::TextureRef mask;
+    mask.state = canon::TextureRef::State::Resolved;
+    mask.resolved = canon::Ref{canon::None{}, "hem_mask_" + std::to_string(canon::garments::kBodyHemGeoset),
+                               canon::NameSource::Synthesized};
+    mask.payload = canon::TextureRef::Payload{blp::encodePng(img), canon::TextureEncoding::Png};
+    return mask;
+}
 
+// --appearance as one preset: its customization choices (as indices into
+// the model's catalogs) and its gear as garments (canon_garment_builder.hpp).
 template <typename TextureFor>
-void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, TextureFor&& textureFor) {
+void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, TextureFor&& textureFor,
+                         const std::optional<canon::TextureRef>& bodyHemMask) {
     canon::Preset preset;
     std::map<uint32_t, canon::CustomizationPick> pickByChoice;
     uint32_t optionBase = 0;
@@ -449,47 +481,19 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
         if (same == model.appearances.end()) model.appearances.push_back(std::move(body));
     }
 
-    auto itemTexture = [&](uint32_t fdid, const std::string& unresolved) {
+    canon::garments::Inputs inputs;
+    inputs.texture = [&](uint32_t fdid, const std::string& unresolved) {
         canon::TextureRef texture = textureFor(fdid);
         if (fdid == 0) texture.unresolvedReason = unresolved;
         return texture;
     };
-    for (size_t i = 0; i < sidecars.gear.size(); ++i) {
-        const canon::Item& item = sidecars.gear[i];
-        canon::ItemEntry entry;
-        entry.ref = item.identity;
-        for (const canon::Component& component : item.components) {
-            if (const auto* geometry = std::get_if<canon::GeometryComponent>(&component)) {
-                for (size_t m = 0; m < geometry->models.size(); ++m) {
-                    const canon::GeometryComponent::Model& model = geometry->models[m];
-                    canon::ItemModel itemModel;
-                    itemModel.position = model.position;
-                    if (model.fileDataId) {
-                        itemModel.ref = canon::Ref{canon::FileDataId{*model.fileDataId}, "", canon::NameSource::None};
-                        itemModel.uri = sidecars.gearModelUris[i][m];
-                    } else {
-                        itemModel.unresolved = model.unresolved;
-                    }
-                    entry.models.push_back(std::move(itemModel));
-                }
-                for (const auto& m : geometry->materials) {
-                    entry.textures.push_back({m.textureType, m.modelIndex, itemTexture(m.fileDataId, m.unresolved)});
-                }
-            } else {
-                for (const auto& s : std::get<canon::SectionOverlayComponent>(component).sections) {
-                    entry.overlays.push_back({s.componentSection, itemTexture(s.fileDataId, s.unresolved)});
-                }
-            }
-        }
-        auto index = static_cast<uint32_t>(model.items.size());
-        model.items.push_back(std::move(entry));
-        for (const std::string& token : item.slots) {
-            std::string slot = token;
-            std::transform(slot.begin(), slot.end(), slot.begin(), [](unsigned char ch) { return std::tolower(ch); });
-            bool known = std::find(kPresetSlotNames.begin(), kPresetSlotNames.end(), slot) != kPresetSlotNames.end();
-            preset.items.push_back({known ? std::optional<std::string>(slot) : std::nullopt, std::nullopt, index, token});
-        }
-    }
+    inputs.textureRole = [](uint32_t type) {
+        const char* name = m2::textureTypeName(type);
+        return name ? std::string(name) : "type_" + std::to_string(type);
+    };
+    inputs.modelUris = sidecars.gearModelUris;
+    inputs.bodyHemMask = bodyHemMask;
+    preset.garments = canon::garments::fromGear(sidecars.gear, inputs, model.garments);
     preset.sources.push_back(
         {canon::Ref{canon::None{}, sidecars.appearance, canon::NameSource::Synthesized}, 1.0f, 1.0f, {}});
     model.presets.push_back(std::move(preset));
@@ -572,7 +576,11 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, c
                          "the related choice isn't this model's)\n";
         }
     }
-    if (!sidecars.appearance.empty()) addAppearancePreset(sidecars, build.model, textureFor);
+    build.model.bodyLayout = sidecars.bodyLayout;
+    if (!sidecars.appearance.empty()) {
+        addAppearancePreset(sidecars, build.model, textureFor,
+                            bodyHemMask(model, build.triangleIndices, build.submeshes, sidecars.bodyLayout));
+    }
     // Before externalizing: the projection embeds texture payloads.
     if (!sidecars.leanGlbPath.empty()) writers::writeLeanGlb(build.model, sidecars.leanGlbPath);
     if (textureStore) writers::externalizeTextures(build.model, *textureStore->store, textureStore->uriToStore, textureUris);

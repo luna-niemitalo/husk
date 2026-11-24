@@ -19,6 +19,7 @@
 #include "canon_scene.hpp"      // Scene
 #include "canon_skeleton.hpp"   // Skeleton
 #include "canon_options.hpp"    // TextureSlot, ParticleColorOption, Preset
+#include "canon_garment.hpp"    // Garments, BodyLayout
 
 // husk::canon: canon::Model, the whole-model composition root -- where
 // every canon:: piece (Skeleton, Mesh, Material, per-bone animation curves)
@@ -155,7 +156,8 @@ struct Model {
     std::vector<ChoiceCorrectionSet> choiceCorrectionSets;
     // Materials described as documents of their own (REFACTOR/MATERIALS.md).
     std::vector<MaterialDocument> materialDocuments;
-    std::vector<ItemEntry> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
+    Garments garments;  // what the model can wear; written as its garments document, inline
+    std::optional<BodyLayout> bodyLayout;  // the composite's regions; nullopt = the layout isn't known
     std::vector<Appearance> appearances;  // the bodies presets point at, each once
     std::vector<Preset> presets;
 };

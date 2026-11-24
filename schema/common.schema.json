@@ -411,7 +411,8 @@
             "material",
             "technique",
             "appearances",
-            "animation_fallbacks"
+            "animation_fallbacks",
+            "garments"
           ],
           "description": "Kind of the referenced document.",
           "x-source": [{"format": true}]

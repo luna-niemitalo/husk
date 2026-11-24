@@ -197,8 +197,36 @@ changes:
   `asset.uri` names the tree's shared `appearances.json` (`export-corpus`,
   `export-appearances`); look the id up in that document's
   `appearances[]`. Its indices are still this model's definition's. Apply
-  the appearance first, then the preset's own `textures` and `items`
+  the appearance first, then the preset's own `textures` and `garments`
   (`BUNDLE_FORMAT.md` "Appearances").
+- **Items are garments** (`REFACTOR/GARMENTS.md`). What a model wears is a
+  `garments` document (new kind, `schema/garments.schema.json`), reached
+  through the model's one `references[]` entry of kind `garments` (new in
+  the kind enum), `document` inline (`husk export`). Old → new:
+  - `definition.items[]` → the document's `items[]` (`ref`, and
+    `source.slot`/`slot_token`/`item_slot`) plus `garments[]` (`kind`,
+    `layer`, `order`, `pieces[]`); `items[].garments` lists the
+    garments wearing the item exactly means.
+  - `items[].overlays[]` `{component_section, texture}` → piece
+    `overlay {region, texture, mask?}`, the number in `source.section_type`;
+    regions and their rectangles are the model's new `definition.body.regions`.
+  - `items[].models[]` + `textures[]` → piece `attached {point, model |
+    unresolved_reason, textures[]}` (head, shoulders, weapons) or
+    `skinned {model | unresolved_reason, textures[], shown_geosets}`; a
+    texture's `texture_type`/`model_position` → `role` plus
+    `source.texture_type`/`source.model_position`.
+  - New: piece `geometry {part, geoset}`, the body geosets the item
+    switches on (sleeves, hem, boots), which 0.3 did not export.
+  - `selection.presets[].items[]` → `selection.presets[].garments[]`
+    (garment ids, each once; no slots); a bake's `covers_items` (indices)
+    → `covers_garments` (garment ids).
+  - `selection.equipped` is removed (nothing wrote it).
+  - Texture ids in pieces index the garments document's own
+    `resources.textures`, not the model's.
+  A hem a legs item ships (body geoset 1102) is a piece of the tunic of its
+  set, with its paint masked out of the legs texture (`overlay.mask`, a
+  white-on-black texture); wearing a legs item's `items[].garments`
+  still reproduces the client.
 - **Animation fallbacks are a shared document.**
   `resources.rig.animation_fallbacks` (`[animation, fallback]` AnimationData
   id pairs, copied into every model; in earlier 0.4.0 builds only) is

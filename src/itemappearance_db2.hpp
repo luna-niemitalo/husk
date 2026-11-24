@@ -96,9 +96,21 @@ struct Appearance {
     uint32_t itemDisplayInfoId = 0;
 };
 
+// GeosetGroup[i] picks variant value + 1 of the body geoset group the
+// slot's index i drives; AttachmentGeosetGroup[i] the same on the item's
+// own model (WIKI_FINDINGS/GARMENTS.md "Slot → GeosetGroup table"). Signed:
+// -1 occurs and is not covered by that rule.
 struct DisplayInfo {
     uint32_t id = 0;
     std::array<uint32_t, 2> modelResourcesIds{};  // 0 = no model in that position
+    std::array<int32_t, 6> geosetGroups{};
+    std::array<int32_t, 6> attachmentGeosetGroups{};
+};
+
+// One TransmogSetItem row: an appearance belongs to a transmog set.
+struct TransmogSetItem {
+    uint32_t transmogSetId = 0;
+    uint32_t itemModifiedAppearanceId = 0;
 };
 
 // One ItemDisplayInfoModelMatRes row's relevant fields -- case 1 (the
@@ -125,6 +137,7 @@ struct Data {
     std::vector<DisplayInfo> displayInfos;
     std::vector<ModelMatRes> modelMatRes;
     std::vector<MaterialRes> materialRes;
+    std::vector<TransmogSetItem> transmogSetItems;  // empty when transmogsetitem.db2 is absent
 };
 
 // Loads all five tables from `db2Dir` (itemmodifiedappearance.db2/
@@ -144,6 +157,9 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 struct Resolution {
     std::optional<uint32_t> itemDisplayInfoId;
     std::optional<std::array<uint32_t, 2>> modelResourcesIds;  // feed to modelfiledata::Data for the .m2 FileDataIDs
+    std::array<int32_t, 6> geosetGroups{};
+    std::array<int32_t, 6> attachmentGeosetGroups{};
+    std::vector<uint32_t> transmogSets;  // TransmogSet rows listing the appearance
     std::vector<ModelMatRes> materials;        // feed materialResourcesId to texturefiledata::Data per entry
     std::vector<MaterialRes> sectionMaterials;  // feed materialResourcesId to texturefiledata::Data per entry
 };

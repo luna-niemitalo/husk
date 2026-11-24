@@ -1,7 +1,21 @@
 # Garments: what a body wears, independent of source item slots
 
-**Status: design approved (Luna, 2026-11-24); not built yet.** Replaces the model's `definition.items`,
-`selection.equipped` and `presets[].items` in schema 0.4.0.
+**Status: built for `husk export --appearance` and NPC equipment (schema 0.4.0, branch `format04-garments`).**
+Replaces the model's `definition.items`, `selection.equipped` and `presets[].items`.
+
+- **Built**: the `garments` document (`schema/garments.schema.json`), inline in the model's `garments`
+  reference; the model's `definition.body` (regions with the layout's rectangles, parts, attachment points);
+  presets' `garments` and bakes' `covers_garments`; stage 1 by slot (`src/canon_garment_builder.cpp`, rules
+  `garment_split`, `item_geoset`, `garment_layer`); the body hem 1102 moved to the tunic of the same
+  TransmogSet, or a `hem` garment, with its paint as an overlay masked to 1102's UV footprint
+  (`hem_uv_footprint`); item-model group-13 hems as their own pieces, deduplicated by model file and geoset
+  (`item_model_hem`); outfits per TransmogSet; validate-bundle checks preset garment ids and warns on
+  conflicts and kind/layer/order deviations, `husk garments-check <bundle> [--preset ID]` lists them.
+- **Not built**: the external (shared, per-tree) garments list and its export command; `hides` pieces
+  (HelmetGeosetData not read); `dress` vs `robe` by length; class-specific files; NPC equipment is one
+  garment per display with no pieces (its displays aren't resolved); ItemSet as a set source (TransmogSet
+  only); 1104/1105 stay plain `thigh` variants with no hem claim; item-model group-11 meshes stay with the
+  legs garment; the Blender addon and the lean glb don't read garments.
 
 ## The problem
 
@@ -110,7 +124,8 @@ references it inline or externally, exactly like `appearances`.
     ],
     "files": [ /* per-body picks of each piece's model/texture: the wearer's race/sex file */ ]
   }],
-  "source_items": [{
+  "items": [{                              // the source items; the lint keeps "source" for raw objects
+
     "id": "<uuid>", "ref": { "table": "ItemModifiedAppearance", "row": 1234 },
     "garments": ["<tunic id>"],            // what wearing this item exactly means
     "source": { "slot": "chest", "inventory_type": 20 }
@@ -154,7 +169,7 @@ sex (`component_file_pick`). So each piece names its file per body, in
 - **Outfits** are named groups of garments: a transmog set, an NPC's
   equipment, a source item. Wearing an outfit is wearing its garments. A
   consumer can then swap one garment and keep the rest.
-- **WoW-exact loading**: wear `source_items[].garments` for each equipped
+- **WoW-exact loading**: wear `items[].garments` for each equipped
   source item. Because the decomposition is lossless, this reproduces the
   client's look.
 
@@ -225,7 +240,7 @@ moves from the legs item to the tunic.
 | Tunic | sleeves 803, torso 2202, hem 1102 | the chest item's arm and torso sections (ArmUpper, ArmLower, TorsoUpper, TorsoLower); the legs item's `LegUpper` inside 1102's footprint |
 | Leggings | thighs (trouser geometry other than the hem; 1102 is not switched on) | the legs item's `LegUpper`/`LegLower`, whole, as the source draws them |
 
-The breeches' source item still produces both pieces (`source_items` lists
+The breeches' source item still produces both pieces (`items` lists
 both garments for it), so wearing the WoW item reproduces the client look.
 Wearing the leggings alone gives trousers with no hem, and wearing the tunic
 over other leggings gives the hem in the tunic's own paint.
@@ -247,7 +262,7 @@ means compositing from the pieces instead.
   `overlays[].component_section` → canonical region/part/attachment names,
   with the numbers under `source`.
 - `presets[].items[]` with `slot` → `presets[].garments[]`. `slot` moves to
-  `source_items[].source`.
+  `items[].source`.
 - `selection.equipped` → removed. Nothing writes it: the schema slot, the
   `CharacterSelection::equippedItems` struct and
   `assembleCharacterSelection` exist, but no writer or command calls them,

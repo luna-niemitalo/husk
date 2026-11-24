@@ -356,6 +356,7 @@ struct AllSubcommandOpts {
     husk::commands::ExportWmoOptions exportWmoOpts;
     husk::commands::ExportMapOptions exportMapOpts;
     husk::commands::ValidateBundleOptions validateBundleOpts;
+    husk::commands::GarmentsCheckOptions garmentsCheckOpts;
     husk::commands::SchemaDocOptions schemaDocOpts;
     husk::commands::StoreAddOptions storeAddOpts;
     husk::commands::StorePruneOptions storePruneOpts;
@@ -420,6 +421,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* validateBundleSub =
         root.add_subcommand("validate-bundle", "check bundle documents against the format's schema");
     husk::commands::addValidateBundleOptions(*validateBundleSub, opts.validateBundleOpts);
+
+    CLI::App* garmentsCheckSub =
+        root.add_subcommand("garments-check", "list garment conflicts and kind deviations of a model bundle's presets");
+    husk::commands::addGarmentsCheckOptions(*garmentsCheckSub, opts.garmentsCheckOpts);
 
     CLI::App* schemaDocSub =
         root.add_subcommand("schema-doc", "print every document value the format defines as one Markdown file");
@@ -638,6 +643,8 @@ int main(int argc, char** argv) {
         "                               export one map's world document: tile grid and map-wide volumes\n"
         "  validate-bundle <path>... [--lint-schema]\n"
         "                               check documents against the bundle format's schema\n"
+        "  garments-check <bundle> [--preset ID]\n"
+        "                               garment conflicts and kind deviations of a model's presets\n"
         "  schema-doc [-o FILE]         every document value the format defines, as one Markdown file\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
         "                               every tile of every map, parallel, resumable\n"
@@ -708,6 +715,9 @@ int main(int argc, char** argv) {
     }
     if (command == "validate-bundle") {
         return husk::commands::validateBundle(restArgc, rest);
+    }
+    if (command == "garments-check") {
+        return husk::commands::garmentsCheck(restArgc, rest);
     }
     if (command == "schema-doc") {
         return husk::commands::schemaDoc(restArgc, rest);

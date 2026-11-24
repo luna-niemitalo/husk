@@ -37,16 +37,35 @@ std::vector<Appearance> loadAppearances(const std::string& db2Dir, const std::st
 std::vector<DisplayInfo> loadDisplayInfos(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::vector<DisplayInfo> result;
     auto rows = db2table::readNamedArrayColumns(joinPath(db2Dir, "itemdisplayinfo.db2"), dbdDir,
-                                                 {"ID", "ModelResourcesID"}, err);
+                                                 {"ID", "ModelResourcesID", "GeosetGroup", "AttachmentGeosetGroup"}, err);
     if (!rows) return result;
+    auto signedInto = [](const auto& column, std::array<int32_t, 6>& out) {
+        if (!column) return;
+        for (size_t i = 0; i < std::min<size_t>(out.size(), column->size()); ++i) {
+            out[i] = static_cast<int32_t>((*column)[i]);
+        }
+    };
     for (const auto& row : *rows) {
         DisplayInfo info;
         info.id = row[0] && !row[0]->empty() ? row[0]->front() : 0;
         if (row[1]) {
             for (size_t i = 0; i < std::min<size_t>(2, row[1]->size()); ++i) info.modelResourcesIds[i] = (*row[1])[i];
         }
+        signedInto(row[2], info.geosetGroups);
+        signedInto(row[3], info.attachmentGeosetGroups);
         result.push_back(info);
     }
+    return result;
+}
+
+std::vector<TransmogSetItem> loadTransmogSetItems(const std::string& db2Dir, const std::string& dbdDir,
+                                                  std::ostream& err) {
+    std::vector<TransmogSetItem> result;
+    auto path = joinPath(db2Dir, "transmogsetitem.db2");
+    if (!std::filesystem::exists(path)) return result;
+    auto rows = db2table::readNamedColumns(path, dbdDir, {"TransmogSetID", "ItemModifiedAppearanceID"}, err);
+    if (!rows) return result;
+    for (const auto& row : *rows) result.push_back({orZero(row[0]), orZero(row[1])});
     return result;
 }
 
@@ -78,6 +97,7 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     data.displayInfos = loadDisplayInfos(db2Dir, dbdDir, err);
     data.modelMatRes = loadModelMatRes(db2Dir, dbdDir, err);
     data.materialRes = loadMaterialRes(db2Dir, dbdDir, err);
+    data.transmogSetItems = loadTransmogSetItems(db2Dir, dbdDir, err);
     if (data.modifiedAppearances.empty() && data.appearances.empty() && data.displayInfos.empty() &&
         data.modelMatRes.empty() && data.materialRes.empty()) {
         return std::nullopt;
@@ -114,6 +134,9 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
         return result;
     }
     result.itemDisplayInfoId = appearance->itemDisplayInfoId;
+    for (const auto& t : data.transmogSetItems) {
+        if (t.itemModifiedAppearanceId == itemModifiedAppearanceId) result.transmogSets.push_back(t.transmogSetId);
+    }
 
     // A real, common sentinel, not a dangling reference: ItemAppearance's
     // own ItemDisplayInfoID column literally stores 0 when the player has
@@ -141,6 +164,8 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
         return result;
     }
     result.modelResourcesIds = displayInfo->modelResourcesIds;
+    result.geosetGroups = displayInfo->geosetGroups;
+    result.attachmentGeosetGroups = displayInfo->attachmentGeosetGroups;
 
     for (const auto& m : data.modelMatRes) {
         if (m.itemDisplayInfoId == displayInfo->id) result.materials.push_back(m);

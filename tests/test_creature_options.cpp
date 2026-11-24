@@ -182,15 +182,19 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     // Display 12 has no choices: no body, so no appearance.
     CHECK(model.appearances.size() == 1);
     CHECK_FALSE(model.presets[1].appearance.has_value());
-    // An empty item row is no item; slot 11 has no name.
-    REQUIRE(p.items.size() == 2);
-    CHECK(p.items[0].slot == std::optional<std::string>("head"));
-    REQUIRE(model.items.size() == 2);
-    CHECK(std::get<canon::Db2Row>(model.items[p.items[0].item].ref.id).row == 9000);
-    CHECK_FALSE(p.items[1].slot.has_value());
-    CHECK(p.items[1].sourceSlot == 11);
-    // The bake was made for exactly the worn items.
-    CHECK(p.bakeCovers == std::vector<uint32_t>{p.items[0].item, p.items[1].item});
+    // An empty item row is no item; slot 11 has no name. One garment per display.
+    REQUIRE(p.garments.size() == 2);
+    REQUIRE(model.garments.garments.size() == 2);
+    REQUIRE(model.garments.sourceItems.size() == 2);
+    const canon::SourceItem& head = model.garments.sourceItems[0];
+    CHECK(std::get<canon::Db2Row>(head.ref.id).row == 9000);
+    CHECK(head.slot == std::optional<std::string>("head"));
+    CHECK(model.garments.garments[p.garments[0]].kind == "helm");
+    CHECK_FALSE(model.garments.sourceItems[1].slot.has_value());
+    CHECK(model.garments.sourceItems[1].itemSlot == 11);
+    CHECK(model.garments.garments[p.garments[1]].kind == "item");
+    // The bake was made for exactly the worn garments.
+    CHECK(p.bakeCovers == p.garments);
     REQUIRE(model.presets[1].unresolved.size() == 1);
     CHECK(model.presets[1].unresolved[0].field == "BakeMaterialResourcesID");
 }

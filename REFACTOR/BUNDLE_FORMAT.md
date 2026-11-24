@@ -314,6 +314,14 @@ Rules `x-source` names outside `EFFECTS.md`:
 | `texture_slot_name` | a texture slot's name: the wiki's name for its M2 texture type (`monster_1`, `skin`, ...), `type_<n>` for a type without one, `variation_4` for CreatureDisplayInfo's fourth texture variation, which no type takes | M2Texture.type |
 | `component_file_pick` | the one file of a ModelFileData/TextureFileData resource the wearer draws: by ComponentModelFileData/ComponentTextureFileData race, sex and side tags, with the race's model fallbacks (ChrRaces); unresolved with a reason when the wearer is unknown, several files fit equally, or none fits | ComponentModelFileData, ComponentTextureFileData, ChrRaces |
 | `appearance_file` | values read from the `--appearance` file the export was given (chosen customization choices, gear slot tokens), not from the client's files | the `--appearance` file |
+| `garment_split` | a source item's garments and their kinds (REFACTOR/GARMENTS.md stage 1): by slot, chest → `tunic` (`robe` with a skirt geoset), legs → `leggings` plus a `skirt` garment for its skirt geoset, shirt, waist, feet, wrist, hands, back, tabard, head, shoulder, weapons → one garment each; overlays, geometry and models become its pieces; head, shoulder and weapon models are `attached`, every other slot's model `skinned` | ItemDisplayInfo, ItemDisplayInfoMaterialRes, ItemDisplayInfoModelMatRes, the gear's slot |
+| `garment_layer` | a garment's layer: its kind's default (`x-preset-kinds`), order 0 | the kind |
+| `garment_vocabulary` | body region names for SectionType 0-7 (`arm_upper` … `foot`, else `section_<n>`), part names for the geoset groups `WIKI_FINDINGS/M2.md` reads visually (else `group_<n>`), attachment point names after wowdev.wiki's attachment table | CharComponentTextureSections, geoset groups, M2Attachment ids |
+| `item_geoset` | a slot's GeosetGroup[i] value v > 0 shows body geoset group × 100 + 1 + v of the slot's i-th group (`WIKI_FINDINGS/GARMENTS.md` "Slot → GeosetGroup table", verified structurally); an item model shows group × 100 + 1 + AttachmentGeosetGroup[i] for v ≥ 0 (wow.export, unverified against the client) | ItemDisplayInfo GeosetGroup, AttachmentGeosetGroup |
+| `hem_body_geoset` | the body hem geoset 1102 a legs item switches on (GeosetGroup[0] = 1) is a hem piece, not the leggings' | ItemDisplayInfo GeosetGroup |
+| `hem_uv_footprint` | the hem's paint: the legs item's LegUpper overlay masked to 1102's UV footprint on the wearing body, rasterized at the layout's composite size and cut to the region's rectangle (`src/garment_footprint.hpp`); the leggings keep the whole texture | the body mesh's 1102 triangles, the layout's rectangles |
+| `hem_join_set` / `hem_own_garment` | a legs item's hem pieces join the tunic of a chest item sharing a TransmogSet; with none, they are a `hem` garment of their own | TransmogSetItem |
+| `item_model_hem` | an item model's shown group-13 geoset of a chest or legs item is a hem piece of its own; one shown by a set's chest and legs (same model file and geoset) is one piece, on the chest's garment | ItemDisplayInfo AttachmentGeosetGroup, the model files picked |
 
 **Inheritance.** A property without its own `x-source` takes its `$ref`
 target's (the use site's wins when both have one), else the nearest
@@ -381,6 +389,7 @@ with no identity of its own. The Blender addon mirrors it
 | world `zones` | `zone/<map>/AreaTable/<row>` | AreaTable row, per map. |
 | model `selection.presets` | `preset/<identity key of the model>/<body key><outfit key>` | The source values that make the look ("Appearances"); a character model lists thousands, and the creature catalog points at them. |
 | appearances `appearances` | `appearance/<identity key of the model>/<body key>` | The same, body only; the model's identity keeps ids unique in a tree's shared list. |
+| garments `items` (source items), `garments`, `outfits` | `source_item/db2_row/<table>/<row>`; `garment/` + that key + `/<kind>` (`/hem`, `/skirt` for split-off garments; NPC equipment `/garment`); `outfit/db2_row/TransmogSet/<row>` | The source rows the garment was cut from: the same garment has one id in every model and tree, so a shared list dedups by id. |
 | animation_fallbacks `fallbacks` | `animation_fallback/<identity key of the animation>` | The animation's AnimationData row; the table is one per client build, so the row alone is unique and the same in every tree. |
 | creatures `creatures`, `displays` | `creature/Creature/<row>`, `creature_display/CreatureDisplayInfo/<row>` | Their DB2 rows. |
 | mesh `parts` | `part/<identity key of the model>/<source index>` | A WMO group's index in its root file; the model's identity makes it unique across documents. |
@@ -398,7 +407,7 @@ ids as text; the writer checks each against the derived one.
 
 | Pointer | Target | |
 |---|---|---|
-| model `definition.placement_sets[].reference`, `texture_slots[].composite`, customization choice `textures[].material`, `selection.equipped[].reference`, material `techniques[]`; placement_set `instances[].reference`; world `grid.cells[].tile`, `placements[]` | `/references` | id |
+| model `definition.placement_sets[].reference`, `texture_slots[].composite`, customization choice `textures[].material`, material `techniques[]`; placement_set `instances[].reference`; world `grid.cells[].tile`, `placements[]` | `/references` | id |
 | part `portals[].to_part`, liquid `part`, static light `part`, primitive `part`, LOD `part_levels[].part` | `/resources/geometry/mesh/parts` | id |
 | zone light `clear` / `clear_underwater` / `storm` / `storm_underwater` / `death` | `/resources/light_conditions` | id |
 | `texture_id` (material layers, slot options, item/choice textures, liquid frames, light cookies, terrain ground `diffuse`/`height`, LOD `diffuse`/`normal`, `liquid_flow`, effect image inputs) | `/resources/textures` | id: a WMO or character model can list hundreds |
@@ -415,7 +424,9 @@ ids as text; the writer checks each against the derived one.
 | preset `particle_colors` | `/definition/particle_colors` | index, kept: a few per model |
 | preset `appearance` | the entries of the document the model's `appearances` reference holds | id ("Appearances") |
 | creatures display `preset` | the model document's `/selection/presets` | id, not checked: the validator doesn't open the model |
-| appearance/customization `option`, preset `item` | `/definition/customization/options`, `/definition/items` | index, kept: options are a few dozen per model, and items are listed once each |
+| appearance/customization `option` | `/definition/customization/options` | index, kept: options are a few dozen per model |
+| preset `garments[]`, bake `covers_garments[]` | the garments of the document the model's `garments` reference holds | id, like preset `appearance` |
+| garments piece `item`, source item / outfit `garments[]` | the garments document's `/items`, `/garments` | id: a shared list holds a corpus's items |
 | physics `shapes[]`, joint `body_a`/`body_b` | `/resources/physics/*` | index, kept: a few bodies per model |
 | terrain layer `texture_index`, `ground_effect_index` | the tile's `textures`, `ground_effects` | index, kept: per-tile tables of a few dozen |
 | terrain chunk arrays (`area_index`, layers, per-chunk slices) | per-chunk position | index, kept: chunk position in the 16×16 tile is its identity |
@@ -685,10 +696,11 @@ body's look itself: it points at an **appearance**, an entry of an
   `CreatureDisplayInfoGeosetData`, the display's own choice.
 - **The preset keeps the outfit and the users**: `id`, `appearance` (an
   appearance id), the humanoid NPC's baked skin (`textures`, the bake slot:
-  the bake draws the gear in, and each bake choice lists the items it was
-  made for, `covers_items`, so a consumer that swaps a garment knows the
-  bake no longer applies and composites instead), `items` (each entry one
-  item, by its own index into `definition.items`), `sources` (rows, scales, `users`)
+  the bake draws the gear in, and each bake choice lists the garments it
+  was made for, `covers_garments`, so a consumer that swaps a garment knows
+  the bake no longer applies and composites instead), `garments` (garment
+  ids of the model's garments document, each once; REFACTOR/GARMENTS.md),
+  `sources` (rows, scales, `users`)
   and the outfit's `unresolved` (`ExtendedDisplayInfoID`,
   `BakeMaterialResourcesID`). A wolf's preset is a pointer and its
   sources; a humanoid NPC's is a pointer plus bake and gear.
@@ -907,9 +919,16 @@ The full list with reader actions is `MANTLECORE_MIGRATION.md` "v0.4.0".
   overrides, the world `map`'s `directory`, `instance_type` and
   `map_type`, creatures' `classification` and displays' `size_class`. The
   schema lint rejects keys named after DB2 tables or columns and keys
-  described "as stored" outside `source`/`unresolved`; the item keys
-  `texture_type` and `component_section` are exempt until
-  `REFACTOR/GARMENTS.md` replaces them.
+  described "as stored" outside `source`/`unresolved`, with no exemption.
+- Items are garments: a `garments` document (`schema/garments.schema.json`)
+  the model reaches through its one reference of that kind, inline or
+  external like appearances, with `garments` (kind, layer, order, pieces:
+  `overlay`, `geometry`, `attached`, `skinned`, `hides`), `items` (the source items)
+  and `outfits`; the body vocabulary the pieces name is the model's
+  `definition.body` (regions with their rectangles, parts, attachment
+  points). Presets wear `garments` (ids); bakes cover `covers_garments`;
+  `definition.items` and `selection.equipped` are gone. Design and the
+  split rules: REFACTOR/GARMENTS.md; derived rules in the table above.
 - Keys named after the source renamed to say what they are: an option's
   `body` (was `chr_model`), a placement set's `light_conditions` (was
   `light_params`; stable-id key `light_condition/...`), a tile's

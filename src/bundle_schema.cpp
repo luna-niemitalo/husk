@@ -169,14 +169,6 @@ const std::set<std::string> kColumnKeys = {
 // object's entries), walked as if beneath one.
 const std::set<std::string> kRawDefinitions = {"unresolved", "unresolved_field"};
 
-// Item keys named after ItemDisplayInfo columns. REFACTOR/GARMENTS.md
-// redesigns items as garments and removes them; until then they are the
-// only canonical keys allowed to carry a DB2 column's name.
-const std::set<std::string> kColumnNamedItemKeys = {
-    "model.schema.json#/properties/definition/properties/items/items/properties/textures/items/properties/texture_type",
-    "model.schema.json#/properties/definition/properties/items/items/properties/overlays/items/properties/component_section",
-};
-
 std::string refTarget(const json& node) {
     if (!node.is_object() || !node.contains("$ref")) return {};
     std::string ref = node["$ref"];
@@ -285,7 +277,6 @@ struct Linter {
     // described as kept "as stored".
     void checkSourceTerms(const std::string& pointer, const std::string& key, const json& sub) {
         if (underRaw || key == "source" || key == "unresolved") return;
-        if (kColumnNamedItemKeys.count(stem + kSchemaSuffix + "#" + pointer)) return;
         std::vector<std::string> keyTokens = tokens(key);
         for (const auto& table : names.tables) {
             if (!containsRun(keyTokens, table)) continue;
@@ -829,6 +820,93 @@ void checkEffect(const json& effect, const std::function<void(const std::string&
     }
 }
 
+// ---------------------------------------------------------------- garments
+
+// What a garment covers: its overlays' regions, its geometry's parts and
+// its attached pieces' points, each a key two garments can fight over.
+std::set<std::string> garmentCoverage(const json& garment) {
+    std::set<std::string> out;
+    for (const json& piece : garment["pieces"]) {
+        if (piece.contains("overlay")) out.insert("region " + piece["overlay"]["region"].get<std::string>());
+        if (piece.contains("geometry")) out.insert("part " + piece["geometry"]["part"].get<std::string>());
+        if (piece.contains("attached")) out.insert("point " + piece["attached"]["point"].get<std::string>());
+    }
+    return out;
+}
+
+// The garments document's preset kinds: schema/garments.schema.json
+// `x-preset-kinds`, the one list (canon_garment_builder.cpp presetKinds()
+// is its writer-side counterpart).
+const json& presetKinds() {
+    return schemaFor("garments")["properties"]["garments"]["items"]["properties"]["kind"]["x-preset-kinds"];
+}
+
+std::vector<GarmentFinding> garmentFindings(const json& garments, const json& presets, const std::string& presetId) {
+    std::vector<GarmentFinding> out;
+    std::map<std::string, const json*> byId;
+    for (const json& g : garments["garments"]) byId.emplace(g["id"].get<std::string>(), &g);
+    const json& kinds = presetKinds();
+    for (const json& g : garments["garments"]) {
+        std::string kind = g["kind"];
+        std::string id = g["id"];
+        bool deviates = g.value("deviates", false);
+        auto deviation = [&](const std::string& message) {
+            out.push_back({deviates ? GarmentFinding::Kind::KnownDeviation : GarmentFinding::Kind::UnexpectedDeviation,
+                           "", {id}, message});
+        };
+        if (!kinds.contains(kind)) {
+            deviation("garment " + id + ": kind '" + kind + "' is not a preset kind");
+            continue;
+        }
+        if (g["layer"] != kinds[kind]) {
+            deviation("garment " + id + " (" + kind + "): expected layer " + kinds[kind].get<std::string>() + ", got " +
+                      g["layer"].get<std::string>());
+        }
+        if (g["order"] != 0) deviation("garment " + id + " (" + kind + "): expected order 0, got " + g["order"].dump());
+    }
+    for (const json& preset : presets) {
+        std::string pid = preset["id"];
+        if (!presetId.empty() && pid != presetId) continue;
+        // Garments by layer and order, then joined when they share a coverage key.
+        std::map<std::pair<std::string, int64_t>, std::vector<std::string>> stacks;
+        for (const json& worn : preset.value("garments", json::array())) {
+            auto g = byId.find(worn.get<std::string>());
+            if (g == byId.end()) continue;  // the id check reports it
+            stacks[{(*g->second)["layer"], (*g->second)["order"]}].push_back(g->first);
+        }
+        for (const auto& [stack, members] : stacks) {
+            std::map<std::string, std::vector<std::string>> byKey;
+            for (const std::string& id : members) {
+                for (const std::string& key : garmentCoverage(*byId[id])) byKey[key].push_back(id);
+            }
+            std::map<std::string, std::string> parent;
+            for (const std::string& id : members) parent[id] = id;
+            std::function<std::string(const std::string&)> root = [&](const std::string& x) {
+                return parent[x] == x ? x : parent[x] = root(parent[x]);
+            };
+            for (const auto& [key, ids] : byKey) {
+                for (size_t i = 1; i < ids.size(); ++i) parent[root(ids[i])] = root(ids[0]);
+            }
+            std::map<std::string, std::pair<std::set<std::string>, std::set<std::string>>> groups;
+            for (const auto& [key, ids] : byKey) {
+                if (ids.size() < 2) continue;
+                auto& group = groups[root(ids[0])];
+                group.first.insert(ids.begin(), ids.end());
+                group.second.insert(key);
+            }
+            for (const auto& [_, group] : groups) {
+                std::string message = std::to_string(group.first.size()) + " garments at layer " + stack.first + " order " +
+                                      std::to_string(stack.second) + " overlap on";
+                for (const std::string& key : group.second) message += " " + key + ";";
+                message.pop_back();
+                out.push_back({GarmentFinding::Kind::Conflict, pid,
+                               std::vector<std::string>(group.first.begin(), group.first.end()), message});
+            }
+        }
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------- traversal
 
 struct Validation {
@@ -900,7 +978,50 @@ struct Validation {
         if (kind == "model") checkLevels(document, checker);
         if (kind == "model") checkPresetAppearances(document, referenced, checker);
         if (kind == "model") listReferences(document, "animation_fallbacks", checker);
+        if (kind == "model") checkPresetGarments(document, referenced, checker);
         return true;
+    }
+
+    // A preset's garments and its bake's covers_garments are entries of the
+    // document the model's one garments reference holds (inline or by uri).
+    void checkPresetGarments(const json& model, const std::vector<const json*>& referenced, DocumentChecker& checker) {
+        std::vector<size_t> lists = listReferences(model, "garments", checker);
+        const json& presets = model["selection"].value("presets", json::array());
+        std::vector<std::pair<std::string, std::string>> pointers;  // json pointer, id
+        for (size_t p = 0; p < presets.size(); ++p) {
+            std::string at = "/selection/presets/" + std::to_string(p);
+            const json& worn = presets[p].value("garments", json::array());
+            for (size_t g = 0; g < worn.size(); ++g) pointers.push_back({at + "/garments/" + std::to_string(g), worn[g]});
+            const json& textures = presets[p].value("textures", json::array());
+            for (size_t t = 0; t < textures.size(); ++t) {
+                const json& covers = textures[t].value("covers_garments", json::array());
+                for (size_t c = 0; c < covers.size(); ++c) {
+                    pointers.push_back({at + "/textures/" + std::to_string(t) + "/covers_garments/" + std::to_string(c), covers[c]});
+                }
+            }
+        }
+        if (pointers.empty()) return;
+        if (lists.empty()) {
+            checker.fail("/selection/presets", "expected a garments reference holding the presets' garments, got none");
+            return;
+        }
+        const json* list = referenced[lists[0]];
+        if (!list) return;  // unexported or failed: reported or not checkable
+        std::set<std::string> ids;
+        for (const json& entry : (*list)["garments"]) ids.insert(entry["id"].get<std::string>());
+        for (const auto& [pointer, id] : pointers) {
+            if (!ids.count(id)) checker.fail(pointer, "expected the id of a garment of the garments reference's document, got '" + id + "'");
+        }
+        // A conflict is a selection's state, not a malformed document: the
+        // consumer resolves it by an order (REFACTOR/GARMENTS.md), so it warns.
+        if (!warnings) return;
+        for (const GarmentFinding& f : garmentFindings(*list, presets, "")) {
+            const char* label = f.kind == GarmentFinding::Kind::Conflict        ? "garment conflict"
+                                : f.kind == GarmentFinding::Kind::KnownDeviation ? "known garment deviation"
+                                                                                  : "unexpected garment deviation";
+            std::string where = f.preset.empty() ? "/references" : "/selection/presets (" + f.preset + ")";
+            warnings->push_back({checker.file.string() + "#" + checker.prefix + where, std::string(label) + ": " + f.message});
+        }
     }
 
     // Positions of the model's references of a list kind (appearances,
@@ -1091,7 +1212,7 @@ struct Validation {
             const json& r = refs[i];
             std::string kind = r.value("kind", "");
             if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique" &&
-                kind != "appearances" && kind != "animation_fallbacks") {
+                kind != "appearances" && kind != "animation_fallbacks" && kind != "garments") {
                 out.push_back(nullptr);
                 continue;
             }
@@ -1241,6 +1362,25 @@ std::vector<Problem> validateDocument(const fs::path& path, std::vector<fs::path
     validation.file(file);
     if (checked) *checked = seen;
     return problems;
+}
+
+std::vector<GarmentFinding> checkGarments(const fs::path& path, const std::string& presetId) {
+    fs::path file = fs::is_directory(path) ? path / "manifest.json" : path;
+    auto read = [](const fs::path& p) {
+        std::ifstream in(p, std::ios::binary);
+        json document = json::parse(in, nullptr, false);
+        if (!in || document.is_discarded()) throw std::runtime_error("expected a readable JSON document at '" + p.string() + "'");
+        return document;
+    };
+    json manifest = read(file);
+    json garments;
+    for (const json& r : manifest.value("references", json::array())) {
+        if (r.value("kind", "") != "garments") continue;
+        if (r.contains("document")) garments = r["document"];
+        else garments = read(file.parent_path() / r["asset"]["uri"].get<std::string>());
+    }
+    if (garments.is_null()) throw std::runtime_error("expected a garments reference in '" + file.string() + "', got none");
+    return garmentFindings(garments, manifest["selection"].value("presets", json::array()), presetId);
 }
 
 }  // namespace husk::bundle_schema

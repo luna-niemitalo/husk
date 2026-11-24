@@ -1,10 +1,12 @@
 #include "character_texture_context.hpp"
 
+#include <algorithm>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "canon_garment_builder.hpp"  // canon::garments::regionName
 #include "chrcustomization_db2.hpp"
 #include "chrmodel_db2.hpp"
 #include "sources/listfile_catalog.hpp"
@@ -166,6 +168,19 @@ std::optional<sources::CharacterTextureContext> build(const Args& args, const st
     if (std::optional<uint32_t> layoutId = layoutFor(args, chrModelId, raceData, err)) {
         if (std::optional<chrmodel::Data> layouts = chrmodel::load(args.db2Dir, args.dbdDir, err)) {
             addSingleLayerTargets(*layouts, *layoutId, ctx);
+            auto layout = std::find_if(layouts->layouts.begin(), layouts->layouts.end(),
+                                       [&](const chrmodel::CharComponentTextureLayout& l) { return l.id == *layoutId; });
+            if (layout != layouts->layouts.end()) {
+                canon::BodyLayout body{layout->width, layout->height, {}};
+                for (const chrmodel::CharComponentTextureSection& s : layouts->sections) {
+                    if (s.charComponentTextureLayoutId != *layoutId) continue;
+                    body.regions.push_back({canon::garments::regionName(s.sectionType), s.sectionType, s.x, s.y,
+                                            s.width, s.height});
+                }
+                std::sort(body.regions.begin(), body.regions.end(),
+                          [](const auto& a, const auto& b) { return a.sectionType < b.sectionType; });
+                ctx.bodyLayout = std::move(body);
+            }
         }
     }
     if (std::optional<chrcustomization::Data> data = chrcustomization::load(args.db2Dir, args.dbdDir, err)) {

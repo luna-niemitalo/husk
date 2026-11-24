@@ -106,9 +106,10 @@ std::string describe(const std::vector<bundle_schema::Problem>& problems) {
 
 }  // namespace
 
-TEST_CASE("bundle_schema: the embedded schema defines animation_fallbacks, appearances, creatures, effect, material, model, placement_set, technique and world, and passes its own lint") {
+TEST_CASE("bundle_schema: the embedded schema defines animation_fallbacks, appearances, creatures, effect, garments, material, model, placement_set, technique and world, and passes its own lint") {
     CHECK(bundle_schema::kinds() == std::vector<std::string>{"animation_fallbacks", "appearances", "creatures", "effect",
-                                                             "material", "model", "placement_set", "technique", "world"});
+                                                             "garments", "material", "model", "placement_set",
+                                                             "technique", "world"});
     std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemas();
     INFO(describe(problems));
     CHECK(problems.empty());
@@ -507,4 +508,33 @@ TEST_CASE("bundle_schema: source gaps name a schema location and a document path
     std::string doc = bundle_schema::schemaDoc();
     CHECK(doc.find("| `sources[].id` | yes | string |  |  |  | authored in `effects/<name>.json` (from `sources`) |") != std::string::npos);
     CHECK(doc.find("| `subject.name` |  | string | length ≥ 1 |  |  | stated per value by `name_source` |") != std::string::npos);
+}
+
+TEST_CASE("checkGarments: three garments of one layer and order overlapping in coverage are one conflict; "
+          "kind and layer deviations warn, known when declared") {
+    fs::path file = husk::test::testRunDir() / "husk-schema-garments" / "manifest.json";
+    fs::create_directories(file.parent_path());
+    auto overlay = [](const char* region) { return std::string(R"({"item": "i", "rule": "garment_split", "overlay": {"region": ")") + region + R"(", "texture": "t"}})"; };
+    std::ofstream(file) << R"({"references": [{"kind": "garments", "document": {"garments": [
+        {"id": "a", "kind": "tunic", "layer": "mid", "order": 0, "pieces": [)" << overlay("torso_upper") << R"(]},
+        {"id": "b", "kind": "robe", "layer": "mid", "order": 0, "pieces": [)" << overlay("torso_upper") << "," << overlay("leg_upper") << R"(]},
+        {"id": "c", "kind": "skirt", "layer": "mid", "order": 0, "pieces": [)" << overlay("leg_upper") << R"(]},
+        {"id": "d", "kind": "skirt", "layer": "mid", "order": 1, "deviates": true, "pieces": [)" << overlay("leg_upper") << R"(]},
+        {"id": "e", "kind": "cape", "layer": "over", "order": 0, "pieces": []}]}}],
+        "selection": {"presets": [{"id": "p", "garments": ["a", "b", "c", "d", "e"]}]}})";
+    std::vector<bundle_schema::GarmentFinding> findings = bundle_schema::checkGarments(file, "");
+    size_t conflicts = 0, known = 0, unexpected = 0;
+    for (const auto& f : findings) {
+        if (f.kind == bundle_schema::GarmentFinding::Kind::Conflict) {
+            ++conflicts;
+            CHECK(f.preset == "p");
+            CHECK(f.garments == std::vector<std::string>{"a", "b", "c"});
+        }
+        known += f.kind == bundle_schema::GarmentFinding::Kind::KnownDeviation;
+        unexpected += f.kind == bundle_schema::GarmentFinding::Kind::UnexpectedDeviation;
+    }
+    CHECK(conflicts == 1);
+    CHECK(known == 1);       // d: order 1 on purpose
+    CHECK(unexpected == 1);  // e: 'cape' is no preset kind
+    CHECK(bundle_schema::checkGarments(file, "other").size() == 2);  // deviations only
 }

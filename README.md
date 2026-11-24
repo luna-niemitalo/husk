@@ -39,6 +39,7 @@ are the same text.
 | **Models** | |
 | `info <file.m2> [--json]` | header, record counts, chunk tags, sidecar FileDataIDs, emitter summary |
 | `export -i <file.m2> [-o out.bundle] [--glb out.glb]` | M2 → model bundle (default `<model>.bundle/` beside the model); `--glb` also writes the lean glTF projection |
+| `garments-check <bundle> [--preset ID]` | garment conflicts (same layer and order, overlapping coverage) and kind/layer/order deviations of each preset (`REFACTOR/GARMENTS.md`) |
 | `resolve -i <file.m2>` | texture-resolution ledger as JSON: which tier answered each slot |
 | `dump-chunks <file.m2\|.bone\|.phys>` | raw-record JSON: Legion+ side chunks, full emitter records, `.bone`, `.phys` |
 | **World** | |

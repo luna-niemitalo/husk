@@ -83,6 +83,14 @@ nlohmann::json textureFileDataId(const nlohmann::json& manifest, const nlohmann:
     return texture["identity"]["id"]["value"];
 }
 
+// The inline document of the model's garments reference; null when it has none.
+nlohmann::json garmentsDocument(const nlohmann::json& manifest) {
+    for (const auto& r : manifest["references"]) {
+        if (r["kind"] == "garments") return r["document"];
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 TEST_CASE("husk export: --appearance and --customization-choice-ids are mutually exclusive") {
@@ -124,9 +132,9 @@ TEST_CASE("husk export --appearance: 'gear' entries without --db2-dir/--dbd-dir 
     CHECK(result.output.find("--appearance gear needs --db2-dir and --dbd-dir") != std::string::npos);
 
     nlohmann::json m = parseManifest(bundle);
-    CHECK((!m["definition"].contains("items") || m["definition"]["items"].empty()));
+    CHECK(garmentsDocument(m).is_null());
     nlohmann::json preset = appearancePreset(m);
-    CHECK((!preset.contains("items") || preset["items"].empty()));
+    CHECK_FALSE(preset.contains("garments"));
 
     fs::remove_all(dir);
 }
@@ -147,26 +155,26 @@ TEST_CASE("husk export --appearance: a standalone-geometry gear entry resolves t
     REQUIRE(result.exitCode == 0);
 
     nlohmann::json m = parseManifest(bundle);
-    nlohmann::json items = m["definition"]["items"];
-    INFO(items.dump());
-    INFO(m["resources"]["textures"].dump());
-    REQUIRE(items.size() == 1);
-    CHECK(items[0]["ref"]["id"]["table"] == "ItemModifiedAppearance");
-    CHECK(items[0]["ref"]["id"]["row"] == 15);
-    REQUIRE(items[0]["models"].size() == 1);
-    CHECK(items[0]["models"][0]["position"] == 0);
-    CHECK(items[0]["models"][0]["model"]["id"]["value"] == 370361);
-    REQUIRE(items[0]["textures"].size() == 1);
-    CHECK(items[0]["textures"][0]["texture_type"] == 2);
-    CHECK(items[0]["textures"][0]["model_position"] == 0);
-    CHECK(textureFileDataId(m, items[0]["textures"][0]["texture"]) == 148134);
-    CHECK((!items[0].contains("overlays") || items[0]["overlays"].empty()));
+    nlohmann::json doc = garmentsDocument(m);
+    INFO(doc.dump());
+    REQUIRE(doc["items"].size() == 1);
+    CHECK(doc["items"][0]["ref"]["id"]["table"] == "ItemModifiedAppearance");
+    CHECK(doc["items"][0]["ref"]["id"]["row"] == 15);
+    REQUIRE(doc["garments"].size() == 1);
+    nlohmann::json pieces = doc["garments"][0]["pieces"];
+    REQUIRE(pieces.size() == 1);
+    nlohmann::json model = pieces[0].contains("attached") ? pieces[0]["attached"] : pieces[0]["skinned"];
+    CHECK(model["model"]["id"]["value"] == 370361);
+    CHECK(pieces[0]["source"]["model_position"] == 0);
+    REQUIRE(model["textures"].size() == 1);
+    CHECK(model["textures"][0]["source"]["texture_type"] == 2);
+    CHECK(model["textures"][0]["role"] == "object_skin");
+    CHECK(textureFileDataId(doc, model["textures"][0]["texture"]) == 148134);
 
     nlohmann::json preset = appearancePreset(m);
     INFO(preset.dump());
-    REQUIRE(preset["items"].size() == 1);
-    CHECK(preset["items"][0]["item"] == 0);
-    CHECK(preset["items"][0]["source"]["slot_token"] == "MAINHAND");
+    CHECK(preset["garments"] == nlohmann::json::array({doc["garments"][0]["id"]}));
+    CHECK(doc["items"][0]["source"]["slot_token"] == "MAINHAND");
 
     fs::remove_all(dir);
 }
@@ -196,9 +204,10 @@ TEST_CASE("husk export --appearance: a gear item whose model --listfile/--listfi
     CHECK(item["subject"]["id"]["value"] == 370361);
 
     nlohmann::json m = parseManifest(bundle);
-    INFO(m["definition"]["items"].dump());
+    nlohmann::json piece = garmentsDocument(m)["garments"][0]["pieces"][0];
+    INFO(piece.dump());
     INFO(m["references"].dump());
-    CHECK(m["definition"]["items"][0]["models"][0]["model"]["uri"] == uri);
+    CHECK((piece.contains("attached") ? piece["attached"] : piece["skinned"])["model"]["uri"] == uri);
     bool referenced = false;
     for (const auto& r : m["references"]) {
         referenced = referenced || (r.contains("asset") && r["asset"].value("uri", "") == uri);
@@ -231,23 +240,25 @@ TEST_CASE("husk export --appearance: an object-skin section-overlay gear entry (
     REQUIRE(result.exitCode == 0);
 
     nlohmann::json m = parseManifest(bundle);
-    nlohmann::json items = m["definition"]["items"];
-    INFO(items.dump());
-    INFO(m["resources"]["textures"].dump());
-    REQUIRE(items.size() == 1);
-    CHECK(items[0]["ref"]["id"]["row"] == 367);
-    CHECK((!items[0].contains("models") || items[0]["models"].empty()));
-    nlohmann::json overlays = items[0]["overlays"];
-    REQUIRE(overlays.size() == 2);
-    CHECK(overlays[0]["component_section"] == 6);
-    CHECK(textureFileDataId(m, overlays[0]["texture"]) == 500001);
-    CHECK(overlays[1]["component_section"] == 7);
-    CHECK(textureFileDataId(m, overlays[1]["texture"]) == 500002);
+    nlohmann::json doc = garmentsDocument(m);
+    INFO(doc.dump());
+    REQUIRE(doc["items"].size() == 1);
+    CHECK(doc["items"][0]["ref"]["id"]["row"] == 367);
+    REQUIRE(doc["garments"].size() == 1);
+    CHECK(doc["garments"][0]["kind"] == "boots");
+    CHECK(doc["garments"][0]["layer"] == "outer");
+    nlohmann::json pieces = doc["garments"][0]["pieces"];
+    REQUIRE(pieces.size() == 2);
+    CHECK(pieces[0]["overlay"]["region"] == "leg_lower");
+    CHECK(pieces[0]["source"]["section_type"] == 6);
+    CHECK(textureFileDataId(doc, pieces[0]["overlay"]["texture"]) == 500001);
+    CHECK(pieces[1]["overlay"]["region"] == "foot");
+    CHECK(textureFileDataId(doc, pieces[1]["overlay"]["texture"]) == 500002);
 
     nlohmann::json preset = appearancePreset(m);
-    REQUIRE(preset["items"].size() == 1);
-    CHECK(preset["items"][0]["slot"] == "feet");
-    CHECK(preset["items"][0]["source"]["slot_token"] == "FEET");
+    CHECK(preset["garments"] == nlohmann::json::array({doc["garments"][0]["id"]}));
+    CHECK(doc["items"][0]["source"]["slot"] == "feet");
+    CHECK(doc["items"][0]["source"]["slot_token"] == "FEET");
 
     fs::remove_all(dir);
 }

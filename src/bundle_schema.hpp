@@ -66,4 +66,21 @@ std::vector<Problem> validateDocument(const std::filesystem::path& path,
                                       std::vector<std::filesystem::path>* checked = nullptr,
                                       std::vector<Problem>* warnings = nullptr);
 
+// A finding about a model's garments (REFACTOR/GARMENTS.md "Conflicts are
+// reported, not guessed"): garments a preset wears at one layer and order
+// that overlap in coverage, or a garment whose kind, layer or order is off
+// the kind's preset (known when it says `deviates`).
+struct GarmentFinding {
+    enum class Kind { Conflict, KnownDeviation, UnexpectedDeviation };
+    Kind kind;
+    std::string preset;                 // the preset's id; empty for a deviation
+    std::vector<std::string> garments;  // garment ids
+    std::string message;
+};
+
+// The findings for the model bundle (or manifest) at `path`, over its
+// inline or external garments document; only preset `presetId` when not
+// empty. Throws when the manifest or its garments document can't be read.
+std::vector<GarmentFinding> checkGarments(const std::filesystem::path& path, const std::string& presetId);
+
 }  // namespace husk::bundle_schema
