@@ -3,6 +3,7 @@
 // coverage check walks (bundle_schema.hpp).
 
 #include <algorithm>
+#include <cctype>
 #include <set>
 #include <sstream>
 #include <string>
@@ -252,8 +253,19 @@ std::string sourceOf(const PathEntry& e) {
     return out;
 }
 
+// The first sentence says what the value is, the rest why
+// (BUNDLE_FORMAT.md "Descriptions: what, then why"). A sentence ends at
+// ". " before a capital or a backtick, so "e.g. a" and "M2Particle.gravity"
+// don't split.
 std::string descriptionOf(const PathEntry& e) {
-    return e.node->value("description", e.resolved->value("description", ""));
+    std::string text = e.node->value("description", e.resolved->value("description", ""));
+    for (size_t at = text.find(". "); at != std::string::npos; at = text.find(". ", at + 1)) {
+        char next = at + 2 < text.size() ? text[at + 2] : '\0';
+        if (std::isupper(static_cast<unsigned char>(next)) || next == '`') {
+            return text.substr(0, at + 1) + "<br>*Why:* " + text.substr(at + 2);
+        }
+    }
+    return text;
 }
 
 }  // namespace
@@ -290,7 +302,8 @@ std::string schemaDoc() {
        << "- **Links**: `index into` an array (`x-index-into`: a bare name is a property of an enclosing object, "
           "`/...` a pointer into the document), or `id in` an array whose entries carry ids (`x-id-in`).\n"
        << "- **Source**: where the value comes from (`x-source`); \"from `p`\" when inherited from path `p`; "
-          "— when not annotated yet.\n\n";
+          "— when not annotated yet.\n"
+       << "- **Description**: what the value is (the first sentence), then *Why:* the reason it is so.\n\n";
     for (const std::string& kind : kinds()) {
         const json& schema = schemaFor(kind);
         md << "## " << kind << "\n\n"

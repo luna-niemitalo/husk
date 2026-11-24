@@ -442,6 +442,9 @@ TEST_CASE("bundle_schema: schema-doc lists every kind's document paths with type
     CHECK(row("displays[].model").find("| id in `/references` |") != std::string::npos);
     CHECK(row("definition.inputs.<name>.clock").find("one of `seconds`, `age`, `day_time`") != std::string::npos);
     CHECK(row("definition.inputs.<name>.item").find("recursive") != std::string::npos);
+    CHECK(row("provenance.sources").find("and whether it could.<br>*Why:* An absent value") != std::string::npos);
+    CHECK(row("provenance.sources[].name").find("e.g. a table name") != std::string::npos);
+    CHECK(row("provenance.sources[].name").find("Why:") == std::string::npos);
 }
 
 TEST_CASE("bundle_schema: source gaps name a schema location and a document path, once each") {

@@ -304,6 +304,18 @@ reaches each. Until the annotation pass is done the check is a warning:
 file. `bundle_schema::kSourceRequired` (`bundle_schema.hpp`) turns it into
 a lint error once the count is zero.
 
+### Descriptions: what, then why
+
+A `description`'s first sentence says what the value is; the sentences
+after it say why it is so (the decision, the source behaviour it follows,
+what a consumer must not assume). There is no separate `x-why` keyword:
+one text keeps the what and the why together where a schema editor
+writes them, and the 883 existing descriptions already mostly read that
+way. A sentence ends at ". " followed by a capital letter or a backtick.
+`husk schema-doc` shows the split: the first sentence, then "*Why:*" and
+the rest. A description whose later sentences are more "what" rather than
+"why" is rewritten into one sentence when the annotation pass touches it.
+
 ### One reference file: `husk schema-doc`
 
 `husk schema-doc [-o FILE]` renders the embedded schemas as one Markdown
