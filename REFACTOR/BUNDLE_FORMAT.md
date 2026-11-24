@@ -164,7 +164,7 @@ alongside for exactly that reason.
 
 ## Document kinds and the contract header — agreed 2026-10-10
 
-Every husk document is one of seven **kinds**, decided by what the document
+Every husk document is one of eight **kinds**, decided by what the document
 has to do, not by which WoW file it came from:
 
 | Kind | What it is | Examples |
@@ -176,6 +176,7 @@ has to do, not by which WoW file it came from:
 | `material` | How a surface looks: image inputs, layers combined by named functions, and textures that may be composites (`MATERIALS.md`). | a character's skin atlas canvas |
 | `technique` | How the source game computes one drawing step, as data (below, "Techniques"). | `m2_pixel_shader/Combiners_Mod_Add`, `framebuffer_blend/alpha` |
 | `creatures` | A corpus's catalog of creatures: what kind each is and which model and preset draws each of its looks (below, "Creature catalogs"). | `creatures.json` of an export tree |
+| `appearances` | A list of bodies presets point at (above, "Appearances"): one model's, inline in its `appearances` reference, or a tree's shared list. | `appearances.json` of an export tree; a model's inline list |
 
 A character, an item, a WMO and a doodad are all models; they differ in
 content, not kind. A WMO's doodad sets are its definition (what furniture
@@ -192,7 +193,7 @@ Every document opens with the same header, then its data:
 
 ```
 format          "husk-bundle", constant
-kind            "model" | "placement_set" | "world" | "effect" | "material" | "technique" | "creatures"
+kind            "model" | "placement_set" | "world" | "effect" | "material" | "technique" | "creatures" | "appearances"
 schema_version  version of the schema/ definitions the document conforms to
 subject         Ref: what this document describes
 space           length/angle units, up axis, handedness of every position in it
@@ -206,6 +207,7 @@ placement_set: instances
 world: grid, placements, scene
 effect: sources
 creatures: creatures, displays
+appearances: appearances
 ```
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
@@ -269,6 +271,8 @@ with no identity of its own. The Blender addon mirrors it
 |---|---|---|
 | `references` (every kind) | `<kind>/<identity key of asset>` | The referenced document's identity: a model by file id has the same id in every document that references it, the creature catalog's included. A reference without identity (owned sets, effects, techniques) is keyed by its name. |
 | world `zones` | `zone/<map>/AreaTable/<row>` | AreaTable row, per map. |
+| model `selection.presets` | `preset/<identity key of the model>/<body key><outfit key>` | The source values that make the look ("Appearances"); a character model lists thousands, and the creature catalog points at them. |
+| appearances `appearances` | `appearance/<identity key of the model>/<body key>` | The same, body only; the model's identity keeps ids unique in a tree's shared list. |
 | creatures `creatures`, `displays` | `creature/Creature/<row>`, `creature_display/CreatureDisplayInfo/<row>` | Their DB2 rows. |
 | mesh `parts` | `part/<identity key of the model>/<source index>` | A WMO group's index in its root file; the model's identity makes it unique across documents. |
 | `light_params` | `light_params/db2_row/LightParams/<row>` | The LightParams row. |
@@ -300,7 +304,9 @@ ids as text; the writer checks each against the derived one.
 | `instance_ref.set`, `selection.placement_sets[]`, light `placement_set`, instance `selection.placement_sets[]` | `/definition/placement_sets` | index, kept: a model owns a few sets (WMO doodad sets, terrain's two) |
 | `slot` | `/definition/texture_slots` | index, kept: a dozen replaceable texture types at most |
 | preset `particle_colors` | `/definition/particle_colors` | index, kept: a few per model |
-| preset/customization `option`, preset `item` | `/definition/customization/options`, `/definition/items` | index, out of scope here: presets become appearance references |
+| preset `appearance` | the entries of the document the model's `appearances` reference holds | id ("Appearances") |
+| creatures display `preset` | the model document's `/selection/presets` | id, not checked: the validator doesn't open the model |
+| appearance/customization `option`, preset `item` | `/definition/customization/options`, `/definition/items` | index, kept: options are a few dozen per model, and items are listed once each |
 | physics `shapes[]`, joint `body_a`/`body_b` | `/resources/physics/*` | index, kept: a few bodies per model |
 | terrain layer `texture_index`, `ground_effect_index` | the tile's `textures`, `ground_effects` | index, kept: per-tile tables of a few dozen |
 | terrain chunk arrays (`area_index`, layers, per-chunk slices) | per-chunk position | index, kept: chunk position in the 16×16 tile is its identity |
@@ -516,7 +522,10 @@ them is a real look rather than a guessed one: pick one as a starting
 point, or let a user scroll through them. Creature models get the same
 list from their texture-variation displays.
 
-To apply preset `p` (indices are into this document unless stated):
+To apply preset `p` (indices are into this document unless stated): take
+its `appearance` from the model's `appearances` reference (next section)
+and apply the appearance's fields, then the preset's own `textures` and
+`items`:
 
 - `textures[]` `{slot, option}`: every layer naming `slot` draws
   `definition.texture_slots[slot].options[option]` (a `resources.textures`
@@ -539,6 +548,95 @@ To apply preset `p` (indices are into this document unless stated):
 
 Choices from another ChrModel's catalog, and values husk can't place, are
 in the preset's `unresolved`. Skip or flag them; never guess them.
+
+### Appearances: what a preset points at, inline or external (0.4.0)
+
+**Current** (Luna 2026-11-24: "presets should be references, same as other
+references so they can be either inline or external … external would
+refer to a bigger appearance list table … but we also want to support
+inline for self contained bundles"). A preset no longer carries the
+body's look itself: it points at an **appearance**, an entry of an
+`appearances` document (`schema/appearances.schema.json`).
+
+- **An appearance is the body, without what it wears**: `customization`
+  `{option, choice}` picks, and for a creature display its texture
+  variations (`textures` `{slot, option}`), `shown_geosets`,
+  `particle_colors` and `opacity`; values of those the source names but
+  husk can't place (`ChrCustomizationChoiceID`, `ParticleColorID`) are the
+  appearance's `unresolved`. These are what make two looks the same body.
+- **The preset keeps the outfit and the users**: `id`, `appearance` (an
+  appearance id), the humanoid NPC's baked skin (`textures`, the bake slot:
+  the bake draws the gear in), `items`, `sources` (rows, scales, `users`)
+  and the outfit's `unresolved` (`ExtendedDisplayInfoID`,
+  `BakeMaterialResourcesID`). A wolf's preset is a pointer and its
+  sources; a humanoid NPC's is a pointer plus bake and gear.
+  `export --appearance` puts its `cust` choices in the appearance and its
+  gear on the preset. A preset whose body chooses nothing has no
+  `appearance`.
+- **Indices stay the model's.** An appearance's `slot`, `option`,
+  `particle_colors` and customization indices index the definition of the
+  model whose preset points at it, wherever the appearance is stored.
+- **Ids from source identity.** Appearance: `nameUuid("appearance/<identity
+  key of the model>/<body key>")`, the body key being the source values in
+  source order (choice rows, texture FileDataIDs by display slot, geoset
+  ids, ParticleColor row, alpha), so renumbered options or a re-export
+  keep it. Preset: `preset/<identity key of the model>/<body key><outfit
+  key>` (bake FileDataID, item rows by slot); an `--appearance` preset adds
+  the appearance string. Presets get ids because a character model holds
+  thousands, and the creature catalog points at them.
+- **Dedup**: one appearance per distinct body per model. `humanmale_hd`
+  (12.1.5): 5,748 presets over 4,617 distinct customization sets, so the
+  body list is stated once and scrolling bodies needs no reader-side
+  dedup.
+
+**The reference.** Presets reach their appearances through the model's
+one `references` entry of kind `appearances`, the same `reference` shape
+as every other: `asset` names the list (`{kind: none}`, name
+`appearances`), and the document is in one of the two forms every
+reference already has:
+
+- **inline** (`document`): the appearances document itself, holding this
+  model's appearances only. `husk export` writes this: the bundle stays
+  self-contained.
+- **external** (`asset.uri`): a shared appearance list, `<tree>/
+  appearances.json`, holding every model's appearances. Each entry then
+  names its model as the id of one of the list's own `model` references
+  (`model`, `x-id-in: /references`); inline entries leave `model` out (the
+  model is the one embedding them). `export-corpus` writes this form.
+
+The reference id is the same in both forms (`appearances/name/appearances`),
+so turning a bundle from inline to external changes no pointer: only
+`document` is replaced by `asset.uri`. `selection.presets[].appearance` is
+a plain id; which document holds it is the model's `appearances`
+reference, whichever form it takes. This is no new mechanism: `document`
+vs `asset.uri` is "Embed or reference — one rule" for every reference
+kind (placement sets, effects, materials and techniques already use it);
+appearances are the first kind pointed into by entry id.
+
+**Who writes the shared list.** `husk export-appearances <tree>` (and
+`export-corpus` after `index-tree`): reads every model manifest under
+`<tree>/models/`, moves each inline appearances document's entries into
+`<tree>/appearances.json` (adding `model`), and rewrites the manifest's
+reference to the external form (`uri` `../../appearances.json`; the
+manifest is replaced, never written through, since `--link-store` trees
+hardlink into the store). A manifest already external keeps its entries
+from the existing list, so a rerun is idempotent. Entries are ordered by
+model reference, then id.
+
+**Validation.** `validate-bundle` validates the referenced appearances
+document like any referenced document (inline or by `uri`, each file
+once), checks that every `selection.presets[].appearance` is an id of an
+entry there (across the external file too), and range-checks that entry's
+indices against the pointing model's definition. An external list's
+entries of other models are checked when those models are validated.
+
+Rejected: a preset naming both the list reference and the entry
+(`{reference, entry}`): a model has one appearance list, so the second
+id only restates it. Appearances keyed by content hash of the indices:
+indices renumber when a definition changes, source identity doesn't.
+Model-independent appearances (choices by ChrCustomizationChoice row,
+textures by FileDataID) would dedup across a race's models, but every
+consumer reads options by index today; a later step, not this one.
 
 ### Items, physics and bone corrections (2026-11-09, schema 0.3.0)
 
@@ -1116,9 +1214,9 @@ and is not per zone.
       "displays": [ { "display": "d0fd2799…", "weight": 1 }, { "display": "691ce215…", "weight": 1 } ],
       "source": { "id": { "kind": "db2_row", "table": "Creature", "row": 71116 } } } ],
   "displays": [
-    { "id": "d0fd2799…", "model": "93ed63c9…", "preset": 4, "scale": 1.2, "base_scale": 1,
+    { "id": "d0fd2799…", "model": "93ed63c9…", "preset": "5be1c0de…", "scale": 1.2, "base_scale": 1,
       "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 17408 } } },
-    { "id": "691ce215…", "model": "93ed63c9…", "preset": 1, "scale": 1.2, "base_scale": 1,
+    { "id": "691ce215…", "model": "93ed63c9…", "preset": "0a7f33e2…", "scale": 1.2, "base_scale": 1,
       "source": { "id": { "kind": "db2_row", "table": "CreatureDisplayInfo", "row": 247 } } } ] }
 ```
 
@@ -1144,9 +1242,9 @@ and is not per zone.
   row; creatures share them. `model` is the `id` of a `references`
   entry: one `model` reference per distinct FileDataID, ascending, named
   from `--listfile` when given (`name_source: listfile`), `uri` when the
-  tree holds that model's bundle, identity only otherwise. `preset` indexes that
-  model document's `selection.presets`: the preset whose `sources` list
-  this display ("Options and presets"). `scale`/`base_scale` repeat that
+  tree holds that model's bundle, identity only otherwise. `preset` is the
+  `id` of the entry of that model document's `selection.presets` whose
+  `sources` list this display ("Options and presets"). `scale`/`base_scale` repeat that
   preset source's values (`CreatureDisplayInfo.CreatureModelScale`,
   `CreatureModelData.ModelScale`) so the catalog alone can size a
   creature. A display the client's table lacks (an encrypted section)
@@ -1178,7 +1276,7 @@ and is not per zone.
   whose model isn't the one the DB2 chain names fails the run (the tree
   was exported from other tables).
 - **Validation**: the schema (every reference is a `model` one) and
-  `x-id-in` for display and model ids. Whether `preset` is in
-  range of the model's presets is not checked (the validator doesn't open
-  model references).
+  `x-id-in` for display and model ids. Whether `preset` is one of the
+  model's presets is not checked (the validator doesn't open model
+  references).
 
