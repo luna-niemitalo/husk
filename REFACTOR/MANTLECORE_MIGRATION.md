@@ -140,6 +140,14 @@ changes:
   unpicked texture is `known_unresolved` with the reason.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
+- **Creature catalog, a new document kind.** `husk export-creatures`
+  (also run by `export-corpus`) writes `<tree>/creatures.json`: every
+  client `Creature` row with name, title, type and family (refs with
+  names), raw `classification`, and its display slots with weights; each
+  display names its model by stable id, with the preset index into that
+  model's `selection.presets` and its scale. Where creatures live is
+  server data, so the catalog has no locations (`BUNDLE_FORMAT.md`
+  "Creature catalogs").
 - **Zone flags.** With `--db2-dir`, a world zone's `source` carries
   AreaTable `flags` (Flags[0], Flags[1]), `mount_flags` and
   `flag_names` (wowdev.wiki's 10.2 bit names), all three or none
