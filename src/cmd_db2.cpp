@@ -282,7 +282,8 @@ namespace {
 // type, and DBD carries no per-array-element name to draw on instead.
 struct OutputColumn {
     std::string sqlName;
-    bool isFloat = false;  // reinterpret the raw uint32 bits as float when writing
+    bool isFloat = false;   // reinterpret the raw uint32 bits as float when writing
+    bool isString = false;  // a DBD-declared string array's element: a string offset
 };
 
 // Determines every output column, in field order, by decoding one
@@ -305,10 +306,14 @@ std::vector<std::vector<OutputColumn>> buildColumnPlan(
         bool isFloat = dbdNames && (*dbdNames)[f].type == dbd::ColumnType::Float;
         size_t count = sample[f].str ? 1 : sample[f].raw.size();
         if (count == 1) {
-            plan[f].push_back({baseName, isFloat});
+            plan[f].push_back({baseName, isFloat, false});
         } else {
+            bool isString = dbdNames &&
+                            ((*dbdNames)[f].type == dbd::ColumnType::String ||
+                             (*dbdNames)[f].type == dbd::ColumnType::LocString) &&
+                            file.fieldStorageInfo[f].storageType == db2::FieldCompression::None;
             for (size_t i = 0; i < count; ++i) {
-                plan[f].push_back({baseName + "_" + std::to_string(i), isFloat});
+                plan[f].push_back({baseName + "_" + std::to_string(i), isFloat, isString});
             }
         }
     }
@@ -319,22 +324,57 @@ std::vector<std::vector<OutputColumn>> buildColumnPlan(
 // starting at 1-based bind index `firstBindIndex`. `values` is already
 // fully resolved (decodeRecordValues) -- a real string always binds as
 // TEXT, a raw array as one INTEGER (or REAL, if `isFloat`) per element.
-void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const FieldValues& values, bool isFloat) {
+// `strings` (a declared string array, resolveStringArray) binds each
+// resolved element as TEXT; an element that didn't resolve keeps its raw
+// offset, so a misread stays visible.
+void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const FieldValues& values, bool isFloat,
+                     const std::vector<std::optional<std::string>>& strings) {
     if (values.str) {
         sqlite3_bind_text(stmt, firstBindIndex, values.str->c_str(), -1, SQLITE_TRANSIENT);
         return;
     }
     for (size_t i = 0; i < values.raw.size(); ++i) {
         int bindIndex = firstBindIndex + static_cast<int>(i);
-        if (isFloat && values.raw.size() == 1) {
+        if (i < strings.size() && strings[i]) {
+            sqlite3_bind_text(stmt, bindIndex, strings[i]->c_str(), -1, SQLITE_TRANSIENT);
+            continue;
+        }
+        if (isFloat) {
             float f;
-            auto bits = static_cast<uint32_t>(values.raw[0]);
+            auto bits = static_cast<uint32_t>(values.raw[i]);
             std::memcpy(&f, &bits, sizeof(f));
             sqlite3_bind_double(stmt, bindIndex, static_cast<double>(f));
             continue;
         }
         sqlite3_bind_int64(stmt, bindIndex, static_cast<sqlite3_int64>(values.raw[i]));
     }
+}
+
+// IN (non-critical): a DBD-declared string array in a fixed-width section
+// (LiquidType.Texture[6]). Each element is a string offset relative to that
+// element's own position, as for a scalar string; decodeRecordValues only
+// resolves scalars (by heuristic), the declared type makes this one sure.
+// 0 is the format's empty string; an offset that lands on no string is
+// nullopt.
+std::vector<std::optional<std::string>> resolveStringArray(const db2::File& file, const db2::Section& section,
+                                                           size_t sectionIndex, const std::vector<uint8_t>& fileBytes,
+                                                           size_t recordIndex, size_t field,
+                                                           const std::vector<uint64_t>& raw) {
+    std::vector<std::optional<std::string>> out;
+    int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
+                          static_cast<int64_t>(recordIndex) * file.header.recordSize +
+                          file.fieldStructures[field].position + db2::stringOffsetSectionCorrection(file, sectionIndex);
+    for (size_t i = 0; i < raw.size(); ++i) {
+        int64_t elementPos = fieldAbsPos + static_cast<int64_t>(i) * 4;
+        if (raw[i] == 0) {
+            out.emplace_back(std::string());
+        } else if (elementPos < 0) {
+            out.emplace_back(std::nullopt);
+        } else {
+            out.push_back(db2::resolveFieldString(fileBytes, static_cast<size_t>(elementPos), raw[i]));
+        }
+    }
+    return out;
 }
 
 }  // namespace
@@ -498,7 +538,11 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
                     for (uint64_t& v : fields[f].raw) v = dbd::asDeclaredType((*lf.dbdNames)[f], v);
                 }
                 bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
-                bindFieldValues(stmt, bindIndex, fields[f], isFloat);
+                bool isString = !plan[f].empty() && plan[f][0].isString && !section.hasOffsetMap();
+                std::vector<std::optional<std::string>> strings =
+                    isString ? resolveStringArray(lf.file, section, sectionIndex, lf.bytes, r, f, fields[f].raw)
+                             : std::vector<std::optional<std::string>>{};
+                bindFieldValues(stmt, bindIndex, fields[f], isFloat, strings);
                 bindIndex += static_cast<int>(fields[f].str ? 1 : fields[f].raw.size());
             }
             int rc = sqlite3_step(stmt);
