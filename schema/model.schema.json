@@ -1212,7 +1212,7 @@
                   "duration": {
                     "type": "number",
                     "minimum": 0,
-                    "description": "Sequence clips: length.",
+                    "description": "Sequence clips: length. Global sequence clips: the loop's length, the period its curves repeat with (the last keyframe can come before it).",
                     "x-unit": "second"
                   },
                   "move_speed": {
@@ -1356,6 +1356,26 @@
                   "sequence_index",
                   "sequence_kind",
                   "joints"
+                ]
+              }
+            },
+            "global_sequences": {
+              "type": "array",
+              "description": "The model's global sequences, by sequence_index: loops on their own timer that material, scene and effect curves with sequence_kind global_sequence play on. Absent when the model has none. A .skel model's joint clips index the .skel's table instead; each such clip carries its own duration.",
+              "items": {
+                "type": "object",
+                "description": "One global sequence.",
+                "properties": {
+                  "duration": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "The loop's length, the period its curves repeat with.",
+                    "x-unit": "second"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "duration"
                 ]
               }
             },

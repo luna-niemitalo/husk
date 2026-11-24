@@ -779,6 +779,16 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeSkeletonSection(w, model.skeleton, skeletonBin);
     w.key("animation");
     writeAnimationSection(w, model.skeleton, model.animations, animBin);
+    if (!model.globalSequenceDurations.empty()) {
+        w.key("global_sequences");
+        w.beginArray();
+        for (float duration : model.globalSequenceDurations) {
+            w.beginObject();
+            writeFloatField(w, "duration", duration);
+            w.endObject();
+        }
+        w.endArray();
+    }
     if (!model.correctionSets.empty()) {
         w.key("correction_sets");
         writeCorrectionSets(w, model.correctionSets);

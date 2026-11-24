@@ -517,6 +517,13 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   `blend_out`, and the raw `source{flags, variation_next}`
   (`variation_next` −1 = last variation). `M2Sequence` bounds and replay
   range are not written.
+- **Global sequences (0.4.0).** A `global_sequence` clip's `duration` is
+  its loop length (`M2Loop`), the period its curves repeat with; the last
+  keyframe can come before it. `resources.rig.global_sequences[i].duration`
+  is the model file's own loop table, which material, scene and effect
+  curves with `sequence_kind: global_sequence` index. A `.skel` model's
+  joint clips index the `.skel`'s table, so the clip's own `duration` is
+  the one to use for them.
 - **Material tracks.** Layer `tint`/`alpha_fade` and `uv_maps[].transform`:
   a constant tint, alpha, texture weight or UV transform is a one-key
   `step` curve; identity values stay absent; a constant weight of 0 is

@@ -378,6 +378,17 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     // track actually under test.
     fillTrack(m2, boneOff + 0x24, {0}, {identityQuatBytes()});
     fillTrack(m2, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+    // Four global loops (M2Loop, ms); the track's loop 3 lasts 2.5 s, longer
+    // than its last key (1 s): the period isn't the last keyframe.
+    uint32_t loopOff = static_cast<uint32_t>(m2.size());
+    uint32_t loopCount = 4;
+    std::memcpy(m2.data() + 0x014, &loopCount, 4);
+    std::memcpy(m2.data() + 0x018, &loopOff, 4);
+    for (uint32_t ms : {100u, 200u, 300u, 2500u}) {
+        size_t at = m2.size();
+        m2.resize(at + 4);
+        std::memcpy(m2.data() + at, &ms, 4);
+    }
 
     auto dir = defaultsDir("globalseq");
     writeFile(dir / "glow.m2", m2);
@@ -391,6 +402,14 @@ TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real g
     REQUIRE(clips.size() == 1);
     CHECK(clips[0]["sequence_kind"] == "global_sequence");
     CHECK(clips[0]["sequence_index"] == 3);
+    CHECK(clips[0]["duration"].get<double>() == doctest::Approx(2.5));
+    const nlohmann::json& loops = m["resources"]["rig"]["global_sequences"];
+    REQUIRE(loops.size() == 4);
+    CHECK(loops[0]["duration"].get<double>() == doctest::Approx(0.1));
+    CHECK(loops[3]["duration"].get<double>() == doctest::Approx(2.5));
+
+    fs::remove_all(dir);
+}
 
     fs::remove_all(dir);
 }

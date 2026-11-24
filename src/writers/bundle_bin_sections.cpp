@@ -433,6 +433,7 @@ void writeAnimationSection(json::Writer& w, const canon::Skeleton& skeleton,
             w.value(static_cast<int64_t>(info.variationNext));
             w.endObject();
         }
+        if (clip.loopDuration) writeFloatField(w, "duration", *clip.loopDuration);
 
         w.key("joints");
         w.beginArray();

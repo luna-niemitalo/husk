@@ -403,6 +403,7 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
         src.blob = skel::boneTrackBlob(skelBytes);
         if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
             src.sequences = skel::parseSequences(skelBytes);
+            src.globalLoops = skel::parseGlobalLoops(skelBytes);
         }
         src.attachments = skel::findAttachments(skelBytes);
         skelSequences = src.sequences;
