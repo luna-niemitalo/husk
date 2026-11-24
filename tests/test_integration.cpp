@@ -24,6 +24,7 @@
 #include <string>
 #include <tiny_gltf.h>
 
+#include "test_temp.hpp"
 #include "m2.hpp"
 #include "m2_shader_names.hpp"
 #include "run_husk.hpp"
@@ -53,7 +54,7 @@ using husk::test::testTexturesDir;
 // A fresh bundle directory under the temp dir; any previous run's output
 // is removed so a stale manifest can't satisfy a check.
 fs::path freshBundleDir(const std::string& name) {
-    fs::path dir = fs::temp_directory_path() / (name + ".bundle");
+    fs::path dir = husk::test::testRunDir() / (name + ".bundle");
     fs::remove_all(dir);
     return dir;
 }
@@ -212,7 +213,7 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a schema
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
     fs::path dir = freshBundleDir("husk-test-export");
-    auto glbPath = (fs::temp_directory_path() / "husk-test-export-lean.glb").string();
+    auto glbPath = (husk::test::testRunDir() / "husk-test-export-lean.glb").string();
     fs::remove(glbPath);
 
     auto result = runHusk("export \"" + m2Path + "\" -o \"" + dir.string() + "\" --skin \"" + testSkin() +

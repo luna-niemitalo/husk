@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string>
 
+#include "test_temp.hpp"
 #include "bundle_schema.hpp"
 #include "corpus_index.hpp"
 #include "creature_catalog_input.hpp"
@@ -34,7 +35,7 @@ bool haveRealCreatureTables() {
 }
 
 fs::path freshDir(const std::string& name) {
-    fs::path dir = fs::temp_directory_path() / ("husk-creatures-test-" + name);
+    fs::path dir = husk::test::testRunDir() / ("husk-creatures-test-" + name);
     fs::remove_all(dir);
     fs::create_directories(dir);
     return dir;

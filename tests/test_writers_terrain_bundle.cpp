@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 
+#include "test_temp.hpp"
 #include "bundle_schema.hpp"
 
 #include <cstring>
@@ -161,7 +162,7 @@ canon::Terrain sampleTerrain() {
 }
 
 fs::path freshDir(const std::string& name) {
-    fs::path dir = fs::temp_directory_path() / name;
+    fs::path dir = husk::test::testRunDir() / name;
     fs::remove_all(dir);
     return dir;
 }

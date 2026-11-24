@@ -15,6 +15,7 @@
 
 #include <sqlite3.h>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 #include "test_data_paths.hpp"
 
@@ -322,7 +323,7 @@ void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
 
 TEST_CASE("husk db2-export: synthetic WDC5 file, no --dbd-dir, writes real SQLite with generic "
           "field_<N> columns and the exact real values") {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export";
     fs::create_directories(dir);
     fs::path dbPath = dir / "test.db2";
     fs::path outPath = dir / "test.sqlite";
@@ -364,7 +365,7 @@ TEST_CASE("husk db2-export --dir: a 3rd stray positional after the output path i
           "not silently ignored") {
     // Checking only that one positional follows --dir is not enough: "db2-export --dir <dir>
     // <out> <extra>" must error, not export and drop "extra".
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-dir-extras";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-dir-extras";
     fs::create_directories(dir);
     fs::path dbPath = dir / "test.db2";
     fs::path outPath = dir / "test.sqlite";
@@ -384,7 +385,7 @@ TEST_CASE("husk db2-export --dir: a 3rd stray positional after the output path i
 
 TEST_CASE("husk db2-export: an unknown --dbd-dir table hash falls back to generic column names, "
           "doesn't fail") {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-nodbd";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-nodbd";
     fs::create_directories(dir);
     fs::path dbPath = dir / "test.db2";
     fs::path outPath = dir / "test.sqlite";
@@ -414,7 +415,7 @@ TEST_CASE("husk db2-export: an unknown --dbd-dir table hash falls back to generi
 // schema text.
 TEST_CASE("husk db2-export --dir: two related synthetic files export with a real FOREIGN KEY, "
           "joinable end to end") {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-dir";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-dir";
     fs::remove_all(dir);
     fs::path db2Dir = dir / "db2";
     fs::path dbdDir = dir / "dbd";
@@ -515,7 +516,7 @@ TEST_CASE("husk db2-export --dir: two related synthetic files export with a real
 // through, verified with a real JOIN, not just schema inspection.
 TEST_CASE("husk db2-export --dir: a $noninline,relation$ field gets a real column, value, and "
           "FOREIGN KEY, joinable end to end") {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-noninline-relation";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-noninline-relation";
     fs::remove_all(dir);
     fs::path db2Dir = dir / "db2";
     fs::path dbdDir = dir / "dbd";
@@ -626,7 +627,7 @@ TEST_CASE("husk db2-export --dir: real chrmodeltexturelayer.db2 -> charcomponent
                          !fs::exists("/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/chrmodeltexturelayer.db2") ||
                          !fs::exists(
                              "/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/charcomponenttexturelayouts.db2"))) {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-noninline-relation";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-real-noninline-relation";
     fs::remove_all(dir);
     fs::path db2Dir = dir / "db2";
     fs::create_directories(db2Dir);
@@ -697,7 +698,7 @@ TEST_CASE("husk db2-export --dir: real chrmodeltexturelayer.db2 -> charcomponent
 TEST_CASE(
     "husk db2-export: real scenescripttext.db2 offset-map section exports real Name/Script text" *
     doctest::skip(!fs::exists("/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/scenescripttext.db2"))) {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-offsetmap";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-real-offsetmap";
     fs::remove_all(dir);
     fs::create_directories(dir);
     fs::path outPath = dir / "out.sqlite";
@@ -744,7 +745,7 @@ TEST_CASE(
 TEST_CASE("husk db2-export: real liquidtype.db2 writes float arrays as floats and string arrays as text" *
           doctest::skip(husk::test::testDbdDir().empty() ||
                          !fs::exists("/media/luna/wow_export/live/dbfilesclient/liquidtype.db2"))) {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-liquidtype";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-real-liquidtype";
     fs::remove_all(dir);
     fs::create_directories(dir);
     fs::path outPath = dir / "out.sqlite";
@@ -795,7 +796,7 @@ TEST_CASE("husk db2-info --dbd-dir: real 12.1.5 spell.db2 sparse rows decode by 
 TEST_CASE("husk db2-export --dbd-dir: a float array (real 12.1.0 Light.GameCoords[3]) exports as REAL" *
           doctest::skip(husk::test::testDbdDir().empty() ||
                         !fs::exists("/media/luna/wow_export/builds/12.1.0.69933/dbfilesclient/light.db2"))) {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-float-array";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-float-array";
     fs::remove_all(dir);
     fs::create_directories(dir);
     fs::path outPath = dir / "out.sqlite";
@@ -842,7 +843,7 @@ TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
     // produces the documented fallback), and the underlying mechanism is
     // the same single `if (x == "none") x.clear();` line proven to matter
     // in the two sibling commands.
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-dbddir-none";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2export-dbddir-none";
     fs::remove_all(dir);
     fs::path dbdDir = dir / "dbd";
     fs::create_directories(dbdDir / "definitions");
@@ -889,7 +890,7 @@ TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
 // the argv grammar itself.
 
 TEST_CASE("husk db2-info: prints header/section/field info for a real synthetic file") {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2info";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2info";
     fs::create_directories(dir);
     fs::path dbPath = dir / "test.db2";
 
@@ -906,7 +907,7 @@ TEST_CASE("husk db2-info: prints header/section/field info for a real synthetic 
 }
 
 TEST_CASE("husk db2-info --rows: a non-numeric, non-'all' value fails cleanly") {
-    fs::path dir = fs::temp_directory_path() / "husk-test-db2info-badrows";
+    fs::path dir = husk::test::testRunDir() / "husk-test-db2info-badrows";
     fs::create_directories(dir);
     fs::path dbPath = dir / "test.db2";
 

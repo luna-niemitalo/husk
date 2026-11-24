@@ -16,13 +16,14 @@
 
 #include <doctest/doctest.h>
 
+#include "test_temp.hpp"
 #include "test_bundle_fixtures.hpp"
 #include "uuid.hpp"
 #include "writers/bundle_common.hpp"
 
 TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files exist") {
     canon::Model model = buildSyntheticModel();
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-basic";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-basic";
     fs::remove_all(dir);
 
     writers::writeBundle(model, dir, testProvenance());
@@ -47,7 +48,7 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
 
 TEST_CASE("writeBundle: every BufferSlice's byte range fits inside its named file") {
     canon::Model model = buildSyntheticModel();
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-slices";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-slices";
     fs::remove_all(dir);
 
     writers::writeBundle(model, dir, testProvenance());
@@ -83,7 +84,7 @@ TEST_CASE("writeBundle: every BufferSlice's byte range fits inside its named fil
 
 TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw file reads") {
     canon::Model model = buildSyntheticModel();
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-roundtrip";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-roundtrip";
     fs::remove_all(dir);
 
     writers::writeBundle(model, dir, testProvenance());
@@ -148,7 +149,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
 
 TEST_CASE("writeBundle: one uv set, no joints0/weights0 for an unskinned, single-UV-set model") {
     canon::Model model = buildSyntheticModel();
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-omissions";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-omissions";
     fs::remove_all(dir);
 
     writers::writeBundle(model, dir, testProvenance());
@@ -168,7 +169,7 @@ TEST_CASE("writeBundle: a second uv set and joints0/weights0 when the canon::Mes
     s.weights = {0.5f, 0.5f, 0.0f, 0.0f};
     model.mesh.skinning = {s, s, s};
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-skinned";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-skinned";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -186,7 +187,7 @@ TEST_CASE("writeBundle: a second uv set and joints0/weights0 when the canon::Mes
 
 TEST_CASE("writeBundle: sparse animation -- only joints with real curve data get an entry") {
     canon::Model model = buildSyntheticModel();
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-sparse-anim";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-sparse-anim";
     fs::remove_all(dir);
 
     writers::writeBundle(model, dir, testProvenance());
@@ -207,7 +208,7 @@ TEST_CASE("writeBundle: sparse animation -- only joints with real curve data get
 
 TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when there are liquids") {
     canon::Model model = buildSyntheticModel();
-    fs::path dry = fs::temp_directory_path() / "husk-test-bundle-no-liquid";
+    fs::path dry = husk::test::testRunDir() / "husk-test-bundle-no-liquid";
     fs::remove_all(dry);
     writers::writeBundle(model, dry, testProvenance());
     CHECK(parseManifest(dry)["resources"]["geometry"]["liquids"].empty());
@@ -227,7 +228,7 @@ TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when th
     l.tileExists = {1, 0};
     l.tileFlags = {0x44, 0x0F};
     model.liquids.push_back(l);
-    fs::path wet = fs::temp_directory_path() / "husk-test-bundle-liquid";
+    fs::path wet = husk::test::testRunDir() / "husk-test-bundle-liquid";
     fs::remove_all(wet);
     writers::writeBundle(model, wet, testProvenance());
     nlohmann::json manifest = parseManifest(wet);
@@ -249,7 +250,7 @@ TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when th
 
 TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitted without collision") {
     canon::Model model = buildSyntheticModel();
-    fs::path bare = fs::temp_directory_path() / "husk-test-bundle-no-collision";
+    fs::path bare = husk::test::testRunDir() / "husk-test-bundle-no-collision";
     fs::remove_all(bare);
     writers::writeBundle(model, bare, testProvenance());
     CHECK_FALSE(parseManifest(bare)["resources"]["geometry"].contains("collision"));
@@ -258,7 +259,7 @@ TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitte
     model.collision.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
     model.collision.indices = {0, 1, 2};
     model.collision.triangleNormals = {{0, 0, 1}};
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-collision";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-collision";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -274,7 +275,7 @@ TEST_CASE("writeBundle: attribute channels slice into mesh.bin with their domain
     canon::Model model = buildSyntheticModel();
     model.mesh.attributes = {{"wmo.poly_flags", canon::AttributeDomain::Face, 1, std::vector<uint16_t>{0x20, 0x48}},
                              {"test.rgb", canon::AttributeDomain::Vertex, 3, std::vector<float>{1, 2, 3, 4, 5, 6}}};
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-attributes";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-attributes";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -307,7 +308,7 @@ TEST_CASE("writeBundle: portals on the mesh, links on their parts") {
                                 {}, {{1, 1, -1}}});
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{1}, "room", canon::NameSource::WmoEmbedded}, 0, {}, {},
                                 {}, {{1, 0, 1}}});
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-portals";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-portals";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
@@ -338,7 +339,7 @@ TEST_CASE("writeBundle: surface types, materials' surface_type and the per-face 
     model.mesh.attributes.push_back({"surface_type", canon::AttributeDomain::Face, 1,
                                      std::vector<uint16_t>(model.mesh.indices.size() / 3, 1)});
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-surfaces";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-surfaces";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, writers::Provenance{"husk test", "wmo", {}});
     nlohmann::json manifest = parseManifest(dir);
@@ -372,7 +373,7 @@ TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set fil
     owned.set.instances.push_back(instance);
     model.placementSets.push_back(owned);
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-wmo";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-wmo";
     fs::remove_all(dir);
     fs::create_directories(dir / "models" / "7001.canon.bundle");
     std::ofstream(dir / "models" / "7001.canon.bundle" / "manifest.json") << "{}";
@@ -437,7 +438,7 @@ TEST_CASE(
     // itself broke.
     REQUIRE(model.materials.size() < model.mesh.primitives.size());
 
-    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-real-fixture";
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-real-fixture";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);

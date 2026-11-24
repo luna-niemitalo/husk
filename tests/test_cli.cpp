@@ -41,7 +41,7 @@ namespace fs = std::filesystem;
 // everything it reasonably can from what's already sitting next to the
 // model, rather than requiring every argument spelled out even when it's
 // exactly where the tool could have found it itself. Each fixture below
-// gets its own dedicated subdirectory (not the shared system temp root
+// gets its own dedicated subdirectory (not the run directory
 // tempPath() otherwise writes into) so directory-scan-based defaulting has
 // a clean, isolated view -- no risk of an unrelated file from a different
 // test case being picked up.

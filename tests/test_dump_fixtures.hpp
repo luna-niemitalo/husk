@@ -12,13 +12,14 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "test_temp.hpp"
 
 namespace {
 
 namespace fs = std::filesystem;
 
 fs::path tempPath(const std::string& name) {
-    return fs::temp_directory_path() / ("husk-dump-test-" + name);
+    return husk::test::testRunDir() / ("husk-dump-test-" + name);
 }
 
 void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {

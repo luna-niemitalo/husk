@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "test_temp.hpp"
 #include "../src/listfile.hpp"
 #include "../src/listfile_cache.hpp"
 
@@ -35,7 +36,7 @@ struct ScopedCacheDir {
     bool hadPrevious;
 
     explicit ScopedCacheDir(const std::string& name) {
-        dir = fs::temp_directory_path() /
+        dir = husk::test::testRunDir() /
               ("husk_test_listfile_cache_" + name + "_" +
                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         fs::remove_all(dir);
@@ -82,7 +83,7 @@ static_assert(sizeof(kContentA) == sizeof(kContentASameLength), "fixtures must s
 
 TEST_CASE("loadListfileCached: cold cache produces the same result loadListfile itself would") {
     ScopedCacheDir cacheDir("cold");
-    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_cold.csv", kContentA);
+    auto path = writeListfile(husk::test::testRunDir() / "husk_test_lfc_cold.csv", kContentA);
 
     auto direct = loadListfile(path.string());
     auto cached = loadListfileCached(path.string());
@@ -102,7 +103,7 @@ TEST_CASE("loadListfileCached: cold cache produces the same result loadListfile 
 
 TEST_CASE("loadListfileCached: a warm hit reads the persisted cache, not the source file's current bytes") {
     ScopedCacheDir cacheDir("warm");
-    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_warm.csv", kContentA);
+    auto path = writeListfile(husk::test::testRunDir() / "husk_test_lfc_warm.csv", kContentA);
 
     auto first = loadListfileCached(path.string());
     REQUIRE(*first->lookup(200859) == "world/goober/bubble.blp");
@@ -126,7 +127,7 @@ TEST_CASE("loadListfileCached: a warm hit reads the persisted cache, not the sou
 
 TEST_CASE("loadListfileCached: an expired tag file forces a rebuild even though the source is unchanged") {
     ScopedCacheDir cacheDir("tag-expiry");
-    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_expiry.csv", kContentA);
+    auto path = writeListfile(husk::test::testRunDir() / "husk_test_lfc_expiry.csv", kContentA);
 
     auto first = loadListfileCached(path.string());
     REQUIRE(*first->lookup(200859) == "world/goober/bubble.blp");
@@ -163,7 +164,7 @@ TEST_CASE("loadListfileCached: an expired tag file forces a rebuild even though 
 
 TEST_CASE("loadListfileCached: a changed source file forces a rebuild even though the tag is fresh") {
     ScopedCacheDir cacheDir("source-mismatch");
-    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_mismatch.csv", kContentA);
+    auto path = writeListfile(husk::test::testRunDir() / "husk_test_lfc_mismatch.csv", kContentA);
 
     auto first = loadListfileCached(path.string());
     REQUIRE(*first->lookup(200859) == "world/goober/bubble.blp");
@@ -182,9 +183,9 @@ TEST_CASE("loadListfileCached: a changed source file forces a rebuild even thoug
 
 TEST_CASE("loadListfileCached: a different --listfile path is also a source mismatch, not a false hit") {
     ScopedCacheDir cacheDir("different-path");
-    auto pathA = writeListfile(fs::temp_directory_path() / "husk_test_lfc_pathA.csv", kContentA);
+    auto pathA = writeListfile(husk::test::testRunDir() / "husk_test_lfc_pathA.csv", kContentA);
     auto pathB =
-        writeListfile(fs::temp_directory_path() / "husk_test_lfc_pathB.csv",
+        writeListfile(husk::test::testRunDir() / "husk_test_lfc_pathB.csv",
                       "555;some/other/file.blp\n");
 
     auto fromA = loadListfileCached(pathA.string());
@@ -214,7 +215,7 @@ TEST_CASE("listfileCacheDir: $HUSK_CACHE_DIR overrides the XDG default") {
 TEST_CASE("loadListfileCached: HUSK_LISTFILE_BACKEND=hash builds/loads the mmap hash-table format, "
           "byte-identical results to the default sorted backend") {
     ScopedCacheDir cacheDir("hash-backend");
-    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_hash.csv", kContentA);
+    auto path = writeListfile(husk::test::testRunDir() / "husk_test_lfc_hash.csv", kContentA);
 
     const char* oldBackend = std::getenv("HUSK_LISTFILE_BACKEND");
     std::string oldBackendStr = oldBackend ? oldBackend : "";
@@ -238,7 +239,7 @@ TEST_CASE("loadListfileCached: HUSK_LISTFILE_BACKEND=hash builds/loads the mmap 
 
 TEST_CASE("loadListfileCached: the sorted cache answers path -> FileDataID like a full pass, lowest id first") {
     ScopedCacheDir cacheDir("by-path");
-    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_by_path.csv",
+    auto path = writeListfile(husk::test::testRunDir() / "husk_test_lfc_by_path.csv",
                               "900;world/goober/bubble.blp\n"
                               "200859;world/goober/bubble.blp\n"
                               "1018799;character/human/male/deathknighteyeglow.blp\n"

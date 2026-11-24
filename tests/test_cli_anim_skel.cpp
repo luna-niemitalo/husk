@@ -21,6 +21,7 @@
 #include <limits>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 #include "test_bundle_read.hpp"
 #include "test_cli_fixtures.hpp"
@@ -162,7 +163,7 @@ TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence
     writeFile(skinPath, tinyMatchingSkin());
     auto skelPath = tempPath("skel-external-anim.skel");
     writeFile(skelPath, skel);
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-anim-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-skel-anim-dir";
     fs::create_directories(animDir);
     writeFile(animDir / "777.anim", tinyAnimFile());
     auto out = tempPath("skel-external-anim.bundle");
@@ -222,7 +223,7 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
     writeFile(skinPath, tinyMatchingSkin());
     auto skelPath = tempPath("skel-afsb-anim.skel");
     writeFile(skelPath, skel);
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-afsb-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-skel-afsb-dir";
     fs::create_directories(animDir);
     std::vector<uint8_t> afsbFile;
     appendChunkTo(afsbFile, "AFSB", tinyAnimFile());  // real [timestamp][Vec3] payload
@@ -282,7 +283,7 @@ TEST_CASE("husk export: a .skel external sequence's --anim <dir> file with BOTH 
     writeFile(skinPath, tinyMatchingSkin());
     auto skelPath = tempPath("skel-afm2-stub-afsb-anim.skel");
     writeFile(skelPath, skel);
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-afm2-stub-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-skel-afm2-stub-dir";
     fs::create_directories(animDir);
     std::vector<uint8_t> mixedFile;
     appendChunkTo(mixedFile, "AFM2", {0, 0, 0, 0});    // tiny stub, not real track data
@@ -329,7 +330,7 @@ TEST_CASE("husk export: a .skel external sequence's chunked --anim <dir> file wi
     writeFile(skinPath, tinyMatchingSkin());
     auto skelPath = tempPath("skel-neither-afm2-afsb.skel");
     writeFile(skelPath, skel);
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-neither-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-skel-neither-dir";
     fs::create_directories(animDir);
     std::vector<uint8_t> unknownFile;
     appendChunkTo(unknownFile, "ZZZZ", {1, 2, 3, 4});  // some future chunk shape, not AFM2/AFSB
@@ -649,7 +650,7 @@ TEST_CASE("husk export: --anim inline skips external-directory resolution entire
     writeFile(m2Path, file);
     auto skinPath = tempPath("anim-inline-ignores-external.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-inline-dir";
+    auto animDir = husk::test::testRunDir() / "husk-cli-test-anim-inline-dir";
     fs::create_directories(animDir);
     writeFile(animDir / "777.anim", tinyAnimFile());
     auto out = tempPath("anim-inline-ignores-external.bundle");

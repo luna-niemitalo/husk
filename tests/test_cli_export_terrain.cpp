@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 
+#include "test_temp.hpp"
 #include "bundle_schema.hpp"
 #include "test_data_paths.hpp"
 
@@ -80,7 +81,7 @@ struct Corpus {
 };
 
 Corpus makeCorpus(const std::string& name) {
-    Corpus c{fs::temp_directory_path() / ("husk-cli-terrain-" + name)};
+    Corpus c{husk::test::testRunDir() / ("husk-cli-terrain-" + name)};
     fs::remove_all(c.root);
 
     writeBytes(c.mapDir() / "azeroth.wdt", wdtFile(0x4));
@@ -161,7 +162,7 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
 
 TEST_CASE("husk export-terrain: a real tile's _lod.adt bands become terrain levels 1..4, finest first" *
           doctest::skip(!fs::exists(fs::path(husk::test::testAdtTile()).replace_filename("azeroth_32_49_lod.adt")))) {
-    fs::path out = fs::temp_directory_path() / "husk_terrain_lod" / "out.bundle";
+    fs::path out = husk::test::testRunDir() / "husk_terrain_lod" / "out.bundle";
     fs::remove_all(out);
     auto r = runHusk("export-terrain --config /dev/null " + q(husk::test::testAdtTile()) + " " + q(out));
     INFO(r.output);
@@ -618,7 +619,7 @@ std::string liveDb2Args() { return " --db2-dir " + q(kLiveDb2Dir) + " --dbd-dir 
 }  // namespace
 
 TEST_CASE("husk export-map: live moltencore names its Map row, kind and area" * doctest::skip(!haveLiveMap("moltencore"))) {
-    fs::path out = fs::temp_directory_path() / "husk-test-live-moltencore.world.bundle";
+    fs::path out = husk::test::testRunDir() / "husk-test-live-moltencore.world.bundle";
     fs::remove_all(out);
     auto r = runHusk("export-map " + q(fs::path(kLiveMaps) / "moltencore") + " " + q(out) + " --listfile none" +
                      liveDb2Args());
@@ -638,7 +639,7 @@ TEST_CASE("husk export-map: live moltencore names its Map row, kind and area" * 
 TEST_CASE("husk export-wmo: live Northshire Abbey's parts name the abbey under both its name sets" *
           doctest::skip(!haveLiveMap("deadminesinstance") ||
                         !fs::exists("/media/luna/wow_export/live/world/wmo/azeroth/buildings/nsabbey/nsabbey.wmo"))) {
-    fs::path out = fs::temp_directory_path() / "husk-test-live-nsabbey.bundle";
+    fs::path out = husk::test::testRunDir() / "husk-test-live-nsabbey.bundle";
     fs::remove_all(out);
     auto r = runHusk("export-wmo /media/luna/wow_export/live/world/wmo/azeroth/buildings/nsabbey/nsabbey.wmo " + q(out) +
                      " --listfile none" + liveDb2Args());
@@ -664,7 +665,7 @@ TEST_CASE("husk export-wmo: live Northshire Abbey's parts name the abbey under b
 }
 
 TEST_CASE("husk export-terrain: a live tile names its map"* doctest::skip(!haveLiveMap("deadminesinstance"))) {
-    fs::path out = fs::temp_directory_path() / "husk-test-live-deadmines_32_32.bundle";
+    fs::path out = husk::test::testRunDir() / "husk-test-live-deadmines_32_32.bundle";
     fs::remove_all(out);
     auto r = runHusk("export-terrain " + q(fs::path(kLiveMaps) / "deadminesinstance" / "deadminesinstance_32_32.adt") +
                      " " + q(out) + " --listfile none" + liveDb2Args());

@@ -9,6 +9,7 @@
 #include <fstream>
 #include <unordered_map>
 
+#include "test_temp.hpp"
 #include "../src/listfile_index.hpp"
 #include "../src/sources/texture_catalog.hpp"
 
@@ -34,7 +35,7 @@ void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
 }  // namespace
 
 TEST_CASE("sources::resolveLiteralTextureBytes hits when <texturesDir>/<fdid>.png exists") {
-    auto dir = fs::temp_directory_path() / "husk-texture-catalog-test-hit";
+    auto dir = husk::test::testRunDir() / "husk-texture-catalog-test-hit";
     fs::create_directories(dir);
     std::vector<uint8_t> pngBytes = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xAB};
     writeFile(dir / "424242.png", pngBytes);
@@ -47,7 +48,7 @@ TEST_CASE("sources::resolveLiteralTextureBytes hits when <texturesDir>/<fdid>.pn
 }
 
 TEST_CASE("sources::resolveLiteralTextureBytes misses (with a reason) when neither .png nor .blp exists") {
-    auto dir = fs::temp_directory_path() / "husk-texture-catalog-test-miss";
+    auto dir = husk::test::testRunDir() / "husk-texture-catalog-test-miss";
     fs::create_directories(dir);
 
     auto r = resolveLiteralTextureBytes(999999, dir.string(), "");
@@ -64,7 +65,7 @@ TEST_CASE("sources::resolveLiteralTextureBytes misses when texturesDir is empty"
 }
 
 TEST_CASE("sources::resolveListfileTextureBytes hits when the listfile names a real, present file") {
-    auto root = fs::temp_directory_path() / "husk-texture-catalog-test-listfile-hit";
+    auto root = husk::test::testRunDir() / "husk-texture-catalog-test-listfile-hit";
     fs::create_directories(root / "world" / "goober");
     std::vector<uint8_t> pngBytes = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
     writeFile(root / "world" / "goober" / "bubble.png", pngBytes);
@@ -88,7 +89,7 @@ TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the 
 }
 
 TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the listfile row's file doesn't exist") {
-    auto root = fs::temp_directory_path() / "husk-texture-catalog-test-listfile-dangling";
+    auto root = husk::test::testRunDir() / "husk-texture-catalog-test-listfile-dangling";
     fs::create_directories(root);
     std::unordered_map<uint32_t, std::string> listfile{{7, "world/nope.blp"}};
     husk::MapListfileIndex listfileIndex(listfile);
@@ -99,7 +100,7 @@ TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the 
 }
 
 TEST_CASE("sources::resolveClaimedFuzzyPoolTextureBytes hits when the claimed path is a real, readable file") {
-    auto dir = fs::temp_directory_path() / "husk-texture-catalog-test-fuzzy-hit";
+    auto dir = husk::test::testRunDir() / "husk-texture-catalog-test-fuzzy-hit";
     fs::create_directories(dir);
     std::vector<uint8_t> pngBytes = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xEF};
     auto claimed = dir / "bloodelffemale_skin_color_3500123.png";
@@ -114,7 +115,7 @@ TEST_CASE("sources::resolveClaimedFuzzyPoolTextureBytes hits when the claimed pa
 }
 
 TEST_CASE("sources::resolveClaimedFuzzyPoolTextureBytes misses (with a reason) when the claimed path can't be read") {
-    auto dir = fs::temp_directory_path() / "husk-texture-catalog-test-fuzzy-miss";
+    auto dir = husk::test::testRunDir() / "husk-texture-catalog-test-fuzzy-miss";
     fs::create_directories(dir);
     auto claimed = dir / "does_not_exist.png";  // claimSoleFuzzyTextureCandidate already popped this from the
                                                   // pool by the time this is called -- it just isn't on disk.

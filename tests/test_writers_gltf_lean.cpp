@@ -17,6 +17,7 @@
 #include <tiny_gltf.h>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "canon_model.hpp"
 #include "m2_canon_input.hpp"
 #include "m2.hpp"
@@ -98,7 +99,7 @@ std::string readGlbJsonChunk(const std::string& path) {
 TEST_CASE("writeLeanGlb: synthetic model -- node/skin/primitive/accessor counts, axis-converted "
           "positions round-trip") {
     canon::Model model = buildSyntheticModel();
-    auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-synthetic.glb";
+    auto outPath = husk::test::testRunDir() / "husk-test-lean-synthetic.glb";
     std::filesystem::remove(outPath);
 
     writers::writeLeanGlb(model, outPath);
@@ -146,7 +147,7 @@ TEST_CASE("writeLeanGlb: synthetic model -- node/skin/primitive/accessor counts,
 
 TEST_CASE("writeLeanGlb: synthetic model -- no extras object anywhere in the output JSON") {
     canon::Model model = buildSyntheticModel();
-    auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-no-extras.glb";
+    auto outPath = husk::test::testRunDir() / "husk-test-lean-no-extras.glb";
     std::filesystem::remove(outPath);
 
     writers::writeLeanGlb(model, outPath);
@@ -160,7 +161,7 @@ TEST_CASE("writeLeanGlb: synthetic model -- no extras object anywhere in the out
 TEST_CASE("writeLeanGlb: synthetic model -- joint hierarchy, bind translations, and material "
           "alphaMode") {
     canon::Model model = buildSyntheticModel();
-    auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-hierarchy.glb";
+    auto outPath = husk::test::testRunDir() / "husk-test-lean-hierarchy.glb";
     std::filesystem::remove(outPath);
 
     writers::writeLeanGlb(model, outPath);
@@ -221,7 +222,7 @@ TEST_CASE("writeLeanGlb: a Resolved TextureRef carrying a real payload embeds a 
     ref.payload = payload;
     model.materials[0].layers[0].texture = ref;
 
-    auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-texture-payload.glb";
+    auto outPath = husk::test::testRunDir() / "husk-test-lean-texture-payload.glb";
     std::filesystem::remove(outPath);
     writers::writeLeanGlb(model, outPath);
 
@@ -256,7 +257,7 @@ TEST_CASE("writeLeanGlb: a Resolved TextureRef carrying a real payload embeds a 
     refNoPayload.resolved.name = "test_texture";
     modelNoPayload.materials[0].layers[0].texture = refNoPayload;
 
-    auto outPath2 = std::filesystem::temp_directory_path() / "husk-test-lean-texture-no-payload.glb";
+    auto outPath2 = husk::test::testRunDir() / "husk-test-lean-texture-no-payload.glb";
     std::filesystem::remove(outPath2);
     writers::writeLeanGlb(modelNoPayload, outPath2);
 
@@ -281,7 +282,7 @@ TEST_CASE("writeLeanGlb: a real fixture produces a glb the Khronos glTF-Validato
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices);
 
-    auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-validator.glb";
+    auto outPath = husk::test::testRunDir() / "husk-test-lean-validator.glb";
     std::filesystem::remove(outPath);
     writers::writeLeanGlb(canonModel, outPath);
 
@@ -321,7 +322,7 @@ TEST_CASE("writeLeanGlb: Blender's own glTF importer reads a real fixture's lean
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices);
 
-    auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-blender.glb";
+    auto outPath = husk::test::testRunDir() / "husk-test-lean-blender.glb";
     std::filesystem::remove(outPath);
     writers::writeLeanGlb(canonModel, outPath);
 
@@ -355,7 +356,7 @@ TEST_CASE("writeLeanGlb: a material's framebuffer blend sets alphaMode (Opaque -
     auto alphaModeWith = [](canon::FramebufferBlend blend) {
         canon::Model model = buildSyntheticModel();
         model.materials[0].framebufferBlend = blend;
-        auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-framebuffer-blend.glb";
+        auto outPath = husk::test::testRunDir() / "husk-test-lean-framebuffer-blend.glb";
         std::filesystem::remove(outPath);
         writers::writeLeanGlb(model, outPath);
         tinygltf::TinyGLTF loader;

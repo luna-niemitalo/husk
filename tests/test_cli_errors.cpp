@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <vector>
 
+#include "test_temp.hpp"
 #include "run_husk.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
@@ -36,7 +37,7 @@ using husk::test::runHusk;
 namespace fs = std::filesystem;
 
 TEST_CASE("husk info: directory as path fails cleanly, not a crash") {
-    auto result = runHusk("info " + fs::temp_directory_path().string());
+    auto result = runHusk("info " + husk::test::testRunDir().string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("husk: couldn't read") != std::string::npos);
     CHECK(result.output.find("terminate called") == std::string::npos);
