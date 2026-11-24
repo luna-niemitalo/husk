@@ -216,6 +216,20 @@ Either way the hem is separate geometry, so:
 5. Masks authored in the Blender addon (`{authored: …}`) remain possible,
    for a body model whose footprint turns out wrong.
 
+**Worked example: transmog set 3540 (Luna, 2026-11-24).** A garment is the
+body geometry it switches on plus the textures it samples; the hem mesh
+moves from the legs item to the tunic.
+
+| Garment | Geometry it switches on | Textures it samples |
+|---|---|---|
+| Tunic | sleeves 803, torso 2202, hem 1102 | the chest item's arm and torso sections (ArmUpper, ArmLower, TorsoUpper, TorsoLower); the legs item's `LegUpper` inside 1102's footprint |
+| Leggings | thighs (trouser geometry other than the hem; 1102 is not switched on) | the legs item's `LegUpper`/`LegLower`, whole, as the source draws them |
+
+The breeches' source item still produces both pieces (`source_items` lists
+both garments for it), so wearing the WoW item reproduces the client look.
+Wearing the leggings alone gives trousers with no hem, and wearing the tunic
+over other leggings gives the hem in the tunic's own paint.
+
 **Not hems:** the body's group-13 meshes 1302/1303 are robe skirts (a robe
 hides the thighs), and 1301 is a thigh variant. 1104/1105 (knee length) are
 not yet looked at.
