@@ -378,6 +378,23 @@ struct ExportAppearancesOptions {
 };
 void addExportAppearancesOptions(CLI::App& app, ExportAppearancesOptions& opts);
 
+// `uv-footprint` -- a body model's geosets rasterized in UV space onto its
+// composite skin texture (cmd_uv_footprint.cpp, garment_footprint.hpp).
+struct UvFootprintOptions {
+    std::string model;
+    uint32_t layoutId = 0;
+    std::vector<uint16_t> geosets;
+    std::vector<unsigned> groups;
+    std::string db2Dir;
+    std::string dbdDir;
+    std::string listfileRoot;
+    std::string pngDir;
+    std::string texture;
+    uint32_t textureSection = 0;
+};
+void addUvFootprintOptions(CLI::App& app, UvFootprintOptions& opts);
+int uvFootprint(int argc, char** args);
+
 struct MountOptions {
     std::string mountpoint;
     std::string store;

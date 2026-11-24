@@ -252,6 +252,8 @@ add_library(husk-lib STATIC
   src/writers/creatures_writer.cpp
   src/cmd_export_creatures.cpp
   src/cmd_export_appearances.cpp
+  src/garment_footprint.cpp
+  src/cmd_uv_footprint.cpp
 )
 target_include_directories(husk-lib PUBLIC src)
 target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11 SQLite::SQLite3
@@ -320,6 +322,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_animation_fallbacks.cpp
     tests/test_writers_terrain_bundle.cpp
     tests/test_skin.cpp
+    tests/test_garment_footprint.cpp
     tests/test_skel.cpp
     tests/test_bone.cpp
     tests/test_phys.cpp

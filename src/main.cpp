@@ -365,6 +365,7 @@ struct AllSubcommandOpts {
     husk::commands::ExportCreaturesOptions exportCreaturesOpts;
     husk::commands::ExportAppearancesOptions exportAppearancesOpts;
     husk::commands::SnapshotOptions snapshotOpts;
+    husk::commands::UvFootprintOptions uvFootprintOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -456,6 +457,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
 
     CLI::App* mountSub = root.add_subcommand("mount", "browse the canonical store as a read-only filesystem");
     husk::commands::addMountOptions(*mountSub, opts.mountOpts);
+
+    CLI::App* uvFootprintSub =
+        root.add_subcommand("uv-footprint", "rasterize a body model's geosets onto its composite skin texture");
+    husk::commands::addUvFootprintOptions(*uvFootprintSub, opts.uvFootprintOpts);
 }
 
 std::string generateCompletionScript(const std::string& shell) {
@@ -647,6 +652,8 @@ int main(int argc, char** argv) {
         "  index-tree <tree>            (re)build an export tree's index/ lookup tables\n"
         "  export-creatures <tree>      write an export tree's creature catalog (creatures.json)\n"
         "  export-appearances <tree>    move a tree's appearance lists into one shared appearances.json\n"
+        "  uv-footprint <body.m2> --layout-id N [--group G]... [--png-dir D]\n"
+        "                               a body model's geoset footprints on its composite skin texture\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -728,6 +735,9 @@ int main(int argc, char** argv) {
     }
     if (command == "mount") {
         return husk::commands::mount(restArgc, rest);
+    }
+    if (command == "uv-footprint") {
+        return husk::commands::uvFootprint(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;
