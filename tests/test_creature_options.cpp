@@ -200,6 +200,39 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     CHECK(model.presets[1].unresolved[0].field == "BakeMaterialResourcesID");
 }
 
+TEST_CASE("addCreatureOptions: equal choice sets in any row order are one body; a different choice is another") {
+    creaturedisplay::Data data;
+    data.modelDataByFile[kModelFile] = {{1, 1.0f, false}};
+    std::vector<creaturedisplay::Display> displays;
+    for (uint32_t extra : {77u, 78u, 79u}) {
+        creaturedisplay::Display d = display(extra - 67, {});
+        d.extra = extra;
+        displays.push_back(d);
+        data.extras[extra] = {0, 0};
+    }
+    data.displaysByModelData[1] = displays;
+    // 12.1.5 humanfemale_hd has extras like these: the same choices listed
+    // in different CreatureDisplayInfoOption row orders.
+    data.customizationByExtra[77] = {{3, 30}, {4, 40}};
+    data.customizationByExtra[78] = {{4, 40}, {3, 30}};
+    data.customizationByExtra[79] = {{3, 30}, {4, 41}};
+    data.itemsByExtra[78] = {{9000, 0}};
+    data.chrModelsByFile[kModelFile] = {5};
+    data.customization.options = {{3, 5, "Hair", 0, 0}, {4, 5, "Face", 1, 0}};
+    data.customization.choices = {{30, 3, "", 0, std::nullopt}, {40, 4, "", 0, std::nullopt},
+                                  {41, 4, "", 1, std::nullopt}};
+
+    canon::Model model = modelWithGeosets({0});
+    creatureinput::OptionsReport report;
+    creatureinput::addCreatureOptions(data, kModelFile, model, textureNamed, report);
+    REQUIRE(model.presets.size() == 3);
+    REQUIRE(model.appearances.size() == 2);
+    CHECK(model.presets[0].appearance == model.presets[1].appearance);
+    CHECK(model.presets[2].appearance != model.presets[0].appearance);
+    CHECK(model.appearances[0].key == "c30;c40;");
+    CHECK(model.appearances[1].key == "c30;c41;");
+}
+
 TEST_CASE("addCreatureOptions: a model whose displays pick geosets shows 0, 900+ and the picked ones") {
     creaturedisplay::Data data;
     data.modelDataByFile[kModelFile] = {{1, 1.0f, true}};

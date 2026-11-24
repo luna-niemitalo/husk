@@ -297,5 +297,16 @@ TEST_CASE("husk export --appearance: 'cust' entries become the customization pic
     CHECK(body["unresolved"]["fields"][0]["value"] == 404);
     CHECK_FALSE(preset.contains("unresolved"));
 
+    // The same choices in another order are the same body (an NPC listing
+    // them shares it too).
+    auto reordered = dir / "reordered.bundle";
+    auto again = runHusk("export " + (dir / "gearcust.m2").string() + " -o " + reordered.string() +
+                         " --appearance \"husk-appearance/1 cust=404,9,8\"" + tables.flags() + " --listfile " +
+                         (dir / "listfile.csv").string());
+    INFO(again.output);
+    REQUIRE(again.exitCode == 0);
+    nlohmann::json m2 = parseManifest(reordered);
+    CHECK(appearanceOf(m2, appearancePreset(m2)) == body);
+
     fs::remove_all(dir);
 }

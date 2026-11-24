@@ -480,10 +480,13 @@ void addAppearancePreset(const BundleSidecars& sidecars, canon::Model& model, Te
         }
         optionBase += static_cast<uint32_t>(definition.options.size());
     }
-    // The body key is creature_options_input.cpp's, so an NPC with the same
-    // choices shares the appearance.
+    // The body key is creature_options_input.cpp's (choices by row), so an
+    // NPC with the same choices shares the appearance, whatever order the
+    // appearance string lists them in.
     canon::Appearance body;
-    for (uint32_t choiceId : sidecars.appearanceChoiceIds) {
+    std::vector<uint32_t> choiceIds = sidecars.appearanceChoiceIds;
+    std::sort(choiceIds.begin(), choiceIds.end());
+    for (uint32_t choiceId : choiceIds) {
         body.key += "c" + std::to_string(choiceId) + ";";
         auto pick = pickByChoice.find(choiceId);
         if (pick == pickByChoice.end()) {

@@ -95,7 +95,9 @@ struct ChoiceCorrectionSet {
 
 // A body a preset points at (REFACTOR/BUNDLE_FORMAT.md "Appearances"):
 // the choices that make it, without what it wears. `key`: the source
-// values that make it, in source order; with the model's identity it is
+// values that make it (customization choices by row id, then texture
+// FileDataIDs by display slot, geosets, particle colour, alpha); with the
+// model's identity it is
 // the appearance's stable id, and equal keys are one appearance.
 struct Appearance {
     std::string key;
