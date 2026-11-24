@@ -20,6 +20,7 @@
 #include <CLI/CLI.hpp>
 #include <sqlite3.h>
 
+#include "anim_names.hpp"
 #include "animationdata_db2.hpp"
 #include "appearance_string.hpp"
 #include "canon_item_builder.hpp"
@@ -434,6 +435,14 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "case where a single directory happens to serve both roles. 'none' explicitly "
                     "opts out even when --config/$HUSK_CONFIG supplies a value")
         ->group("Game data");
+    app.add_option("--anim-names", opts.animNamesArg,
+                   "a local wow.export checkout (github.com/Kruithne/wow.export): names sequence clips by "
+                   "AnimationData id from its src/js/3D/AnimMapper.js list (name_source 'community'), for "
+                   "clients whose AnimationData has no Name column (12.x); a client name from --db2-dir wins. "
+                   "Read in place, never fetched by husk; provenance source 'animation names' records the "
+                   "file and commit. Unset (default) leaves those clips unnamed. 'none' opts out even when "
+                   "--config/$HUSK_CONFIG supplies a value")
+        ->group("Game data");
 }
 
 // Who wears --appearance gear: its race and sex when given; otherwise the
@@ -824,6 +833,11 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                 sidecars.animationNames = animationdata::toNameMap(*animData);
                 sidecars.animationFallbacks = animationdata::nonzeroFallbacks(*animData);
             }
+        }
+        if (app.count("--anim-names") && opts.animNamesArg != "none") {
+            animnames::Table animNames = animnames::load(opts.animNamesArg);
+            sidecars.communityAnimationNames = std::move(animNames.names);
+            sidecars.communityAnimationNamesDetail = std::move(animNames.detail);
         }
         sidecars.listfile = &listfile;
         sidecars.bonesDir = bonesDir;

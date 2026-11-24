@@ -138,6 +138,10 @@ changes:
   model they dress. Each model and texture is the file for the wearer's
   race and sex (ComponentModelFileData / ComponentTextureFileData); an
   unpicked texture is `known_unresolved` with the reason.
+- **`name_source` gains `community`.** A closed enum (a 0.3 schema, a
+  switch without a default) rejects it. It marks a name from a
+  community-maintained table outside the client, today only clip names
+  (below); treat it like `listfile`: decoration that may be wrong.
 
 Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Creature catalog, a new document kind.** `husk export-creatures`
@@ -176,6 +180,12 @@ Additions (a 0.3 reader that ignores unknown keys loses nothing):
 - **Animation fallbacks.** `resources.rig.animation_fallbacks`:
   `[animation, fallback]` pairs from AnimationData, written with
   `--db2-dir`; follow them when a model has no clip for an animation.
+- **Clip names on 12.x.** With `--anim-names <wow.export checkout>` (also
+  on `export-world`, `export-corpus`, `snapshot`), a clip's `animation`
+  ref is named from wow.export's list (`name_source: community`) where the
+  client has no name; a client name (`db2`) wins. Provenance source
+  `animation names` records repo, file and commit. Match clips by
+  `animation.id.row`, never by name.
 
 Output changes, not format changes: `db2-export` writes float arrays as
 numbers and String/LocString arrays as text (they were raw bits and

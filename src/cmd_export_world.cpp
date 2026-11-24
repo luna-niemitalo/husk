@@ -57,6 +57,9 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
                    "options, or 'none'")
         ->group("Resolution");
     app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--anim-names", opts.animNames,
+                   "wow.export checkout naming the model bundles' clips (export's --anim-names), or 'none'")
+        ->group("Resolution");
     app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
     app.add_flag("--skip-models", opts.skipModels,
                  "don't export model bundles (pass 2); placements link only to bundles already under "
@@ -417,6 +420,7 @@ int exportWorld(int argc, char** args) {
             addExportOptions(modelApp, modelOpts);
             std::vector<std::string> modelArgs = {"--listfile", opts.listfile, "--listfile-root",
                                                   opts.listfileRoot, "--db2-dir", "none", "--dbd-dir", "none",
+                                                  "--anim-names", opts.animNames.empty() ? "none" : opts.animNames,
                                                   "--config", "/dev/null"};
             std::vector<char*> argv;
             for (std::string& a : modelArgs) argv.push_back(a.data());

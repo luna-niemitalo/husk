@@ -24,11 +24,18 @@ translation, rotation, scale, each `times` + `values` + `interpolation`).
   animation's identity, the same id in every model: 0 Stand, 1 Death,
   4 Walk, 5 Run, 13 WalkBackwards, 37-40 JumpStart/Jump/JumpEnd/Fall,
   41/42 SwimIdle/Swim (wowdev.wiki `M2/AnimationList`).
-- The ref carries no `name` from current clients: `AnimationData.db2` has no
-  `Name` column since layout `BBF66A3C` (12.x: `ID`, `Fallback`,
-  `BehaviorTier`, `BehaviorID`, `Flags[2]`). husk names a clip only when the
-  table it reads has that column (pre-12 layouts). A consumer maps ids to
-  names with its own table.
+- The ref's `name` has two sources, told apart by `name_source`:
+  - `db2`: the client's own `AnimationData.Name`, when the table read has
+    that column (pre-12 layouts). Since layout `BBF66A3C` (12.x: `ID`,
+    `Fallback`, `BehaviorTier`, `BehaviorID`, `Flags[2]`) it has none.
+  - `community`: wow.export's index-based list
+    (`src/js/3D/AnimMapper.js`, itself from wow.tools.local's `anims.js`),
+    read from a local checkout given as `--anim-names`. Used for ids the
+    client table doesn't name; a client name always wins. Provenance
+    source `animation names` records the checkout's file and commit. The
+    list lags new client ids (2026-11: 1776 names, 12.1.5 has 1866 rows);
+    a clip past its end stays unnamed.
+  Without either, the clip carries only its id.
 - `variation` is the sequence's `variationIndex` (the "sub-animation id"):
   one animation can have several clips (stand variations, idle fidgets).
   `frequency` is each variation's play weight; `source.variation_next` links
@@ -93,6 +100,7 @@ shares the one skeleton and the one clip list; LOD changes geometry only.
 
 `export-world`'s model pass runs with `--db2-dir none` and the default
 `--anim auto`. Clips, external `.anim` sequences included, arrive as in a
-single `export`. Clip names don't, but with a 12.x corpus a single `export`
-writes no names either. `animation_fallbacks` is the one difference: it
-needs AnimationData, which this pass doesn't read.
+single `export`. Client clip names don't (a 12.x client has none);
+`--anim-names`, given to `export-world`, `export-corpus` or `snapshot`, is
+passed through, so community names do. `animation_fallbacks` is the one
+difference: it needs AnimationData, which this pass doesn't read.

@@ -133,6 +133,26 @@ void writeAnimationDataTables(const fs::path& db2Dir, const fs::path& dbdDir, co
               buildAnimationDataDb2(0x61616161, 0x62626262, {{100, name100}, {999, "Walk"}}));
 }
 
+// A wow.export checkout with only AnimMapper.js: id 100 is `name100`, the
+// rest empty entries; HEAD names a fixed commit.
+void writeAnimNamesCheckout(const fs::path& checkout, const char* name100) {
+    fs::create_directories(checkout / "src" / "js" / "3D");
+    fs::create_directories(checkout / ".git");
+    std::string list = "const ANIM_NAMES = [\n";
+    for (int id = 0; id < 100; ++id) list += "\t\"\",\n";
+    list += std::string("\t\"") + name100 + "\"\n];\n";
+    writeTextFile(checkout / "src" / "js" / "3D" / "AnimMapper.js", list);
+    writeTextFile(checkout / ".git" / "HEAD", std::string(40, 'c') + "\n");
+}
+
+const nlohmann::json& animationNamesSource(const nlohmann::json& manifest) {
+    for (const nlohmann::json& source : manifest["provenance"]["sources"]) {
+        if (source["name"] == "animation names") return source;
+    }
+    FAIL("no 'animation names' provenance source");
+    return manifest;
+}
+
 const nlohmann::json& onlySequenceClip(const nlohmann::json& manifest) {
     const nlohmann::json& clips = manifest["resources"]["rig"]["animation"];
     REQUIRE(clips.size() == 1);
@@ -201,6 +221,74 @@ TEST_CASE("husk export: a sequence clip carries its M2Sequence facts -- variatio
     CHECK(clip["move_speed"] == 0.0);
     CHECK(clip["blend_in"] == 0.0);
     CHECK(clip["source"]["flags"] == "0x20");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --anim-names names a clip from the community list, name_source community, with provenance") {
+    auto dir = defaultsDir("animnamescommunity");
+    writeFile(dir / "animnamescommunity.m2", tinyAnimatedM2());
+    writeFile(dir / "animnamescommunity00.skin", tinyMatchingSkin());
+    writeAnimNamesCheckout(dir / "wow.export", "Stand");
+
+    auto result = runHusk("export " + (dir / "animnamescommunity.m2").string() + " --skin " +
+                           (dir / "animnamescommunity00.skin").string() + " --anim-names " +
+                           (dir / "wow.export").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+
+    nlohmann::json manifest = parseManifest(dir / "animnamescommunity.bundle");
+    const nlohmann::json& animation = onlySequenceClip(manifest)["animation"];
+    CHECK(animation["id"]["row"] == 100);
+    CHECK(animation["name"] == "Stand");
+    CHECK(animation["name_source"] == "community");
+    const nlohmann::json& source = animationNamesSource(manifest);
+    CHECK(source["available"] == true);
+    CHECK(source["detail"].get<std::string>().find("src/js/3D/AnimMapper.js at " + std::string(40, 'c')) !=
+          std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a client AnimationData name wins over --anim-names") {
+    auto dir = defaultsDir("animnamesclientwins");
+    writeFile(dir / "animnamesclientwins.m2", tinyAnimatedM2());
+    writeFile(dir / "animnamesclientwins00.skin", tinyMatchingSkin());
+    writeAnimationDataTables(dir / "db2", dir / "dbd", "Stand");
+    writeAnimNamesCheckout(dir / "wow.export", "CommunityStand");
+
+    auto result = runHusk("export " + (dir / "animnamesclientwins.m2").string() + " --skin " +
+                           (dir / "animnamesclientwins00.skin").string() + " --db2-dir " + (dir / "db2").string() +
+                           " --dbd-dir " + (dir / "dbd").string() + " --anim-names " + (dir / "wow.export").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+
+    nlohmann::json manifest = parseManifest(dir / "animnamesclientwins.bundle");
+    const nlohmann::json& animation = onlySequenceClip(manifest)["animation"];
+    CHECK(animation["name"] == "Stand");
+    CHECK(animation["name_source"] == "db2");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --anim-names none, and a checkout without the list fails the export") {
+    auto dir = defaultsDir("animnamesnone");
+    writeFile(dir / "animnamesnone.m2", tinyAnimatedM2());
+    writeFile(dir / "animnamesnone00.skin", tinyMatchingSkin());
+    std::string base = "export " + (dir / "animnamesnone.m2").string() + " --skin " +
+                       (dir / "animnamesnone00.skin").string();
+
+    auto none = runHusk(base + " --anim-names none");
+    INFO(none.output);
+    REQUIRE(none.exitCode == 0);
+    nlohmann::json manifest = parseManifest(dir / "animnamesnone.bundle");
+    CHECK_FALSE(onlySequenceClip(manifest)["animation"].contains("name"));
+    CHECK(animationNamesSource(manifest)["available"] == false);
+
+    fs::create_directories(dir / "empty");
+    auto missing = runHusk(base + " --anim-names " + (dir / "empty").string());
+    CHECK(missing.exitCode != 0);
+    CHECK(missing.output.find("expected a wow.export checkout") != std::string::npos);
 
     fs::remove_all(dir);
 }

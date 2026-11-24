@@ -27,6 +27,7 @@ std::string nameSourceName(canon::NameSource source) {
         case canon::NameSource::WmoEmbedded: return "wmo_embedded";
         case canon::NameSource::Listfile: return "listfile";
         case canon::NameSource::Db2: return "db2";
+        case canon::NameSource::Community: return "community";
         case canon::NameSource::Synthesized: return "synthesized";
         case canon::NameSource::None: return "none";
     }

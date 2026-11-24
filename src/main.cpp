@@ -83,6 +83,9 @@ std::string join(const std::vector<std::string>& parts, const std::string& sep) 
 // both --config wiring and an optional (non-required) flag, so 'none' is
 // real there too (DESIGN.md's "Three-state resolution, not two").
 bool noneOptOutSupported(const std::string& subName, const std::string& longName) {
+    if (longName == "--anim-names") {
+        return subName == "export" || subName == "export-world" || subName == "export-corpus" || subName == "snapshot";
+    }
     if (subName == "export") {
         return longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile" ||
                longName == "--listfile-root";
@@ -110,7 +113,8 @@ std::string bashValueCompletion(const std::string& longName, const std::string& 
         return "COMPREPLY=($(compgen -W \"auto inline none\" -- \"$cur\")); compopt -o "
                "filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root";
+    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root" ||
+                   longName == "--anim-names";
     bool fileFlag = longName == "--listfile";
     bool noneOk = noneOptOutSupported(subName, longName);
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" ||
@@ -226,7 +230,8 @@ const std::vector<ZshHelper>& zshHelpers() {
 std::string zshValueAction(const std::string& longName, const std::string& subName) {
     if (longName == "--skin") return "_husk_skin_value";
     if (longName == "--anim") return "_husk_anim_value";
-    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root";
+    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root" ||
+                   longName == "--anim-names";
     bool fileFlag = longName == "--listfile";
     bool noneOk = noneOptOutSupported(subName, longName);
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" || (dirFlag && noneOk))
@@ -261,6 +266,7 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--customization-choice-ids") return "comma-separated ChrCustomizationChoiceID(s)";
     if (longName == "--listfile") return "community-listfile.csv snapshot, for FileDataID names";
     if (longName == "--listfile-root") return "corpus root the listfile paths are relative to";
+    if (longName == "--anim-names") return "wow.export checkout, for clip names, or none";
     if (longName == "--json") return "print structured JSON instead of prose";
     if (longName == "--help") return "print help and exit";
     return longName;

@@ -81,11 +81,16 @@ are the same text.
   (`REFACTOR/BUNDLE_FORMAT.md`). `--customization-choice-ids`,
   `--chr-model-id` and `--char-layout-id` only steer which character
   textures the texture slots resolve to.
+- **Clip names** come from AnimationData's `Name` column where the client
+  has one (pre-12; `name_source: db2`), else from a local wow.export
+  checkout's community list (`--anim-names`, `name_source: community`).
+  12.x AnimationData has no names, so without `--anim-names` its clips
+  carry only their AnimationData id.
 
 ### Config file
 
 TOML defaults for per-machine flags (`dbd-dir`, `db2-dir`, `listfile`,
-`listfile-root`, `textures`, `store`, ...). Lookup: `--config <path>` →
+`listfile-root`, `anim-names`, `textures`, `store`, ...). Lookup: `--config <path>` →
 `$HUSK_CONFIG` → `$XDG_CONFIG_HOME/husk/config.toml` (else
 `~/.config/husk/config.toml`); no file is not an error. An explicit flag
 beats config, config beats the built-in default; `none` opts a configured
@@ -96,7 +101,13 @@ dbd-dir = "/home/luna/dev/husk/reference/WoWDBDefs"
 db2-dir = "/media/luna/wow_export/live/dbfilesclient"
 listfile = "/home/luna/dev/husk/development/listfiles"
 listfile-root = "/media/luna/wow_export/live"
+anim-names = "/home/luna/dev/husk/reference/wow.export"
 ```
+
+`reference/` (gitignored) holds the community checkouts husk reads in
+place and never commits: `WoWDBDefs` (`git clone
+https://github.com/wowdev/WoWDBDefs`) for `--dbd-dir`, `wow.export` (`git
+clone https://github.com/Kruithne/wow.export`) for `--anim-names`.
 
 `--listfile` (flag or config) may name a directory: husk then uses its
 alphabetically last `*.csv`. Keep dated snapshots in the gitignored
@@ -296,6 +307,7 @@ when a table drifts.
 | `--knowledge-db` | -- | husk's own pre-built knowledge-base SQLite database (`husk db2-build`, TODO/TEXTURE_POOL_RECALL_TODO.md) -- when given, resolves this model's own object-skin texture automatically (via the database's own model->texture mapping, keyed by the model's FileDataID under --listfile-root), instead of requiring --object-skin-texture-id per invocation; --object-skin-texture-id still wins if both are given | unset |
 | `--listfile` | -- | a local community-listfile.csv-style snapshot (FileDataID;path per line, github.com/wowdev/wow-listfile) -- last-resort fallback when a FileDataID-named texture slot isn't found as '<FileDataID>.{blp,png}' next to --textures: looks up its real name and tries '<listfile-root>/<real-path>' instead, before falling back to the same-basename fuzzy pool. Optional; unset (default) skips this tier entirely, same as every other opt-in sidecar -- never fetched by husk itself, same tier as --dbd-dir's WoWDBDefs checkout. 'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value | unset |
 | `--listfile-root` | -- | the corpus root --listfile's paths are relative to -- deliberately separate from --textures, since --textures also drives the *directory-local* embedded-filename/same-basename matching tried first, and a real corpus root is typically many directories away from any one model. Only meaningful alongside --listfile; ignored otherwise. Default: --textures itself, for the case where a single directory happens to serve both roles. 'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value | unset |
+| `--anim-names` | -- | a local wow.export checkout (github.com/Kruithne/wow.export): names sequence clips by AnimationData id from its src/js/3D/AnimMapper.js list (name_source 'community'), for clients whose AnimationData has no Name column (12.x); a client name from --db2-dir wins. Read in place, never fetched by husk; provenance source 'animation names' records the file and commit. Unset (default) leaves those clips unnamed. 'none' opts out even when --config/$HUSK_CONFIG supplies a value | unset |
 
 <!-- END GENERATED FLAG TABLE: export -->
 
@@ -328,6 +340,7 @@ when a table drifts.
 | `--listfile-root` | -- | directory the listfile's paths are relative to | -- (required) |
 | `--db2-dir` | -- | DB2 directory for ground cover, surfaces, liquids, zone lights, volume conditions and creature options, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
+| `--anim-names` | -- | wow.export checkout naming the model bundles' clips (export's --anim-names), or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--skip-models` | -- | don't export model bundles (pass 2); placements link only to bundles already under <output>/models/ | unset |
 | `--all-assets` | -- | also export every M2 and root WMO the listfile names, placed or not (export-corpus) | unset |
@@ -347,6 +360,7 @@ when a table drifts.
 | `--listfile-root` | -- | directory the listfile's paths are relative to | -- (required) |
 | `--db2-dir` | -- | DB2 directory, or 'none' | unset |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
+| `--anim-names` | -- | wow.export checkout naming model clips, or 'none' | unset |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--store` | -- | record the tree as a build in this store, or 'none'; each output is linked into the store as it is written, so only new content takes space | unset |
 | `--game` | -- | the game build the tree was exported from, e.g. 12.1.0.69933 | unset |
@@ -388,6 +402,7 @@ when a table drifts.
 | `--listfile-root` | -- | the source mount's tag link to snapshot, e.g. /media/luna/wow_export/live: the build it names is exported | -- (required) |
 | `--listfile` | -- | community listfile CSV | -- (required) |
 | `--dbd-dir` | -- | WoWDBDefs definitions directory, or 'none' | unset |
+| `--anim-names` | -- | wow.export checkout naming model clips, or 'none' | unset |
 | `--store` | -- | the canonical store directory | -- (required) |
 | `--jobs` | -- | worker threads (default: hardware threads) | unset |
 | `--tag` | -- | the tag to point at the snapshot | `live` |

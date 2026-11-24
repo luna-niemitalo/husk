@@ -46,6 +46,10 @@ struct BundleSidecars {
     bool noAnimation = false;  // --anim none: drop every clip
     // AnimationData id -> Name, for naming sequence clips; empty = none known.
     std::unordered_map<uint32_t, std::string> animationNames;
+    // --anim-names: the community list, for ids animationNames lacks; its
+    // detail is the bundle's "animation names" provenance source.
+    std::unordered_map<uint32_t, std::string> communityAnimationNames;
+    std::string communityAnimationNamesDetail;  // empty = not given
     std::vector<std::pair<uint32_t, uint32_t>> animationFallbacks;  // animationdata::nonzeroFallbacks
 };
 

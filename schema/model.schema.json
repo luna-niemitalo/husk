@@ -1264,7 +1264,7 @@
                   },
                   "animation": {
                     "$ref": "common.schema.json#/definitions/ref",
-                    "description": "Sequence clips: which animation this is, an AnimationData row (Stand, Walk, ...); named when the AnimationData table has a name."
+                    "description": "Sequence clips: which animation this is, an AnimationData row (Stand, Walk, ...). Named from the AnimationData table's Name column (name_source db2, pre-12 clients) when it has one, else from a community list (name_source community, export --anim-names) when given."
                   },
                   "variation": {
                     "type": "integer",

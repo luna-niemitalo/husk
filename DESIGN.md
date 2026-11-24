@@ -523,7 +523,7 @@ no filesystem):
 - `none`: no clips at all; the skin and bind pose are unaffected.
 - `<dir>`: external search there, inline + global on top.
 
-### `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`: no `auto`, and why
+### `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`/`--anim-names`: no `auto`, and why
 
 **`auto` is honest only when the input says where the thing is.**
 `SFID`/`SKID`/`AFID`/`BFID` name what to look for; nothing in an `.m2`
@@ -541,6 +541,12 @@ with a real config). Before it, tests had to blank the whole config
   `--appearance`'s gear).
 - `--listfile none`: no listfile tier. `--listfile-root none`: clears a
   configured root.
+- `--anim-names none`: no community clip names. Like `--dbd-dir`, it names
+  a local checkout of a community repo (wow.export), read in place:
+  community data is never committed to this repo, so the gitignored
+  `reference/` holds the checkouts and the flag points there. It has
+  `none` on `export`, `export-world`, `export-corpus` and `snapshot`, which
+  forward it to the model pass.
 
 Where `none` exists: all four on `export` and `export-terrain`;
 `--listfile`/`--listfile-root` on `resolve`; `--dbd-dir` on `db2-export`;
@@ -568,7 +574,7 @@ both. The rest, checked:
 ### Config-file defaults for `export`
 
 Per-machine constants (`dbd-dir`, `db2-dir`, `listfile`, `listfile-root`,
-`textures`, `store`, ...) come from TOML.
+`anim-names`, `textures`, `store`, ...) come from TOML.
 
 - **CLI11's `App::set_config`, not a config parser**: TOML keys map onto
   the same option registrations, so config values get the same `->check()`

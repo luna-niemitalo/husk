@@ -216,6 +216,7 @@ add_library(husk-lib STATIC
   src/read_file.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
+  src/anim_names.cpp
   src/cmd_db2.cpp
   src/cmd_db2_build.cpp
   src/cmd_blp.cpp
@@ -365,6 +366,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_skin.cpp
     tests/test_cli_anim.cpp
     tests/test_cli_animationdata.cpp
+    tests/test_anim_names.cpp
     tests/test_cli_anim_skel.cpp
     tests/test_cli_skel.cpp
     tests/test_cli_phys.cpp
@@ -404,6 +406,8 @@ if(HUSK_BUILD_TESTS)
     # per-model WoW extraction fixture, hence its own separate macro rather
     # than routing through test_data_paths.hpp's test_data/-relative resolve().
     HUSK_TEST_DBD_DIR="${CMAKE_CURRENT_SOURCE_DIR}/reference/WoWDBDefs"
+    # Same, for the reference/wow.export checkout --anim-names reads.
+    HUSK_TEST_WOW_EXPORT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/reference/wow.export"
     # tests/test_cli_flag_docs.cpp's drift check: README.md's generated flag
     # table (between the BEGIN/END GENERATED FLAG TABLE markers) must match
     # `husk --print-flag-docs=<subcommand>`'s live output byte-for-byte.
