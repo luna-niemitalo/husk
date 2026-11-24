@@ -13,6 +13,7 @@
 #include "writers/texture_store.hpp"
 #include "m2.hpp"
 #include "m2_material_input.hpp"  // m2input::TextureResolutions
+#include "m2_sidecar_input.hpp"   // m2input::PhysicsInput
 #include "skin.hpp"
 #include "sources/catalog.hpp"
 
@@ -33,7 +34,7 @@ m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, cons
 
 // What a model bundle takes beyond the M2 itself, resolved by the caller.
 struct BundleSidecars {
-    std::string physPath;  // the .phys to read; empty = none
+    m2input::PhysicsInput physics;  // m2input::resolvePhysics; also the bundle's "phys" provenance source
     std::string bonesDir;  // tried first for '<fdid>.bone'; the listfile/store follow
     const ListfileIndex* listfile = nullptr;
     // --appearance: its customization choices and gear become one preset.

@@ -79,6 +79,116 @@ TEST_CASE("husk export: --phys <path> resolves an explicitly-named .phys file, n
     fs::remove_all(dir);
 }
 
+namespace {
+
+// `chunkedM2WithSfid(tinyValidM2(), {})` plus one more chunk.
+std::vector<uint8_t> chunkedM2With(const char* tag, const std::vector<uint8_t>& payload) {
+    auto b = chunkedM2WithSfid(tinyValidM2(), {});
+    putTag(b, tag);
+    putU32(b, static_cast<uint32_t>(payload.size()));
+    b.insert(b.end(), payload.begin(), payload.end());
+    return b;
+}
+
+std::vector<uint8_t> u32Bytes(uint32_t v) {
+    std::vector<uint8_t> b;
+    putU32(b, v);
+    return b;
+}
+
+const nlohmann::json* physSource(const nlohmann::json& manifest) {
+    for (const nlohmann::json& s : manifest["provenance"]["sources"]) {
+        if (s["name"] == "phys") return &s;
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+TEST_CASE("husk export: the model's PFDC chunk (an inline .phys, padded) is its physics, before a "
+          "same-basename .phys") {
+    auto dir = defaultsDir("physpfdc");
+    auto pfdc = buildPhysFile(0, 0.5f, 0, 0);
+    pfdc.insert(pfdc.end(), {0, 0, 0, 0});  // PFDC's alignment padding
+    writeFile(dir / "physpfdc.m2", chunkedM2With("PFDC", pfdc));
+    writeFile(dir / "physpfdc00.skin", tinyMatchingSkin());
+    writeFile(dir / "physpfdc.skel", boneCorrectionSkel());
+    writeFile(dir / "physpfdc.phys", buildPhysFile(5, 0, 0, 0));  // would fail: bone 5 doesn't exist
+
+    auto result = runHusk("export " + (dir / "physpfdc.m2").string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "physpfdc.bundle");
+    REQUIRE(m["resources"].contains("physics"));
+    CHECK(m["resources"]["physics"]["bodies"].size() == 1);
+    const nlohmann::json* source = physSource(m);
+    REQUIRE(source != nullptr);
+    CHECK((*source)["available"] == true);
+    CHECK((*source)["detail"] == "PFDC chunk");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: an explicit --phys wins over the model's PFDC") {
+    auto dir = defaultsDir("physpfdcexplicit");
+    writeFile(dir / "m.m2", chunkedM2With("PFDC", buildPhysFile(5, 0, 0, 0)));  // would fail
+    writeFile(dir / "m00.skin", tinyMatchingSkin());
+    writeFile(dir / "m.skel", boneCorrectionSkel());
+    auto physPath = dir / "chosen.phys";
+    writeFile(physPath, buildPhysFile(0, 1, 2, 3));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --phys " + physPath.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(dir / "m.bundle");
+    CHECK(m["resources"]["physics"]["bodies"].size() == 1);
+    CHECK((*physSource(m))["detail"] == "--phys " + physPath.string());
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a PFID FileDataID is read from --listfile-root's _by_fdid/") {
+    auto root = defaultsDir("physpfid");
+    fs::create_directories(root / "item");
+    fs::create_directories(root / "_by_fdid");
+    writeFile(root / "item" / "m.m2", chunkedM2With("PFID", u32Bytes(4242)));
+    writeFile(root / "item" / "m00.skin", tinyMatchingSkin());
+    writeFile(root / "item" / "m.skel", boneCorrectionSkel());
+    writeFile(root / "_by_fdid" / "4242", buildPhysFile(0, 0, 0, 1));
+
+    auto bundle = root / "out.bundle";
+    auto result = runHusk("export " + (root / "item" / "m.m2").string() + " --listfile-root " + root.string() +
+                          " -o " + bundle.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(bundle);
+    CHECK(m["resources"]["physics"]["bodies"].size() == 1);
+    std::string detail = (*physSource(m))["detail"];
+    CHECK(detail.rfind("PFID 4242: ", 0) == 0);
+    CHECK(detail.find("_by_fdid/4242") != std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("husk export: a PFID not found locally leaves physics out and marks the source unavailable") {
+    auto root = defaultsDir("physpfidmissing");
+    fs::create_directories(root / "item");
+    writeFile(root / "item" / "m.m2", chunkedM2With("PFID", u32Bytes(4243)));
+    writeFile(root / "item" / "m00.skin", tinyMatchingSkin());
+    writeFile(root / "item" / "m.skel", boneCorrectionSkel());
+
+    auto bundle = root / "out.bundle";
+    auto result = runHusk("export " + (root / "item" / "m.m2").string() + " --listfile-root " + root.string() +
+                          " -o " + bundle.string());
+    INFO(result.output);
+    REQUIRE(result.exitCode == 0);
+    nlohmann::json m = parseManifest(bundle);
+    CHECK_FALSE(m["resources"].contains("physics"));
+    CHECK((*physSource(m))["available"] == false);
+    CHECK((*physSource(m))["detail"] == "PFID 4243 not found locally");
+
+    fs::remove_all(root);
+}
 TEST_CASE("husk export: a .phys body referencing a bone index out of range for the model's "
           "skeleton fails the export with a clear message, naming the offending file/index") {
     auto m2Path = tempPath("phys-oor.m2");

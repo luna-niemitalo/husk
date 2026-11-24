@@ -667,7 +667,8 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const Provenance& provenance,
-                 const AssetUris& assetUris, const AssetUris& textureUris) {
+                 const AssetUris& assetUris, const AssetUris& textureUris,
+                 const std::vector<Provenance::Source>& manifestSources) {
     std::error_code ec;
     std::filesystem::create_directories(bundleDir, ec);
     if (ec) {
@@ -689,7 +690,9 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     json::Writer w(manifestStream);
 
     w.beginObject();
-    writeContractHeader(w, "model", model.subject, provenance);
+    Provenance manifestProvenance = provenance;
+    manifestProvenance.sources.insert(manifestProvenance.sources.end(), manifestSources.begin(), manifestSources.end());
+    writeContractHeader(w, "model", model.subject, manifestProvenance);
 
     // Owned placement sets are the model's first references, so set i is
     // reference i.

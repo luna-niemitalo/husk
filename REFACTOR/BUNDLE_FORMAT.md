@@ -491,11 +491,18 @@ in the preset's `unresolved`. Skip or flag them; never guess them.
   model is the first of its `ModelResourcesID` files whatever race or
   sex it is for (`ComponentModelFileData` isn't read), and a second model
   (`ModelResourcesID[1]`, the right shoulder) isn't read.
-- **Physics.** `resources.physics`: the `.phys` beside the model (or
-  `--phys`) as `bodies` (joint, position, shape indices), `shapes`
-  (capsule and polytope geometry; box and sphere layouts unverified, so
-  under `source`) and `joints` (kind, bodies, the kind's record under
-  `source`: its angle unit isn't established).
+- **Physics.** `resources.physics`: the model's physics as `bodies`
+  (joint, position, shape indices), `shapes` (capsule and polytope
+  geometry; box and sphere layouts unverified, so under `source`) and
+  `joints` (kind, bodies, the kind's record under `source`: its angle unit
+  isn't established). Read from, first hit wins (0.4.0): `--phys`, the
+  model's `PFDC` chunk (an inline `.phys`; where 12.x keeps nearly all of
+  it), the `PFID` FileDataID (store `_by_fdid`, then the listfile path),
+  a same-basename `.phys` beside the model. The manifest's provenance
+  source `phys` says which (`detail`: `PFDC chunk`, `PFID <fdid>: <path>`,
+  `--phys <path>`, `beside the model: <path>`); `available: false` when a
+  `PFID` wasn't found locally or `--phys none` was given, so absent physics
+  is unknown rather than "has none".
 - **Bone corrections.** `resources.rig.correction_sets`: each `.bone`
   file the model or `.skel` names (`<bones-dir>/<fdid>.bone`, else the
   listfile/store), a 4x4 matrix per corrected joint. A customization
