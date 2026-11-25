@@ -101,20 +101,29 @@
               },
               "surface": {
                 "type": "object",
-                "description": "The tissue's closed, outward-facing triangle surface at rest.",
+                "description": "The tissue's closed, outward-facing polygon surface at rest, faces in the authoring tool's own order so per-face results land on its faces by index. A quad list, not strips: strip order can't keep that face order, and a GPU strip layout is the consumer's to build.",
                 "properties": {
                   "positions": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
                     "description": "Vertex positions, f32 x 3 per vertex, metres, in the base model's rest frame."
                   },
-                  "triangles": {
+                  "face_sizes": {
                     "$ref": "common.schema.json#/definitions/buffer_slice",
-                    "description": "Triangles, u32 x 3 per triangle, indices into positions, counter-clockwise seen from outside."
+                    "description": "Corners per face, u8 x 1 per face, at least 3; the skin's at least 4 (no triangles: the skin is the quad base mesh that Multires and the quad GPU path work on)."
+                  },
+                  "face_vertices": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Every face's corners in face order, u32 x 1 per corner, indices into positions, counter-clockwise seen from outside; a face's corners start where the previous faces' sizes sum to."
+                  },
+                  "edges": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "The surface's edges, u32 x 2 per edge (two indices into positions), in the authoring tool's own edge order, which faces can't reproduce; required on the skin, whose per-edge stretch results are over it."
                   }
                 },
                 "required": [
                   "positions",
-                  "triangles"
+                  "face_sizes",
+                  "face_vertices"
                 ],
                 "additionalProperties": false
               },

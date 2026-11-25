@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://husk.invalid/schema/anatomy_result.schema.json",
   "title": "anatomy_result",
-  "description": "What one solver run solved: per pose, the skin on its fixed topology and the skin's strain, with the body parameter set, the poses and the solver that produced them. Written by the solver, read by the bake (REFACTOR/ANATOMY_EXCHANGE.md). It carries its own poses and body values, since a solver adds poses no run lists (adaptive sampling) and a result must state what it is the skin of.",
+  "description": "What one solver run solved: per pose, the skin on its fixed topology and the skin's stretch along its edges and face diagonals, with the body parameter set, the poses and the solver that produced them. Written by the solver, read by the bake (REFACTOR/ANATOMY_EXCHANGE.md). It carries its own poses and body values, since a solver adds poses no run lists (adaptive sampling) and a result must state what it is the skin of.",
   "x-status": "implemented",
   "type": "object",
   "properties": {
@@ -58,7 +58,7 @@
         },
         "skin": {
           "type": "object",
-          "description": "The skin tissue the per-vertex and per-triangle arrays are over: the referenced anatomy's one skin tissue, in its order. validate-bundle checks it against the anatomy.",
+          "description": "The skin tissue the per-vertex, per-edge and per-diagonal arrays are over: the referenced anatomy's one skin tissue, in its order. Its counts are the anatomy's, stated here so a reader holding only the result can size its arrays; validate-bundle checks them against the anatomy.",
           "properties": {
             "tissue": {
               "$ref": "common.schema.json#/definitions/key",
@@ -69,16 +69,22 @@
               "minimum": 0,
               "description": "Its vertex count."
             },
-            "triangle_count": {
+            "edge_count": {
               "type": "integer",
               "minimum": 0,
-              "description": "Its triangle count."
+              "description": "Its edge count."
+            },
+            "diagonal_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Its faces' diagonals in all: n (n - 3) / 2 per face of n corners, 2 per quad."
             }
           },
           "required": [
             "tissue",
             "vertex_count",
-            "triangle_count"
+            "edge_count",
+            "diagonal_count"
           ],
           "additionalProperties": false
         }
@@ -222,9 +228,13 @@
             "$ref": "common.schema.json#/definitions/buffer_slice",
             "description": "The posed skin, f32 x 3 per skin vertex, metres, in the anatomy's vertex order."
           },
-          "strain": {
+          "edge_stretch": {
             "$ref": "common.schema.json#/definitions/buffer_slice",
-            "description": "Strain per skin triangle, f32 x 5: the principal stretches l1 >= l2 of the triangle's in-plane deformation from rest (ratios, 1 = rest, below 1 compression), then l1's direction as a unit vector in the triangle's rest plane, rest frame. Rest frame, not UV: the anatomy has no UVs, and a UV-space consumer maps the direction through its own UV Jacobian."
+            "description": "Stretch per skin edge, f32 x 1, in the anatomy's edge order: posed length / rest length (1 = rest, below 1 compression). Measured on edges and diagonals rather than at a face centre, so no face is split and no diagonal is picked; strain follows by the edge_metric_strain rule (REFACTOR/ANATOMY_EXCHANGE.md)."
+          },
+          "diagonal_stretch": {
+            "$ref": "common.schema.json#/definitions/buffer_slice",
+            "description": "Stretch per face diagonal, f32 x 1: face by face, each face's diagonals in corner-pair order (corners i < j not adjacent, i ascending, then j; a quad's are 0-2, then 1-3); posed length / rest length."
           },
           "fit_error": {
             "$ref": "common.schema.json#/definitions/buffer_slice",
@@ -238,7 +248,8 @@
           "converged",
           "iterations",
           "skin_positions",
-          "strain"
+          "edge_stretch",
+          "diagonal_stretch"
         ],
         "additionalProperties": false
       }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <set>
@@ -46,10 +47,11 @@ using Fail = std::function<void(const std::string& pointer, const std::string& m
 
 // What an anatomy-family document needs beyond its schema
 // (REFACTOR/ANATOMY_EXCHANGE.md "What validate-bundle checks"), the schema
-// already holding. `referenced` is each reference's validated document,
-// null when unreadable; `idChecked` are the arrays whose ids the x-id-in
-// walk has already checked for uniqueness.
-void checkAnatomyFamily(const std::string& kind, const json& document, const std::vector<const json*>& referenced,
-                        const std::set<std::string>& idChecked, const Fail& fail);
+// already holding. `file` is the document's path (payloads are read beside
+// it); `referenced` is each reference's validated document, null when
+// unreadable; `idChecked` are the arrays whose ids the x-id-in walk has
+// already checked for uniqueness.
+void checkAnatomyFamily(const std::string& kind, const std::filesystem::path& file, const json& document,
+                        const std::vector<const json*>& referenced, const std::set<std::string>& idChecked, const Fail& fail);
 
 }  // namespace husk::bundle_schema::internal

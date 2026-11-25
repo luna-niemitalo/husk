@@ -27,26 +27,45 @@ std::string header(const std::string& kind) {
 }
 
 std::string slice(const char* file, size_t offset, const char* type, int components, size_t count) {
-    size_t size = std::string(type) == "f32" || std::string(type) == "u32" ? 4 : 1;
+    size_t size = std::string(type) == "u8" ? 1 : 4;
     return R"({"file": ")" + std::string(file) + R"(", "byte_offset": )" + std::to_string(offset) + R"(, "byte_length": )" +
            std::to_string(count * components * size) + R"(, "component_type": ")" + type + R"(", "component_count": )" +
            std::to_string(components) + R"(, "count": )" + std::to_string(count) + "}";
 }
 
-// A tetrahedron of skin over a tetrahedron of muscle, one attachment, one
-// ligament, two parameters. anatomy.bin: skin positions and triangles,
-// muscle positions, triangles and fibres, attachment vertices.
+// anatomy.bin: a cube of skin (8 vertices, 6 quads, 12 edges) over a
+// tetrahedron of muscle (4 vertices, 4 triangles), one attachment vertex.
+constexpr size_t kSkinSizes = 96;     // u8 x 6
+constexpr size_t kMuscleSizes = 344;  // u8 x 4
+constexpr size_t kAnatomyBytes = 448;
+
+std::string anatomyBin() {
+    std::string bytes(kAnatomyBytes, '\0');
+    std::fill_n(bytes.begin() + kSkinSizes, 6, '\4');
+    std::fill_n(bytes.begin() + kMuscleSizes, 4, '\3');
+    return bytes;
+}
+
+std::string skinSurface() {
+    return R"({"positions": )" + slice("anatomy.bin", 0, "f32", 3, 8) + R"(, "face_sizes": )" + slice("anatomy.bin", kSkinSizes, "u8", 1, 6) +
+           R"(, "face_vertices": )" + slice("anatomy.bin", 104, "u32", 1, 24) + R"(, "edges": )" + slice("anatomy.bin", 200, "u32", 2, 12) + "}";
+}
+
+std::string muscleSurface() {
+    return R"({"positions": )" + slice("anatomy.bin", 296, "f32", 3, 4) + R"(, "face_sizes": )" + slice("anatomy.bin", kMuscleSizes, "u8", 1, 4) +
+           R"(, "face_vertices": )" + slice("anatomy.bin", 348, "u32", 1, 12) + "}";
+}
+
 std::string anatomyDocument() {
     return "{" + header("anatomy") + R"(
   "definition": {
     "base_model": {"model": {"uri": "base.xml", "media_type": "model/vnd.mujoco.mjcf+xml"},
                    "name": "MS-Human-700", "revision": "test", "licence": "Apache-2.0"},
     "tissues": [
-      {"id": "skin", "layer": "skin", "surface": {"positions": )" + slice("anatomy.bin", 0, "f32", 3, 4) +
-           R"(, "triangles": )" + slice("anatomy.bin", 48, "u32", 3, 4) + R"(}},
-      {"id": "glmax", "layer": "muscle", "base_muscle": "glmax1_r", "surface": {"positions": )" + slice("anatomy.bin", 96, "f32", 3, 4) +
-           R"(, "triangles": )" + slice("anatomy.bin", 144, "u32", 3, 4) + R"(}, "fibre_directions": )" + slice("anatomy.bin", 192, "f32", 3, 4) + R"(}],
-    "attachments": [{"id": "glmax_origin", "tissue": "glmax", "body": "pelvis", "vertices": )" + slice("anatomy.bin", 240, "u32", 1, 1) + R"(}],
+      {"id": "skin", "layer": "skin", "surface": )" + skinSurface() + R"(},
+      {"id": "glmax", "layer": "muscle", "base_muscle": "glmax1_r", "surface": )" + muscleSurface() +
+           R"(, "fibre_directions": )" + slice("anatomy.bin", 396, "f32", 3, 4) + R"(}],
+    "attachments": [{"id": "glmax_origin", "tissue": "glmax", "body": "pelvis", "vertices": )" + slice("anatomy.bin", 444, "u32", 1, 1) + R"(}],
     "rods": [{"id": "sacrotuberous", "role": "ligament",
               "ends": [{"body": "sacrum", "point": [0, 0, 0.01]}, {"tissue": "glmax", "vertex": 2}], "via": []}],
     "parameters": [
@@ -70,19 +89,19 @@ std::string runDocument() {
 })";
 }
 
-// result.bin: one pose's skin positions, strain and fit error.
+// result.bin: one pose's skin positions, edge and diagonal stretch, fit error.
 std::string resultDocument() {
     return "{" + header("anatomy_result") + R"(
   "definition": {"coordinates": [{"id": "hip_flexion_r", "unit": "radian"}, {"id": "tail_slide", "unit": "metre"}],
-                 "skin": {"tissue": "skin", "vertex_count": 4, "triangle_count": 4}},
+                 "skin": {"tissue": "skin", "vertex_count": 8, "edge_count": 12, "diagonal_count": 12}},
   "selection": {"body": [{"parameter": "laxity", "value": 1.5}]},
   "references": [)" + anatomyReference() + R"(,
                  {"id": "anatomy_run", "kind": "anatomy_run", "asset": {"id": {"kind": "none"}, "name": "tail_root_test", "name_source": "authored", "uri": "run.json"}}],
   "solver": {"name": "anatomy_sim", "version": "test", "method": "vbd", "settings": [{"name": "tolerance", "value": "0.1 mm"}],
              "fit_reference": "newton_reference at 0.01 mm"},
   "poses": [{"id": "flex", "origin": "requested", "values": [1.2, 0.01], "converged": true, "iterations": 40,
-             "skin_positions": )" + slice("result.bin", 0, "f32", 3, 4) + R"(, "strain": )" + slice("result.bin", 48, "f32", 5, 4) +
-           R"(, "fit_error": )" + slice("result.bin", 128, "f32", 1, 4) + R"(}]
+             "skin_positions": )" + slice("result.bin", 0, "f32", 3, 8) + R"(, "edge_stretch": )" + slice("result.bin", 96, "f32", 1, 12) +
+           R"(, "diagonal_stretch": )" + slice("result.bin", 144, "f32", 1, 12) + R"(, "fit_error": )" + slice("result.bin", 192, "f32", 1, 8) + R"(}]
 })";
 }
 
@@ -98,15 +117,16 @@ void writeText(const fs::path& path, const std::string& text) {
 }
 
 // Writes the three documents and their payloads; returns the result's path.
-fs::path writeSet(const std::string& name, const std::string& anatomy, const std::string& run, const std::string& result) {
+fs::path writeSet(const std::string& name, const std::string& anatomy, const std::string& run, const std::string& result,
+                  const std::string& anatomyBytes = anatomyBin()) {
     fs::path dir = husk::test::testRunDir() / name;
     fs::remove_all(dir);
     writeText(dir / "anatomy.json", anatomy);
     writeText(dir / "run.json", run);
     writeText(dir / "result.json", result);
     writeText(dir / "base.xml", "<mujoco/>");
-    writeText(dir / "anatomy.bin", std::string(244, '\0'));
-    writeText(dir / "result.bin", std::string(144, '\0'));
+    writeText(dir / "anatomy.bin", anatomyBytes);
+    writeText(dir / "result.bin", std::string(224, '\0'));
     return dir / "result.json";
 }
 
@@ -123,8 +143,8 @@ bool mentions(const std::vector<bundle_schema::Problem>& problems, const std::st
 }
 
 std::vector<bundle_schema::Problem> problemsOf(const std::string& name, const std::string& anatomy, const std::string& run,
-                                               const std::string& result) {
-    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(writeSet(name, anatomy, run, result));
+                                               const std::string& result, const std::string& anatomyBytes = anatomyBin()) {
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(writeSet(name, anatomy, run, result, anatomyBytes));
     INFO(describe(problems));
     return problems;
 }
@@ -140,16 +160,28 @@ TEST_CASE("bundle_schema anatomy: a result validates with the run and anatomy it
     CHECK(checked.size() == 3);
 }
 
-TEST_CASE("bundle_schema anatomy: the anatomy needs one skin, fibres on every muscle and nowhere else, a rod end of one form") {
+TEST_CASE("bundle_schema anatomy: the skin is one, quad-or-larger, with edges; face sizes sum to the corner list") {
+    std::string bytes = anatomyBin();
+    bytes[kSkinSizes + 2] = '\3';
+    auto problems = problemsOf("husk-anatomy-skin-triangle", anatomyDocument(), runDocument(), resultDocument(), bytes);
+    CHECK(mentions(problems, "expected every face to have at least 4 corners, got 1 that don't (first: face 2, 3)"));
+    CHECK(mentions(problems, "expected 23 elements (one per face corner, the face sizes' sum), got 24"));
+    // The result's diagonal count is the anatomy's: a triangle has none.
+    CHECK(mentions(problems, "expected the anatomy's skin diagonal count 10, got 12"));
+
     std::string twoSkins = replaced(anatomyDocument(), R"("layer": "muscle", "base_muscle": "glmax1_r",)", R"("layer": "skin", "base_muscle": "glmax1_r",)");
-    auto problems = problemsOf("husk-anatomy-skins", twoSkins, runDocument(), resultDocument());
+    problems = problemsOf("husk-anatomy-skins", twoSkins, runDocument(), resultDocument());
     CHECK(mentions(problems, "expected exactly one skin tissue, got 2"));
     CHECK(mentions(problems, "expected 'fibre_directions' only on a muscle, got it on skin"));
+    CHECK(mentions(problems, "expected edges on the skin, got none"));
+    CHECK(mentions(problems, "expected every face to have at least 4 corners, got 4 that don't (first: face 0, 3)"));
+}
 
-    std::string noFibres = replaced(anatomyDocument(), R"(}, "fibre_directions": )" + slice("anatomy.bin", 192, "f32", 3, 4), "}");
+TEST_CASE("bundle_schema anatomy: fibres on every muscle and nowhere else, a rod end of one form, unique tissue ids") {
+    std::string noFibres = replaced(anatomyDocument(), R"(, "fibre_directions": )" + slice("anatomy.bin", 396, "f32", 3, 4), "");
     CHECK(mentions(problemsOf("husk-anatomy-fibres", noFibres, runDocument(), resultDocument()), "expected fibre_directions on a muscle, got none"));
 
-    std::string shortFibres = replaced(anatomyDocument(), slice("anatomy.bin", 192, "f32", 3, 4), slice("anatomy.bin", 192, "f32", 3, 3));
+    std::string shortFibres = replaced(anatomyDocument(), slice("anatomy.bin", 396, "f32", 3, 4), slice("anatomy.bin", 396, "f32", 3, 3));
     CHECK(mentions(problemsOf("husk-anatomy-fibre-count", shortFibres, runDocument(), resultDocument()),
                    "expected 4 elements (one per surface vertex), got 3"));
 
@@ -169,14 +201,15 @@ TEST_CASE("bundle_schema anatomy: a run's poses have one value per coordinate, u
     CHECK(mentions(problems, "expected a parameter of the referenced anatomy, got 'thigh_fat'"));
 }
 
-TEST_CASE("bundle_schema anatomy: a result's skin and slices match the anatomy's skin, its requested poses are the run's") {
-    std::string result = replaced(resultDocument(), R"("vertex_count": 4)", R"("vertex_count": 5)");
-    result = replaced(result, slice("result.bin", 48, "f32", 5, 4), slice("result.bin", 48, "f32", 4, 4));
+TEST_CASE("bundle_schema anatomy: a result's skin counts and stretch slices match the anatomy's skin, its requested poses are the run's") {
+    std::string result = replaced(resultDocument(), R"("edge_count": 12)", R"("edge_count": 13)");
+    result = replaced(result, slice("result.bin", 144, "f32", 1, 12), slice("result.bin", 144, "f32", 2, 6));
     result = replaced(result, R"({"id": "flex", "origin": "requested")", R"({"id": "extend", "origin": "requested")");
     auto problems = problemsOf("husk-anatomy-result", anatomyDocument(), runDocument(), result);
-    CHECK(mentions(problems, "expected the anatomy's skin vertex count 4, got 5"));
-    CHECK(mentions(problems, "expected 5 elements (one per skin vertex), got 4"));
-    CHECK(mentions(problems, "expected f32 x 5, got f32 x 4"));
+    CHECK(mentions(problems, "expected the anatomy's skin edge count 12, got 13"));
+    CHECK(mentions(problems, "expected 13 elements (one per skin edge), got 12"));
+    CHECK(mentions(problems, "expected f32 x 1, got f32 x 2"));
+    CHECK(mentions(problems, "expected 12 elements (one per skin face diagonal), got 6"));
     CHECK(mentions(problems, "expected a requested pose to be one of the run's poses, got 'extend'"));
 
     std::string noReference = replaced(resultDocument(), R"(,

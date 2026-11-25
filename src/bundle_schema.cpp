@@ -987,7 +987,7 @@ struct Validation {
         if (isAnatomyKind(kind)) {
             std::set<std::string> idChecked;
             for (const auto& [target, _] : checker.idsOf) idChecked.insert(target);
-            checkAnatomyFamily(kind, document, referenced, idChecked, [&](const std::string& p, const std::string& m) { checker.fail(p, m); });
+            checkAnatomyFamily(kind, path, document, referenced, idChecked, [&](const std::string& p, const std::string& m) { checker.fail(p, m); });
         }
         return true;
     }

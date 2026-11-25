@@ -155,8 +155,12 @@ verbatim).
     `src/bundle_schema_anatomy.cpp`, `tests/test_bundle_schema_anatomy.cpp`.
     Luna's calls: In + Out with the MS-Human-700 MJCF referenced as a
     payload, never copied; the family versions alone (0.1.0), WoW kinds
-    stay 0.4.1. mantlecore and blender_base_model_bs were told where it
-    lives. No producer writes it yet (mantlecore MS7 is the first).
+    stay 0.4.1. Then (Luna): polygon faces in the authoring tool's order,
+    skin quads or larger (no triangles), an edge table, strain as stretch
+    per edge and per face diagonal (rule `edge_metric_strain`). Provisional:
+    changes in place until the first round trip. mantlecore and
+    blender_base_model_bs were told both times. No producer writes it yet
+    (mantlecore MS7 is the first).
 - **Next step** (pick one; each names where its detail lives):
   - mantlecore's open asks (2026-11-24 inbox, ingested):
     `TODO/MANTLECORE_ASKS_TODO.md`.
