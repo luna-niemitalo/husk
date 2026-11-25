@@ -140,19 +140,14 @@ verbatim).
       still 0.4.1): the tree's `producer.txt` and the build's `meta.json`
       name it, so unchanged manifests dedup across husk revisions (each
       revision used to add ~58 GB of manifests).
-    - **Store re-export in flight (2026-11-25)**: unit `husk-snapshot-041`
-      (binary in worktree `.claude/worktrees/snapshot-041`, detached at
-      87b44ae, purpose: this snapshot only; remove it after) exports
-      12.1.5.70961/87b44ae; log `/media/luna/work/cache/husk_snapshot/
-      snapshot.log`. Timer `husk-after-snapshot-041` (~13:30) runs
-      `after_snapshot.nu` there: strips producer from the new build
-      (`strip_producer.py`, one-time), removes `tags/previous`, drops all 7
-      pre-0.4 builds with `store-prune --apply` (Luna: 0.4 is the new
-      base); log `after_snapshot.log`. If the snapshot wasn't done it
-      only logs; rerun the script by hand. Old view trees
-      (`canonical_storage/views/12.1.5.70391/*`,
-      `/media/luna/work/cache/husk/corpus/12.1.0.69933-*`) hardlink the
-      dropped objects: space frees only once they go (asked Luna).
+    - **Store (2026-11-25)**: one build, 12.1.5.70961/87b44ae (schema
+      0.4.1, tag `live`, no `previous`), 1,803,721 files, 89 GB on disk
+      (was ~690 GB). Its documents were stripped of `producer` once
+      (`/media/luna/work/cache/husk_snapshot/strip_producer.py`), so later
+      exports dedup their manifests against it. All 7 pre-0.4 builds and
+      their view trees are gone (Luna: 0.4 is the new base). Logs:
+      `snapshot.log`, `after_snapshot.log` there; `store.sqlite` there is
+      analysis scratch (~2 GB, deletable).
 - **Next step** (pick one; each names where its detail lives):
   - mantlecore's open asks (2026-11-24 inbox, ingested):
     `TODO/MANTLECORE_ASKS_TODO.md`.
