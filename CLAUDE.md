@@ -136,6 +136,23 @@ verbatim).
       test export).
     - Known bug: the lean glb's skin attributes repeat joint indices per
       vertex (~3M gltf_validator errors, ACCESSOR_JOINTS_INDEX_DUPLICATE).
+    - Documents carry no `provenance.producer` (merged `manifest-no-producer`,
+      still 0.4.1): the tree's `producer.txt` and the build's `meta.json`
+      name it, so unchanged manifests dedup across husk revisions (each
+      revision used to add ~58 GB of manifests).
+    - **Store re-export in flight (2026-11-25)**: unit `husk-snapshot-041`
+      (binary in worktree `.claude/worktrees/snapshot-041`, detached at
+      87b44ae, purpose: this snapshot only; remove it after) exports
+      12.1.5.70961/87b44ae; log `/media/luna/work/cache/husk_snapshot/
+      snapshot.log`. Timer `husk-after-snapshot-041` (~13:30) runs
+      `after_snapshot.nu` there: strips producer from the new build
+      (`strip_producer.py`, one-time), removes `tags/previous`, drops all 7
+      pre-0.4 builds with `store-prune --apply` (Luna: 0.4 is the new
+      base); log `after_snapshot.log`. If the snapshot wasn't done it
+      only logs; rerun the script by hand. Old view trees
+      (`canonical_storage/views/12.1.5.70391/*`,
+      `/media/luna/work/cache/husk/corpus/12.1.0.69933-*`) hardlink the
+      dropped objects: space frees only once they go (asked Luna).
 - **Next step** (pick one; each names where its detail lives):
   - mantlecore's open asks (2026-11-24 inbox, ingested):
     `TODO/MANTLECORE_ASKS_TODO.md`.
