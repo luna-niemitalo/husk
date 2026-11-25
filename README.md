@@ -147,6 +147,8 @@ What husk should be. Each line points at the document that defines it.
   `material`, `technique`, `creatures`, `appearances` — under one contract header. `schema/*.schema.json`
   is the definition (embedded in the binary, checked by `validate-bundle`).
   Schema versions are `x.y.z`: `y` for breaking changes, `z` for additions.
+  Three more kinds, the anatomy family, are an exchange format husk defines
+  but doesn't write, with their own version line (`REFACTOR/ANATOMY_EXCHANGE.md`).
 - **Invariants** (`REFACTOR/README.md` "Invariants" I1–I8): no paths in
   `canon::`; one implementation per resolution question; a consumer opens
   only what the manifest names; resolution announces itself; definition ≠
@@ -193,6 +195,7 @@ Open items live in the linked TODO files (index: `TODO/README.md`).
 | Blender world authoring | `REFACTOR/BLENDER_WORLD_AUTHORING.md` | MVP: import by zone, bake onto any dicing. Open: textures/liquids/LOD on baked tiles |
 | Blender model addon | `REFACTOR/BLENDER_ADDON.md` | Not built. `tests/bundle_import_check.py` reads mesh, skeleton, base-colour materials |
 | Simulation | `REFACTOR/SIMULATION.md` | Proposal, nothing built |
+| Anatomy exchange (`anatomy`, `anatomy_run`, `anatomy_result`) | `REFACTOR/ANATOMY_EXCHANGE.md` | Schemas (family version 0.1.0) and `validate-bundle` checks built; husk writes none of these documents. No producer writes them yet (the authoring side and mantlecore's solver, from its MS7) |
 | DB2 | `DESIGN.md` "DB2 → SQLite" | WDC5 reader, WoWDBDefs naming, typed per-table readers |
 | BLP | `DESIGN.md` | Palettized, DXT1/3/5, BC5, BGRA. Not: JPEG (none in the corpus), palette alpha depth 4 |
 | M3, PM4/PD4 | `DESIGN.md` non-goals, `TODO/WORLD/PM4_PD4_TODO.md` | Not started |

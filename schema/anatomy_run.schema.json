@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/anatomy_run.schema.json",
+  "title": "anatomy_run",
+  "description": "What one solver run is asked to solve: one anatomy, one body parameter set and a list of poses. Written by the anatomy authoring side; the solver's answer is an anatomy_result (REFACTOR/ANATOMY_EXCHANGE.md).",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/anatomy_run.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "anatomy_run",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "description": "Version of the anatomy family's schemas this document conforms to (REFACTOR/ANATOMY_EXCHANGE.md invariant 6).",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The run, by the name its author gave it.",
+      "x-layer": "contract",
+      "x-source": [{"producer": "anatomy_authoring"}]
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/metric_space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "What a pose vector means.",
+      "x-layer": "definition",
+      "x-source": [{"producer": "anatomy_authoring"}],
+      "properties": {
+        "coordinates": {
+          "type": "array",
+          "description": "The order of every pose's values: one entry per base-model joint coordinate the run drives. A base-model joint left out keeps its default.",
+          "items": {
+            "$ref": "#/definitions/coordinate",
+            "description": "One coordinate."
+          }
+        }
+      },
+      "required": [
+        "coordinates"
+      ],
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "description": "The body and the poses to solve it at.",
+      "x-layer": "selection",
+      "x-source": [{"producer": "anatomy_authoring"}],
+      "properties": {
+        "body": {
+          "type": "array",
+          "description": "The body parameter set: a value per parameter of the anatomy; a parameter not listed is solved at its rest value.",
+          "items": {
+            "$ref": "#/definitions/body_value",
+            "description": "One parameter's value."
+          }
+        },
+        "poses": {
+          "type": "array",
+          "description": "The poses to solve, in the order a sweep runs them.",
+          "items": {
+            "type": "object",
+            "description": "One pose.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "The pose's name, unique among the poses; a result names its requested poses by it."
+              },
+              "values": {
+                "type": "array",
+                "description": "One value per entry of definition.coordinates, in that order.",
+                "x-unit": "per coordinate: its unit",
+                "items": {
+                  "type": "number",
+                  "description": "One coordinate's value."
+                }
+              }
+            },
+            "required": [
+              "id",
+              "values"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "body",
+        "poses"
+      ],
+      "additionalProperties": false
+    },
+    "references": {
+      "type": "array",
+      "description": "The anatomy the run is of, and nothing else.",
+      "minItems": 1,
+      "maxItems": 1,
+      "x-source": [{"format": true}],
+      "x-layer": "contract",
+      "items": {
+        "$ref": "common.schema.json#/definitions/anatomy_reference",
+        "description": "The anatomy."
+      }
+    }
+  },
+  "definitions": {
+    "coordinate": {
+      "type": "object",
+      "description": "One driven joint coordinate of the base model.",
+      "x-source": [{"producer": "anatomy_authoring"}],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/definitions/key",
+          "description": "The base-model joint's name. Only one-coordinate joints are driven (MJCF hinge and slide), so a joint is one coordinate; a ball or free joint has none here."
+        },
+        "unit": {
+          "enum": [
+            "radian",
+            "metre"
+          ],
+          "description": "The unit of this coordinate's values: radian for a hinge, metre for a slide."
+        }
+      },
+      "required": [
+        "id",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "body_value": {
+      "type": "object",
+      "description": "One body parameter's value.",
+      "x-source": [{"producer": "anatomy_authoring"}],
+      "properties": {
+        "parameter": {
+          "$ref": "common.schema.json#/definitions/key",
+          "description": "The parameter, by its id in the referenced anatomy's definition.parameters."
+        },
+        "value": {
+          "type": "number",
+          "description": "The value, in the unit the parameter's quantity states.",
+          "x-unit": "1 or metre, by the parameter's quantity"
+        }
+      },
+      "required": [
+        "parameter",
+        "value"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "$schema",
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references"
+  ],
+  "additionalProperties": false
+}

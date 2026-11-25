@@ -170,9 +170,10 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     w.key("kind");
     w.value(kind);
     w.key("schema_version");
-    // Every schema/*.schema.json pins this as its schema_version const;
-    // bump them together. Below 1.0, placeholder effects are allowed
-    // (REFACTOR/EFFECTS.md).
+    // Every WoW-family schema/*.schema.json pins this as its schema_version
+    // const; bump them together. The anatomy family has its own line
+    // (REFACTOR/ANATOMY_EXCHANGE.md invariant 6). Below 1.0, placeholder
+    // effects are allowed (REFACTOR/EFFECTS.md).
     w.value("0.4.1");
     w.key("subject");
     writeRef(w, subject);

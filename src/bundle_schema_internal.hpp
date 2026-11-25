@@ -1,6 +1,8 @@
 #pragma once
 
+#include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -36,5 +38,18 @@ void collectSourceGaps(const std::string& kind, const json& schema, SourceGapPat
 
 // One problem per schema location, sorted by it, naming every path.
 std::vector<Problem> sourceGapProblems(const SourceGapPaths& gaps);
+
+// Kinds of the anatomy family (REFACTOR/ANATOMY_EXCHANGE.md).
+bool isAnatomyKind(const std::string& kind);
+
+using Fail = std::function<void(const std::string& pointer, const std::string& message)>;
+
+// What an anatomy-family document needs beyond its schema
+// (REFACTOR/ANATOMY_EXCHANGE.md "What validate-bundle checks"), the schema
+// already holding. `referenced` is each reference's validated document,
+// null when unreadable; `idChecked` are the arrays whose ids the x-id-in
+// walk has already checked for uniqueness.
+void checkAnatomyFamily(const std::string& kind, const json& document, const std::vector<const json*>& referenced,
+                        const std::set<std::string>& idChecked, const Fail& fail);
 
 }  // namespace husk::bundle_schema::internal

@@ -117,9 +117,10 @@
             "db2",
             "community",
             "synthesized",
+            "authored",
             "none"
           ],
-          "description": "Where the name came from, present exactly when name is: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter."
+          "description": "Where the name came from, present exactly when name is: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), made up by the exporter, or given by the author of a document no source file underlies (authored: the anatomy family, REFACTOR/ANATOMY_EXCHANGE.md)."
         }
       },
       "required": [
@@ -151,7 +152,7 @@
         },
         "name_source": {
           "$ref": "#/definitions/ref/properties/name_source",
-          "description": "Where the name came from, present exactly when name is: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), or made up by the exporter."
+          "description": "Where the name came from, present exactly when name is: embedded in the source file, a community file list, a data table, a community-maintained name table outside the client (community), made up by the exporter, or given by the author of the document."
         },
         "uri": {
           "type": "string",
@@ -421,6 +422,74 @@
           "type": "object",
           "description": "The referenced document itself, written inline instead of as its own file; checked like a file of its kind.",
           "x-source": [{"format": true}]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "asset"
+      ],
+      "additionalProperties": false
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+      "description": "A name that is an entry's identity in the anatomy family: unique in its array, and for a base-model body, joint or tendon its name in the base model exactly. A name rather than a UUID because these documents have no source identity to hash but the name (REFACTOR/ANATOMY_EXCHANGE.md invariant 2)."
+    },
+    "metric_space": {
+      "type": "object",
+      "description": "The frame of every position, direction and angle in an anatomy-family document: metres, the unit both its producers work in, where the WoW family's `space` is yards.",
+      "x-source": [{"format": true}],
+      "properties": {
+        "length_unit": {
+          "const": "metre",
+          "description": "Unit of every length."
+        },
+        "angle_unit": {
+          "const": "radian",
+          "description": "Unit of every angle."
+        },
+        "time_unit": {
+          "const": "second",
+          "description": "Unit of every time value."
+        },
+        "up_axis": {
+          "const": "+z",
+          "description": "The axis pointing up."
+        },
+        "handedness": {
+          "const": "right",
+          "description": "Handedness of the axes."
+        }
+      },
+      "required": [
+        "length_unit",
+        "angle_unit",
+        "time_unit",
+        "up_axis",
+        "handedness"
+      ],
+      "additionalProperties": false
+    },
+    "anatomy_reference": {
+      "type": "object",
+      "description": "Another anatomy-family document this one depends on, by relative uri. Its id is its kind: an anatomy-family document references at most one document of each kind.",
+      "x-source": [{"format": true}],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/key",
+          "description": "The reference's id, equal to its kind."
+        },
+        "kind": {
+          "enum": [
+            "anatomy",
+            "anatomy_run"
+          ],
+          "description": "Kind of the referenced document."
+        },
+        "asset": {
+          "$ref": "#/definitions/asset_ref",
+          "description": "The referenced document's subject, with the uri of its file. The uri is required (validate-bundle checks it): the referencing document's arrays are checked against the referenced one."
         }
       },
       "required": [

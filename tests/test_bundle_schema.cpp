@@ -106,8 +106,9 @@ std::string describe(const std::vector<bundle_schema::Problem>& problems) {
 
 }  // namespace
 
-TEST_CASE("bundle_schema: the embedded schema defines animation_fallbacks, appearances, creatures, effect, garments, material, model, placement_set, technique and world, and passes its own lint") {
-    CHECK(bundle_schema::kinds() == std::vector<std::string>{"animation_fallbacks", "appearances", "creatures", "effect",
+TEST_CASE("bundle_schema: the embedded schema defines the anatomy family, animation_fallbacks, appearances, creatures, effect, garments, material, model, placement_set, technique and world, and passes its own lint") {
+    CHECK(bundle_schema::kinds() == std::vector<std::string>{"anatomy", "anatomy_result", "anatomy_run",
+                                                             "animation_fallbacks", "appearances", "creatures", "effect",
                                                              "garments", "material", "model", "placement_set",
                                                              "technique", "world"});
     std::vector<bundle_schema::Problem> problems = bundle_schema::lintSchemas();
@@ -417,7 +418,9 @@ TEST_CASE("bundle_schema: the lint walks kind-local definitions and map values, 
         "c": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"derived": "Not Snake"}]},
         "d": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"format": true, "note": "x"}]},
         "e": {"type": "string", "description": "d", "x-layer": "resource", "x-source": {"format": true}},
-        "f": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"guess": true}]}
+        "f": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"guess": true}]},
+        "g": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"producer": "anatomy_solver"}]},
+        "h": {"type": "string", "description": "d", "x-layer": "resource", "x-source": [{"producer": "blender"}]}
       },
       "definitions": {"local": {"type": "object", "properties": {"undocumented": {"type": "string"}}, "additionalProperties": false}},
       "additionalProperties": false
@@ -432,7 +435,9 @@ TEST_CASE("bundle_schema: the lint walks kind-local definitions and map values, 
     CHECK(mentions(problems, R"(expected 'derived' to be a snake_case rule name, got "Not Snake")"));
     CHECK(mentions(problems, "expected only 'format' in this origin, got 'note'"));
     CHECK(mentions(problems, "expected a non-empty array of origins"));
-    CHECK(mentions(problems, R"(expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got {"guess":true})"));
+    CHECK(mentions(problems, R"(expected an origin object keyed table, file, derived, authored, stated_by, listfile, format or producer, got {"guess":true})"));
+    CHECK_FALSE(mentions(problems, "/properties/g/x-source"));
+    CHECK(mentions(problems, R"(expected 'producer' to be anatomy_authoring or anatomy_solver, got "blender")"));
 }
 
 TEST_CASE("bundle_schema: the lint rejects DB2 table and column names and as-stored values outside source") {
@@ -478,7 +483,7 @@ TEST_CASE("bundle_schema: schema-doc lists every kind's document paths with type
         return doc.substr(at, doc.find('\n', at) - at);
     };
     // The first kind's row: kinds are listed in sorted order.
-    CHECK(row("$schema").find("| yes | constant | = `https://husk.invalid/schema/animation_fallbacks.schema.json` |") != std::string::npos);
+    CHECK(row("$schema").find("| yes | constant | = `https://husk.invalid/schema/anatomy.schema.json` |") != std::string::npos);
     CHECK(row("sources[].region{kind=sphere}.inner_radius").find("| yes | `bound_number` (one of 2) |  | yard |") != std::string::npos);
     CHECK(row("displays[].model").find("| id in `/references` |") != std::string::npos);
     CHECK(row("definition.inputs.<name>.clock").find("one of `seconds`, `age`, `day_time`") != std::string::npos);

@@ -1,0 +1,262 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/anatomy_result.schema.json",
+  "title": "anatomy_result",
+  "description": "What one solver run solved: per pose, the skin on its fixed topology and the skin's strain, with the body parameter set, the poses and the solver that produced them. Written by the solver, read by the bake (REFACTOR/ANATOMY_EXCHANGE.md). It carries its own poses and body values, since a solver adds poses no run lists (adaptive sampling) and a result must state what it is the skin of.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/anatomy_result.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "anatomy_result",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "description": "Version of the anatomy family's schemas this document conforms to (REFACTOR/ANATOMY_EXCHANGE.md invariant 6).",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The result, by the name the solver gave it (usually its run's).",
+      "x-layer": "contract",
+      "x-source": [{"producer": "anatomy_solver"}]
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/metric_space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "What the per-pose arrays are over.",
+      "x-layer": "definition",
+      "x-source": [{"producer": "anatomy_solver"}],
+      "properties": {
+        "coordinates": {
+          "type": "array",
+          "description": "The order of every pose's values, as in a run.",
+          "items": {
+            "$ref": "anatomy_run.schema.json#/definitions/coordinate",
+            "description": "One coordinate."
+          }
+        },
+        "skin": {
+          "type": "object",
+          "description": "The skin tissue the per-vertex and per-triangle arrays are over: the referenced anatomy's one skin tissue, in its order. validate-bundle checks it against the anatomy.",
+          "properties": {
+            "tissue": {
+              "$ref": "common.schema.json#/definitions/key",
+              "description": "The skin tissue's id in the anatomy."
+            },
+            "vertex_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Its vertex count."
+            },
+            "triangle_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Its triangle count."
+            }
+          },
+          "required": [
+            "tissue",
+            "vertex_count",
+            "triangle_count"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "coordinates",
+        "skin"
+      ],
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "description": "The body the poses were solved for.",
+      "x-layer": "selection",
+      "x-source": [{"producer": "anatomy_solver"}],
+      "properties": {
+        "body": {
+          "type": "array",
+          "description": "The body parameter set solved with: every value the solver used that differs from the parameter's rest value.",
+          "items": {
+            "$ref": "anatomy_run.schema.json#/definitions/body_value",
+            "description": "One parameter's value."
+          }
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "references": {
+      "type": "array",
+      "description": "The anatomy solved (required), and the run that asked for it when there was one.",
+      "minItems": 1,
+      "maxItems": 2,
+      "x-source": [{"format": true}],
+      "x-layer": "contract",
+      "items": {
+        "$ref": "common.schema.json#/definitions/anatomy_reference",
+        "description": "The anatomy or the run."
+      }
+    },
+    "solver": {
+      "type": "object",
+      "description": "Which solver produced the poses, so two results can be told apart and a bake can say what it was fitted to.",
+      "x-layer": "resource",
+      "x-source": [{"producer": "anatomy_solver"}],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The solver program, e.g. mantlecore's anatomy_sim."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The program's revision, e.g. a commit."
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The method that solved the tissue, e.g. vbd or newton_reference."
+        },
+        "settings": {
+          "type": "array",
+          "description": "Every setting that changes the solved positions (material, tolerances, iteration caps), as the solver prints it.",
+          "items": {
+            "type": "object",
+            "description": "One setting.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The setting's name."
+              },
+              "value": {
+                "type": "string",
+                "description": "Its value as text, with its unit where it has one."
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "fit_reference": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the poses' fit_error is measured against (e.g. the reference solver and its settings); required when any pose has a fit_error."
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "method",
+        "settings"
+      ],
+      "additionalProperties": false
+    },
+    "poses": {
+      "type": "array",
+      "description": "Every solved pose.",
+      "x-layer": "resource",
+      "x-source": [{"producer": "anatomy_solver"}],
+      "items": {
+        "type": "object",
+        "description": "One pose's solution.",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/definitions/key",
+            "description": "The pose's name, unique among the poses: a requested pose's id in the run."
+          },
+          "origin": {
+            "enum": [
+              "requested",
+              "sampled"
+            ],
+            "description": "Whether the run asked for the pose or the solver added it (adaptive sampling near limits)."
+          },
+          "values": {
+            "type": "array",
+            "description": "One value per entry of definition.coordinates, in that order: the pose solved.",
+            "x-unit": "per coordinate: its unit",
+            "items": {
+              "type": "number",
+              "description": "One coordinate's value."
+            }
+          },
+          "converged": {
+            "type": "boolean",
+            "description": "Whether the solve reached its tolerance; a pose that didn't is kept so the bake can see it and skip it."
+          },
+          "iterations": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Solver iterations the pose took."
+          },
+          "skin_positions": {
+            "$ref": "common.schema.json#/definitions/buffer_slice",
+            "description": "The posed skin, f32 x 3 per skin vertex, metres, in the anatomy's vertex order."
+          },
+          "strain": {
+            "$ref": "common.schema.json#/definitions/buffer_slice",
+            "description": "Strain per skin triangle, f32 x 5: the principal stretches l1 >= l2 of the triangle's in-plane deformation from rest (ratios, 1 = rest, below 1 compression), then l1's direction as a unit vector in the triangle's rest plane, rest frame. Rest frame, not UV: the anatomy has no UVs, and a UV-space consumer maps the direction through its own UV Jacobian."
+          },
+          "fit_error": {
+            "$ref": "common.schema.json#/definitions/buffer_slice",
+            "description": "Distance per skin vertex from solver.fit_reference's position, f32 x 1, metres; absent when the pose has no reference."
+          }
+        },
+        "required": [
+          "id",
+          "origin",
+          "values",
+          "converged",
+          "iterations",
+          "skin_positions",
+          "strain"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "$schema",
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "solver",
+    "poses"
+  ],
+  "additionalProperties": false
+}

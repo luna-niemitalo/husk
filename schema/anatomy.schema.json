@@ -1,0 +1,370 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/anatomy.schema.json",
+  "title": "anatomy",
+  "description": "A rest anatomy for the musculoskeletal solver: the base model whose skeleton it builds on, the tissue surfaces over it, how tissue attaches to bone, the ligament and tendon rods, and the body parameters a run may set. Written by the anatomy authoring side, read by the solver (REFACTOR/ANATOMY_EXCHANGE.md); the skeleton itself is the base model's and is never copied here.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "const": "https://husk.invalid/schema/anatomy.schema.json",
+      "description": "The schema this document follows, by its `$id`: the last path segment names the file in husk's schema/ directory, and schema_version says which version of it (REFACTOR/BUNDLE_FORMAT.md \"The contract header\").",
+      "x-layer": "contract"
+    },
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "anatomy",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "description": "Version of the anatomy family's schemas this document conforms to. The family has its own version line, apart from the WoW kinds' (REFACTOR/ANATOMY_EXCHANGE.md invariant 6).",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The anatomy, by the name its author gave it; it has no identity of its own.",
+      "x-layer": "contract",
+      "x-source": [{"producer": "anatomy_authoring"}]
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/metric_space",
+      "description": "Units and axes of every value in the document: metres, as in the base model.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, from what: input_format names the authoring tool's export.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "What the anatomy is made of, at rest.",
+      "x-layer": "definition",
+      "x-source": [{"producer": "anatomy_authoring"}],
+      "properties": {
+        "base_model": {
+          "type": "object",
+          "description": "The musculoskeletal model the anatomy builds on: its bodies, joints, joint ranges and muscle-tendon paths. Referenced, not copied, so kinematics has one source (REFACTOR/ANATOMY_EXCHANGE.md invariant 1); every `body`, `base_muscle` and `base_tendon` below is a name in it.",
+          "properties": {
+            "model": {
+              "$ref": "common.schema.json#/definitions/payload",
+              "description": "The model file. Its media type by convention is model/vnd.mujoco.mjcf+xml, a MuJoCo MJCF file, which is what the solver loads."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The model's published name, e.g. MS-Human-700."
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Which published state of the model the file is: a commit, tag or release."
+            },
+            "licence": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The model's licence, as an SPDX identifier where one exists."
+            }
+          },
+          "required": [
+            "model",
+            "name",
+            "revision",
+            "licence"
+          ],
+          "additionalProperties": false
+        },
+        "tissues": {
+          "type": "array",
+          "description": "Every soft-tissue volume, each a closed surface at rest. The solver meshes tets from these surfaces, so none are stored.",
+          "items": {
+            "type": "object",
+            "description": "One tissue volume.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "The tissue's name, unique among the tissues."
+              },
+              "layer": {
+                "enum": [
+                  "muscle",
+                  "fat",
+                  "skin"
+                ],
+                "description": "Which anatomical layer the tissue is. Exactly one tissue is skin: the fixed skin topology every result is over (REFACTOR/ANATOMY_EXCHANGE.md invariant 4)."
+              },
+              "surface": {
+                "type": "object",
+                "description": "The tissue's closed, outward-facing triangle surface at rest.",
+                "properties": {
+                  "positions": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Vertex positions, f32 x 3 per vertex, metres, in the base model's rest frame."
+                  },
+                  "triangles": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Triangles, u32 x 3 per triangle, indices into positions, counter-clockwise seen from outside."
+                  }
+                },
+                "required": [
+                  "positions",
+                  "triangles"
+                ],
+                "additionalProperties": false
+              },
+              "base_muscle": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "A muscle tissue's muscle in the base model, whose path seeds the tissue's medial axis. Absent for a muscle the base model doesn't have (a tail muscle) and for fat and skin."
+              },
+              "fibre_directions": {
+                "$ref": "common.schema.json#/definitions/buffer_slice",
+                "description": "A muscle's fibre direction per surface vertex, f32 x 3, unit length, in the rest frame; required for muscles, absent otherwise. The solver interpolates it into the tets."
+              }
+            },
+            "required": [
+              "id",
+              "layer",
+              "surface"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "attachments": {
+          "type": "array",
+          "description": "Tissue bound to bone: the listed vertices of a tissue follow a base-model body rigidly (a muscle's origin and insertion, fat or skin bound over bone).",
+          "items": {
+            "type": "object",
+            "description": "One tissue's vertices bound to one body.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "The attachment's name, unique among the attachments."
+              },
+              "tissue": {
+                "$ref": "common.schema.json#/definitions/key",
+                "x-id-in": "/definition/tissues",
+                "description": "The tissue attached."
+              },
+              "body": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "The base-model body it is attached to."
+              },
+              "vertices": {
+                "$ref": "common.schema.json#/definitions/buffer_slice",
+                "description": "The attached vertices, u32 x 1 each, indices into the tissue's surface positions."
+              }
+            },
+            "required": [
+              "id",
+              "tissue",
+              "body",
+              "vertices"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "rods": {
+          "type": "array",
+          "description": "Ligaments and tendons, simulated as rods between two ends. A ligament's stiffness is set by the ligament laxity parameter, so joint limits emerge from it rather than from clamps.",
+          "items": {
+            "type": "object",
+            "description": "One rod.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "The rod's name, unique among the rods."
+              },
+              "role": {
+                "enum": [
+                  "ligament",
+                  "tendon"
+                ],
+                "description": "What the rod is: a ligament joins bone to bone, a tendon joins muscle to bone."
+              },
+              "base_tendon": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "The base model's tendon whose path seeds this rod at rest; absent for a rod the base model lacks (most ligaments)."
+              },
+              "ends": {
+                "type": "array",
+                "description": "The rod's two ends.",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "$ref": "#/definitions/rod_end",
+                  "description": "One end."
+                }
+              },
+              "via": {
+                "type": "array",
+                "description": "Points the rod passes through at rest, in order from the first end, metres in the rest frame; empty for a straight rod.",
+                "x-unit": "metre",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/vec3",
+                  "description": "One via point.",
+                  "x-unit": "metre"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "role",
+              "ends",
+              "via"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "parameters": {
+          "type": "array",
+          "description": "The body parameters this anatomy has: each a physical quantity over part of the body, set per run (anatomy_run `selection.body`). A region-specific value (fat over the thigh, one muscle's volume) is one parameter per region.",
+          "items": {
+            "type": "object",
+            "description": "One body parameter.",
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/definitions/key",
+                "description": "The parameter's name, unique among the parameters; runs and results name it."
+              },
+              "quantity": {
+                "enum": [
+                  "bone_length_scale",
+                  "bone_width_scale",
+                  "muscle_volume_scale",
+                  "fat_thickness",
+                  "skin_thickness",
+                  "ligament_laxity",
+                  "skin_extensibility"
+                ],
+                "description": "What the parameter sets, and so its unit: the scales, laxity and extensibility are ratios to the rest anatomy (unit 1; laxity > 1 is a laxer ligament, extensibility > 1 a more extensible skin), the thicknesses are metres."
+              },
+              "bodies": {
+                "type": "array",
+                "description": "Base-model bodies the parameter applies to (bone scales, ligament laxity at their joints).",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/key",
+                  "description": "A body name."
+                }
+              },
+              "tissues": {
+                "type": "array",
+                "description": "Tissues the parameter applies to.",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/key",
+                  "x-id-in": "/definition/tissues",
+                  "description": "A tissue."
+                }
+              },
+              "rods": {
+                "type": "array",
+                "description": "Rods the parameter applies to.",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/key",
+                  "x-id-in": "/definition/rods",
+                  "description": "A rod."
+                }
+              },
+              "rest_value": {
+                "type": "number",
+                "description": "The value at which the anatomy is as authored: 1 for a ratio, the authored thickness for a thickness. A run that doesn't set the parameter solves at this value.",
+                "x-unit": "1 or metre, by quantity"
+              }
+            },
+            "required": [
+              "id",
+              "quantity",
+              "bodies",
+              "tissues",
+              "rods",
+              "rest_value"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "base_model",
+        "tissues",
+        "attachments",
+        "rods",
+        "parameters"
+      ],
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "description": "An anatomy selects nothing: a run makes the choices.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection",
+      "x-source": [{"format": true}]
+    },
+    "references": {
+      "type": "array",
+      "description": "Always empty: the base model is a payload, not a husk document, and runs and results reference the anatomy, not the other way round.",
+      "maxItems": 0,
+      "x-source": [{"format": true}],
+      "x-layer": "contract"
+    }
+  },
+  "definitions": {
+    "rod_end": {
+      "type": "object",
+      "description": "Where a rod end is fixed: a point on a base-model body (body and point), or a tissue vertex (tissue and vertex), never both.",
+      "x-source": [{"producer": "anatomy_authoring"}],
+      "properties": {
+        "body": {
+          "$ref": "common.schema.json#/definitions/key",
+          "description": "The base-model body the end is fixed to."
+        },
+        "point": {
+          "$ref": "common.schema.json#/definitions/vec3",
+          "description": "The end's position in the body's frame.",
+          "x-unit": "metre"
+        },
+        "tissue": {
+          "$ref": "common.schema.json#/definitions/key",
+          "x-id-in": "/definition/tissues",
+          "description": "The tissue whose vertex the end is fixed to (a tendon's muscle end)."
+        },
+        "vertex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index into that tissue's surface positions."
+        }
+      },
+      "oneOf": [
+        {
+          "description": "On a body.",
+          "required": ["body", "point"],
+          "not": {"anyOf": [{"required": ["tissue"]}, {"required": ["vertex"]}]}
+        },
+        {
+          "description": "On a tissue vertex.",
+          "required": ["tissue", "vertex"],
+          "not": {"anyOf": [{"required": ["body"]}, {"required": ["point"]}]}
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "$schema",
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references"
+  ],
+  "additionalProperties": false
+}

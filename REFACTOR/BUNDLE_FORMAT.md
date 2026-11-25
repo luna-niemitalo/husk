@@ -178,6 +178,13 @@ has to do, not by which WoW file it came from:
 | `creatures` | A corpus's catalog of creatures: what kind each is and which model and preset draws each of its looks (below, "Creature catalogs"). | `creatures.json` of an export tree |
 | `appearances` | A list of bodies presets point at (above, "Appearances"): one model's, inline in its `appearances` reference, or a tree's shared list. | `appearances.json` of an export tree; a model's inline list |
 
+The **anatomy family** (`anatomy`, `anatomy_run`, `anatomy_result`) is
+the exchange format between the anatomy authoring side and mantlecore's
+musculoskeletal solver; husk defines and validates it but writes none of it.
+It shares the contract header, `buffer_slice` and `payload`, and differs
+where its producers do: metres (`metric_space`), names as ids, and its own
+version line. `REFACTOR/ANATOMY_EXCHANGE.md` is its design.
+
 A character, an item, a WMO and a doodad are all models; they differ in
 content, not kind. A WMO's doodad sets are its definition (what furniture
 exists, where), and which sets are visible is a selection. A terrain tile
@@ -283,6 +290,7 @@ origins, each an object of exactly one form.
 | `{"authored": "effects/<name>.json"}` | husk's own authored data, a path in its repository (effect and technique definitions) |
 | `{"stated_by": "name_source"}` | the origin differs per value, and the named sibling property states it |
 | `{"format": true}` | pure structure: header, ids, indices, counts the format itself defines |
+| `{"producer": "anatomy_authoring"}` | written by a producer, not decoded from a source file: `anatomy_authoring` (the anatomy authoring side) or `anatomy_solver` (mantlecore's solver); the anatomy family only (`REFACTOR/ANATOMY_EXCHANGE.md`) |
 
 `derived` rules that are not effect rules (`EFFECTS.md` "Derivation
 rules") are named here:

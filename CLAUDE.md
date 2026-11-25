@@ -16,6 +16,9 @@ canonical bundle (`CANONICAL_FORMAT.md`) for MantleCore.
     (`export-wmo`), ADT tiles and whole maps (`export-terrain`,
     `export-map`, `export-world`). Ten document kinds, defined and
     validated by `schema/` (`validate-bundle`), schema 0.4.1.
+  - Anatomy exchange family (`anatomy`, `anatomy_run`, `anatomy_result`):
+    schemas and `validate-bundle` checks only, family version 0.1.0; husk
+    writes none of them (`REFACTOR/ANATOMY_EXCHANGE.md`).
   - Corpus store: `store-add`, `mount`, `export-corpus`, `snapshot`.
   - DB2 tools: `db2-info`, `db2-export`, `db2-build`; `info`,
     `dump-chunks`, `resolve` for inspection.
@@ -147,6 +150,13 @@ verbatim).
       exports dedup their manifests against it. All 7 pre-0.4 builds and
       their view trees are gone (Luna: 0.4 is the new base). Logs:
       `snapshot.log`, `after_snapshot.log` there.
+  - 2026-11-25: **anatomy exchange format** (mantlecore's ask, Luna: husk
+    owns it): `REFACTOR/ANATOMY_EXCHANGE.md`, `schema/anatomy*.schema.json`,
+    `src/bundle_schema_anatomy.cpp`, `tests/test_bundle_schema_anatomy.cpp`.
+    Luna's calls: In + Out with the MS-Human-700 MJCF referenced as a
+    payload, never copied; the family versions alone (0.1.0), WoW kinds
+    stay 0.4.1. mantlecore and blender_base_model_bs were told where it
+    lives. No producer writes it yet (mantlecore MS7 is the first).
 - **Next step** (pick one; each names where its detail lives):
   - mantlecore's open asks (2026-11-24 inbox, ingested):
     `TODO/MANTLECORE_ASKS_TODO.md`.

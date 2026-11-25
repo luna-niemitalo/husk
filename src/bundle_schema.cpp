@@ -335,6 +335,8 @@ struct Linter {
         static const std::set<std::string> files = {"m2", "skin", "skel", "bone", "anim", "phys", "wmo", "wmo_group",
                                                     "adt", "adt_obj0", "adt_obj1", "adt_tex0", "adt_lod", "wdt",
                                                     "wdt_fogs", "wdt_mpv", "wdt_lgt", "wdt_occ", "blp"};
+        // The anatomy family's writers (REFACTOR/ANATOMY_EXCHANGE.md invariant 7).
+        static const std::set<std::string> producers = {"anatomy_authoring", "anatomy_solver"};
         // Each form: its key, what the key's value must be, and the optional key beside it.
         auto isString = [](const json& v) { return v.is_string() && !v.get<std::string>().empty(); };
         auto isTrue = [](const json& v) { return v == true; };
@@ -352,13 +354,14 @@ struct Linter {
             {"stated_by", isString, "the sibling property that states each value's origin", nullptr},
             {"listfile", isTrue, "true", nullptr},
             {"format", isTrue, "true", nullptr},
+            {"producer", [](const json& v) { return v.is_string() && producers.count(v.get<std::string>()) > 0; }, "anatomy_authoring or anatomy_solver", nullptr},
         };
         for (size_t i = 0; i < source.size(); ++i) {
             const json& o = source[i];
             std::string at = pointer + "/" + std::to_string(i);
             auto form = std::find_if(forms.begin(), forms.end(), [&](const Form& f) { return o.is_object() && o.contains(f.key); });
             if (form == forms.end()) {
-                fail(at, "expected an origin object keyed table, file, derived, authored, stated_by, listfile or format, got " + o.dump());
+                fail(at, "expected an origin object keyed table, file, derived, authored, stated_by, listfile, format or producer, got " + o.dump());
                 continue;
             }
             if (!form->valid(o[form->key])) fail(at, std::string("expected '") + form->key + "' to be " + form->expected + ", got " + o[form->key].dump());
@@ -981,6 +984,11 @@ struct Validation {
         if (kind == "model") checkPresetAppearances(document, referenced, checker);
         if (kind == "model") listReferences(document, "animation_fallbacks", checker);
         if (kind == "model") checkPresetGarments(document, referenced, checker);
+        if (isAnatomyKind(kind)) {
+            std::set<std::string> idChecked;
+            for (const auto& [target, _] : checker.idsOf) idChecked.insert(target);
+            checkAnatomyFamily(kind, document, referenced, idChecked, [&](const std::string& p, const std::string& m) { checker.fail(p, m); });
+        }
         return true;
     }
 
@@ -1214,7 +1222,7 @@ struct Validation {
             const json& r = refs[i];
             std::string kind = r.value("kind", "");
             if (kind != "placement_set" && kind != "effect" && kind != "material" && kind != "technique" &&
-                kind != "appearances" && kind != "animation_fallbacks" && kind != "garments") {
+                kind != "appearances" && kind != "animation_fallbacks" && kind != "garments" && !isAnatomyKind(kind)) {
                 out.push_back(nullptr);
                 continue;
             }
