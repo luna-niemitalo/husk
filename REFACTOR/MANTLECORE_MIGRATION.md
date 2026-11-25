@@ -388,6 +388,11 @@ that ignores unknown keys loses nothing; one that checks the
   the alternative (`WIKI_FINDINGS/WORLD.md` "Shader 23's tint"). The
   technique's `tint` input is now a `material_value` reading it. Other
   shaders' materials have no `vertex_tint`.
+- **No `provenance.producer`** (a removal, folded into 0.4.1 because no
+  reader had consumed a 0.4 store yet). Which husk revision exported a
+  document is its store build's (`meta.json` `producer`), not the
+  document's, so a document whose content didn't change is one object
+  across husk revisions. A reader that required the key must drop that.
 
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so

@@ -73,7 +73,7 @@ nlohmann::json readManifest(const fs::path& dir) {
 void writeTile(canon::Terrain terrain, const fs::path& dir, const husk::writers::AssetUris& modelUris = {},
                const husk::writers::AssetUris& textureUris = {}) {
     terrain.subject = canon::Ref{canon::FileDataId{777001}, "azeroth_32_48", canon::NameSource::Listfile};
-    husk::writers::Provenance provenance{"husk test", "adt", {{"obj0", "placements", true, ""}}};
+    husk::writers::Provenance provenance{"adt", {{"obj0", "placements", true, ""}}};
     husk::writers::writeTerrainBundle(terrain, dir, provenance, modelUris, textureUris);
 }
 

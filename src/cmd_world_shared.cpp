@@ -458,7 +458,7 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<u
 
 writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath, bool haveLiquids,
                                   bool haveSurfaces, bool haveWmoAreas) {
-    writers::Provenance out{std::string("husk ") + husk::version(), "wmo", {}};
+    writers::Provenance out{"wmo", {}};
     out.sources.push_back({"listfile", "group files, textures and doodad names by FileDataID", listfile != nullptr,
                            listfile ? listfilePath : "not given"});
     out.sources.push_back({"liquid db2", "liquid type names, materials and textures", haveLiquids, ""});
@@ -473,7 +473,7 @@ writers::Provenance terrainProvenance(bool haveObj, bool haveTex, bool haveLod, 
                                       const ListfileIndex* listfile, const std::string& listfilePath,
                                       bool haveGroundEffects, bool haveLiquids, bool haveSurfaces, bool haveMaps,
                                       bool haveAreas) {
-    writers::Provenance out{std::string("husk ") + husk::version(), "adt", {}};
+    writers::Provenance out{"adt", {}};
     out.sources.push_back({"obj0", "doodad and map-object placements", haveObj, ""});
     out.sources.push_back({"tex0", "texture layers and alpha maps", haveTex, ""});
     out.sources.push_back({"lod", "the surface's coarser mesh levels", haveLod, ""});
@@ -776,7 +776,7 @@ writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const L
                                     const std::string& listfilePath, bool haveLights, bool haveConditions,
                                     bool haveAreas, bool haveMaps) {
     std::string map = mapDir.filename().string();
-    writers::Provenance out{std::string("husk ") + husk::version(), "wdt", {}};
+    writers::Provenance out{"wdt", {}};
     out.sources.push_back({"root adt", "the tile grid and each tile's bounds", true, ""});
     out.sources.push_back({"_fogs.wdt", "map-wide fog volumes", std::filesystem::exists(mapDir / (map + "_fogs.wdt")), ""});
     out.sources.push_back({"_mpv.wdt", "map-wide particulate volumes", std::filesystem::exists(mapDir / (map + "_mpv.wdt")),

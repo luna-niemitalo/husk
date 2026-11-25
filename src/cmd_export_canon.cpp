@@ -338,7 +338,7 @@ struct CanonBuild {
     std::vector<uint32_t> triangleIndices;
 };
 
-writers::Provenance m2Provenance() { return writers::Provenance{std::string("husk ") + husk::version(), "m2", {}}; }
+writers::Provenance m2Provenance() { return writers::Provenance{"m2", {}}; }
 
 CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
                                const std::string& modelPath, std::optional<uint32_t> modelFileDataId,

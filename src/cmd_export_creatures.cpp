@@ -73,6 +73,7 @@ int exportCreatures(int argc, char** args) {
     if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     try {
         fs::path tree = opts.tree;
+        corpus::stampProducer(tree, std::string("husk ") + husk::version());
         std::ostringstream err;
         std::optional<creaturedb::Data> data = creaturedb::load(opts.db2Dir, opts.dbdDir, err);
         if (!data) throw std::runtime_error("expected readable creature tables in " + opts.db2Dir + ", got:\n" + err.str());
@@ -94,7 +95,7 @@ int exportCreatures(int argc, char** args) {
             }
         }
 
-        writers::Provenance provenance{std::string("husk ") + husk::version(), "db2", {}};
+        writers::Provenance provenance{"db2", {}};
         provenance.sources.push_back({"creature db2", "creatures: names, titles, types, families, displays (Creature)", true, ""});
         provenance.sources.push_back({"creature type db2", "type names (CreatureType)", true, ""});
         provenance.sources.push_back({"creature family db2", "family names (CreatureFamily)", true, ""});

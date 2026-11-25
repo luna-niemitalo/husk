@@ -204,6 +204,7 @@ int exportWorld(int argc, char** args) {
         std::filesystem::path out = std::filesystem::absolute(opts.output);
         std::filesystem::path modelsDir = out / "models";
         std::filesystem::path texturesDir = out / "textures";
+        corpus::stampProducer(out, std::string("husk ") + husk::version());
         std::filesystem::create_directories(modelsDir);
         std::filesystem::create_directories(texturesDir);
         // Every texture payload of the export, tiles' and models' alike.
@@ -313,7 +314,7 @@ int exportWorld(int argc, char** args) {
                 animnames::Table names;
                 if (!unlessNone(opts.animNames).empty()) names = animnames::load(opts.animNames);
                 canon::AnimationFallbacks fallbacks = animationFallbacks(*animData, names.names);
-                writers::Provenance provenance{std::string("husk ") + husk::version(), "db2", {}};
+                writers::Provenance provenance{"db2", {}};
                 provenance.sources.push_back({"AnimationData", "the Fallback column", true,
                                               std::to_string(animData->entries.size()) + " rows"});
                 provenance.sources.push_back({"animation names", "animation names by AnimationData id (community list)",

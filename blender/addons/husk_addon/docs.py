@@ -202,9 +202,7 @@ def write(path, doc):
 
 
 def provenance(source_detail):
-    from . import VERSION
     return {
-        "producer": "husk_addon %s" % VERSION,
         "input_format": "blender",
         "sources": [{"name": "source world", "role": "the world this scene was imported from",
                      "available": True, "detail": source_detail}],

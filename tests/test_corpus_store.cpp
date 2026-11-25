@@ -35,16 +35,17 @@ fs::path freshDir(const std::string& name) {
     return dir;
 }
 
-std::string document(const std::string& producer, const std::string& body = "") {
-    return "{\n  \"format\": \"husk-bundle\",\n  \"kind\": \"model\",\n  \"schema_version\": \"0.1.0\",\n"
-           "  \"provenance\": {\n    \"producer\": \"" + producer + "\"\n  }" + body + "\n}\n";
+std::string document(const std::string& body = "", const std::string& schema = "0.1.0") {
+    return "{\n  \"format\": \"husk-bundle\",\n  \"kind\": \"model\",\n  \"schema_version\": \"" + schema +
+           "\",\n  \"provenance\": {\n    \"input_format\": \"m2\"\n  }" + body + "\n}\n";
 }
 
-// A small export tree: two documents, a texture, a run log, an interrupted write.
+// A small export tree: its producer stamp, two documents, a texture, a run log, an interrupted write.
 fs::path exportTree(const std::string& name, const std::string& producer) {
     fs::path tree = freshDir(name);
-    writeText(tree / "models" / "1.canon.bundle" / "manifest.json", document(producer));
-    writeText(tree / "models" / "2.canon.bundle" / "manifest.json", document(producer, ",\n  \"x\": 2"));
+    corpus::stampProducer(tree, producer);
+    writeText(tree / "models" / "1.canon.bundle" / "manifest.json", document());
+    writeText(tree / "models" / "2.canon.bundle" / "manifest.json", document(",\n  \"x\": 2"));
     writeText(tree / "textures" / "7.dds", "DDS bytes");
     writeText(tree / "textures" / "8.dds.partial", "half");
     writeText(tree / "errors.log", "model\t9\tno local file\nmodel\t9\tno local file\nwmo\t5\tbroken\n");
@@ -100,7 +101,7 @@ TEST_CASE("corpus store: ingesting a tree records its files, missing rows and pr
 
     corpus::IngestResult r = corpus::ingestTree(store, tree, "12.1.0.69933");
     CHECK(r.id.path() == "12.1.0.69933/e587735");
-    CHECK(r.files == 3);  // errors.log and the .partial file are not stored
+    CHECK(r.files == 3);  // producer.txt, errors.log and the .partial file are not stored
     CHECK(r.addedObjects == 3);
     CHECK(r.missing == 2);
     CHECK_FALSE(r.alreadyStored);
@@ -111,6 +112,7 @@ TEST_CASE("corpus store: ingesting a tree records its files, missing rows and pr
     CHECK(files.find("textures/7.dds\t" + corpus::hex(corpus::md5File(tree / "textures" / "7.dds"))) !=
           std::string::npos);
     CHECK(files.find("errors.log") == std::string::npos);
+    CHECK(files.find("producer.txt") == std::string::npos);
     CHECK(readText(build / "missing.tsv") == "phase\titem\treason\nmodel\t9\tno local file\nwmo\t5\tbroken\n");
     std::string meta = readText(build / "meta.json");
     CHECK(meta.find("\"producer\": \"husk e587735\"") != std::string::npos);
@@ -209,7 +211,7 @@ TEST_CASE("corpus store: an interrupted ingest resumes from its journal while fi
     CHECK(readText(store.buildDir(first.id) / "files.tsv").find("textures/7.dds\t" + textureMd5) != std::string::npos);
 }
 
-TEST_CASE("corpus store: a tree whose producer names no commit, or several, is refused") {
+TEST_CASE("corpus store: a tree whose producer names no commit, is missing, or whose schemas disagree is refused") {
     fs::path dir = freshDir("refuse");
     corpus::Store store(dir / "store");
     CHECK_THROWS_WITH_AS(corpus::ingestTree(store, exportTree("dirty-tree", "husk e587735-dirty"), "12.1.0.69933"),
@@ -218,15 +220,28 @@ TEST_CASE("corpus store: a tree whose producer names no commit, or several, is r
                          doctest::Contains("names no commit"), std::runtime_error);
 
     fs::path mixed = exportTree("mixed-tree", "husk e587735");
-    writeText(mixed / "models" / "3.canon.bundle" / "manifest.json", document("husk a870776"));
+    writeText(mixed / "models" / "3.canon.bundle" / "manifest.json", document("", "0.2.0"));
     CHECK_THROWS_WITH_AS(corpus::ingestTree(store, mixed, "12.1.0.69933"),
                          doctest::Contains("documents disagree"), std::runtime_error);
+
+    fs::path unstamped = exportTree("unstamped-tree", "husk e587735");
+    fs::remove(unstamped / "producer.txt");
+    CHECK_THROWS_WITH_AS(corpus::ingestTree(store, unstamped, "12.1.0.69933"), doctest::Contains("producer.txt"),
+                         std::runtime_error);
 
     fs::path none = freshDir("none-tree");
     writeText(none / "textures" / "7.dds", "DDS bytes");
     CHECK_THROWS_WITH_AS(corpus::ingestTree(store, none, "12.1.0.69933"), doctest::Contains("expected husk documents"),
                          std::runtime_error);
     CHECK(store.games().empty());
+}
+
+TEST_CASE("corpus store: a tree is one producer's: restamping by the same is a no-op, by another refused") {
+    fs::path tree = exportTree("stamp-tree", "husk e587735");
+    corpus::stampProducer(tree, "husk e587735");
+    CHECK(readText(tree / "producer.txt") == "husk e587735\n");
+    CHECK_THROWS_WITH_AS(corpus::stampProducer(tree, "husk a870776"), doctest::Contains("export into a fresh tree"),
+                         std::runtime_error);
 }
 
 TEST_CASE("input log: uses go to the scope's output, the run's outside any scope, nowhere in a discarding one") {

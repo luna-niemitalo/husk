@@ -191,8 +191,6 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
     w.endObject();
     w.key("provenance");
     w.beginObject();
-    w.key("producer");
-    w.value(provenance.producer);
     w.key("input_format");
     w.value(provenance.inputFormat);
     w.key("sources");

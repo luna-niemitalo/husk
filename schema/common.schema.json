@@ -342,13 +342,9 @@
     },
     "provenance": {
       "type": "object",
-      "description": "Who wrote the document, from what input, and which data sources could be consulted. No export time: a document's bytes depend only on its inputs and the producer, so identical content is stored once (REFACTOR/CORPUS_EXPORT.md).",
+      "description": "What the document was decoded from, and which data sources could be consulted. No export time and no exporter version: a document's bytes depend only on its content, so identical content is stored once across exports (REFACTOR/CORPUS_EXPORT.md). The exporter version is the store build's (meta.json producer).",
       "x-source": [{"format": true}],
       "properties": {
-        "producer": {
-          "type": "string",
-          "description": "Exporter name and version."
-        },
         "input_format": {
           "type": "string",
           "description": "Name of the input format the document was decoded from; informational."
@@ -387,7 +383,6 @@
         }
       },
       "required": [
-        "producer",
         "input_format",
         "sources"
       ],

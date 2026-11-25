@@ -80,23 +80,27 @@ std::optional<std::string> headerString(const std::string& head, const std::stri
     return head.substr(open + 1, close - open - 1);
 }
 
-struct DocumentHeader {
-    std::string producer;
-    std::string schemaVersion;
-};
-
-std::optional<DocumentHeader> readHeader(const fs::path& path) {
+// A husk document's schema_version; nullopt for any other file.
+std::optional<std::string> readSchemaVersion(const fs::path& path) {
     if (path.extension() != ".json") return std::nullopt;
     std::ifstream in(path, std::ios::binary);
     std::string head(kHeaderBytes, '\0');
     in.read(head.data(), static_cast<std::streamsize>(head.size()));
     head.resize(static_cast<size_t>(in.gcount()));
     if (headerString(head, "format") != "husk-bundle") return std::nullopt;
-    auto producer = headerString(head, "producer");
     auto schema = headerString(head, "schema_version");
-    if (!producer || !schema)
-        throw std::runtime_error(path.string() + ": husk document without provenance.producer and schema_version");
-    return DocumentHeader{*producer, *schema};
+    if (!schema) throw std::runtime_error(path.string() + ": husk document without schema_version");
+    return schema;
+}
+
+const std::string kProducerFile = "producer.txt";
+
+// The tree's stamp (stampProducer), or nullopt when it has none.
+std::optional<std::string> treeProducer(const fs::path& tree) {
+    std::ifstream in(tree / kProducerFile);
+    std::string line;
+    if (!in || !std::getline(in, line)) return std::nullopt;
+    return line;
 }
 
 // errors.log rows ("phase<TAB>item<TAB>message", appended by every resumed
@@ -165,6 +169,17 @@ std::string huskLabel(const std::string& producer) {
     if (!validLabel(version))
         throw std::runtime_error("producer version: expected one path component, got \"" + version + "\"");
     return version;
+}
+
+void stampProducer(const fs::path& tree, const std::string& producer) {
+    if (std::optional<std::string> stamped = treeProducer(tree)) {
+        if (*stamped != producer)
+            throw std::runtime_error(tree.string() + " was written by " + *stamped + ", this is " + producer +
+                                     ": export into a fresh tree");
+        return;
+    }
+    fs::create_directories(tree);
+    writeTextAtomic(tree / kProducerFile, producer + "\n");
 }
 
 std::string hex(const Md5& key) {
@@ -449,7 +464,8 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
     for (const auto& entry : fs::recursive_directory_iterator(tree)) {
         if (!entry.is_regular_file()) continue;
         fs::path relative = entry.path().lexically_relative(tree);
-        if (relative == kErrorLog || relative == kInputLog || relative == kStoreJournal) continue;
+        if (relative == kErrorLog || relative == kInputLog || relative == kStoreJournal || relative == kProducerFile)
+            continue;
         // Interrupted writes of the exporters (TextureStore, writeTextAtomic).
         if (relative.extension() == ".partial" || relative.extension() == ".link") continue;
         files.push_back(relative);
@@ -461,7 +477,7 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
         Md5 key{};
         uint64_t size = 0;
         bool added = false;
-        std::optional<DocumentHeader> header;
+        std::optional<std::string> schemaVersion;
     };
     std::vector<Row> rows(files.size());
     TreeJournal journal(store, tree);
@@ -477,34 +493,37 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
                 store.linkTo(source, *done);
                 journal.record(name, *done);
             }
-            rows[i] = {*done, size, false, readHeader(source)};
+            rows[i] = {*done, size, false, readSchemaVersion(source)};
             ++resumed;
             progress.tick();
             return;
         }
         Store::Put put = link ? store.putAndLink(source) : store.putFile(source);
-        rows[i] = {put.key, size, put.added, readHeader(source)};
+        rows[i] = {put.key, size, put.added, readSchemaVersion(source)};
         journal.record(name, put.key);
         progress.tick();
     });
     if (resumed > 0) std::cout << "store: " << resumed << " files resumed from " << kStoreJournal << std::endl;
 
-    std::optional<DocumentHeader> build;
+    std::optional<std::string> schemaVersion;
     for (size_t i = 0; i < files.size(); i++) {
-        if (!rows[i].header) continue;
-        if (!build) {
-            build = rows[i].header;
+        if (!rows[i].schemaVersion) continue;
+        if (!schemaVersion) {
+            schemaVersion = rows[i].schemaVersion;
             continue;
         }
-        if (rows[i].header->producer != build->producer || rows[i].header->schemaVersion != build->schemaVersion)
-            throw std::runtime_error("documents disagree on who wrote them: " + files[i].string() + " says " +
-                                     rows[i].header->producer + " / " + rows[i].header->schemaVersion +
-                                     ", others " + build->producer + " / " + build->schemaVersion);
+        if (*rows[i].schemaVersion != *schemaVersion)
+            throw std::runtime_error("documents disagree on their schema: " + files[i].string() + " says " +
+                                     *rows[i].schemaVersion + ", others " + *schemaVersion);
     }
-    if (!build) throw std::runtime_error("expected husk documents under " + tree.string() + ", found none");
+    if (!schemaVersion) throw std::runtime_error("expected husk documents under " + tree.string() + ", found none");
+    std::optional<std::string> producer = treeProducer(tree);
+    if (!producer)
+        throw std::runtime_error("expected " + (tree / kProducerFile).string() +
+                                 " naming the husk that wrote the tree, found none");
 
     IngestResult result;
-    result.id = {game, huskLabel(build->producer)};
+    result.id = {game, huskLabel(*producer)};
     std::ostringstream filesTsv;
     filesTsv << "path\tmd5\n";
     for (size_t i = 0; i < files.size(); i++) {
@@ -547,9 +566,9 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
     w.key("husk");
     w.value(result.id.husk);
     w.key("producer");
-    w.value(build->producer);
+    w.value(*producer);
     w.key("schema_version");
-    w.value(build->schemaVersion);
+    w.value(*schemaVersion);
     w.key("files");
     w.value(static_cast<int64_t>(result.files));
     w.key("bytes");
