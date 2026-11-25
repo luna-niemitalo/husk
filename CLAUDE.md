@@ -146,8 +146,7 @@ verbatim).
       (`/media/luna/work/cache/husk_snapshot/strip_producer.py`), so later
       exports dedup their manifests against it. All 7 pre-0.4 builds and
       their view trees are gone (Luna: 0.4 is the new base). Logs:
-      `snapshot.log`, `after_snapshot.log` there; `store.sqlite` there is
-      analysis scratch (~2 GB, deletable).
+      `snapshot.log`, `after_snapshot.log` there.
 - **Next step** (pick one; each names where its detail lives):
   - mantlecore's open asks (2026-11-24 inbox, ingested):
     `TODO/MANTLECORE_ASKS_TODO.md`.
