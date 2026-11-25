@@ -241,6 +241,7 @@ verbatim).
     `TODO/TEXTURE_POOL_RECALL_TODO.md` for the disabled subsystem's own
     status and the disambiguation design that would need to land first.
   - `/media/luna/data/wow_export/buildinfo.json` (`clientBuild: 61621`, an
-    11.x build) is stale: the mount's `live` is 12.1.5.70783 (`builds/`;
-    its `.listfile` names community-listfile-2026-11-07.csv). Date the
+    11.x build) is stale: the mount's `live` is 12.1.5.70961 and `forever`
+    1.60.1.71037 (`builds/`; `.listfile` names
+    community-listfile-2026-11-21.csv). Date the
     corpus by DB2 layouts, never by `buildinfo.json`.
