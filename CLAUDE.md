@@ -15,7 +15,7 @@ canonical bundle (`CANONICAL_FORMAT.md`) for MantleCore.
   - Canonical bundle export: M2 models (`export`), WMOs
     (`export-wmo`), ADT tiles and whole maps (`export-terrain`,
     `export-map`, `export-world`). Ten document kinds, defined and
-    validated by `schema/` (`validate-bundle`), schema 0.4.0.
+    validated by `schema/` (`validate-bundle`), schema 0.4.1.
   - Corpus store: `store-add`, `mount`, `export-corpus`, `snapshot`.
   - DB2 tools: `db2-info`, `db2-export`, `db2-build`; `info`,
     `dump-chunks`, `resolve` for inspection.
@@ -125,6 +125,10 @@ verbatim).
       NPC item slot 11 draws nothing → no garment. Not built: dress vs
       robe, `hides` pieces (HelmetGeosetData), the shared external
       garments list.
+    - 0.4.1 (a5f80c3, additive): shader-23 WMO materials carry
+      `vertex_tint.color` = MOMT `sidnColor` (rule `shader23_tint_sidn`,
+      grade inferred: Luna 2026-11-25, no capture ever, best-evidenced
+      guess; housing exteriors are not dyed, `WIKI_FINDINGS/WORLD.md`).
     - Zone fog `extinction` is grade ref (WebWowViewerCpp's 0.0005);
       verifying it needs a disassembler or a screenshot check.
     - Scratch: `/media/luna/work/cache/husk_garments/` (db.sqlite ~1 GB;
