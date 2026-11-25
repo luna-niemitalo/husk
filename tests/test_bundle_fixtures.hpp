@@ -39,7 +39,7 @@ std::vector<uint8_t> readFile(const std::string& path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-writers::Provenance testProvenance() { return writers::Provenance{"husk test", "test", {}}; }
+writers::Provenance testProvenance() { return writers::Provenance{"test", {}}; }
 
 // Every object anywhere in the manifest that looks like a BufferSlice
 // (carries "file"/"byte_offset"/"byte_length" together) -- collected by a

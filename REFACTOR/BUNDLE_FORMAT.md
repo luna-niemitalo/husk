@@ -198,7 +198,7 @@ kind            "model" | "placement_set" | "world" | "effect" | "material" | "t
 schema_version  version of the schema/ definitions the document conforms to
 subject         Ref: what this document describes
 space           length/angle units, up axis, handedness of every position in it
-provenance      producer, input_format, sources[] (per table/file: available or not)
+provenance      input_format, sources[] (per table/file: available or not)
 definition      what exists and is valid for the subject
 selection       what this instance chose; only ever indices into definition
 references      other documents and assets this one depends on: [{ref, kind, uri?}]
@@ -232,9 +232,10 @@ is the schema's `$id`, not a path, because:
 
 `provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
 "Settled"): per table, because the real failure is one empty table among
-good ones. There is no export time: a document's bytes depend only on its
-inputs and the producer, so a corpus store keeps unchanged content once
-across builds; the time is the stored build's (`REFACTOR/CORPUS_EXPORT.md`).
+good ones. There is no export time and no exporter version: a document's
+bytes depend only on its content, so a corpus store keeps unchanged
+content once across builds and husk revisions; the time and the exporter
+version are the stored build's (`REFACTOR/CORPUS_EXPORT.md`).
 
 ### Structural, not described: `schema/`
 

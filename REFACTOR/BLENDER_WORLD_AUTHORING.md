@@ -286,9 +286,9 @@ dicing each is either baked from the scene or left out, and the tile's
 | WMO doodad set contents, model contents | read-only | read-only |
 | World off-grid sets (fogs, volumes) | edited TRS; inputs passed through | same |
 
-Provenance of an exported document names the addon as producer and the
-source documents as its input, and lists what was edited, baked and
-left out.
+Provenance of an exported document names `blender` as its input format
+and the source documents as its input, and lists what was edited, baked
+and left out.
 
 ## Stages
 

@@ -180,6 +180,7 @@ int exportAppearances(int argc, char** args) {
     if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     try {
         fs::path tree = opts.tree;
+        corpus::stampProducer(tree, std::string("husk ") + husk::version());
         fs::path listPath = tree / kListName;
         // A rerun finds manifests already external: their entries come from
         // the list this command wrote before.
@@ -241,7 +242,7 @@ int exportAppearances(int argc, char** args) {
             corpus::writeTextAtomic(path, rewritten);
         }
 
-        writers::Provenance provenance{std::string("husk ") + husk::version(), "husk-bundle", {}};
+        writers::Provenance provenance{"husk-bundle", {}};
         provenance.sources.push_back({"model manifests", "each model's appearances, from its inline list", true,
                                       std::to_string(lists.size()) + " models"});
         std::ostringstream text;

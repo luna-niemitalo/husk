@@ -114,7 +114,7 @@ TEST_CASE("creature catalog: shared displays, stable ids, and rows the tables la
     catalog.models[0].ref.source = canon::NameSource::Listfile;
     fs::path file = freshDir("document") / "creatures.json";
     writeText(file.parent_path() / "models/1234.canon.bundle/manifest.json", "{}");
-    writers::Provenance provenance{"husk test", "db2", {}};
+    writers::Provenance provenance{"db2", {}};
     writeText(file, writers::creatureCatalogDocument(catalog, provenance, {{1234, "models/1234.canon.bundle/manifest.json"}}));
     std::string problems = problemsOf(file);
     INFO(problems);
@@ -146,7 +146,7 @@ TEST_CASE("creature catalog: shared displays, stable ids, and rows the tables la
 
 TEST_CASE("creature catalog: validation rejects an unknown display id, an unknown model id, and a non-model reference") {
     canon::CreatureCatalog catalog = creaturecatalog::assemble(syntheticRows());
-    writers::Provenance provenance{"husk test", "db2", {}};
+    writers::Provenance provenance{"db2", {}};
     nlohmann::json doc = nlohmann::json::parse(writers::creatureCatalogDocument(catalog, provenance, {}));
     doc["creatures"][0]["displays"][0]["display"] = nameUuid("creature_display/CreatureDisplayInfo/999");
     doc["displays"][0]["model"] = nameUuid("model/file_data_id/999");

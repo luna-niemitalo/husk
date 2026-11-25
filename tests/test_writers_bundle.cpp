@@ -39,7 +39,8 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     CHECK(manifest["kind"] == "model");
     CHECK(manifest["schema_version"] == "0.4.1");
     CHECK(manifest["space"]["length_unit"] == "yard");
-    CHECK(manifest["provenance"]["producer"] == "husk test");
+    // Neither a time nor the exporter's version: unchanged content stays one object across exports.
+    CHECK_FALSE(manifest["provenance"].contains("producer"));
     CHECK_FALSE(manifest["provenance"].contains("exported_at"));
     CHECK(manifest["definition"]["placement_sets"].empty());
     CHECK(manifest["selection"]["placement_sets"].empty());
@@ -341,7 +342,7 @@ TEST_CASE("writeBundle: surface types, materials' surface_type and the per-face 
 
     fs::path dir = husk::test::testRunDir() / "husk-test-bundle-surfaces";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, writers::Provenance{"husk test", "wmo", {}});
+    writers::writeBundle(model, dir, writers::Provenance{"wmo", {}});
     nlohmann::json manifest = parseManifest(dir);
 
     const auto& surfaces = manifest["resources"]["surface_types"];

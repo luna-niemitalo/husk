@@ -82,9 +82,13 @@ builds nest by both:
 
 - **`<game>`** comes from the source mount (`/media/luna/wow_export/live`
   -> `builds/12.1.0.69933`), never from `buildinfo.json`.
-- **`<husk>`** is the producer version every document in the tree names
-  (`git describe` at configure time). `store-add` refuses `-dirty`,
-  `unknown`, and a tree whose documents disagree. Hazard: the version is
+- **`<husk>`** is the producer version the tree's `producer.txt` names
+  (`git describe` at configure time); documents carry no producer, so a
+  manifest whose content didn't change is the same object across husk
+  revisions. Every command writing into a tree stamps it and refuses a
+  tree another revision stamped. `store-add` refuses `-dirty`,
+  `unknown`, a tree without a stamp, and a tree whose documents disagree
+  on their schema version. Hazard: the version is
   fixed when CMake configures, so reconfigure after committing; any
   uncommitted change in the checkout (even `.gitignore`) makes it dirty.
 - **Tags** mirror the source's: `live` names the newest husk export of the
@@ -138,9 +142,9 @@ built; block cloning is active on `tank/data`).
   files). `provenance.sources[].detail` still names the listfile path,
   stable for one machine's config.
 - **`husk store-prune [--superseded] [--drop <game>/<husk>] [--apply]`
-  (2026-10-28).** Every new husk revision restores every document (each
-  manifest names its producer and schema version), so a revision leaves
-  the previous build's manifests behind as objects only that build lists.
+  (2026-10-28).** A husk revision that changes a document's content
+  leaves the previous build's version behind as an object only that
+  build lists.
   `--superseded` drops every build no tag names that is not its game's
   newest; `--drop` names one. Builds go first (moved to `tmp/`), then
   every object no remaining build's `files.tsv` lists, so a crash leaves

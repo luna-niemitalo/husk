@@ -34,9 +34,16 @@ struct BuildId {
 
 // A label is one path component: no separators, no dot-only names.
 bool validLabel(const std::string& label);
-// The <husk> label of a build its documents' producer ("husk <version>")
-// wrote. Throws for a dirty or unknown version: a label has to name the code.
+// The <husk> label of a build its producer ("husk <version>") wrote. Throws
+// for a dirty or unknown version: a label has to name the code.
 std::string huskLabel(const std::string& producer);
+
+// An export tree names its producer once, in <tree>/producer.txt, never
+// in its documents: a version string in every document would make each
+// husk revision rewrite every manifest, and no two builds would share one.
+// Every command writing into a tree stamps it first; a tree another
+// producer stamped is refused, so a tree is one producer's.
+void stampProducer(const std::filesystem::path& tree, const std::string& producer);
 
 // "<game>/<husk>", as a tag file holds it.
 std::optional<BuildId> parseBuildPath(const std::string& text);
@@ -106,9 +113,10 @@ struct IngestResult {
 };
 
 // Records `tree` (an export's output directory) as the build
-// <game>/<producer version>. The producer and schema version come from the
-// tree's own documents, which must agree, and a dirty or unknown producer
-// is refused: a label has to name the code that wrote it. The tree's
+// <game>/<producer version>. The producer comes from the tree's stamp
+// (stampProducer), the schema version from its documents, which must agree;
+// a dirty or unknown producer is refused: a label has to name the code
+// that wrote it. The tree's
 // errors.log and inputs.log become missing.tsv and inputs.tsv instead of
 // stored files. Each stored file is journaled to the tree's
 // store-journal.tsv as it lands, so a rerun after a crash resumes instead

@@ -110,8 +110,9 @@ using AssetUris = std::unordered_map<uint32_t, std::string>;
 // produced that bundle, identity only otherwise.
 void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris);
 
-// Who wrote a document and from what (schema/common.schema.json
-// "provenance"); the writer adds the export time.
+// What a document was decoded from (schema/common.schema.json
+// "provenance"). Which husk wrote it is the export tree's, not the
+// document's (corpus::stampProducer).
 struct Provenance {
     struct Source {
         std::string name;
@@ -119,7 +120,6 @@ struct Provenance {
         bool available = false;
         std::string detail;
     };
-    std::string producer;
     std::string inputFormat;
     std::vector<Source> sources;
 };

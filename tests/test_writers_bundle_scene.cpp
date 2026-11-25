@@ -320,7 +320,7 @@ TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets wit
     fs::create_directories(root / "fogvolume_sphere.bundle");
     std::ofstream(root / "fogvolume_sphere.bundle" / "manifest.json") << "{}";
     fs::path dir = root / "azeroth.world.bundle";
-    writers::Provenance provenance{"husk test", "wdt", {{"_fogs.wdt", "fog volumes", true, ""}}};
+    writers::Provenance provenance{"wdt", {{"_fogs.wdt", "fog volumes", true, ""}}};
     writers::writeWorldBundle(world, dir, provenance, {"../azeroth_32_49.bundle/manifest.json", ""},
                               {{1728356, "../fogvolume_sphere.bundle/manifest.json"}});
     nlohmann::json manifest = parseManifest(dir);  // validates the sets and their effects too
@@ -505,7 +505,7 @@ TEST_CASE("writeWorldBundle: zone lights index the set's light_conditions, each 
     fs::create_directories(root / "deathskybox.bundle");
     std::ofstream(root / "deathskybox.bundle" / "manifest.json") << "{}";
     fs::path dir = root / "azeroth.world.bundle";
-    writers::Provenance provenance{"husk test", "db2", {{"light.db2", "zone lights", true, ""}}};
+    writers::Provenance provenance{"db2", {{"light.db2", "zone lights", true, ""}}};
     writers::writeWorldBundle(world, dir, provenance, {}, {{235313, "../deathskybox.bundle/manifest.json"}});
     parseManifest(dir);  // validates the set, its indices and its effects
 

@@ -22,7 +22,7 @@ namespace {
 
 constexpr const char* kHeader = R"("format": "husk-bundle", "schema_version": "0.4.1",
   "space": {"length_unit": "yard", "angle_unit": "radian", "time_unit": "second", "up_axis": "+z", "handedness": "right"},
-  "provenance": {"producer": "husk test", "input_format": "test",
+  "provenance": {"input_format": "test",
                  "sources": [{"name": "listfile", "role": "names", "available": true}]},)";
 
 std::string header(const std::string& kind) {
@@ -163,7 +163,7 @@ TEST_CASE("bundle_schema: every effect husk writes validates") {
         CAPTURE(name);
         fs::path file = husk::test::testRunDir() / "husk-schema-effects" / (std::string(name) + ".json");
         fs::create_directories(file.parent_path());
-        writers::writeEffectDocument(name, file, writers::Provenance{"husk test", "test", {}});
+        writers::writeEffectDocument(name, file, writers::Provenance{"test", {}});
         std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(file);
         INFO(describe(problems));
         CHECK(problems.empty());
@@ -176,7 +176,7 @@ TEST_CASE("bundle_schema: every technique husk carries validates, with its refer
     std::vector<std::string> names;
     for (const auto& t : bundle_schema::embeddedTechniques()) names.emplace_back(t.name);
     CHECK(names.size() == 72);
-    writers::writeTechniqueDocuments(names, dir, writers::Provenance{"husk test", "test", {}});
+    writers::writeTechniqueDocuments(names, dir, writers::Provenance{"test", {}});
     for (const std::string& name : names) {
         CAPTURE(name);
         std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir / writers::techniqueUri(name));
