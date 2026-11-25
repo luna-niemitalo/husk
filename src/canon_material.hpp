@@ -214,6 +214,10 @@ struct Material {
     // What the surface is made of (WMO MOMT ground_type): index into the
     // owning Model's surfaceTypes. nullopt for M2, which names none.
     std::optional<uint32_t> surfaceType;
+    // The colour a vertex's tint weight blends diffuse toward (WMO shader
+    // 23's cb2[5], taken as MOMT sidnColor: an inferred guess, rule
+    // shader23_tint_sidn). nullopt for every shader that doesn't read it.
+    std::optional<Vec3> vertexTint;
     // no normalLayer/roughnessLayer yet -- no real producer populates one; add when one actually exists, not speculatively.
 };
 

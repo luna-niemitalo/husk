@@ -22,7 +22,7 @@ sets (`PLACEMENT_SETS.md`), effects (`EFFECTS.md`, Phases 2–4; classification
 open), creature options and presets and character customization
 (`BUNDLE_FORMAT.md` "Options and presets"), material documents
 (`MATERIALS.md`), and the corpus store with its mount (`CORPUS_EXPORT.md`).
-The format is at schema_version 0.4.0 (`schema/*.schema.json`).
+The format is at schema_version 0.4.1 (`schema/*.schema.json`).
 
 `src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
 (as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never

@@ -792,6 +792,12 @@ void writeMaterialsSection(json::Writer& w, const canon::Model& model, TextureTa
             w.key("surface_type");
             w.value(static_cast<int64_t>(*material.surfaceType));
         }
+        if (material.vertexTint) {
+            w.key("vertex_tint");
+            w.beginObject();
+            writeVec3Field(w, "color", *material.vertexTint);
+            w.endObject();
+        }
         if (material.diffuseLayer) {
             w.key("diffuse_layer");
             writeRef(w, *material.diffuseLayer);

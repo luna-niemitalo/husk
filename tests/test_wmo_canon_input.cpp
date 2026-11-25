@@ -267,6 +267,24 @@ TEST_CASE("buildCanonWmo: a shader-23 material's layers are its nine MOMT textur
     CHECK(material.diffuseLayer->name == "texture_2");
 }
 
+TEST_CASE("buildCanonWmo: a shader-23 material's vertex tint is its sidnColor; other shaders have none") {
+    wmo::RootFile root = syntheticRoot();
+    root.materials[0].sidnColor = 0xff405060u;  // shader 0: never read
+    root.materials[1].shader = 23;
+    root.materials[1].sidnColor = 0x80102030u;  // BGRA bytes: alpha 0x80 dropped
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, std::nullopt};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    CHECK_FALSE(model.materials[0].vertexTint.has_value());
+    REQUIRE(model.materials[1].vertexTint.has_value());
+    CHECK(model.materials[1].vertexTint->x == doctest::Approx(0x10 / 255.0));
+    CHECK(model.materials[1].vertexTint->y == doctest::Approx(0x20 / 255.0));
+    CHECK(model.materials[1].vertexTint->z == doctest::Approx(0x30 / 255.0));
+}
+
 TEST_CASE("buildCanonWmo: MOC2 is an RGBA vertex channel, zeros for a group without it; four uv sets kept") {
     wmo::RootFile root = syntheticRoot();
     wmoinput::WmoInputs in;

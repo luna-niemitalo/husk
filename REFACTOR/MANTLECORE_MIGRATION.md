@@ -376,6 +376,19 @@ ItemDisplayInfo, ComponentModelFileData (65 stored + 59,474 copies),
 ChrCustomizationMaterial/Geoset, GroundEffectTexture and LightParams gain
 rows. Bundles built before it miss that data; rebuild them.
 
+v0.4.1 (`schema_version` "0.4.1", 2026-11-25). Additions (a 0.4.0 reader
+that ignores unknown keys loses nothing; one that checks the
+`schema_version` const accepts "0.4.1"):
+- **Shader 23's tint colour.** A WMO material drawn with shader 23
+  (UnkDFShader) has `vertex_tint.color` (rgb, 0..1 as stored): the colour
+  diffuse blends toward by the `wmo.moc2` channel's alpha, `diffuse =
+  lerp(blend.rgb, color, moc2.a)`. It is MOMT `sidnColor` (black in every
+  sampled material), rule `shader23_tint_sidn`, **grade inferred**: a
+  guess, since nothing names the shader constant's source; `diffColor` is
+  the alternative (`WIKI_FINDINGS/WORLD.md` "Shader 23's tint"). The
+  technique's `tint` input is now a `material_value` reading it. Other
+  shaders' materials have no `vertex_tint`.
+
 Materials (2026-10-12): a material layer no longer has `blend`. It was
 derived from the M2 framebuffer blend mode, not the texture combiner, so
 it never said how layers combine. An M2 material now names its

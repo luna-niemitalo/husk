@@ -257,15 +257,35 @@ player-housing exteriors) every vertex is. Tinted materials split like all
 of them (`diffColor` 0xff959595 in 8,750 of 9,699; mean alpha 0.237 for
 those, 0.226 for the others).
 
-What this settles and what it doesn't:
-- `sidnColor` is opaque black in every sampled shader-23 material. If
-  `cb2[5]` is `sidnColor`, the tint is black, which is what wow.export draws.
-- `diffColor` varies by material (88 values), so it is the only candidate
-  that would make the tint differ between materials.
-- Neither is ruled out. Nothing in the files says which one the client
-  uploads, and a render to compare against needs a client capture, which
-  is ruled out. **Unresolved.**
-  The branch on `v3.w > 0` only skips the `t0` fetch.
+Player-housing exteriors (2026-11-25, same mount) are not dyed through
+the tint. Each roof colour is its own WMO: the ExteriorComponent rows
+"Angled Window - Nutmeg/Ocean/Rust/Forest/Mustard" are FDIDs
+7462697/7462695/7462696/7462689/7462694. Their shader-23 MOMT records are
+identical (`sidnColor` 0xff000000, `diffColor` 0xff959595) and differ only
+in material 6's textures (7460870.. against 7461026..). In 7462697 the
+`MOC2` tint is partial per material: roof material 6 has 30 of 47 vertices
+tinted and none at 255; the only 36 vertices at 255 are all material 5,
+so the roof textures show. DyeColor/DecorDyeSlot (77 dyes, swatch
+gradients) apply to HouseDecor models, not exteriors.
+
+Decision (Luna, 2026-11-25): **`cb2[5]` = MOMT `sidnColor`, grade
+inferred.** No client capture will be made, and nothing in the files or
+shaders names the constant's source, so the bundle ships the
+best-evidenced guess, labelled as one (material `vertex_tint.color`, rule
+`shader23_tint_sidn`). The evidence for it:
+- `sidnColor` is opaque black in every sampled shader-23 material, with
+  `frameSidnColor` 0 beside it: a deliberately set, uniform per-shader
+  value.
+- The `MOC2` tint weights read as grime and shading paint (51% of
+  vertices tinted, mean 0.23). Black darkens them; `diffColor`, mid-grey
+  0xff959595 in 91% of materials, would wash the textures out.
+- The housing exteriors above don't use the tint for colour variants, so
+  no evidence asks for a per-material colour.
+
+The alternative, `diffColor`, is not ruled out: it is the only candidate
+that would make the tint differ between materials (88 values). wow.export
+draws black, another tool's guess and not evidence. The branch on
+`v3.w > 0` only skips the `t0` fetch.
 
 ## WDT `_lgt.wdt` lights in the client shaders (12.1.0)
 

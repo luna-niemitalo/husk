@@ -22,7 +22,7 @@
       "x-layer": "contract"
     },
     "schema_version": {
-      "const": "0.4.0",
+      "const": "0.4.1",
       "description": "Version of the schema this document conforms to.",
       "x-layer": "contract"
     },
@@ -1928,6 +1928,22 @@
                 "$ref": "common.schema.json#/definitions/surface_type_index",
                 "description": "What the surface is made of (WMO MOMT ground_type, a TerrainType row); a face's own, when it differs, is the mesh attribute channel surface_type.",
                 "x-source": [{"file": "wmo", "field": "MOMT.ground_type"}]
+              },
+              "vertex_tint": {
+                "type": "object",
+                "description": "The colour the mesh's per-vertex tint weight blends the material's diffuse toward (WMO shader 23: diffuse = lerp(diffuse, color, wmo.moc2 alpha)); present only on materials whose shader reads it.",
+                "properties": {
+                  "color": {
+                    "$ref": "common.schema.json#/definitions/rgb",
+                    "description": "The tint colour, alpha dropped: MOMT sidnColor by rule shader23_tint_sidn. A guess (grade inferred): the client's shader constant has no named source; diffColor is the alternative, recorded in the rule.",
+                    "x-unit": "1",
+                    "x-source": [{"file": "wmo", "field": "MOMT.sidnColor"}, {"derived": "shader23_tint_sidn"}]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "color"
+                ]
               },
               "techniques": {
                 "type": "array",

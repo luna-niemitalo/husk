@@ -37,7 +37,7 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     CHECK(manifest["$schema"] == "https://husk.invalid/schema/model.schema.json");
     CHECK(manifest["format"] == "husk-bundle");
     CHECK(manifest["kind"] == "model");
-    CHECK(manifest["schema_version"] == "0.4.0");
+    CHECK(manifest["schema_version"] == "0.4.1");
     CHECK(manifest["space"]["length_unit"] == "yard");
     CHECK(manifest["provenance"]["producer"] == "husk test");
     CHECK_FALSE(manifest["provenance"].contains("exported_at"));

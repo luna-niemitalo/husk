@@ -108,6 +108,7 @@ canon::Material buildMaterial(const WmoInputs& in, uint32_t index) {
     const char* shader = shaderName(m.shader);
     material.shader = canon::Ref{canon::RecordIndex{m.shader}, shader ? shader : "",
                                  shader ? canon::NameSource::Synthesized : canon::NameSource::None};
+    if (m.shader == 23) material.vertexTint = colorOf(m.sidnColor);
 
     for (const wmo::MaterialTexture& field : wmo::materialTextures(m)) {
         if (field.value == 0) continue;

@@ -189,6 +189,26 @@ TEST_CASE("writeBundle: a material's framebuffer blend is written by name, and o
     CHECK_FALSE(materials[1].contains("framebuffer_blend"));
 }
 
+TEST_CASE("writeBundle: a shader-23 material writes vertex_tint.color; a material without a tint writes none") {
+    canon::Model model = buildSyntheticModel();
+    REQUIRE(model.materials.size() == 1);
+    canon::Material untinted = model.materials[0];
+    untinted.ref.id = canon::RecordIndex{1};
+    model.materials[0].shader = canon::Ref{canon::RecordIndex{23}, "UnkDFShader", canon::NameSource::Synthesized};
+    model.materials[0].vertexTint = canon::Vec3{0.0f, 0.25f, 1.0f};
+    model.materials.push_back(untinted);
+    fs::path dir = husk::test::testRunDir() / "husk-test-bundle-vertex-tint";
+    fs::remove_all(dir);
+
+    writers::writeBundle(model, dir, testProvenance());
+
+    nlohmann::json manifest = parseManifest(dir);
+    const nlohmann::json& materials = manifest["resources"]["materials"];
+    REQUIRE(materials.size() == 2);
+    CHECK(materials[0]["vertex_tint"]["color"] == nlohmann::json::array({0.0, 0.25, 1.0}));
+    CHECK_FALSE(materials[1].contains("vertex_tint"));
+}
+
 TEST_CASE("writeBundle: texture slot options and particle colours in the definition, presets in the selection") {
     canon::Model model = buildSyntheticModel();
     canon::TextureRef skin;

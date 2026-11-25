@@ -9,8 +9,6 @@ mantlecore's own detail: `/home/luna/dev/mantlecore/development/`
 
 ## Open
 
-- **Shader 23 `cb2[5]`** (WMO tint): unresolved without a client capture.
-  Evidence: `WIKI_FINDINGS/WORLD.md` "Shader 23's tint".
 - **Zone fog extinction constant** (`fog_density_to_extinction`, grade
   ref, WebWowViewerCpp): verify the 0.0005 scale, the 0.9 floor and the
   fill in the client executable (needs a disassembler, not in the flake)

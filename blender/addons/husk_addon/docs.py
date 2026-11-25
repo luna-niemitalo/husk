@@ -16,7 +16,7 @@ HUSK_UUID_NAMESPACE = uuid.UUID("6f0f3a52-8d1c-4b7e-9a42-5c3e1d7b2f10")
 # The schema version every document the addon writes conforms to; its
 # counterpart is writeContractHeader in src/writers/bundle_common.cpp. Older
 # documents are read as long as nothing they lack is needed.
-SCHEMA_VERSION = "0.4.0"
+SCHEMA_VERSION = "0.4.1"
 
 
 def schema_id(kind):
